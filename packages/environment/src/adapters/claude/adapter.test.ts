@@ -1516,6 +1516,56 @@ describe("the process across turns", () => {
     expect([first.query.models, first.query.modes, first.query.flags]).toEqual([[], [], []]);
   });
 
+  /** A result's `modelUsage`: the process's spend since it started, as the CLI counts it (#1949). */
+  const spentSoFar = (inputTokens: number, outputTokens: number, cacheReadInputTokens: number, costUSD: number) => ({
+    "claude-haiku-4-5": { inputTokens, outputTokens, cacheReadInputTokens, cacheCreationInputTokens: 40, costUSD, contextWindow: 200000 },
+  });
+  const turnSpend = (inputTokens: number, outputTokens: number, cacheReadTokens: number, cacheWriteTokens: number, costUsd: number) => [
+    { model: "claude-haiku-4-5", inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd, contextWindow: 200000 },
+  ];
+  const usageOf = (events: AdapterEvent[]) => events.flatMap((event) => (event.type === "usage.reported" ? [event.payload.models] : event.type === "end" ? [event.usage] : []));
+
+  it("reports each turn's own spend, the difference from the kept process's last cumulative reading, and starts again on a new process", async () => {
+    const adapter = adapterWith();
+    const opening = runInput();
+    const first = await oneTurn(adapter, opening);
+    first.query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [opening.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION, { modelUsage: spentSoFar(100, 379, 47000, 0.25) }));
+    expect(usageOf(await first.events.done)).toEqual([turnSpend(100, 379, 47000, 40, 0.25), turnSpend(100, 379, 47000, 40, 0.25)]);
+    first.run.release();
+    const next = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const second = await oneTurn(adapter, next, first.query);
+    first.query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [next.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION, { modelUsage: spentSoFar(130, 2679, 71000, 0.375) }));
+    // The second turn's own: 30 in, 2,300 out, 24,000 cache reads and nothing written, $0.125; never the process's running total.
+    expect(usageOf(await second.events.done)).toEqual([turnSpend(30, 2300, 24000, 0, 0.125), turnSpend(30, 2300, 24000, 0, 0.125)]);
+    second.run.release();
+    await adapter.stopProcess(SESSION);
+    const fresh = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const third = await oneTurn(adapter, fresh);
+    expect(third.query).not.toBe(first.query);
+    third.query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_3", [fresh.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION, { modelUsage: spentSoFar(500, 3000, 80000, 0.5) }));
+    // A new process counts from nothing: its first reading is its first turn's whole.
+    expect(usageOf(await third.events.done)).toEqual([turnSpend(500, 3000, 80000, 40, 0.5), turnSpend(500, 3000, 80000, 40, 0.5)]);
+  });
+
+  it("reports none for a turn stopped before it spent anything, never the turn before's figures", async () => {
+    const adapter = adapterWith();
+    const opening = runInput();
+    const first = await oneTurn(adapter, opening);
+    first.query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [opening.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION, { modelUsage: spentSoFar(100, 2679, 71000, 0.375) }));
+    await first.events.done;
+    first.run.release();
+    const next = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const stopped = await oneTurn(adapter, next, first.query);
+    first.query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [next.prompt[0]?.messageId as string]));
+    await vi.waitFor(() => expect(stopped.events.events.length).toBeGreaterThan(0));
+    expect(await stopped.run.interrupt()).toEqual({ stillQueued: [] });
+    // The request it cut off was never counted, so the process's total is the one the turn before ended on.
+    first.query.emit({ ...sdk.interruptedResult(PROVIDER_SESSION), modelUsage: spentSoFar(100, 2679, 71000, 0.375) });
+    const events = await stopped.events.done;
+    expect(events.filter((event) => event.type === "usage.reported")).toEqual([]);
+    expect(ends(events)).toEqual([expect.objectContaining({ reason: "interrupted", usage: null })]);
+  });
+
   it("holds the process for each live background task on the pool's port, and lets each go as it settles", async () => {
     const adapter = adapterWith();
     const turn = await oneTurn(adapter, runInput());

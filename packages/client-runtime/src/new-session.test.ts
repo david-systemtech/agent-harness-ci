@@ -7,7 +7,7 @@ import { fakeAdapter, signedInAs, usageOf, usageWindow, type FakeAdapter } from 
 import { grantReader, holds, useHarness } from "../test/harness.js";
 import { pickerFixtures } from "../test/picker.js";
 import { uuidv4 } from "./ids.js";
-import type { NewSessionContext, NewSessionView } from "./projections/new-session.js";
+import type { NewSessionChips, NewSessionContext, NewSessionView } from "./projections/new-session.js";
 import type { Runtime } from "./runtime.js";
 import { inMemoryPlatform } from "./testing/in-memory-platform.js";
 
@@ -274,6 +274,22 @@ describe("projections.newSession: the account and model chips", () => {
     const lacking = await card(runtime, chosen(laptop.env.id, "desk-max", "sonnet"), presetAccountAndModel);
     expect(lacking.account).toMatchObject({ value: { id: "laptop-david" }, reason: "first-signed-in" });
     expect(lacking.model).toMatchObject({ value: { id: "opus" }, reason: "default" });
+  });
+});
+
+describe("projections.newSession: the effort chip", () => {
+  it("presets accounts.defaultEffort where the model takes it, else the model's own, and holds an effort chosen for the model, its own among them (#1950)", async () => {
+    const { desk, runtime } = await withAccounts();
+    const on = (chips: NewSessionChips = {}) => ({ focus: { kind: "environment", environmentId: desk.env.id }, chips }) as const;
+
+    expect((await card(runtime, on(), presetAccountAndModel)).effort).toEqual({ value: null, reason: "own" });
+    expect(await runtime.requests.call(desk.env.id, "settings.update", { commandId: randomUUID(), values: { "accounts.defaultEffort": "high" } })).toMatchObject({ ok: true });
+    expect((await card(runtime, on(), (view) => view.effort.reason === "default")).effort).toEqual({ value: "high", reason: "default" });
+    // The fake's haiku takes no effort; its sonnet takes no max.
+    expect((await card(runtime, on({ model: "haiku" }), presetAccountAndModel)).effort).toEqual({ value: null, reason: "own" });
+    expect((await card(runtime, on({ model: "sonnet", effort: "max" }), presetAccountAndModel)).effort).toEqual({ value: "high", reason: "default" });
+    expect((await card(runtime, on({ model: "opus", effort: "max" }), presetAccountAndModel)).effort).toEqual({ value: "max", reason: "chosen" });
+    expect((await card(runtime, on({ model: "opus", effort: null }), presetAccountAndModel)).effort).toEqual({ value: null, reason: "chosen" });
   });
 });
 

@@ -168,6 +168,18 @@ describe("a run with no model of its own", () => {
     expect(await runOn(t, client, id)).toEqual({ model: "opus", effort: null });
   });
 
+  it("an explicit own effort overrides the saved effort and remains the session's choice for the following run", async () => {
+    const t = await start();
+    const client = await t.client();
+    await setDefaultEffort(client, "high");
+    const { id } = await create(client);
+    await setModel(client, id, "sonnet", "low");
+    expect(await runOn(t, client, id, { effort: null })).toEqual({ model: "sonnet", effort: null });
+    await idle(client, id);
+    expect((await get(client, id)).runChoice).toEqual({ model: "sonnet", effort: null });
+    expect(await runOn(t, client, id)).toEqual({ model: "sonnet", effort: null });
+  });
+
   it("takes the default effort, not the session's, when its command names a model other than the session's", async () => {
     const t = await start();
     const client = await t.client();

@@ -77,7 +77,7 @@ export const readingsOf = (gauge: UsageGauge | undefined): readonly Reading[] =>
     resetsAt: window.resetsAt,
   }));
 
-/** Compact meters show only recognised windows; details retain every limit. */
+/** Compact meters show only recognised windows; lists that name each window take `listedReadingsOf`. */
 export const meterReadingsOf = (gauge: UsageGauge | undefined): readonly Reading[] => readingsOf(gauge).filter((reading) => isKnownUsageWindow(reading.window));
 
 /** Whether a reading says something: how full its window is, or that the provider refuses it. */
@@ -87,7 +87,7 @@ const saysSomething = (reading: Reading): boolean => reading.utilisation !== nul
  * A gauge's windows for a list that names each (#1893): every known window,
  * and the unknown limits that say something; the unknown ones that say
  * nothing only counted, as identical `Other limit —` rows tell a person
- * nothing. The status line's details keep every limit.
+ * nothing. Settings > Usage and the status line's details both list these (#1951).
  */
 export const listedReadingsOf = (gauge: UsageGauge | undefined): { readonly readings: readonly Reading[]; readonly silent: number } => {
   const readings = readingsOf(gauge);

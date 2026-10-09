@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { HostEnvironment } from "../src/adapters/claude/credentials.js";
 import { GH_TOKEN_VARIABLES } from "../src/forge/gh.js";
@@ -50,11 +50,13 @@ export interface FakeGh {
   set(state: FakeGhState): void;
   /** Every call so far, in order. */
   calls(): FakeGhCall[];
+  /** Holds token calls until released, and reports when one has reached the gate. */
+  holdTokens(): { readonly started: Promise<void>; readonly release: () => void };
 }
 
 /** The fake `gh`'s program, run by the node running the tests. */
 const PROGRAM = String.raw`
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, watch, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -63,6 +65,19 @@ const state = JSON.parse(readFileSync(join(here, "state.json"), "utf8"));
 const argv = process.argv.slice(2);
 const TOKEN_VARIABLES = ${JSON.stringify(GH_TOKEN_VARIABLES)};
 appendFileSync(join(here, "calls.jsonl"), JSON.stringify({ argv, sawTokenVariables: TOKEN_VARIABLES.filter((name) => process.env[name] !== undefined) }) + "\n");
+
+// A test can hold a real token process while another client call or probe runs.
+const gate = join(here, "hold-token");
+if (argv[0] === "auth" && argv[1] === "token" && existsSync(gate)) {
+  await new Promise((resolve) => {
+    const changed = () => {
+      if (!existsSync(gate)) { watcher.close(); resolve(); }
+    };
+    const watcher = watch(here, changed);
+    writeFileSync(join(here, "token-started"), "");
+    changed();
+  });
+}
 
 const version = state.version ?? "2.40.0";
 const [major, minor] = version.split(".").map(Number);
@@ -141,6 +156,30 @@ export const installFakeGh = (directory: string, state: FakeGhState = {}): FakeG
     hostEnv,
     managedTools: { readPath: async () => bin, hostEnv },
     set,
+    holdTokens() {
+      const gate = join(directory, "hold-token");
+      const marker = join(directory, "token-started");
+      rmSync(marker, { force: true });
+      writeFileSync(gate, "");
+      let watcher: ReturnType<typeof watch>;
+      const started = new Promise<void>((resolve) => {
+        const changed = () => {
+          if (existsSync(marker)) {
+            watcher.close();
+            resolve();
+          }
+        };
+        watcher = watch(directory, changed);
+        changed();
+      });
+      return {
+        started,
+        release: () => {
+          watcher.close();
+          rmSync(gate, { force: true });
+        },
+      };
+    },
     calls: () =>
       readFileSync(join(directory, "calls.jsonl"), "utf8")
         .split("\n")

@@ -44,9 +44,9 @@ it.each(details)("prepares %s with its reviewed controls and scroll anchor befor
   expect(pane.querySelector("[data-access-scroll-anchor]")).not.toBeNull();
   if (name === "settings-browser-pairing") {
     expect(within(pane).getByRole("textbox", { name: "Pairing code" })).toHaveProperty("value", "ABCD2345");
-    expect(within(pane).getByRole("button", { name: "Copy pairing code (Enter or Space)" })).toBeDefined();
-    expect(within(pane).getByRole("timer").textContent).toContain("5m 0s left");
-    expect(within(pane).getByRole("button", { name: "Stop" })).toBeDefined();
+    expect(within(pane).getByRole("button", { name: "Copy pairing code" })).toBeDefined();
+    expect(within(pane).getByRole("timer").textContent).toBe("5 min left");
+    expect(within(pane).queryByRole("button", { name: "Stop" })).toBeNull();
     expect(within(pane).queryByRole("button", { name: "Unpair Project Chrome" })).toBeNull();
   }
   if (name === "settings-browser-policy") {
@@ -84,7 +84,7 @@ it.each([[1400, 900, "light"], [1400, 900, "dark"], [1024, 768, "light"], [1024,
   vi.stubGlobal("innerHeight", height);
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     if (this.matches('section[aria-label="Browser"]')) return new DOMRect(10, 100, 700, 600);
-    if (this.matches('section[aria-label="Pair"]')) return new DOMRect(20, 900, 600, 180);
+    if (this.matches('[data-browser-step="5"]')) return new DOMRect(20, 900, 600, 180);
     return new DOMRect();
   });
   const container = document.createElement("div");
