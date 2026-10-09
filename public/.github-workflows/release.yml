@@ -184,6 +184,10 @@ jobs:
             echo "::error::image reports $reported, expected agent-harness $VERSION"
             exit 1
           fi
+      - name: Create and describe a bank in the built image
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint node "$IMAGE_REFERENCE" /opt/agent-harness/scripts/check-packaged-bank-describe.mjs /opt/agent-harness
       - name: Inspect a container update without applying it
         run: |
           set -euo pipefail
@@ -548,6 +552,7 @@ jobs:
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-update-disk.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-provider-sign-in.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-terminal-state.mjs').Path -Destination (Join-Path $work 'scripts')
+            Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-terminal-drain.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-bank-describe.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/stop-windows-process-tree.ps1').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/windows-smoke-diagnostics.ps1').Path -Destination (Join-Path $work 'scripts')
@@ -593,6 +598,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged update disk check failed' }
           & $node scripts/check-packaged-provider-sign-in.mjs $server
           if ($LASTEXITCODE -ne 0) { throw 'Packaged provider sign-in check failed' }
+          & $node scripts/check-packaged-terminal-drain.mjs $server
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged terminal drain and update trial check failed' }
           $version = & $node $cli --version
           if ($LASTEXITCODE -ne 0 -or $version -ne "agent-harness $env:VERSION") { throw "Unexpected version: $version" }
           $status = (& $node $cli service status 2>&1 | Out-String)
@@ -899,6 +906,7 @@ jobs:
           test -f "$server/node_modules/@agent-harness/contracts/package.json"
           "$server/node/bin/node" scripts/check-packaged-update-disk.mjs "$server"
           "$server/node/bin/node" scripts/check-packaged-provider-sign-in.mjs "$server"
+          "$server/node/bin/node" scripts/check-packaged-bank-describe.mjs "$server"
           test "$("$server/node/bin/node" "$server/packages/cli/dist/main.js" --version)" = "agent-harness $VERSION"
           code=0
           status=$("$server/node/bin/node" "$server/packages/cli/dist/main.js" service status 2>&1) || code=$?
@@ -1052,6 +1060,7 @@ jobs:
           test -f "$server/node_modules/@agent-harness/contracts/package.json"
           "$server/node/bin/node" scripts/check-packaged-update-disk.mjs "$server"
           "$server/node/bin/node" scripts/check-packaged-provider-sign-in.mjs "$server"
+          "$server/node/bin/node" scripts/check-packaged-bank-describe.mjs "$server"
           test "$("$server/node/bin/node" "$server/packages/cli/dist/main.js" --version)" = "agent-harness $VERSION"
           code=0
           status=$("$server/node/bin/node" "$server/packages/cli/dist/main.js" service status 2>&1) || code=$?

@@ -11,6 +11,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   document.body.replaceChildren();
+  document.body.removeAttribute("style");
   if (originalFonts === undefined) Reflect.deleteProperty(document, "fonts");
   else Object.defineProperty(document, "fonts", originalFonts);
 });
@@ -46,7 +47,7 @@ it("keeps capture pending while a floating control changes placement after font 
   await captureReady;
 });
 
-it("refreshes a cached Close tooltip placement after its dimensions finish changing", async () => {
+it.each(["auto", "visible"])("refreshes a cached Close tooltip after a dialog ending changes layout with overflow %s", async (overflow) => {
   let popupWidth = 106, popupHeight = 31;
   const original = HTMLElement.prototype.getBoundingClientRect;
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
@@ -70,7 +71,9 @@ it("refreshes a cached Close tooltip placement after its dimensions finish chang
   vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(1400);
   vi.spyOn(document.documentElement, "clientHeight", "get").mockReturnValue(900);
   Object.defineProperty(document, "fonts", { configurable: true, value: { ready: Promise.resolve() } });
-  render(<div role="dialog" style={{ overflow: "auto" }}><Tooltip open content="Close · Escape"><button data-probe-close>Close</button></Tooltip></div>);
+  // A modal locks body scrolling, but its surface need not be an overflow ancestor.
+  document.body.style.overflow = "hidden";
+  render(<div role="dialog" style={{ overflow }}><Tooltip open content="Close · Escape"><button data-probe-close>Close</button></Tooltip></div>);
   const popup = await waitFor(() => {
     const element = document.querySelector<HTMLElement>("[data-radix-popper-content-wrapper]");
     expect(element).not.toBeNull();
