@@ -20,12 +20,12 @@ export const JoinBankForm = ({ environmentId, busy, join }: {
   const [previewUrl, preview] = useState<string>();
   /** The accounts unticked; every account uses the notebook unless the person unticks it (setup-copy.md §5.8). */
   const [unticked, untick] = useState<readonly string[]>([]);
-  const { missing, press } = useFieldCheck<"url">();
+  const { missing, press, form } = useFieldCheck<"url">();
   const accounts = useObservable(useMemo(() => runtime.requests.cached(environmentId, "accounts.list", {}), [runtime, environmentId]));
   const read = useFollowed(useMemo(() => previewUrl === undefined ? undefined : runtime.requests.cached(environmentId, "banks.join.preview", { url: previewUrl }), [runtime, environmentId, previewUrl]));
   const result = read?.error === null ? read.result : null;
   const ticked = accounts.result?.accounts.filter((account) => !unticked.includes(account.id)).map((account) => account.id) ?? [];
-  return <>
+  return <div ref={form} className="contents">
     <BankField wide icon={Link} label="Notebook link" error={missing.url}><Input value={url} onChange={(event) => { setUrl(event.target.value); preview(undefined); untick([]); }} /></BankField>
     <Button variant="outline" title="Preview · Tab, Enter or Space" className="self-start" disabled={busy || read?.loading === true} onClick={() => press({ url: [url, "a notebook link"] }, () => {
       const next = url.trim();
@@ -48,7 +48,7 @@ export const JoinBankForm = ({ environmentId, busy, join }: {
         <Button variant="default" title="Join notebook · Tab, Enter or Space" className="self-start" disabled={busy || read?.loading || accounts.result === null || accounts.error !== null} onClick={() => { if (previewUrl !== undefined) void join(previewUrl, ticked); }}><LogIn aria-hidden="true" />Join notebook</Button>
       </> : <p role="alert" className="text-sm text-signal"><span className="sr-only">Error: </span>{CANNOT_READ}</p>}
     </>}
-  </>;
+  </div>;
 };
 
 /** look.md §12.2/§13.2: named preview sections within the bounded step form. */
