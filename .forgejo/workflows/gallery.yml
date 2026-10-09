@@ -1,23 +1,15 @@
 # Geometry failures, missing baselines and pixel differences block.
 # Gallery runs independently of ci / ci.
+# Every PR gets gallery / gallery. The trusted relay compares the head to its
+# merge base against main: GUI, theme, client dependencies, build inputs and
+# gallery machinery render; other changes succeed without dispatch or comment.
+# The gallery label forces rendering. Keep triggers unfiltered so skips report success.
 name: gallery
 on:
   # Credentials and the publisher come only from the base branch. The PR is data.
   pull_request_target:
     branches: [main]
-    types: [opened, synchronize, reopened]
-    paths:
-      - 'packages/gui/**'
-      - 'scripts/gallery-accept.sh'
-      - 'scripts/gallery-allocation.json'
-      - 'scripts/gallery_allocation.py'
-      - 'scripts/gallery-publish.py'
-      - 'scripts/gallery_reports.py'
-      - '.forgejo/workflows/gallery.yml'
-      - '.forgejo/github-workflows/gallery.yml'
-      - '.forgejo/scripts/gallery-comment.sh'
-      - '.forgejo/scripts/github-ci.sh'
-      - '.forgejo/scripts/gallery-ready.py'
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 concurrency:
   group: gallery-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -36,6 +28,7 @@ jobs:
         env:
           GH_CI_EVENT: gallery
           GH_CI_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_CI_BASE: ${{ github.event.pull_request.base.sha }}
           GH_CI_TOKEN: ${{ secrets.GH_CI_TOKEN }}
           FORGEJO_TOKEN: ${{ github.token }}
           PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}

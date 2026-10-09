@@ -188,6 +188,7 @@ describe("environment.subscribe's snapshot", () => {
   it("carries every step's cached result as setup, in the registry's order, a step whose first check has not answered absent", async () => {
     const late = lateCheck();
     const t = await startTestEnvironment({
+      awaitSetupStartPass: false,
       setupSteps: {
         steps: [
           scriptedStep("account", { stateChecks: [{ id: "account.late", holds: "The late check holds.", actions: [] }] }),
