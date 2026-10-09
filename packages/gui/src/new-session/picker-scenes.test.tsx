@@ -5,6 +5,9 @@ import { discoverScenes, type SceneModule } from "../../gallery/scene-registry.j
 
 /** The new-session picker's gallery scenes (#1894): the model chip open on the desktop, and the model and account chips on a phone. */
 
+/** The selected account's label, an email long enough to break mid-word beside the check mark in the 224px column before #1963. */
+const LONG_LABEL = "work.account1@example.test";
+
 let close: (() => Promise<void>) | undefined;
 afterEach(async () => { await close?.(); close = undefined; vi.restoreAllMocks(); document.body.replaceChildren(); });
 
@@ -30,6 +33,7 @@ const mount = async (scene: string, web = false) => {
   close = gallery.close;
   expect(await gallery.ready).toBe(true);
 };
+const geometryOf = (): { selector: string; visibleWithin?: string; unbroken?: boolean; renderedOnly?: boolean }[] => JSON.parse(document.getElementById("root")?.dataset["galleryGeometry"] ?? "[]");
 
 it("opens the model chip on the desktop with the accounts' rings, the recommended models and Other models", async () => {
   await mount("new-session-picker");
@@ -37,8 +41,16 @@ it("opens the model chip on the desktop with the accounts' rings, the recommende
   expect(rows(within(menu).getByRole("group", { name: "Models" }))).toEqual(RECOMMENDED);
   expect(within(menu).getByText("Recommended models. Pin your favourites in Settings, Default account and model.")).toBeTruthy();
   const accounts = within(menu).getByRole("group", { name: "Accounts" });
-  expect(rings(within(accounts).getByRole("menuitem", { name: /^Work/ }))).toEqual(["5-hour 42%", "Weekly 67%"]);
+  const selected = within(accounts).getByRole("menuitem", { name: `${LONG_LABEL} ${LONG_LABEL}` });
+  expect(rings(selected)).toEqual(["5-hour 42%", "Weekly 67%"]);
   expect(rings(within(accounts).getByRole("menuitem", { name: /^Spare/ }))).toEqual([]);
+  // The selected account's name is its long email: one line beside the check mark, cut with an ellipsis, whole in the tooltip (#1963).
+  expect(LONG_LABEL.length).toBeGreaterThanOrEqual(25);
+  expect(selected.hasAttribute("data-selected")).toBe(true);
+  expect(selected.querySelector("[data-run-primary]")?.textContent).toBe(LONG_LABEL);
+  expect(selected.querySelector("[data-run-primary]")?.className.split(" ")).toEqual(expect.arrayContaining(["block", "truncate"]));
+  expect(selected.getAttribute("title")).toContain(LONG_LABEL);
+  expect(geometryOf()).toContainEqual({ selector: '[data-run-column="Accounts"] [data-run-primary]', unbroken: true });
 });
 
 it("opens the model chip on a phone as one column of the sheet", async () => {
@@ -54,8 +66,10 @@ it("opens the account chip on a phone with each account's rings", async () => {
   const accounts = within(screen.getByRole("dialog", { name: "Run choices" })).getByRole("group", { name: "Accounts" });
   expect(rings(within(accounts).getByRole("menuitem", { name: /^Personal/ }))).toEqual(["5-hour 95%"]);
   // The fit check reads the rings that draw something: the signed-out Spare's row may sit below the fold (#1895's taller rows).
-  const geometry: { selector: string; visibleWithin?: string; unbroken?: boolean }[] = JSON.parse(document.getElementById("root")?.dataset["galleryGeometry"] ?? "[]");
+  const geometry = geometryOf();
   const ringCheck = geometry.find((check) => check.selector.includes("[data-usage-rings]") && check.visibleWithin !== undefined);
-  expect([...document.querySelectorAll(ringCheck?.selector ?? "none")].map((line) => line.closest('[role="menuitem"]')?.getAttribute("aria-label"))).toEqual(["Work work@example.test", "Personal personal@example.test"]);
+  expect([...document.querySelectorAll(ringCheck?.selector ?? "none")].map((line) => line.closest('[role="menuitem"]')?.getAttribute("aria-label"))).toEqual([`${LONG_LABEL} ${LONG_LABEL}`, "Personal personal@example.test"]);
   expect(geometry).toContainEqual({ selector: "[data-run-sheet] [data-run-identity]", renderedOnly: true, unbroken: true });
+  // The selected account's long name stays on one line on a phone too (#1963).
+  expect(geometry).toContainEqual({ selector: "[data-run-sheet] [data-run-primary]", renderedOnly: true, unbroken: true });
 });

@@ -7,13 +7,14 @@ import type { RunStage } from "../src/status/run-picker-parts.js";
  * its chip over a desk with three accounts, two with plan windows, and a
  * catalogue with no favourite pinned: the usage rings, the recommended
  * models with the pin hint, and Other models, as the status line's picker
- * draws them.
+ * draws them. The selected account is labelled with its email, long enough
+ * to break beside the check mark if its name were let wrap (#1963).
  */
 
 const environmentId = "0199cc00-0000-4000-8000-000000001894";
 const identity = (email: string) => ({ provider: "claude", email, organisation: null });
 const accounts = [
-  { id: "account-1", label: "Work", identity: identity("work@example.test") },
+  { id: "account-1", label: "work.account1@example.test", identity: identity("work.account1@example.test") },
   { id: "account-2", label: "Personal", identity: identity("personal@example.test") },
   { id: "account-3", label: "Spare", identity: identity("spare@example.test"), status: { state: "expired" as const, checkedAt: null, detail: null } },
 ];
@@ -42,9 +43,9 @@ export const presentation: Partial<PresentationValues> = {
 };
 
 const usageWindow = (window: string, utilisation: number) => ({ window, utilisation, observedAt: "2026-09-24T00:00:00.000Z", resetsAt: "2026-09-24T05:00:00.000Z", verdict: null });
-/** Two plan windows on Work, one on Personal, none on the signed-out Spare: the rows keep one height (#1822). */
+/** Two plan windows on the selected account, one on Personal, none on the signed-out Spare: the rows keep one height (#1822). */
 export const arrangeUsage = (world: ScriptedWorld) => world.environment("desk").setUsage([
-  { accountId: "account-1", identity: identity("work@example.test"), readAt: "2026-09-24T00:00:00.000Z", unavailableReason: null, windows: [usageWindow("five_hour", 0.42), usageWindow("seven_day", 0.67)] },
+  { accountId: "account-1", identity: identity("work.account1@example.test"), readAt: "2026-09-24T00:00:00.000Z", unavailableReason: null, windows: [usageWindow("five_hour", 0.42), usageWindow("seven_day", 0.67)] },
   { accountId: "account-2", identity: identity("personal@example.test"), readAt: "2026-09-24T00:00:00.000Z", unavailableReason: null, windows: [usageWindow("five_hour", 0.95)] },
 ]);
 
