@@ -207,6 +207,9 @@ it is not promised in every browser tab. See
 Open the paired client, open a session, then **Settings > Attention** (bell
 button). Tap **Enable push** and allow the OS/browser request. Tap **Test push**
 and check the notification; **Disable push** removes this client's registration.
+Giving the phone full access later (or pairing it again in place) keeps push
+on: the client registers itself again for its new pairing. Where the browser
+needs a tap for that, the client says push is off; tap **Enable push** there.
 If permission is denied, the client explains it rather than repeatedly asking.
 Change the OS/browser permission explicitly to retry, or select **Use fallback**
 for an available configured webhook route. The fallback list shows delivery
