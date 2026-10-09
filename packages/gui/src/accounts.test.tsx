@@ -781,7 +781,7 @@ const pooled = (gauge: HTMLElement) =>
     .map((row) => row.textContent);
 
 describe("Usage", () => {
-  it("shows an unknown limit once by a human name in settings, with its share and no ring", async () => {
+  it("shows an unknown limit once by a human name in settings, with its share and no ring, in a slot the size of one so its bar lines up (ticket 1952)", async () => {
     const app = await opened({ desk: { accounts: [{ label: "personal", identity: MILO }] } });
     const at = "2026-09-30T10:00:00.000Z";
     const known = reading("account-1", 0.42, 0.1, at);
@@ -793,6 +793,10 @@ describe("Usage", () => {
     expect(within(gauge).getAllByText("Other limit")).toHaveLength(1);
     expect(within(gauge).getByText("37%")).toBeTruthy();
     expect(within(gauge).queryByRole("img", { name: /Other limit/ })).toBeNull();
+    const rows = within(within(gauge).getByRole("list", { name: "Windows" })).getAllByRole("listitem");
+    expect(rows.map((row) => row.querySelector("[data-usage-bar]")?.previousElementSibling?.getAttribute("class"))).toEqual([
+      expect.stringMatching(/^size-6 shrink-0\b/), expect.stringMatching(/^size-6 shrink-0\b/), "size-6 shrink-0",
+    ]);
     expect(gauge.outerHTML).not.toMatch(/iguana[_ ]necktie/);
   });
 

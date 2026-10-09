@@ -34,6 +34,8 @@ it.each([
       expect(within(pooled).getAllByRole("img")).toHaveLength(2);
       expect(within(pooled).getAllByText("Other limit")).toHaveLength(1);
       expect(within(pooled).getByText("2 other limits give no reading.")).toBeDefined();
+      // The Other limit row's bar starts where the ringed rows' bars do (#1952).
+      expect(JSON.parse(container.dataset["galleryGeometry"] ?? "null")).toContainEqual({ selector: '[aria-label="Windows"] [data-usage-bar]', height: 4, sameLeft: true });
     }
     expect(JSON.parse(container.dataset["galleryGeometry"] ?? "null")).toEqual(expect.arrayContaining([
       { selector: 'nav[aria-label="Settings rows"]', width: 208 },
