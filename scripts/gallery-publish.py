@@ -1,6 +1,6 @@
 """Publish validated hosted reports from the trusted checkout only."""
-import hashlib, html, json, os, re, signal, struct, sys, time, urllib.error, urllib.parse, urllib.request, zipfile
-from gallery_reports import validate_shard, complete_set, phone_dimensions, MAX_ROWS, MAX_BYTES
+import hashlib, html, json, os, re, signal, struct, sys, time, urllib.error, urllib.parse, urllib.request, uuid, zipfile
+from gallery_reports import validate_shard, complete_set, phone_dimensions, MAX_ROWS, MAX_BYTES, MAX_THREAD_BYTES
 from gallery_allocation import LIMITS, MAX_PNGS, report_scenes
 base = os.environ['FORGEJO_URL'].rstrip('/')
 repository = os.environ['FORGEJO_REPOSITORY']; pr = os.environ['FORGEJO_PR']; head = sys.argv[1]
@@ -12,7 +12,6 @@ opener = urllib.request.build_opener(NoRedirect())
 # Socket inactivity timeouts do not bound a slow response or the whole shard set.
 # This trusted publisher runs on the Unix relay, in its main thread.
 REQUEST_SECONDS = 60
-PUBLICATION_SECONDS = 600
 publication_deadline = None
 class UploadTimeout(TimeoutError): pass
 class UploadInterrupted(Exception): pass
@@ -22,7 +21,7 @@ def interrupted(signum, frame):
     raise UploadInterrupted('Gallery publication interrupted')
 signal.signal(signal.SIGALRM, expired)
 signal.signal(signal.SIGTERM, interrupted)
-def absolute_request(url, method='GET', data=None, content_type='application/json', token=None, expected_bytes=None):
+def absolute_request(url, method='GET', data=None, content_type='application/json', token=None, expected_bytes=None, max_bytes=None):
     req = urllib.request.Request(url, data=data, method=method, headers={
         'Authorization': 'token ' + (token or os.environ['FORGEJO_TOKEN']), 'Content-Type': content_type})
     remaining = REQUEST_SECONDS if publication_deadline is None else min(REQUEST_SECONDS, publication_deadline - time.monotonic())
@@ -30,15 +29,28 @@ def absolute_request(url, method='GET', data=None, content_type='application/jso
     signal.setitimer(signal.ITIMER_REAL, remaining)
     try:
         with opener.open(req, timeout=remaining) as response:
-            reply = response.read() if expected_bytes is None else response.read(len(expected_bytes) + 1)
+            limit = len(expected_bytes) if expected_bytes is not None else max_bytes
+            reply = response.read() if limit is None else response.read(limit + 1)
             if expected_bytes is not None:
                 if reply != expected_bytes: raise ValueError('Existing gallery capture has different bytes')
                 return None
+            if max_bytes is not None and len(reply) > max_bytes: raise ValueError('Gallery response is too large')
             return json.loads(reply) if reply else None
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
 def request(path, method='GET', data=None, content_type='application/json'):
     return absolute_request(api + path, method, data, content_type)
+def recover_comment(placeholder):
+    # Forgejo returns the complete thread, ignoring pagination. Do not retry a
+    # non-idempotent POST: only this attempt's relay-authored comment may change.
+    comments = absolute_request(f'{api}/issues/{pr}/comments', max_bytes=MAX_THREAD_BYTES)
+    if not isinstance(comments, list): raise ValueError('Invalid gallery comment list')
+    matches = [comment['id'] for comment in comments if isinstance(comment, dict)
+               and isinstance(comment.get('user'), dict) and comment['user'].get('id') == -2
+               and comment.get('body') == placeholder
+               and type(comment.get('id')) is int and comment['id'] > 0]
+    if len(matches) != 1: raise ValueError('Could not recover the gallery comment')
+    return matches[0]
 current = request(f'/pulls/{pr}')
 if current['state'] != 'open' or current.get('merged') or current['head']['sha'] != head:
     print('Gallery report rejected: the PR is closed, merged, or its head changed.', file=sys.stderr)
@@ -106,12 +118,17 @@ elif len(reports) != 1: sys.exit('Duplicate gallery artifact')
 
 package_token = os.environ.get('PACKAGES_TOKEN')
 if not package_token: sys.exit('PACKAGES_TOKEN is required to publish gallery captures.')
-publication_deadline = time.monotonic() + PUBLICATION_SECONDS
+# Allow one second per bounded API operation, including verification of reused
+# packages, with a ten-minute floor. The relay still bounds the complete job.
+operations = sum(len(images) + 2 * len(scenes) + 2 for _, images, scenes in reports)
+publication_deadline = time.monotonic() + max(600, operations)
 for report, images, scenes in reports:
-    attempt = '\n<!-- window-gallery-attempt ' + json.dumps({'head': head, **({'shard': report['shard']} if 'shard' in report else {})}) + ' -->\n'
-    comment = request(f'/issues/{pr}/comments', 'POST', json.dumps({'body': f'Window gallery for `{head}`. Uploading captures…' + attempt}).encode())['id']
-    stage = 'uploads'
+    attempt = '\n<!-- window-gallery-attempt ' + json.dumps({'head': head, 'publication': str(uuid.uuid4()), **({'shard': report['shard']} if 'shard' in report else {})}) + ' -->\n'
+    placeholder = f'Window gallery for `{head}`. Uploading captures…' + attempt
+    comment = None
+    stage = 'comment creation'
     try:
+        comment = request(f'/issues/{pr}/comments', 'POST', json.dumps({'body': placeholder}).encode())['id']
         version = f'{head}-{comment}'
         urls = {}
         for name, data in sorted(images.items()):
@@ -171,7 +188,9 @@ for report, images, scenes in reports:
         failure = f'Window gallery for `{head}`.\n\nGallery upload failed during {stage} ({reason}). Rerun the gallery job; if it persists, check the relay log and package/attachment write permissions. No captures from this report can be accepted.' + attempt
         # Leave a fresh bounded request to finalize even after the publication budget expires.
         publication_deadline = None
-        try: request(f'/issues/comments/{comment}', 'PATCH', json.dumps({'body': failure}).encode())
+        try:
+            if comment is None: comment = recover_comment(placeholder)
+            request(f'/issues/comments/{comment}', 'PATCH', json.dumps({'body': failure}).encode())
         except Exception: print('::error::Could not finalize the gallery comment; check tracker connectivity and rerun the gallery job.', file=sys.stderr)
         sys.exit(f'Gallery upload failed during {stage} ({reason}); rerun the gallery job.')
 print(f'Gallery posted on pull request {pr}')

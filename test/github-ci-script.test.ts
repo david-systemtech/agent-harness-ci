@@ -1000,7 +1000,7 @@ async function storedGallery(packagesToken = "token-for-tests") {
   const captures = new Map<string, Buffer>();
   const attachments: string[] = [];
   const requests: string[] = [];
-  const comments: { id: number; body: string }[] = [];
+  const comments: { id: number; body: string; user?: { id: number } }[] = [];
   let base = "", failure = "";
   const server = createServer(async (request, response) => {
     const path = request.url ?? "";
@@ -1014,6 +1014,7 @@ async function storedGallery(packagesToken = "token-for-tests") {
     if (request.method === "GET" && path.includes("/pulls/")) response.end(JSON.stringify({ state: "open", merged: false, head: { sha, ref: "build/42-gallery" } }));
     else if (request.method === "GET" && path.includes("/comments")) response.end(JSON.stringify(comments));
     else if (request.method === "POST" && path.endsWith("/comments")) {
+      if (failure === "copied-comment") comments.push({ id: comments.length + 1, user: { id: 7 }, body: (JSON.parse(data.toString()) as { body: string }).body });
       const comment = { id: comments.length + 1, user: { id: -2 }, body: (JSON.parse(data.toString()) as { body: string }).body };
       comments.push(comment); response.end(JSON.stringify(comment));
     } else if (request.method === "PATCH") {
@@ -1075,6 +1076,42 @@ it("finishes a published gallery without scanning repository-wide retention", as
   expect(g.requests.some(path => path.includes("/pulls?state=open") || path.startsWith("/api/v1/packages/"))).toBe(false);
 });
 
+it("publishes a healthy 1040-capture four-shard set that takes longer than ten minutes", async () => {
+  const g = await storedGallery();
+  const artifacts: { id: number; name: string; size_in_bytes: number }[] = [];
+  const archives: Record<string, string> = {};
+  for (const [index, count] of [400, 120, 400, 120].entries()) {
+    const family = index < 2 ? "desktop" : "phone";
+    const id = `${family}-${String(index % 2 + 1).padStart(3, "0")}`;
+    const names = Array.from({ length: count }, (_, row) => family === "desktop" ? `scene-${index}-${row}.dark` : `phone-scene-${index}-${row}-phone-390.dark`);
+    await g.capture(230, count, names, undefined, { id, index, count: 4 });
+    const archive = join(g.f.checkout, `gallery-${id}.zip`);
+    writeFileSync(archive, readFileSync(g.env.FAKE_GALLERY_ZIP));
+    archives[String(index + 99)] = archive;
+    artifacts.push({ id: index + 99, name: `window-gallery-${id}`, size_in_bytes: statSync(archive).size });
+  }
+  const hooks = join(g.f.checkout, "hooks"); mkdirSync(hooks);
+  writeFileSync(join(hooks, "sitecustomize.py"), `import time,urllib.request
+original=urllib.request.OpenerDirector.open
+clock=0
+time.monotonic=lambda: clock
+def opened(self, req, *args, **kwargs):
+    global clock
+    reply=original(self,req,*args,**kwargs)
+    clock+=0.35
+    return reply
+urllib.request.OpenerDirector.open=opened
+`);
+  const result = await relay(g.f, { ...g.env, PYTHONPATH: hooks, FAKE_ARTIFACTS: JSON.stringify(artifacts), FAKE_GALLERY_ZIPS: JSON.stringify(archives) });
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.comments).toHaveLength(4);
+  expect(g.captures.size).toBe(1040);
+  for (const comment of g.comments) {
+    expect(comment.body).toContain("<!-- window-gallery ");
+    expect(comment.body).not.toContain("Uploading captures");
+  }
+});
+
 it.each(["attachment", "storage", "read", "reused", "final-report", "terminated", "budget"])("finalizes a held gallery upload when its %s deadline interrupts publication", async (stage) => {
   const g = await storedGallery();
   await g.capture(230);
@@ -1118,6 +1155,38 @@ urllib.request.OpenerDirector.open=opened
   const deadline = JSON.parse(readFileSync(deadlineLog, "utf8")) as number;
   expect(deadline).toBeGreaterThan(0);
   expect(deadline).toBeLessThanOrEqual(60);
+});
+
+it.each(["timeout", "terminated", "connection"])("recovers and finalizes a committed gallery comment after its creation response is lost (%s)", async (mode) => {
+  const g = await storedGallery();
+  await g.capture(230);
+  g.fail("copied-comment");
+  g.comments.push({ id: 1, user: { id: -2 }, body: `Window gallery for \`${g.sha}\`. Uploading captures…` });
+  const hooks = join(g.f.checkout, "hooks"); mkdirSync(hooks);
+  writeFileSync(join(hooks, "sitecustomize.py"), `import os,signal,urllib.error,urllib.request
+original=urllib.request.OpenerDirector.open
+def opened(self, req, *args, **kwargs):
+    reply=original(self,req,*args,**kwargs)
+    if req.get_method()=='POST' and req.full_url.endswith('/comments'):
+        def read(*args):
+            mode=os.environ['CREATION_FAILURE']
+            if mode=='connection': raise urllib.error.URLError('connection lost')
+            os.kill(os.getpid(),signal.SIGTERM if mode=='terminated' else signal.SIGALRM)
+        reply.read=read
+    return reply
+urllib.request.OpenerDirector.open=opened
+`);
+  const result = await relay(g.f, { ...g.env, PYTHONPATH: hooks, CREATION_FAILURE: mode });
+  expect(result.code).not.toBe(0);
+  expect(g.comments).toHaveLength(3);
+  expect(g.comments[0]!.body).toBe(`Window gallery for \`${g.sha}\`. Uploading captures…`);
+  expect(g.comments[1]!.body).toContain("Uploading captures");
+  expect(g.comments[2]!.body).toContain("Gallery upload failed during comment creation");
+  expect(g.comments[2]!.body).not.toContain("Uploading captures");
+  expect(g.comments[2]!.body).not.toContain("<!-- window-gallery ");
+  expect(g.attachments).toEqual([]);
+  expect(g.captures.size).toBe(0);
+  expect(result.stderr).toContain("Gallery upload failed during comment creation");
 });
 
 it.each([{ count: 212, status: "new" }, { count: 212, status: "changed" }, { count: 400, status: "changed" }])("publishes $count $status captures across both widths and ladders", async ({ count, status }) => {
