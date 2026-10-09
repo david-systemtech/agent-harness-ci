@@ -64,7 +64,15 @@ export const SkillsCard = ({ environmentId, step }: StepCardProps) => {
           } }),
           "choose-folders": {
             disabled: !readable,
-            run: (targets) => setChoosing(sources.find((source) => targets.some((target) => target.id === source.id))),
+            run: (targets) => {
+              const source = sources.find((source) => targets.some((target) => target.id === source.id));
+              // An older computer may still offer the branch chooser for a pinned collection.
+              if (source?.follow.kind === "pinned") {
+                setSaid({ ok: false, line: `${skillCollectionName(source, CATALOGUE.skills)} is pinned. Open All skill settings to change its folders or version.` });
+                return;
+              }
+              setChoosing(source);
+            },
           },
         }}
       />

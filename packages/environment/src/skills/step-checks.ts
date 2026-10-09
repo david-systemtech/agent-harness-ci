@@ -58,10 +58,15 @@ export const skillsStateChecks = (options: SkillsStateChecksOptions): Pick<State
   },
   "skills.sources-yield": () => {
     const empty = options.sources().filter(yieldsNothing);
+    // The chooser probes branches; a pinned version must be changed explicitly in Settings.
+    const movable = empty.filter((source) => source.follow.kind === "branch");
     return empty.length === 0 || {
-      reason: empty.map((source) => `${collectionOf(source)} no longer has skills where they were. Choose its folders again.`).join(" "),
+      reason: empty.map((source) => source.follow.kind === "pinned"
+        ? `${collectionOf(source)} has no skills at its pinned version. Open All skill settings to change its folders or version.`
+        : `${collectionOf(source)} no longer has skills where they were. Choose its folders again.`).join(" "),
       details: empty.map((source) => `${addressOf(source)}: ${source.sync.outcome === "layout_moved" ? `the layout moved; folders found: ${source.sync.folders.join(", ") || "none"}` : "yields no skills"}`),
-      targets: empty.map((source) => targetOf("choose-folders", source)),
+      actions: movable.length > 0 ? ["choose-folders"] : [],
+      targets: movable.map((source) => targetOf("choose-folders", source)),
     };
   },
   "skills.source-limit": () => {

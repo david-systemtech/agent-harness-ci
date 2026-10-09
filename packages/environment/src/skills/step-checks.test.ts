@@ -115,7 +115,7 @@ describe("the Skills step through setup.check", () => {
     const importSource = (index: number, members: unknown[]) => {
       const id = randomUUID();
       t.env.log.append(stream, [
-        { type: "skills.source-added", payload: { id, url: `${SKILLS_HOST}david/imported`, identity: "skills.test/david/imported", folder: `folder-${index}`, follow: { kind: "pinned", commit }, position: index } },
+        { type: "skills.source-added", payload: { id, url: `${SKILLS_HOST}david/imported`, identity: `${SKILLS_HOST}david/imported`, folder: `folder-${index}`, follow: { kind: "pinned", commit }, position: index } },
         { type: "skills.source-synced", payload: { sourceId: id, outcome: "ok", commit, members } },
       ], { actor });
       return id;
@@ -123,7 +123,11 @@ describe("the Skills step through setup.check", () => {
     for (let index = 1; index <= 20; index += 1) importSource(index, [{ name: "tdd", path: "tdd", description: "Do TDD.", invocation: "model+slash", problems: [] }]);
     expect(await check(client)).toMatchObject({ state: "done", failing: [] });
     const empty = importSource(21, []);
-    expect(await check(client)).toMatchObject({ state: "needs-attention", failing: ["skills.sources-yield", "skills.source-limit"], actions: ["choose-folders"], targets: [{ id: empty }] });
+    const result = await check(client);
+    expect(result).toMatchObject({ state: "needs-attention", failing: ["skills.sources-yield", "skills.source-limit"], actions: [] });
+    expect(result.targets).toBeUndefined();
+    expect(result.reason).toContain("david/imported (folder-21) has no skills at its pinned version. Open All skill settings to change its folders or version.");
+    expect((await client.request("skills.get", {})).sources.find((source) => source.id === empty)?.follow).toEqual({ kind: "pinned", commit });
     expect((await check(client)).reason).toContain("You follow 21 collections. The limit is 20. Remove 1.");
   });
 

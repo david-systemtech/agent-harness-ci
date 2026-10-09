@@ -136,6 +136,21 @@ describe("the Skills card's lines and actions", () => {
     expect(steps()).toBeDefined();
   });
 
+  it("keeps a pinned collection out of the branch folder chooser even when an older computer offers it", async () => {
+    const pinned: SkillsViewSource = { ...source, url: linked, identity: linked, folder: "skills", follow: { kind: "pinned", commit: source.commit }, skillCount: 0 };
+    const { app, desk } = await opened({ ...initial(), sources: [pinned] }, { setup: { skills: {
+      state: "needs-attention", reason: "Choose its folders again.", failing: ["skills.sources-yield"], actions: ["choose-folders"],
+      targets: [{ action: "choose-folders", kind: "skill-source", id: pinned.id, label: "team/procedures (skills)" }],
+    } } });
+    desk.wire.answer("skills.probe", () => ({ result: found }));
+    await app.user.click(await within(card()).findByRole("button", { name: "Choose folders: team/procedures (skills)" }));
+    expect(await within(card()).findByText("team/procedures (skills) is pinned. Open All skill settings to change its folders or version.")).toBeDefined();
+    expect(within(card()).queryByRole("region", { name: "Choose folders for team/procedures (skills)" })).toBeNull();
+    expect(desk.requests("skills.probe")).toHaveLength(0);
+    expect(desk.requests("skills.sources.add")).toHaveLength(0);
+    expect(desk.requests("skills.sources.remove")).toHaveLength(0);
+  });
+
   it("asks to choose a moved collection's folders, looks for them again on its branch and puts the chosen ones in its place", async () => {
     const moved: SkillsViewSource = { ...source, url: linked, identity: linked, folder: "skills", skillCount: 0, sync: { outcome: "layout_moved", since: source.addedAt, commit: found.commit, folders: ["agents"] } };
     const { app, desk, update } = await opened({ ...initial(), sources: [moved] }, { setup: { skills: {
@@ -360,6 +375,31 @@ describe("the Skills card's lines and actions", () => {
 });
 
 describe("the Skills card's Add from a link", () => {
+  it("drops a selected folder absent from a repeated look and adds only a folder in the new result", async () => {
+    const { app, desk } = await opened();
+    let answer = found;
+    desk.wire.answer("skills.probe", () => ({ result: answer }));
+    await lookFor(app, linked);
+    await app.user.click(await within(card()).findByRole("checkbox", { name: "skills · 2 skills" }));
+    answer = { ...found, probeId: "1b4e28ba-2fa1-41d2-883f-0016d3cca427", folders: [{ ...found.folders[0]!, folder: "agents" }] };
+    await app.user.click(within(card()).getByRole("button", { name: "Look for skills" }));
+    const agents = await within(card()).findByRole("checkbox", { name: "agents · 2 skills" });
+    expect((agents as HTMLInputElement).checked).toBe(false);
+    expect(within(card()).queryByRole("checkbox", { name: "skills · 2 skills" })).toBeNull();
+    const add = within(card()).getByRole("button", { name: "Add selected" });
+    expect((add as HTMLButtonElement).disabled).toBe(true);
+    await app.user.click(add);
+    expect(desk.requests("skills.sources.add")).toHaveLength(0);
+    desk.wire.answer("skills.sources.add", (params) => {
+      expect(params).toMatchObject({ folder: "agents", probeId: answer.probeId });
+      return accepted({ source: { ...source, url: linked, identity: linked, folder: "agents" } });
+    });
+    await app.user.click(agents);
+    await app.user.click(add);
+    expect(await within(card()).findByText("Added team/procedures (agents).")).toBeDefined();
+    expect(desk.requests("skills.sources.add")).toHaveLength(1);
+  });
+
   it("keeps found folders and Add selected unavailable with a reason after the connection is lost", async () => {
     const { app, desk } = await opened();
     desk.wire.answer("skills.probe", () => ({ result: found }));

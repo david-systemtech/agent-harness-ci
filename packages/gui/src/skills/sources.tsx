@@ -147,7 +147,9 @@ export const FoundFolders = ({ environmentId, url, replacing, done, partly }: {
   const branch = replacing?.source.follow.kind === "branch" ? replacing.source.follow.branch : null;
   const params = useMemo(() => ({ url, ...(branch !== null && { branch }) }), [url, branch]);
   const probed = useObservable(useMemo(() => runtime.requests.cached(environmentId, "skills.probe", params), [runtime, environmentId, params]));
-  const [chosen, choose] = useState<readonly string[]>([]);
+  const [picked, choose] = useState<readonly string[]>([]);
+  // Each new look starts with no ticks; accepted-folder lines are kept separately below.
+  useEffect(() => choose([]), [probed.result]);
   const { send, sending, refusal, commandId } = useCollectionVerb();
   // Set once the moved collection is removed, so a retry after a refused add never removes it again.
   const removed = useRef(false);
@@ -172,6 +174,8 @@ export const FoundFolders = ({ environmentId, url, replacing, done, partly }: {
   const probe = probed.result;
   if (probe === null) return <p role="status" className="text-sm text-ink-muted">Looking for skills…</p>;
   const folders = [...(probe.root === null ? [] : [probe.root]), ...probe.folders];
+  // Validate before effects run too, so an old tick never submits a folder absent from this look.
+  const chosen = picked.filter((folder) => folders.some((found) => found.folder === folder && found.count > 0));
   if (folders.length === 0) return <p className="text-sm">No skill folders were found there.</p>;
   const finishing = replacing !== undefined && added.current.length > 0 && !removed.current;
   const adding = runtime.capability(environmentId, "skills.sources.add");
