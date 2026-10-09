@@ -338,7 +338,7 @@ describe("the chips", () => {
   });
 });
 
-describe("the first run's effort (#1950)", () => {
+describe("the first run's effort (ticket 1950)", () => {
   // Laptop's Home account offers Fable, which takes efforts, and Sonnet 5, which takes none; its default effort is High.
   const FABLE = { id: "fable", family: "fable", tier: 3, efforts: ["low", "medium", "high"], label: "Fable" };
   const onLaptop = async () => {
