@@ -41,6 +41,16 @@ let scratch: string | undefined;
 afterEach(() => { if (scratch) rmSync(scratch, { recursive: true, force: true }); });
 
 describe("the public GitHub release workflow", () => {
+  it("creates and describes a local-only bank using the final image before handing it on", () => {
+    const check = step("image", "Create and describe a bank in the built image");
+    expect(check).toContain('docker run --rm --entrypoint node "$IMAGE_REFERENCE" /opt/agent-harness/scripts/check-packaged-bank-describe.mjs /opt/agent-harness');
+    const image = job("image").join("\n");
+    expect(image.indexOf(check)).toBeLessThan(image.indexOf("Keep the verified image for its push"));
+    for (const name of ["smoke-macos", "smoke-linux"]) {
+      expect(job(name).join("\n")).toContain('"$server/node/bin/node" scripts/check-packaged-bank-describe.mjs "$server"');
+    }
+  });
+
   it("uploads only the sanitized macOS diagnostic directory after a smoke failure", () => {
     const replacement = step("smoke-macos", "Replace the packaged desktop with an existing client credential");
     expect(replacement).toContain('SMOKE_DIAGNOSTICS: ${{ runner.temp }}/macos-update-diagnostics');
