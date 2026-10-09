@@ -377,6 +377,15 @@ describe("the model picker's favourites (ticket 1821)", () => {
     expect(screen.getByRole("menu", { name: "Run choices" })).toBe(menu);
   });
 
+  it("offers a favourite an earlier carry over wrote as `<account>/<model>` as the model it names, starred (ticket 1954)", async () => {
+    const { app } = await opened([desk({ models: [FOUR], settings: { "accounts.favouriteModels": ["account-a/claude-haiku-4", "account-b/claude-sonnet-4", "claude-haiku-4"] } })]);
+    const menu = await openPicker(app, "Model");
+    const list = within(menu).getByRole("group", { name: "Models" });
+    await waitFor(() => expect(rows(list)).toEqual(["claude-haiku-4", "claude-sonnet-4", "Opus (claude-opus-4)", "Other models", "Edit favourites…"]));
+    const starred = within(list).getAllByRole("menuitem").filter((item) => item.querySelector("svg.lucide-star") !== null).map((item) => item.getAttribute("aria-label"));
+    expect(starred).toEqual(["claude-haiku-4", "claude-sonnet-4", "Edit favourites…"]);
+  });
+
   it("offers the provider's recommended models with no favourite pinned, says how to pin them, and opens Settings there", async () => {
     const { app } = await opened([desk({ models: [FOUR] })]);
     const menu = await openPicker(app, "Model");

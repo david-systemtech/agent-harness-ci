@@ -32,6 +32,7 @@ import {
   updateEnvironment,
   valueWords,
   writerOf,
+  type Clock,
   type EnvironmentView,
   type OfferedSetupAction,
   type RunChoice,
@@ -84,6 +85,8 @@ import { editorKeys, editorRows, noRowLine, settingLabel } from "./settings.js";
 
 export interface PickersHost {
   readonly runtime: Runtime;
+  /** The platform's clock: the day `/usage` says a window resets on is counted from it. */
+  readonly clock: Clock;
   readonly request: () => void;
   readonly views: readonly EnvironmentView[];
   /** The header's environment: where a command acts with no session open. */
@@ -851,7 +854,7 @@ export const usePickers = (host: PickersHost): Pickers => {
           );
         }
         case "usage": {
-          const lines = usageLines(runtime.projections.usage.read(), views, (id) => runtime.projections.accounts(id).read(), meterCells(size.width)).flatMap(text);
+          const lines = usageLines(runtime.projections.usage.read(), views, (id) => runtime.projections.accounts(id).read(), meterCells(size.width), host.clock.now()).flatMap(text);
           drawn.current = { lines: lines.length, height: size.height };
           return <LinesCard title="Plan usage, pooled by account identity" hint={hint} lines={lines} top={Math.min(card.top, Math.max(0, lines.length - size.height))} height={size.height} />;
         }

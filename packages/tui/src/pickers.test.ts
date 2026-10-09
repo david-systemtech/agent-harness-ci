@@ -1,3 +1,4 @@
+import { resetWords } from "@agent-harness/client-runtime";
 import { STEP_ORDER, type AccountUsage } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -399,13 +400,23 @@ describe("/usage", () => {
     await command(app, "/usage");
     await app.waitFor("Plan usage");
     await app.waitFor("milo@work.test · work on desk, work on laptop");
-    await app.waitFor(/5-hour\s+█*░* ?61% out\s+resets \d\d:\d\d/);
+    await app.waitFor(new RegExp(`5-hour\\s+█*░* ?61% out\\s+${resetWords("2026-09-25T14:30:00.000Z", app.clock.now()) ?? ""}`));
     expect(app.frame()).toMatch(/Weekly\s+█*░* ?10%/);
     expect(app.frame()).toContain("milo@home.test · personal on desk");
     expect(app.frame()).toContain("scroll");
     expect(app.frame()).not.toContain("runs the action");
     expect(app.frame()).not.toContain("next action");
     expect(app.frame()).toContain("Not signed in.");
+  });
+
+  it("names the day a window resets on when it is not today, counted from the terminal's clock", async () => {
+    const { app, env } = await launch();
+    const now = app.clock.now().getTime();
+    const days = (count: number) => new Date(now + count * 86_400_000).toISOString();
+    env.setUsage([reading("account-1", MILO, [{ ...window("five_hour", 0.42), resetsAt: days(3) }, { ...window("seven_day", 0.1), resetsAt: days(30) }])]);
+    await command(app, "/usage");
+    await app.waitFor(/5-hour\s+█*░* ?42%\s+resets (Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d\d:\d\d/);
+    expect(app.frame()).toMatch(/Weekly\s+█*░* ?10%\s+resets \d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d\d:\d\d/);
   });
 });
 

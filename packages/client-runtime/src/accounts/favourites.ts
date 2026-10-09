@@ -20,6 +20,16 @@ export const recommendedModels = (models: readonly ModelEntry[]): readonly Model
   return models.filter((entry) => (families.has(entry.family) ? false : (families.add(entry.family), true))).slice(0, RECOMMENDED_MODELS);
 };
 
+/**
+ * The favourites as the model ids they name, each once, in order: a
+ * favourite `listed` holds is itself; any other is the part after its last
+ * `/`, which reads the `<account>/<model>` form an earlier carry over wrote
+ * (#1954) as the model it names. The edits Settings makes start from these,
+ * so its next write leaves the plain ids.
+ */
+export const favouriteModelIds = (favourites: readonly string[], listed: { has(id: string): boolean }): readonly string[] =>
+  [...new Set(favourites.map((id) => (listed.has(id) ? id : id.slice(id.lastIndexOf("/") + 1) || id)))];
+
 /** One account's models under Other models. */
 export interface ModelGroup {
   readonly accountId: string;
@@ -53,7 +63,7 @@ const groupsOf = (catalogues: readonly AccountCatalogue[], taken: Set<string>): 
 export const pickerModels = (catalogues: readonly AccountCatalogue[], accountId: string | null, favourites: readonly string[], current?: string): PickerModels => {
   const listed = modelsOf(catalogues, accountId);
   const byId = new Map(listed.map((entry) => [entry.id, entry]));
-  const pinned = favourites.flatMap((id) => byId.get(id) ?? []);
+  const pinned = favouriteModelIds(favourites, byId).flatMap((id) => byId.get(id) ?? []);
   const first = pinned.length > 0 ? pinned : recommendedModels(listed);
   const held = current === undefined ? undefined : byId.get(current);
   const quick = held === undefined || first.includes(held) ? first : [...first, held];
@@ -70,7 +80,8 @@ export const pinWords = (picked: Pick<PickerModels, "pinned">, favourites: reado
 /** What a favourite can be added from: the models the signed-in accounts list that are not favourites, each once, by account. */
 export const favouriteCandidates = (catalogues: readonly AccountCatalogue[], accounts: readonly AccountRecord[], favourites: readonly string[]): readonly ModelGroup[] => {
   const signedIn = new Set(accounts.filter((account) => account.status.state === "signed-in").map((account) => account.id));
-  return groupsOf(catalogues.filter((catalogue) => signedIn.has(catalogue.accountId)), new Set(favourites));
+  const sources = catalogues.filter((catalogue) => signedIn.has(catalogue.accountId));
+  return groupsOf(sources, new Set(favouriteModelIds(favourites, new Set(sources.flatMap((catalogue) => catalogue.models.map((entry) => entry.id))))));
 };
 
 /** The favourites with `id` added at the end; unchanged when it is one, or the list is full. */
