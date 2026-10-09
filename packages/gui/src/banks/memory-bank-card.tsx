@@ -40,6 +40,7 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
   const [busy, setBusy] = useState(false);
   const [facts, setFacts] = useState<Record<string, boolean>>({});
   const [removing, setRemoving] = useState<BankRecord>();
+  const [removeLine, setRemoveLine] = useState<string>();
   const [updates, setUpdates] = useState<Record<string, MemoryPromoteResult | null>>({});
   const verified = forges.result?.accounts.filter((account) => account.identity !== null && account.problem === null) ?? [];
   const command = runtime.capability(environmentId, mode === "join" ? "banks.join" : "banks.create");
@@ -50,6 +51,7 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
   const syncCapability = runtime.capability(environmentId, "banks.sync");
   const disabled = busy || command.status === "absent";
   const refresh = () => runtime.requests.refresh(environmentId, "banks.list", {});
+  const closeRemove = () => { setRemoving(undefined); setRemoveLine(undefined); };
   const turn = async (bank: BankRecord) => {
     say(undefined);
     setBusy(true);
@@ -61,11 +63,12 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
   };
   const remove = async (bank: BankRecord) => {
     say(undefined);
+    setRemoveLine(undefined);
     setBusy(true);
     try {
       const answer = await adminCall(() => runtime.requests.call(environmentId, "banks.forget", { commandId: uuidv7(clock.now()), bankId: bank.id, removeCheckout: false }));
-      if (!answer.ok) say(oneLine(answer.line));
-      else { setRemoving(undefined); refresh(); }
+      if (!answer.ok) setRemoveLine(oneLine(answer.line));
+      else { closeRemove(); refresh(); }
     } finally { setBusy(false); }
   };
   const sync = async (bankId?: string) => {
@@ -191,13 +194,13 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
       : <JoinBankForm key={environmentId} environmentId={environmentId} busy={disabled} join={join} />)}
     </div>
     </div>
-    <Dialog open={removing !== undefined} onOpenChange={(open) => { if (!open && !busy) setRemoving(undefined); }}>
+    <Dialog open={removing !== undefined} onOpenChange={(open) => { if (!open && !busy) closeRemove(); }}>
       {removing !== undefined && <DialogContent title={`Remove ${removing.name}?`} description="Runs will stop using this bank. Its checkout stays on this machine, and its remote repository is kept.">
         <div className="flex flex-wrap justify-end gap-2">
-          <BankButton label="Cancel" icon={X} disabled={busy} onClick={() => setRemoving(undefined)} />
+          <BankButton label="Cancel" icon={X} disabled={busy} onClick={closeRemove} />
           <BankButton label="Remove bank" icon={Trash2} variant="destructive" disabled={busy} reason={forget.status === "absent" ? oneLine(forget.message) : undefined} onClick={() => void remove(removing)} />
         </div>
-        {line !== undefined && <p role="alert">{line}</p>}
+        {removeLine !== undefined && <p role="alert">{removeLine}</p>}
       </DialogContent>}
     </Dialog>
   </>;
