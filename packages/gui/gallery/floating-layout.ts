@@ -14,9 +14,12 @@ export async function waitForFloatingLayout(): Promise<void> {
     previous = current;
     if (stableFrames === 3 && !refreshed) {
       // A stationary popper can still retain its initial placement. Refresh
-      // through the focused dialog's overflow-ancestor listener, then wait for
-      // that update. A window resize would also dismiss open choices.
+      // through its overflow ancestors, then wait for that update. Modal
+      // surfaces may have visible overflow: the scroll-locked body is an
+      // ancestor of both the trigger and its portal in that case. A window
+      // resize would also dismiss open choices.
       document.activeElement?.closest('[role="dialog"]')?.dispatchEvent(new Event("resize"));
+      document.body.dispatchEvent(new Event("resize"));
       refreshed = true;
       stableFrames = 0;
       previous = undefined;

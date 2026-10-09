@@ -45,7 +45,7 @@ export function bankAuthoringScene(phone = false): SceneModule {
       const advance = () => {
         const settings = document.querySelector<HTMLButtonElement>('[aria-label="Settings"]');
         if (!opened && settings) { opened = true; settings.click(); }
-        const describe = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-bank-card] button")).find(button => button.textContent === "Describe this bank");
+        const describe = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-bank-card] button")).find(button => button.textContent === "Describe it");
         if (!minted && describe && !describe.disabled) { minted = true; describe.click(); }
       };
       const observer = new MutationObserver(advance);

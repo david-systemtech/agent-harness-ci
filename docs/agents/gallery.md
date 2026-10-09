@@ -9,14 +9,17 @@ as do gallery scripts and workflows, the root dependency manifests/lockfile and
 `tsconfig.base.json`. The path rule lives in `.forgejo/scripts/gallery-needed.py`.
 Other changes succeed with `no GUI change: gallery skipped`, without dispatching
 a hosted render or posting a screenshot comment. Add the `gallery` label to
-force a render; adding or removing that label reevaluates the decision.
+force a render, including on an unchanged head. Other label additions skip in
+a separate `gallery / other-label` context, leaving the canonical geometry/pixel
+verdict intact; label removals trigger no gallery job. Opening, updating and
+reopening a PR still check its current head, even when it has no GUI changes.
 
-Events for the same PR head queue in Forgejo instead of cancelling one another.
+Capture events for the same PR head queue in Forgejo instead of cancelling one another.
 Forgejo publishes cancellation statuses outside the relay script; cancelling an
 older run could otherwise overwrite a replacement's success on the same head.
 Each new head has its own queue and hosted capture group, so queued work for an
-older head cannot cancel a newer head's captures. Label changes can wait for the
-active gallery to finish before their result appears.
+older head cannot cancel a newer head's captures. A force-label addition can wait
+for the active gallery to finish; unrelated labels dispatch no hosted capture.
 
 The hosted gallery workflow remains unchanged and installed byte for byte on
 the relay repository. The decision happens before dispatch. A PR changing this
@@ -24,6 +27,10 @@ rule must render because gallery machinery is an input; `pull_request_target`
 uses the trusted base's rule, so live skip verification needs a non-GUI PR after
 the rule lands. Then verify a GUI change (including one in an earlier commit)
 still renders and posts screenshots, and the label forces a non-GUI render.
+On that unchanged GUI head, add and remove an unrelated label and remove the
+force label: verify there is no new hosted capture and the canonical gallery
+status retains its completed verdict and target URL. The trusted-base workflow
+cannot exercise a PR's own event-filter changes until they reach main.
 
 Use this recipe when a deliberate GUI change produces reviewed pixel differences in a pull request.
 
@@ -74,7 +81,7 @@ The hosted workflow and both relay publishers allow at most 1200 PNGs, 48 MiB of
 A capture-only artifact from an earlier hosted run can be recovered without rebuilding its commit. Download that run's `window-gallery` ZIP, then use the trusted checkout's `bash .forgejo/scripts/gallery-comment.sh <archive.zip> <full-head-sha>` with `FORGEJO_URL`, `FORGEJO_REPOSITORY`, `FORGEJO_PR` and `FORGEJO_TOKEN` set. It validates the complete archive before uploading, and posts only while the destination PR is open and still has that head. Inspect an old artifact locally when the PR's head has moved.
 
 
-Capture readiness includes a fresh placement of the focused dialog's tooltip after layout stabilizes. A stationary popper rectangle can retain a cached initial position; fonts being ready and several identical frames do not prove placement is current. The capture gate requests the update through the dialog's overflow-ancestor resize listener and waits for stable placement again. Keep this notification on the dialog: a window-wide resize dismisses open Select menus.
+Capture readiness includes a fresh placement of the focused dialog's tooltip after layout stabilizes. A stationary popper rectangle can retain a cached initial position; fonts being ready and several identical frames do not prove placement is current. The capture gate requests the update through the dialog and the scroll-locked body, then waits for stable placement again. A dialog surface with visible overflow has no overflow-ancestor listener of its own; the body receives the update for both the trigger and its tooltip portal, including after a sign-in ending replaces the waiting content. Keep these notifications off the window: a window-wide resize dismisses open Select menus.
 
 The #1537 hosted probe (run 37178192474, PR #1538) repeated restore captures eight times for each viewport and ladder. The old gate accepted eight stale positions out of 32, reproducing the reported 536/542-pixel differences. The narrow tooltip stayed at (661, 405) instead of (662, 406), and the wide tooltip at (849, 471) instead of (850, 472). Focus, reference rectangles, tooltip dimensions and animation state were unchanged. Allowing screenshot animations produced the same failures; refreshing placement corrected all 32 captures to zero differences. The full hosted gallery also matched all 342 scenes without changing baselines or budgets.
 

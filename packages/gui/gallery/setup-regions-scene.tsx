@@ -26,7 +26,9 @@ export const joinPreview: BankJoinPreview = {
 /** A step's status at the head of its card (setup-copy.md §3; #1840): done, needing a fix with Details open, a check that could not run, and the environment out of reach. */
 type StatusRegion = "status-done" | "status-fix" | "status-could-not-check" | "status-unreachable";
 
-type SetupRegion = StepId | "appearance-default" | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | "instructions-unread" | "skills-link-refusal" | "permissions-sandbox" | StatusRegion | AccountRegion | KeyManagerRegion | BrowserRegion | "machines-tailscale" | "machines-unreachable";
+type SetupRegion = StepId | "appearance-default" | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | "instructions-unread" | "skills-link-refusal" | "permissions-sandbox" | "permissions-sandbox-paired" | StatusRegion | AccountRegion | KeyManagerRegion | BrowserRegion | "machines-tailscale" | "machines-unreachable";
+
+const isSandbox = (kind: SetupRegion): boolean => kind === "permissions-sandbox" || kind === "permissions-sandbox-paired";
 
 const isStatus = (kind: SetupRegion): kind is StatusRegion => kind.startsWith("status-");
 
@@ -179,13 +181,13 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
-  const target: StepId = kind === "appearance-default" ? "appearance" : kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" || ACCOUNT_REGIONS.has(kind) ? "account" : kind === "host-updater" || kind === "machines-tailscale" || kind === "machines-unreachable" ? "your-machines" : kind === "rail-states" || showsKeyManagers(kind) ? "key-manager" : kind === "instructions-unread" ? "instructions" : kind === "permissions-sandbox" ? "permissions" : kind === "skills-link-refusal" || isStatus(kind) ? "skills" : isBrowserRegion(kind) ? "browser" : kind as StepId;
+  const target: StepId = kind === "appearance-default" ? "appearance" : kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" || ACCOUNT_REGIONS.has(kind) ? "account" : kind === "host-updater" || kind === "machines-tailscale" || kind === "machines-unreachable" ? "your-machines" : kind === "rail-states" || showsKeyManagers(kind) ? "key-manager" : kind === "instructions-unread" ? "instructions" : isSandbox(kind) ? "permissions" : kind === "skills-link-refusal" || isStatus(kind) ? "skills" : isBrowserRegion(kind) ? "browser" : kind as StepId;
   const keyManagerRegion = showsKeyManagers(kind);
   const status = isStatus(kind) ? STATUS_RESULTS[kind] : undefined;
   const binding = MACHINES_BINDING[kind];
   const accountState = kind in ACCOUNT_STATES ? ACCOUNT_STATES[kind as AccountRegion] : undefined;
   const prepared = await prepareWorld({ environments: [{
-    name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks", ...(keyManagerRegion ? ["keyManagers", "managedTools"] as const : [])],
+    name: "desk", reach: kind === "permissions-sandbox-paired" ? "paired" : "local", capabilities: ["setup", "banks", "browser", "workspaceChecks", ...(keyManagerRegion ? ["keyManagers", "managedTools"] as const : [])],
     ...(accountState !== undefined && { ambient: accountState.ambient }),
     accounts: accountState !== undefined ? accountState.accounts : kind === "account" || kind === "close-confirmation" ? [] : kind === "sign-in"
       ? [{ label: "Project", directory: { kind: "owned", path: "/accounts/project" }, status: { state: "expired", checkedAt: null, detail: null } }]
@@ -199,11 +201,11 @@ async function prepareRegion(kind: SetupRegion) {
     ...(kind === "rail-states" && { setup: RAIL_STATES }),
     ...(binding !== undefined && { status: { binding } }),
     ...(kind === "instructions-unread" && { setup: { instructions: UNREAD_PARTS } }),
-    ...(kind === "permissions-sandbox" && { setup: { permissions: SANDBOX_UNAVAILABLE }, containment: NO_BUBBLEWRAP, settings: { "permissions.containment.default": "workspace" } }),
+    ...(isSandbox(kind) && { setup: { permissions: SANDBOX_UNAVAILABLE }, containment: NO_BUBBLEWRAP, settings: { "permissions.containment.default": "workspace" } }),
     ...(status !== undefined && { setup: { skills: status } }),
     ...(keyManagerRegion && keyManagersOf(kind)),
     ...(isBrowserRegion(kind) && { setup: { browser: BROWSER_RESULTS[kind] } }),
-  }] }, { firstLaunch: true });
+  }] }, { firstLaunch: true, presentation: { runLocalEnvironment: kind !== "permissions-sandbox-paired" } });
   const desk = prepared.world.environment("desk");
   if (target === "instructions") scriptInstructions(desk, kind === "instructions-unread" ? ["forges", "banks"] : []);
   desk.wire.answer("browser.status", () => ({ result: {
@@ -324,7 +326,7 @@ export function setupRegionScene(kind: SetupRegion) {
           if (!finished && reset !== undefined && !reset.disabled) { finished = true; reset.click(); }
           return;
         }
-        if (kind === "host-updater" || kind === "permissions-sandbox") {
+        if (kind === "host-updater" || isSandbox(kind)) {
           const label = kind === "host-updater" ? "How to set it up" : "How to fix it";
           const how = [...document.querySelectorAll<HTMLButtonElement>("[data-setup-scroll] button")].find((button) => button.textContent === label);
           if (!finished && how !== undefined) { finished = true; how.click(); }
