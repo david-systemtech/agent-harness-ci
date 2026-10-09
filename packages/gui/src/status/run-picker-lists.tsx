@@ -1,4 +1,4 @@
-import { gaugeOf, identityWords, modelDisplayName, modelName, modelsOf, pickerModels, pinWords } from "@agent-harness/client-runtime";
+import { favouriteModelIds, gaugeOf, identityWords, modelDisplayName, modelName, modelsOf, pickerModels, pinWords } from "@agent-harness/client-runtime";
 import type { AccountCatalogue, AccountRecord, ModelEntry } from "@agent-harness/contracts";
 import { ArrowLeft, Cpu, Layers, Search, Star } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -101,9 +101,10 @@ export const ModelChoices = ({ environmentId, catalogues, accountId, favourites,
   const models = modelsOf(catalogues, accountId);
   const picked = pickerModels(catalogues, accountId, favourites, current);
   const pin = pinWords(picked, favourites);
+  const starred = new Set(favouriteModelIds(favourites, new Set(models.map((entry) => entry.id))));
   const visible = models.filter((entry) => `${modelName(entry)} ${entry.label ?? ""}`.toLowerCase().includes(query.toLowerCase()));
   const accountLabel = (id: string) => accounts?.find((entry) => entry.id === id)?.label ?? id;
-  const modelRow = (entry: ModelEntry) => <RunChoiceRow key={entry.id} icon={favourites.includes(entry.id) ? Star : Cpu} label={modelName(entry)} primary={modelDisplayName(entry.id, entry.label)} machine={modelDisplayName(entry.id, entry.label) === entry.id ? undefined : entry.id}
+  const modelRow = (entry: ModelEntry) => <RunChoiceRow key={entry.id} icon={starred.has(entry.id) ? Star : Cpu} label={modelName(entry)} primary={modelDisplayName(entry.id, entry.label)} machine={modelDisplayName(entry.id, entry.label) === entry.id ? undefined : entry.id}
     selected={current === entry.id} dim={dim} note={entry.efforts.length > 0 ? "Supports effort" : "Uses its own effort"}
     onSelect={() => { setOthersOpen(false); choose(entry); }} />;
   // Other models: a flyout beside the column; in one column at a time (a phone's sheet), where a flyout has no room, a page of the list.
