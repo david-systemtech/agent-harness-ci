@@ -10,7 +10,6 @@ import {
   statusOf,
   type Clock,
   type EnvironmentView,
-  type RunChoice,
   type RunState,
   type Runtime,
   type SessionProjection,
@@ -31,13 +30,11 @@ import type { StatusLineOne, StatusLineTwo } from "./status-line.js";
  * the plan windows of its account's identity from `projections.usage`, the
  * containment default and the hand-off recommendation from the request cache
  * (`permissions.settings.get`, `accounts.handoff.recommend`), each followed
- * while the line shows it. What this terminal chose for the session's next
- * runs (a model and effort from `/model`, a containment level it set) is
- * handed in. What the line says is the client runtime's rule (`statusOf`,
+ * while the line shows it; the model and effort `/model` chose are the
+ * summary's (`runChoice`, #1961). What this terminal set for the session's
+ * next runs (a containment level) is handed in. What the line says is the client runtime's rule (`statusOf`,
  * which the desktop window's status line says too; #402).
  */
-
-export type { RunChoice };
 
 export interface StatusInputs {
   readonly runtime: Runtime;
@@ -53,7 +50,6 @@ export interface StatusInputs {
   readonly liveRunId: string | undefined;
   /** The session's provider steers a message sent during a run into it. */
   readonly steers: boolean;
-  readonly choice: RunChoice | undefined;
   /** The session's own containment level, as this terminal set it; undefined when it has not. */
   readonly containment: ContainmentLevel | undefined;
   /** The account this terminal handed the session off onto, which its summary names only once a run of it has used it. */
@@ -97,7 +93,6 @@ export const useStatus = (inputs: StatusInputs): StatusView => {
           runState: inputs.runState,
           liveRunId: inputs.liveRunId,
           ceiling: environment?.ceiling ?? null,
-          choice: inputs.choice,
           forkedOnto: inputs.forkedOnto,
           containmentSet: inputs.containment,
           containmentDefault: permissions?.read().result?.values["permissions.containment.default"],

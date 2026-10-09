@@ -12,11 +12,12 @@ import { spendOf, windowOut, workingWords, type Spend } from "./words.js";
  * elapsed time in the environment's time, tokens and cost, the last run's
  * once it has ended), or the hand-off offer while the account's window is
  * out and no run is live. Pure: each renderer reads the projections and the
- * request cache and hands them in, with what it chose itself for the
- * session's next runs.
+ * request cache and hands them in. The model and effort are the session's
+ * own (`runChoice`, #1961), which the next run goes out on, so the line
+ * names what the run will use.
  */
 
-/** The model and effort a client sends with the session's next `runs.start` (the model picker's choice); effort null for the model's own. */
+/** A model and effort for a session's next run, as the model picker chooses them (`sessions.setModel`); effort null for the model's own. */
 export interface RunChoice {
   readonly model: string;
   readonly effort: string | null;
@@ -66,8 +67,6 @@ export interface StatusInput {
   readonly liveRunId: string | undefined;
   /** The connection's ceiling (`projections.environments`). */
   readonly ceiling: Mode | null;
-  /** What this client chose for the session's next runs with the model picker. */
-  readonly choice: RunChoice | undefined;
   /** The account this client handed the session off onto, which its summary names only once a run of it has used it. */
   readonly forkedOnto: string | undefined;
   /** The level this client set on the session, for when its stream has not said one. */
@@ -83,7 +82,11 @@ export interface StatusInput {
 export interface StatusFacts {
   /** The session's account: the latest run's, else the one it was handed off onto; null for the environment's default. */
   readonly accountId: string | null;
-  /** The model and effort: this client's choice, else the latest run's, else the summary's model; undefined for the default. */
+  /**
+   * The model and effort the next run goes out on: the session's own
+   * (`runChoice`), else, from an environment that keeps none, the latest
+   * run's, else the summary's model; undefined for the default.
+   */
   readonly model: RunChoice | undefined;
   readonly mode: ModeBadge;
   /** Undefined while neither the session's own level nor the default is known. */
@@ -117,7 +120,7 @@ export const statusOf = (input: StatusInput): StatusFacts => {
           : { kind: "idle", words: "idle" };
   return {
     accountId: summary?.accountId ?? input.forkedOnto ?? null,
-    model: input.choice ?? (latest ? { model: latest.model, effort: latest.effort } : summary?.model ? { model: summary.model, effort: null } : undefined),
+    model: summary?.runChoice ?? (latest ? { model: latest.model, effort: latest.effort } : summary?.model ? { model: summary.model, effort: null } : undefined),
     mode: modeBadgeOf(summary?.mode, input.ceiling, latest),
     containment: own != null ? { level: own, isDefault: false } : input.containmentDefault !== undefined ? { level: input.containmentDefault, isDefault: true } : undefined,
     live,

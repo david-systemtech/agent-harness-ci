@@ -8,10 +8,10 @@ import {
   identityWords,
   modelChoiceWords,
   modelsOf,
-  nextRunWords,
   sessionModeOf,
   setSessionContainment,
   setSessionMode,
+  setSessionModel,
   type CapabilityName,
   type ContainmentBadge,
   type RunChoice,
@@ -33,7 +33,7 @@ import { SessionBrowserPicker } from "../browser/session-picker.js";
 import { RunChoiceRow, RunPickerColumn, RunPickerContent, RunPickerSteps, RunPickerTrigger, moveInColumns, useNarrowRunPicker, type RunStage } from "./run-picker-parts.js";
 import { useSayModeSet } from "./mode-said.js";
 import { ModeSheet, focusModeSheet, trapModeSheetTab } from "./mode-sheet.js";
-import { useHandedOnto, useModelChoice } from "./run-choices.js";
+import { useHandedOnto } from "./run-choices.js";
 import { AccountChoiceRow, ModelChoices, Waiting, useFavouriteModels } from "./run-picker-lists.js";
 
 /**
@@ -55,7 +55,8 @@ import { AccountChoiceRow, ModelChoices, Waiting, useFavouriteModels } from "./r
  *   session off onto it, the hand-off picker's fork.
  * - **Models**: the models of the session's account (every account's, once
  *   each, while the session has none) with their efforts, the model's own
- *   first; the choice goes with the session's next run. The favourite models
+ *   first; the choice is the session's (`sessions.setModel`, #1961), which
+ *   its next runs go out on and every client's line names. The favourite models
  *   (`accounts.favouriteModels`, #1821) the account lists come first as
  *   one-click picks, else the provider's recommended models with how to pin
  *   favourites; every other model is under Other models, a flyout opened on
@@ -191,7 +192,7 @@ interface RunPickerProps {
   readonly environmentId: string;
   readonly sessionId: string;
   readonly accountId: string | null;
-  /** The model and effort the status line shows: both chips open the columns on this one, so they mark the same row (#1896). */
+  /** The model and effort the status line shows, the session's own (#1961): both chips open the columns on this one, so they mark the same row (#1896). */
   readonly model: RunChoice | undefined;
 }
 
@@ -209,7 +210,7 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
   const signingIn = useOffer(environmentId, "accounts.signin.start");
   const openSignIn = useSignInCard();
   const handOffOnto = useHandOffOnto(environmentId, sessionId);
-  const [, choose] = useModelChoice(environmentId, sessionId);
+  const choosing = useOffer(environmentId, "sessions.setModel");
   const [, say] = usePaneLine();
   const session = useSessionName(environmentId, sessionId);
   const windowIsNarrow = useNarrowRunPicker();
@@ -223,9 +224,9 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
   const chosen = (id: string, effort: string | null) => {
     if (reason !== undefined) return say(reason);
     if (listingModels.status === "absent") return say(listingModels.message);
-    choose({ model: id, effort });
+    if (choosing.status === "absent") return say(choosing.message);
     if (narrow && models.find((entry) => entry.id === id)?.efforts.length) setActiveColumn("Effort");
-    say(nextRunWords(session, { model: id, effort }, models.find((entry) => entry.id === id)?.label));
+    void setSessionModel(runtime, environmentId, sessionId, { model: id, effort }, { session, model: models.find((entry) => entry.id === id)?.label ?? null }).then(say);
   };
   const pickAccount = (candidate: AccountRecord) => {
     if (reason !== undefined) return say(reason);
@@ -304,9 +305,8 @@ export const AccountPicker = ({ environmentId, sessionId, accountId, model }: Ru
 export const ModelPicker = ({ environmentId, sessionId, accountId, model }: RunPickerProps) => {
   const runtime = useRuntime();
   const catalogues = useObservable(useMemo(() => runtime.projections.models(environmentId), [runtime, environmentId]));
-  const [choice] = useModelChoice(environmentId, sessionId);
   const handedOnto = useHandedOnto(environmentId, sessionId);
-  const current = choice ?? model;
+  const current = model;
   const listed = current === undefined || catalogues.value === null ? undefined : modelsOf(catalogues.value, accountId ?? handedOnto ?? null).find((entry) => entry.id === current.model);
   const unavailable = current !== undefined && catalogues.value !== null && listed === undefined;
   const words = current === undefined ? "default model" : modelChoiceWords(current, listed?.label);

@@ -587,6 +587,7 @@ export {
   handingOffWords,
   setSessionContainment,
   setSessionMode,
+  setSessionModel,
   type AdminOutcome,
   type ContainmentSet,
   type HandOff,
