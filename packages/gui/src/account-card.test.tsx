@@ -348,7 +348,7 @@ describe("the Account card's defaults", () => {
     // The idle time is the row's, not the step card's.
     expect(within(defaults()).queryByRole("group", { name: "Stop idle agent processes after minutes" })).toBeNull();
 
-    await pickDefault(app, "Default account", "work");
+    await pickDefault(app, "Default account", "work not read yet");
     await waitFor(() => expect(desk.settings()["accounts.defaultAccount"]).toBe("account-2"));
     await pickDefault(app, "Model family", "claude-sonnet-5");
     await waitFor(() => expect(desk.settings()["accounts.defaultModelFamily"]).toBe("sonnet"));

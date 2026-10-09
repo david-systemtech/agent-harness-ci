@@ -62,6 +62,28 @@ it("draws the default-model dependency picker with friendly model names and boun
   }
 });
 
+it.each(["light", "dark"] as const)("keeps a long email unbroken above its provider in the default-account gallery in %s", async (ladder) => {
+  const email = "account.with-a-long-address@example.test";
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, "settings-default-account-picker", ladder);
+  try {
+    await assertCaptureReady(container, "settings-default-account-picker", gallery.ready);
+    const picker = await screen.findByLabelText("New-session defaults");
+    const account = within(picker).getByRole("menuitem", { name: `Personal ${email}` });
+    expect(email.length).toBeGreaterThanOrEqual(28);
+    const identity = account.querySelector("[data-run-identity]");
+    expect(identity?.textContent).toBe(email);
+    expect(identity?.className).toContain("truncate");
+    expect(identity?.nextElementSibling?.textContent).toBe("claude");
+    expect(account.getAttribute("title")).toContain(email);
+    expect(JSON.parse(container.dataset["galleryGeometry"] ?? "null")).toContainEqual({ selector: '[data-default-picker] [data-run-column="Accounts"] [data-run-identity]', unbroken: true });
+  } finally {
+    await gallery.close();
+    container.remove();
+  }
+});
+
 it("keeps account capture pending while fonts remain held beyond a polling deadline", async () => {
   const originalFonts = Object.getOwnPropertyDescriptor(document, "fonts");
   let releaseFonts!: () => void;
