@@ -628,7 +628,7 @@ export {
   NO_WINDOWS_READ,
   accountChoiceWords,
   accountStatusWords,
-  ambientOffer,
+  ambientSignIn,
   directoryWords,
   effortChoices,
   familyChoices,
@@ -638,9 +638,22 @@ export {
   pooledWords,
   removalWords,
   resetWords,
+  type AmbientSignIn,
   type FamilyChoice,
 } from "./accounts/words.js";
-export { adoptAccount, modelPreset, presetModelDefaults, relabelAccount, removeAccount, type AccountOutcome, type ModelPreset } from "./accounts/actions.js";
+export {
+  NEW_ACCOUNT_LABEL,
+  adoptAccount,
+  emailLabel,
+  modelPreset,
+  nameProblem,
+  newAccountLabel,
+  presetModelDefaults,
+  relabelAccount,
+  removeAccount,
+  type AccountOutcome,
+  type ModelPreset,
+} from "./accounts/actions.js";
 export {
   RECOMMENDED_MODELS,
   addFavourite,

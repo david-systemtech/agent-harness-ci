@@ -1504,7 +1504,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   /** The refusal of `label` for another account than `accountId` holding it, ignoring case. */
   const labelTaken = (label: string, accountId?: string): FakeAnswer | undefined => {
     const holder = accounts.find((a) => a.id !== accountId && a.label.toLowerCase() === label.toLowerCase());
-    return holder ? accountRefusal("label_taken", `The label ${label} is taken by another account on this environment, ignoring case.`, { accountId: holder.id }) : undefined;
+    return holder ? accountRefusal("label_taken", `Another account is already called ${label}. Choose another name.`, { accountId: holder.id }) : undefined;
   };
   /** Removes `held`, releasing the machine's own directory if it held it, as the account store does. */
   const removeAccount = (held: AccountRecord) => {
@@ -1518,11 +1518,13 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const refused = rejection("accounts.adopt");
     if (refused) return refused;
     if (ambient.directory === null || !ambient.present || !ambient.signedIn) {
-      return accountRefusal("ambient_unavailable", `The machine's own Claude directory is not signed in (${ambient.directory ?? "none"}); sign in with Claude's own CLI, then call accounts.probe.`);
+      const line = ambient.directory === null || !ambient.present ? "Claude Code is not on this computer. Sign in with Claude instead." : "Claude Code on this computer is not signed in. Sign in with Claude instead.";
+      return accountRefusal("ambient_unavailable", line, ambient.directory === null ? {} : { directory: ambient.directory });
     }
     const holder = accounts.find((a) => a.id === ambient.accountId);
-    if (holder) return accountRefusal("already_added", `${ambient.directory} is already added as ${holder.label}.`, { accountId: holder.id });
-    const label = (params["label"] as string | undefined) ?? ambient.identity?.email ?? "";
+    if (holder) return accountRefusal("already_added", `This sign-in is already used by ${holder.label}.`, { accountId: holder.id, directory: ambient.directory });
+    const label = (params["label"] as string | undefined) ?? ambient.identity?.email;
+    if (label === undefined) return accountRefusal("no_email", "This sign-in has no email to name the account by. Enter a name.", { directory: ambient.directory });
     const taken = labelTaken(label);
     if (taken) return taken;
     const account = accountOf({ id: `account-${++accountsMinted}`, label, directory: { kind: "adopted", path: ambient.directory }, identity: ambient.identity }, accounts.length);
@@ -1538,10 +1540,10 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const held = accounts[at];
     if (!held) return accountNotHeld(params["accountId"]);
     const label = String(params["label"]);
-    if (held.label === label) return acceptedWith({ account: held });
+    if ((params["onlyIfNameByEmail"] === true && held.nameByEmail !== true) || (held.label === label && held.nameByEmail !== true)) return acceptedWith({ account: held });
     const taken = labelTaken(label, held.id);
     if (taken) return taken;
-    const account = { ...held, label };
+    const account = { ...held, label, nameByEmail: false };
     accounts[at] = account;
     accountUpdated(account.id, "relabelled");
     return acceptedWith({ account });
@@ -1567,7 +1569,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const held = accounts[at];
     if (!held) throw new Error(`${spec.name} holds no account ${accountId}.`);
     if (changes === null) return removeAccount(held);
-    accounts[at] = checked(AccountRecord, { ...held, ...changes });
+    accounts[at] = checked(AccountRecord, { ...held, ...changes, ...(changes.label === undefined ? {} : { nameByEmail: false }) });
     accountUpdated(accountId, changes.label !== undefined ? "relabelled" : changes.identity !== undefined ? "identity-set" : "status-changed");
   };
 
@@ -1613,7 +1615,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const id = ++accountsMinted;
     const label = String(params["label"]);
     const running = runningSignIn();
-    const account = accountOf({ id: `account-${id}`, label, directory: { kind: "owned", path: `/home/milo/.agent-harness/accounts/${id}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
+    const account = accountOf({ id: `account-${id}`, label, ...(params["nameByEmail"] === true ? { nameByEmail: true } : {}), directory: { kind: "owned", path: `/home/milo/.agent-harness/accounts/${id}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
     accounts.push(account);
     const start =
       spec.addSignIn ?? (running === null ? { started: true, message: null } : { started: false, message: `${heldMessage(running)} Sign ${label} in with accounts.signin.start once it has.` });

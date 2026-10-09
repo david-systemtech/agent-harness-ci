@@ -26,9 +26,26 @@ export const joinPreview: BankJoinPreview = {
 /** A step's status at the head of its card (setup-copy.md §3; #1840): done, needing a fix with Details open, a check that could not run, and the environment out of reach. */
 type StatusRegion = "status-done" | "status-fix" | "status-could-not-check" | "status-unreachable";
 
-type SetupRegion = StepId | "appearance-default" | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | "instructions-unread" | "permissions-sandbox" | StatusRegion | KeyManagerRegion | BrowserRegion;
+type SetupRegion = StepId | "appearance-default" | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | "instructions-unread" | "permissions-sandbox" | StatusRegion | AccountRegion | KeyManagerRegion | BrowserRegion;
 
 const isStatus = (kind: SetupRegion): kind is StatusRegion => kind.startsWith("status-");
+
+/** setup-copy.md §5.1's Account states beyond the empty one (#1842): Claude Code found and signed in, an account signed in, one signed out. */
+type AccountRegion = "account-claude-code" | "account-signed-in" | "account-signed-out";
+const ACCOUNT_REGIONS: ReadonlySet<SetupRegion> = new Set<SetupRegion>(["account-claude-code", "account-signed-in", "account-signed-out"]);
+
+/** Who the gallery's Claude Code signs in as; an invented address. */
+const READER = { provider: "claude" as const, email: "reader@example.test", organisation: null };
+
+/** The accounts and this computer's Claude Code sign-in each Account state starts from. */
+const ACCOUNT_STATES = {
+  "account-claude-code": { accounts: [], ambient: { present: true, signedIn: true, identity: READER } },
+  "account-signed-in": { accounts: [{ label: READER.email, identity: READER, directory: { kind: "owned", path: "/accounts/reader" } }], ambient: {} },
+  "account-signed-out": {
+    accounts: [{ label: "Project", directory: { kind: "owned", path: "/accounts/project" }, status: { state: "signed-out", checkedAt: null, detail: null } }],
+    ambient: { present: true, signedIn: false },
+  },
+} as const;
 
 /** setup-copy.md §5.7's Key manager states beyond none chosen (#1851): OpenBao's form chosen, a key manager connected, and one that does not answer. */
 type KeyManagerRegion = "key-manager-openbao" | "key-manager-connected" | "key-manager-unreachable";
@@ -141,12 +158,14 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
-  const target: StepId = kind === "appearance-default" ? "appearance" : kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" || showsKeyManagers(kind) ? "key-manager" : kind === "instructions-unread" ? "instructions" : kind === "permissions-sandbox" ? "permissions" : isStatus(kind) ? "skills" : isBrowserRegion(kind) ? "browser" : kind;
+  const target: StepId = kind === "appearance-default" ? "appearance" : kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" || ACCOUNT_REGIONS.has(kind) ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" || showsKeyManagers(kind) ? "key-manager" : kind === "instructions-unread" ? "instructions" : kind === "permissions-sandbox" ? "permissions" : isStatus(kind) ? "skills" : isBrowserRegion(kind) ? "browser" : kind as StepId;
   const keyManagerRegion = showsKeyManagers(kind);
   const status = isStatus(kind) ? STATUS_RESULTS[kind] : undefined;
+  const accountState = kind in ACCOUNT_STATES ? ACCOUNT_STATES[kind as AccountRegion] : undefined;
   const prepared = await prepareWorld({ environments: [{
     name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks", ...(keyManagerRegion ? ["keyManagers", "managedTools"] as const : [])],
-    accounts: kind === "account" || kind === "close-confirmation" ? [] : kind === "sign-in"
+    ...(accountState !== undefined && { ambient: accountState.ambient }),
+    accounts: accountState !== undefined ? accountState.accounts : kind === "account" || kind === "close-confirmation" ? [] : kind === "sign-in"
       ? [{ label: "Project", directory: { kind: "owned", path: "/accounts/project" }, status: { state: "expired", checkedAt: null, detail: null } }]
       : [{ label: "Project", directory: { kind: "adopted", path: "/accounts/project" } }],
     sessions: kind === "authoring" ? [{ title: "Set up: Memory bank", tags: ["setup", "memory-bank"] }] : [],

@@ -42,9 +42,10 @@ const owned = {
 };
 
 const records: Fixtures = {
-  valid: [adopted, owned, { ...adopted, status: unreadable }],
+  valid: [adopted, owned, { ...owned, nameByEmail: true }, { ...owned, nameByEmail: false }, { ...adopted, status: unreadable }],
   invalid: [
     { ...adopted, label: "" },
+    { ...owned, nameByEmail: "yes" },
     { ...adopted, label: " padded" },
     { ...adopted, directory: { kind: "linked", path: "/x" } },
     { ...adopted, status: { state: "unknown", checkedAt: at, detail: null } },
@@ -122,8 +123,8 @@ export const accountSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ accountId, provider: "claude", label: "david@example.com" }, { accountId, provider: "Claude", label: "d", directory: "/x" }],
   },
   "accounts/events/account.added.json": {
-    valid: [{ accountId, provider: "claude", label: "Work", directory: owned.directory.path }],
-    invalid: [{ accountId, provider: "claude", label: "", directory: "/x" }, { provider: "claude", label: "Work", directory: "/x" }],
+    valid: [{ accountId, provider: "claude", label: "Work", directory: owned.directory.path }, { accountId, provider: "claude", label: "Claude account", directory: owned.directory.path, nameByEmail: true }],
+    invalid: [{ accountId, provider: "claude", label: "Work", directory: "/x", nameByEmail: "yes" }, { accountId, provider: "claude", label: "", directory: "/x" }, { provider: "claude", label: "Work", directory: "/x" }],
   },
   "accounts/events/account.identity-set.json": {
     valid: [{ accountId, identity }, { accountId, identity: { ...identity, organisation: "Acme" } }],
@@ -221,14 +222,14 @@ export const accountMethodFixtures: Record<string, { params: Fixtures; result: F
     result: { valid: [{ account: adopted }], invalid: [{}, { account: { ...adopted, directory: null } }] },
   },
   "accounts.add": {
-    params: { valid: [{ commandId, label: "Work" }, { commandId, label: "Work", provider: "claude" }], invalid: [{ commandId }, { label: "Work" }, { commandId, label: "Work\n" }] },
+    params: { valid: [{ commandId, label: "Work" }, { commandId, label: "Work", provider: "claude" }, { commandId, label: "Claude account", nameByEmail: true }], invalid: [{ commandId, label: "Work", nameByEmail: "yes" }, { commandId }, { label: "Work" }, { commandId, label: "Work\n" }] },
     result: {
       valid: [{ account: owned, signIn: { started: false, message: "Signing in from the environment is not built yet." } }, { account: owned, signIn: { started: true, message: null } }],
       invalid: [{ account: owned }, { account: owned, signIn: { started: true } }],
     },
   },
   "accounts.relabel": {
-    params: { valid: [{ commandId, accountId, label: "Personal" }], invalid: [{ commandId, accountId }, { commandId, label: "Personal" }, { commandId, accountId, label: " " }] },
+    params: { valid: [{ commandId, accountId, label: "Personal" }, { commandId, accountId, label: "Personal", onlyIfNameByEmail: true }], invalid: [{ commandId, accountId, label: "Personal", onlyIfNameByEmail: "yes" }, { commandId, accountId }, { commandId, label: "Personal" }, { commandId, accountId, label: " " }] },
     result: { valid: [{ account: adopted }], invalid: [{}, { account: { ...adopted, label: "" } }] },
   },
   "accounts.remove": {
