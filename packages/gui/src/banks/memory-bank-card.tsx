@@ -89,6 +89,7 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
   const [refused, say] = useState<{ readonly refusal: PlainRefusal; readonly at: "card" | "form" }>();
   const [busy, setBusy] = useState(false);
   const [removing, setRemoving] = useState<BankRecord>();
+  const [removeRefusal, setRemoveRefusal] = useState<PlainRefusal>();
   const [updates, setUpdates] = useState<Record<string, MemoryPromoteResult | null>>({});
   const verified = forges.result?.accounts.filter((account) => account.identity !== null && account.problem === null) ?? [];
   const main = forges.result?.accounts.find((account) => account.primary);
@@ -104,18 +105,21 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
   const verifyCapability = runtime.capability(environmentId, "banks.verify");
   const disabled = busy || command.status === "absent";
   const refresh = () => runtime.requests.refresh(environmentId, "banks.list", {});
-  /** Runs one bank command, saying its refusal in plain words beside what asked (`at`: a notebook's card, or the form); `done` runs on success. */
-  const send = async (call: () => Promise<Sent>, done: () => void = refresh, at: "card" | "form" = "card") => {
+  const closeRemove = () => { setRemoving(undefined); setRemoveRefusal(undefined); };
+  /** Runs one bank command, saying its refusal beside what asked: a notebook's card, the form, or the Remove dialog; `done` runs on success. */
+  const send = async (call: () => Promise<Sent>, done: () => void = refresh, at: "card" | "form" | "remove" = "card") => {
     say(undefined);
+    if (at === "remove") setRemoveRefusal(undefined);
     setBusy(true);
     try {
       const answer = await call();
       if (answer.ok) done();
+      else if (at === "remove") setRemoveRefusal(answer.refusal);
       else say({ refusal: answer.refusal, at });
     } finally { setBusy(false); }
   };
   const turn = (bank: BankRecord) => send(async () => said(await adminCall(() => runtime.requests.call(environmentId, "banks.registry.update", { commandId: uuidv7(clock.now()), bankId: bank.id, enabled: !bank.enabled })), bank.enabled ? "Turn off" : "Turn on"));
-  const remove = (bank: BankRecord) => send(async () => said(await adminCall(() => runtime.requests.call(environmentId, "banks.forget", { commandId: uuidv7(clock.now()), bankId: bank.id, removeCheckout: false })), "Remove notebook"), () => { setRemoving(undefined); refresh(); });
+  const remove = (bank: BankRecord) => send(async () => said(await adminCall(() => runtime.requests.call(environmentId, "banks.forget", { commandId: uuidv7(clock.now()), bankId: bank.id, removeCheckout: false })), "Remove notebook"), () => { closeRemove(); refresh(); }, "remove");
   const sync = (bankId?: string) => send(async () => {
     const answer = await runtime.requests.call(environmentId, "banks.sync", bankId === undefined ? {} : { bankId });
     return answer.ok ? { ok: true } : { ok: false, refusal: plainRefusal(answer.error, bankId === undefined ? "Sync all" : "Sync") };
@@ -202,13 +206,13 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
     </div>
     {refused?.at === "form" && <BankRefusal refusal={refused.refusal} />}
     </div>
-    <Dialog open={removing !== undefined} onOpenChange={(open) => { if (!open && !busy) setRemoving(undefined); }}>
+    <Dialog open={removing !== undefined} onOpenChange={(open) => { if (!open && !busy) closeRemove(); }}>
       {removing !== undefined && <DialogContent title={`Remove ${removing.name}?`} description="Agents will stop using it. Its folder stays on this computer, and its repository on the forge is kept.">
         <div className="flex flex-wrap justify-end gap-2">
-          <BankButton label="Cancel" icon={X} disabled={busy} onClick={() => setRemoving(undefined)} />
+          <BankButton label="Cancel" icon={X} disabled={busy} onClick={closeRemove} />
           <BankButton label="Remove notebook" icon={Trash2} variant="destructive" disabled={busy} reason={forget.status === "absent" ? forget.message : undefined} onClick={() => void remove(removing)} />
         </div>
-        {refused !== undefined && <BankRefusal refusal={refused.refusal} />}
+        {removeRefusal !== undefined && <BankRefusal refusal={removeRefusal} />}
       </DialogContent>}
     </Dialog>
   </>;

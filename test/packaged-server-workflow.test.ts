@@ -249,3 +249,11 @@ describe("the public release's packaged server smoke tests", () => {
     }
   });
 });
+
+
+it("runs the native Windows terminal drain and update trial check from the installed server", () => {
+  const body = job(hosted, "smoke-windows");
+  expect(body).toContain("Resolve-Path 'scripts/check-packaged-terminal-drain.mjs'");
+  expect(body).toContain("& $node scripts/check-packaged-terminal-drain.mjs $server");
+  expect(body).toContain("if ($LASTEXITCODE -ne 0) { throw 'Packaged terminal drain and update trial check failed' }");
+});
