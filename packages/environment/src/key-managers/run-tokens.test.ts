@@ -537,7 +537,8 @@ describe("a spawn while a connection signs in", () => {
     await t.close();
     let answer = (): void => undefined;
     bao.approle(ROLE_ID, SECRET_ID, { policies: ["default", "minter", "reader"], ttlSeconds: 7200, after: new Promise<void>((resolve) => (answer = resolve)) });
-    const again = await start({ ...options, dataDir });
+    // The caller releases sign-in after startup, while the start pass is still checking it.
+    const again = await start({ ...options, dataDir, awaitSetupStartPass: false });
     const client2 = await again.client();
     expect((await list(client2))[0]?.status.kind).toBe("signing-in");
     return { t: again, bao, client: client2, answer };

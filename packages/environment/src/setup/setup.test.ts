@@ -29,7 +29,8 @@ import type { WireClient } from "../../test/wire-client.js";
 const { onCleanup, tempDir } = useCleanups();
 
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
-  const t = await startTestEnvironment(options);
+  // Scripted checks are answered by the test after it gets the environment.
+  const t = await startTestEnvironment({ ...options, awaitSetupStartPass: options.setupSteps === undefined });
   onCleanup(() => t.close());
   return t;
 };
