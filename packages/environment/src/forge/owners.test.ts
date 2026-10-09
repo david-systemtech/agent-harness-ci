@@ -37,6 +37,45 @@ const user = (login: string) => ({ login, kind: "user" });
 const organisation = (login: string) => ({ login, kind: "organisation" });
 
 describe("forge.orgs.list", () => {
+  it.each([401, 403, 404, 200])("says the token was refused when the identity endpoint answers no user with HTTP %s, keeping the forge's answer in details", async (status) => {
+    const t = await start();
+    const forge = await fakeForge();
+    forge.user(TOKEN, { login: "sample-user", id: 42 });
+    const client = await t.client();
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    const site = forge.origin.replace("http://", "");
+    forge.answer(TOKEN, "GET /api/v1/user", { status, body: { message: "identity access denied" } });
+    const details = status === 401 || status === 403
+      ? `The forge at ${forge.origin} refused the token (HTTP ${status}).`
+      : `The forge at ${forge.origin} answered HTTP ${status} on the Forgejo or Gitea user endpoint, and no user: is it a Forgejo or Gitea forge?`;
+    const error = {
+      code: "verification_failed",
+      message: `${site} did not accept the token for sample-user. Create a new token and add it.`,
+      data: { origin: forge.origin, status, details: [details] },
+    };
+
+    await expect(owners(client, account.id)).rejects.toMatchObject(error);
+    expect(await t.env.forge.repositories.owners({ origin: forge.origin, purpose: "list repository owners" })).toEqual({ outcome: "refused", error });
+  });
+
+  it.each([401, 403, 200])("says organisations cannot be listed when the identity succeeds but the list answers HTTP %s with no list", async (status) => {
+    const t = await start();
+    const forge = await fakeForge();
+    forge.user(TOKEN, { login: "sample-user", id: 42 });
+    const client = await t.client();
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    const site = forge.origin.replace("http://", "");
+    forge.answer(TOKEN, "GET /api/v1/user/orgs", { status, body: { message: "organisation access denied" } });
+    const details = `The forge at ${forge.origin} answered HTTP ${status} and no list of organisations.`;
+
+    await expect(owners(client, account.id)).rejects.toMatchObject({
+      code: "verification_failed",
+      message: `The token for ${site} cannot list organisations. Create a new token with that permission and add it.`,
+      data: { origin: forge.origin, status, details: [details] },
+    });
+    expect(await t.env.forge.repositories.owners({ origin: forge.origin, purpose: "list repository owners" })).toEqual({ outcome: "failed", status, message: details });
+  });
+
   it("answers a Forgejo forge account's user first, then its organisations, read from the forge on every call and never recorded", async () => {
     const t = await start();
     const forge = await fakeForge();
