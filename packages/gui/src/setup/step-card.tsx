@@ -44,7 +44,7 @@ export interface StepCardFrameProps extends StepCardProps {
  * button's reason is visible text beside it, never a tooltip alone.
  */
 export const StepCard = ({ environmentId, step, state, computer }: StepCardFrameProps) => {
-  const { choose, close } = useChecklist();
+  const { choose, close, checkedEnvironmentId } = useChecklist();
   const reasonId = useId();
   const Card = useRegisteredCard(step.id) ?? StepStatus;
   const index = STEP_ORDER.indexOf(step.id);
@@ -60,6 +60,7 @@ export const StepCard = ({ environmentId, step, state, computer }: StepCardFrame
       <div data-setup-scroll className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-[34px] md:px-10">
         <StepIntro step={step.id} title={words.heading} why={words.why} {...(words.what !== undefined && { what: words.what })} />
         <div className="flex w-full max-w-[620px] flex-col gap-4">
+          {checkedEnvironmentId === environmentId && <p data-setup-checked className="text-xs text-ink-muted">Checked just now.</p>}
           {state === "unavailable" ? (
             <p className="flex flex-wrap items-center gap-2 text-sm text-ink">
               <StateBadge state="unavailable" />

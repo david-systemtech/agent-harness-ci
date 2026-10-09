@@ -307,3 +307,24 @@ it("enables the route when the endpoint's answer is lost but the endpoint was sa
   expect(desk.requests("attention.routes.remove")).toEqual([]);
   expect(routes.map(route => [route.id, route.enabled])).toEqual([["phone-attention", true]]);
 });
+
+it.each([
+  ["removed", "pasted", "Webhook route phone-attention, endpoint phone-attention and its signing secret removed."],
+  ["removed", "reference", "Webhook route phone-attention, endpoint phone-attention and its key-manager reference removed. The external signing secret was kept in the key manager."],
+  ["removed", "missing", "Webhook route phone-attention and endpoint phone-attention removed. No saved signing secret was removed."],
+  ["retained", undefined, "Webhook route phone-attention removed. Endpoint phone-attention and its signing secret kept because a routine or another attention route still uses it."],
+  ["missing", undefined, "Webhook route phone-attention removed. Endpoint phone-attention was already absent."],
+])("a removed route still shows the environment's %s endpoint outcome", async (state, secretKind, message) => {
+  const { desk, routes, user, fill } = await openAdminSheet();
+  await fill("phone-attention");
+  await screen.findByRole("button", { name: "Remove phone-attention" });
+  desk.wire.answer("attention.routes.remove", params => {
+    routes.splice(routes.findIndex(route => route.id === params["id"]), 1);
+    return accepted({ id: params["id"], endpoint: { name: "phone-attention", state, secretKind } });
+  });
+  await user.click(screen.getByRole("button", { name: "Remove phone-attention" }));
+  expect(await screen.findByText(message)).toBeDefined();
+  await waitFor(() => expect(screen.queryByRole("heading", { name: "phone-attention" })).toBeNull());
+  expect(screen.getByText(message).getAttribute("role")).toBe("status");
+  expect(desk.requests("routines.endpoints.remove")).toEqual([]);
+});

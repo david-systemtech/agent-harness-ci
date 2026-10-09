@@ -61,7 +61,9 @@ const message = {
 /**
  * Starts a run on the session with `text` as its prompt. The account and
  * workspace are the session's, and the model and mode default to the
- * session's (the effort to the model's own: a session has none); the mode is
+ * session's (the effort to `accounts.defaultEffort` when the model takes it,
+ * else the model's own: a session has none; `effort: null` asks for the
+ * model's own whatever the default, #1950); the mode is
  * clamped to the client session's ceiling (and, for a run that reads queued
  * messages, each sender's) and the account's modes, the clamp recorded on
  * `run.started` and the whole policy on `run.policy.resolved`: a mode above
@@ -85,7 +87,7 @@ export const runsStart = defineMethod({
     sessionId: SessionId,
     ...message,
     model: z.string().min(1).optional().meta({ description: "The model for this run; the session's when absent." }),
-    effort: z.string().min(1).optional().meta({ description: "The reasoning effort for this run; the model's own when absent." }),
+    effort: z.string().min(1).nullable().optional().meta({ description: "The reasoning effort for this run; null for the model's own; when absent, accounts.defaultEffort when the model takes it, else the model's own." }),
     mode: Mode.optional().meta({ description: "The mode for this run, clamped to the client session's ceiling and the account's modes; the session's when absent." }),
   }),
   result: z.object({ runId: RunId, messageId: MessageId }),
