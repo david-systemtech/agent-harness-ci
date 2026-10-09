@@ -1227,7 +1227,7 @@ script, geometry expectations and baseline; surface tickets add separate files.
 | product-surfaces | Pairing, queue/fork/rewind/check, theme, shortcuts, banks/routines | Shared primitive dimensions, state labels and scope/command parity |
 
 Light subset: window-empty, window-not-ready, primitives, transcript with diff,
-inline-asks, composer/status/run-picker, palette/dialogs/notices, Settings
+inline-asks, composer/status (and its usage details)/run-picker, palette/dialogs/notices, Settings
 Accounts/Permissions/Theme/Usage and first-run intro/Account/Appearance. Other dark
 scenes still test token resolution in both ladders through theme/harness checks.
 Geometry tolerance±0.5px unless a scene states a reason for another tolerance;

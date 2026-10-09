@@ -8893,14 +8893,39 @@
                   "message": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "What went wrong, for a person."
+                    "description": "What went wrong, for a person, in plain words: no path, id or raw diagnostic."
+                  },
+                  "step": {
+                    "description": "The step whose card fixes it: Forges for a forge's token, Skills for a missing skill; absent when no card does.",
+                    "type": "string",
+                    "enum": [
+                      "account",
+                      "carry-over",
+                      "your-machines",
+                      "forges",
+                      "key-manager",
+                      "memory-bank",
+                      "skills",
+                      "instructions",
+                      "browser",
+                      "permissions",
+                      "appearance"
+                    ]
+                  },
+                  "details": {
+                    "description": "The technical facts behind it, one line each, for Details: a repository, a folder, a store's diagnostic, the raw refusal.",
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
                   }
                 },
                 "required": [
                   "label",
                   "message"
                 ],
-                "description": "What a state import could not carry: the item, and why."
+                "description": "What a state import could not carry: the item, why in plain words, the step that fixes it, and the facts for Details."
               },
               "description": "What could not be carried, each with why; empty when everything was."
             }

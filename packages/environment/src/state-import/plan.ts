@@ -10,6 +10,7 @@ import { planInstructions, type PlanInstructionsOptions } from "./instructions.j
 import { planPagePolicy, type PagePolicyOwner } from "./page-policy.js";
 import type { SourceReportStore } from "./source/report-stores.js";
 import { storeChanged, type SourceStores, type StoreSnapshot } from "./source/stores.js";
+import { unreadStore } from "./failures.js";
 
 /**
  * The state import's plan (switch-over spec, "Preview, application and
@@ -68,25 +69,23 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
   if (accounts !== undefined && profiles.status === "read") {
     planned.push({ snapshot: profiles.snapshot, label: "Accounts", items: accounts.items, directories: accounts.listed.filter((entry) => entry.failure === null && accounts.accountIds.has(entry.sourceId)).map((entry) => ({ sourceId: entry.sourceId, label: entry.label, directory: entry.observation?.directory ?? entry.directory })) });
     failed.push(...accounts.failed);
-  } else if (profiles.status === "failed") failed.push({ label: "Accounts", message: profiles.diagnostic });
-  if (instructions.status === "failed") failed.push({ label: INSTRUCTIONS, message: instructions.diagnostic });
+  } else if (profiles.status === "failed") failed.push(unreadStore("Accounts", profiles.diagnostic));
+  if (instructions.status === "failed") failed.push(unreadStore(INSTRUCTIONS, instructions.diagnostic));
   else {
     const plan = planInstructions(instructions.records, { ...options, sourceKey, accountIds: accounts?.accountIds });
     planned.push({ snapshot: instructions.snapshot, label: INSTRUCTIONS, items: plan.items });
     failed.push(...plan.failed);
     notCarried.push(...plan.notCarried);
   }
-  let skillRepairs: (preview: boolean) => readonly StateImportReEnter[] = () => [];
-  if (skills.status === "failed") failed.push({ label: "Skills", message: skills.diagnostic });
+  if (skills.status === "failed") failed.push(unreadStore("Skills", skills.diagnostic));
   else {
     const plan = await planSkills(skills.records, { ...options, sourceKey, accountIds: accounts?.accountIds, profileIds: profiles.status === "read" ? profiles.records.sourceIds : [], profileNames: profiles.status === "read" ? profileNames(profiles.records) : new Map() });
-    skillRepairs = plan.repairs;
     planned.push({ snapshot: skills.snapshot, label: "Skills", items: plan.items });
     failed.push(...plan.failed);
   }
   let defaultRepair: ((preview: boolean) => readonly StateImportReEnter[]) = () => [];
   let clientLocal: StateImportClientLocal = {};
-  if (preferences.status === "failed") failed.push({ label: PREFERENCES, message: preferences.diagnostic });
+  if (preferences.status === "failed") failed.push(unreadStore(PREFERENCES, preferences.diagnostic));
   else {
     const { records } = preferences;
     clientLocal = records.clientLocal;
@@ -122,7 +121,7 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
     [stores.desktopRoutines, "desktop-routines", "Desktop Routines"],
     [stores.serviceRoutines, "service-routines", "Service Routines"],
   ] as const) {
-    if (read.status === "failed") { failed.push({ label, message: read.diagnostic }); continue; }
+    if (read.status === "failed") { failed.push(unreadStore(label, read.diagnostic)); continue; }
     const part = await planRoutines(read.records, store, { ...options, sourceKey, accountPlan: accounts, routineNames });
     planned.push({ snapshot: read.snapshot, label, items: part.items });
     failed.push(...part.failed);
@@ -132,7 +131,7 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
       else notCarried[index] = { ...omission, count: notCarried[index]!.count + omission.count };
     }
   }
-  if (browser.status === "failed") failed.push({ label: "Browser policy", message: browser.diagnostic });
+  if (browser.status === "failed") failed.push(unreadStore("Browser policy", browser.diagnostic));
   else {
     const policy = planPagePolicy(browser.records, { ...options, sourceKey });
     const pairings: StateImportNotCarried[] = browser.records.pairings === 0 ? [] : [{ label: "Browser Pairings", count: browser.records.pairings, step: "browser" }];
@@ -143,8 +142,8 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
   if (bankPlan !== null && banks.status === "read") {
     planned.push({ snapshot: banks.snapshot, ...(profiles.status === "read" && bankPlan.items.length > 0 && { dependencies: [profiles.snapshot] }), label: BANK_REGISTRY_LABEL, items: bankPlan.items });
     failed.push(...bankPlan.failed);
-  } else if (banks.status === "failed") failed.push({ label: "Bank registry", message: banks.diagnostic });
-  return includeReportStores({ sourceKey, stores: planned, failed, notCarried, clientLocal, accountIds: accounts?.accountIds ?? new Map(), repairs: (preview) => [...defaultRepair(preview), ...skillRepairs(preview), ...(bankPlan?.repairs(preview) ?? [])] }, stores.reportStores);
+  } else if (banks.status === "failed") failed.push(unreadStore("Bank registry", banks.diagnostic));
+  return includeReportStores({ sourceKey, stores: planned, failed, notCarried, clientLocal, accountIds: accounts?.accountIds ?? new Map(), repairs: (preview) => [...defaultRepair(preview), ...(bankPlan?.repairs(preview) ?? [])] }, stores.reportStores);
 };
 
 /** Omission-only stores still participate in byte consistency and scrubbed store failures. */
@@ -153,7 +152,7 @@ export const includeReportStores = (plan: ImportPlan, stores: readonly SourceRep
   const failed = [...plan.failed];
   for (const { label, read } of stores) {
     if (read.status === "failed") {
-      failed.push({ label, message: read.diagnostic });
+      failed.push(unreadStore(label, read.diagnostic));
       continue;
     }
     const index = planned.findIndex((store) => store.snapshot.path === read.snapshot.path);

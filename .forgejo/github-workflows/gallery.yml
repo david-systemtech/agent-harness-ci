@@ -32,14 +32,25 @@ jobs:
       - id: plan
         run: |
           if [ -f packages/gui/gallery/plan.ts ]; then
-            pnpm --filter @agent-harness/gui exec tsx --conditions=@agent-harness/source gallery/plan.ts >> "$GITHUB_OUTPUT"
+            pnpm --filter @agent-harness/gui exec tsx --conditions=@agent-harness/source gallery/plan.ts > "$RUNNER_TEMP/gallery-plan-output"
           elif [ -f packages/gui/gallery/shards.ts ]; then
             shards=$(pnpm --filter @agent-harness/gui exec tsx --conditions=@agent-harness/source gallery/shards.ts)
-            python3 -c 'import json,sys; ids=json.loads(sys.argv[1]); print("matrix="+json.dumps({"include":[{"shard":s,"count":len(ids),"artifact":"window-gallery-"+s} for s in ids]}))' "$shards" >> "$GITHUB_OUTPUT"
+            python3 -c 'import json,sys; ids=json.loads(sys.argv[1]); print("matrix="+json.dumps({"include":[{"shard":s,"count":len(ids),"artifact":"window-gallery-"+s} for s in ids]}))' "$shards" > "$RUNNER_TEMP/gallery-plan-output"
           else
-            echo 'matrix={"include":[{"shard":1,"artifact":"window-gallery","legacy":true}]}' >> "$GITHUB_OUTPUT"
+            echo 'matrix={"include":[{"shard":1,"artifact":"window-gallery","legacy":true}]}' > "$RUNNER_TEMP/gallery-plan-output"
           fi
+          grep '^matrix=' "$RUNNER_TEMP/gallery-plan-output" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/gallery-plan"
+          sed -n 's/^matrix=//p' "$RUNNER_TEMP/gallery-plan-output" > "$RUNNER_TEMP/gallery-plan/matrix.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gallery-plan
+          path: ${{ runner.temp }}/gallery-plan/matrix.json
+          overwrite: true
+          retention-days: 7
+          if-no-files-found: error
   gallery:
+    name: gallery (${{ matrix.shard }})
     needs: [plan]
     strategy:
       fail-fast: false

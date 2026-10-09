@@ -43,3 +43,17 @@ it("says nothing of that landing once the environment's verification has cleared
   expect(within(card).queryByRole("alert")).toBeNull();
   expect(within(card).queryByText(/found none/)).toBeNull();
 });
+
+it("explains the jump from Check everything again on a bank card without an authoring status", async () => {
+  const app = await renderApp({ environments: [{
+    name: "desk", reach: "local", capabilities: ["banks", "forge", "setup"],
+    setup: { "memory-bank": { state: "needs-attention", reason: "The bank could not sync.", failing: ["banks.reachable"], actions: ["check-again"] } },
+  }] }, {}, (world) => {
+    world.environment("desk").wire.answer("banks.list", () => ({ result: { banks: [{ ...team, role: "read-only" }] } }));
+  });
+  await app.user.click(screen.getByRole("button", { name: "Settings" }));
+  await app.user.click(await screen.findByRole("button", { name: "Check everything again" }));
+  const card = await screen.findByRole("region", { name: "Memory bank" });
+  await within(card).findByRole("region", { name: "team-memory" });
+  expect(within(card).getAllByText("Checked just now.")).toHaveLength(1);
+});

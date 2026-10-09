@@ -32,8 +32,8 @@ it("draws numbered installation, a live code, paired Chrome and the browser poli
   close = gallery.close;
   const pane = await screen.findByRole("region", { name: "Browser" });
   expect(await within(pane).findByRole("textbox", { name: "Pairing code" })).toBeDefined();
-  expect(within(pane).getByRole("heading", { name: "Load the extension" })).toBeDefined();
-  expect(within(pane).getByRole("heading", { name: "Pair" })).toBeDefined();
+  expect(within(pane).getByRole("heading", { name: "Copy this folder location." })).toBeDefined();
+  expect(within(pane).getByRole("heading", { name: "Choose the agent-harness extension's icon, then Options, and type this code:" })).toBeDefined();
   expect(within(pane).getByRole("button", { name: "Unpair Project Chrome" })).toBeDefined();
   expect(within(pane).getByRole("textbox", { name: "Sites you are developing" })).toBeDefined();
   expect(within(pane).getByRole("switch", { name: "Allow runs to use the headless browser" })).toBeDefined();

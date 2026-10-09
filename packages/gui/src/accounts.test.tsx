@@ -399,6 +399,21 @@ const openDefault = async (app: RenderedApp, defaults: HTMLElement, name: string
 };
 
 describe("Default account and model", () => {
+  it("keeps a default account's full email in its accessible name and tooltip, with a separate truncated line above the provider", async () => {
+    const email = "account.with-a-long-address@example.test";
+    const app = await opened({ desk: { accounts: [{ label: "Personal", identity: { provider: "claude", email, organisation: null } }] } });
+    const defaults = await openRow(app, "Default account and model");
+    const picker = await openDefault(app, defaults, "Default account");
+    const account = await within(picker).findByRole("menuitem", { name: `Personal ${email}` });
+    expect(account.getAttribute("title")).toContain(email);
+    const identity = account.querySelector("[data-run-identity]");
+    expect(identity?.textContent).toBe(email);
+    expect(identity?.className).toContain("truncate");
+    expect(within(account).getByText("Personal").className).toContain("font-medium");
+    expect(identity?.nextElementSibling?.textContent).toBe("claude");
+    expect(within(account).queryByText(`${email} · claude`)).toBeNull();
+  });
+
   it("names a family's model as the pickers do, with its id beside the name", async () => {
     const app = await opened({ desk: { accounts: [{ label: "personal" }], models: [{ accountId: "account-1", models: [
       { id: "fable", family: "fable", tier: 3, efforts: ["high"], label: "Fable" },
@@ -480,7 +495,7 @@ describe("Default account and model", () => {
     const app = await opened({ desk: { accounts: [{ label: "personal" }], models: MODELS } });
     const defaults = await openRow(app, "Default account and model");
     const picker = await openDefault(app, defaults, "Default account");
-    const account = await within(picker).findByRole("menuitem", { name: "personal" });
+    const account = await within(picker).findByRole("menuitem", { name: "personal not read yet" });
     account.focus();
     await app.user.keyboard("{Enter}");
     await waitFor(() => expect(app.environment("desk").settings()["accounts.defaultAccount"]).toBe("account-1"));
@@ -505,9 +520,9 @@ describe("Default account and model", () => {
     const desk = app.environment("desk");
     const defaults = await openRow(app, "Default account and model");
     let picker = await openDefault(app, defaults, "Default account");
-    await within(picker).findByRole("menuitem", { name: "work (signed out)" });
+    await within(picker).findByRole("menuitem", { name: "work (signed out) not read yet" });
     expect(within(picker).getByRole("menuitem", { name: "The first account adopted or added" }).dataset["selected"]).toBe("true");
-    await app.user.click(within(picker).getByRole("menuitem", { name: "work (signed out)" }));
+    await app.user.click(within(picker).getByRole("menuitem", { name: "work (signed out) not read yet" }));
     await waitFor(() => expect(desk.settings()["accounts.defaultAccount"]).toBe("account-2"));
     await app.user.click(within(picker).getByRole("menuitem", { name: "claude-sonnet-5" }));
     await waitFor(() => expect(desk.settings()["accounts.defaultModelFamily"]).toBe("sonnet"));
@@ -742,7 +757,7 @@ const pooled = (gauge: HTMLElement) =>
     .map((row) => row.textContent);
 
 describe("Usage", () => {
-  it("shows an unknown limit once by a human name in settings, with its share and no ring", async () => {
+  it("shows an unknown limit once by a human name in settings, with its share and no ring, in a slot the size of one so its bar lines up (ticket 1952)", async () => {
     const app = await opened({ desk: { accounts: [{ label: "personal", identity: MILO }] } });
     const at = "2026-09-30T10:00:00.000Z";
     const known = reading("account-1", 0.42, 0.1, at);
@@ -754,6 +769,10 @@ describe("Usage", () => {
     expect(within(gauge).getAllByText("Other limit")).toHaveLength(1);
     expect(within(gauge).getByText("37%")).toBeTruthy();
     expect(within(gauge).queryByRole("img", { name: /Other limit/ })).toBeNull();
+    const rows = within(within(gauge).getByRole("list", { name: "Windows" })).getAllByRole("listitem");
+    expect(rows.map((row) => row.querySelector("[data-usage-bar]")?.previousElementSibling?.getAttribute("class"))).toEqual([
+      expect.stringMatching(/^size-6 shrink-0\b/), expect.stringMatching(/^size-6 shrink-0\b/), "size-6 shrink-0",
+    ]);
     expect(gauge.outerHTML).not.toMatch(/iguana[_ ]necktie/);
   });
 
