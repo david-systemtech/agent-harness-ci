@@ -73,11 +73,12 @@ export const withAdapters = (report: ContainmentReport, adapters: readonly { rea
   };
 };
 
-/** Why `level` cannot be enforced here, with its cause; null when it can. */
-export const unenforceable = (report: ContainmentReport, level: ContainmentLevel): { readonly reason: string; readonly cause: ContainmentCause } | null => {
+/** Why `level` cannot be enforced here, with its cause and what the failing command printed; null when it can. */
+export const unenforceable = (report: ContainmentReport, level: ContainmentLevel): { readonly reason: string; readonly cause: ContainmentCause; readonly detail?: string } | null => {
   const entry = report.levels.find((candidate) => candidate.level === level);
   if (entry === undefined) return { reason: `The containment probe did not report ${level}, so it cannot be enforced.`, cause: "not_probed" };
-  return entry.available ? null : { reason: entry.reason, cause: entry.cause };
+  if (entry.available) return null;
+  return { reason: entry.reason, cause: entry.cause, ...(entry.detail !== undefined && { detail: entry.detail }) };
 };
 
 export const isEnforceable = (report: ContainmentReport, level: ContainmentLevel): boolean => unenforceable(report, level) === null;
