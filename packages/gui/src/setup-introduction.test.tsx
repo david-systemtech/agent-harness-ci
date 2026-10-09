@@ -243,11 +243,11 @@ it.each(["header", "accounts"] as const)("closes setup opened via %s for the sig
   } else {
     await app.user.keyboard("{Control>},{/Control}");
     const settings = screen.getByRole("region", { name: "Settings" });
-    await app.user.click(within(settings).getByRole("button", { name: "Accounts", exact: true }));
+    await app.user.click(within(settings).getByRole("button", { name: "Accounts" }));
     const accounts = within(settings).getByRole("region", { name: "Accounts" });
     await app.user.selectOptions(within(accounts).getByRole("combobox", { name: "Environment" }), "laptop");
     await app.user.click(within(accounts).getByRole("button", { name: "Open the Carry over step in Set up" }));
-    await app.user.click(screen.getByRole("button", { name: "Account", exact: true }));
+    await app.user.click(screen.getByRole("button", { name: "Account" }));
   }
   const setup = screen.getByRole("region", { name: "Set up" });
   expect(within(within(setup).getByRole("combobox", { name: "Setting up" })).getByRole("option", { selected: true }).textContent).toBe("laptop");
