@@ -129,7 +129,7 @@ const folderWords = (identity: string, folder: string, count: number): string =>
  * looks afresh on the branch it follows, adds the chosen ones following
  * that branch, and removes the moved one once they are added; or first,
  * when the chosen ones would not fit beside it under the limit of
- * collections (`followed` is how many are followed now). A refusal part
+ * collections, or include its original folder (`followed` is how many are followed now). A refusal part
  * way has `partly` say on the card itself what was done before it: the
  * folders added, and the moved one removed.
  */
@@ -187,9 +187,10 @@ export const FoundFolders = ({ environmentId, url, replacing, done, partly }: {
       removed.current = await send(() => runtime.requests.call(environmentId, "skills.sources.remove", { commandId: commandId(), sourceId: replacing.source.id }), "Add selected");
       return removed.current;
     };
-    // At the limit the moved collection makes room for the chosen folders, or the first add would be refused.
-    // A refused add after that leaves it removed: its folder is gone from the branch, so it cannot be added back.
-    const first = replacing !== undefined && replacing.followed + chosen.length > SKILL_SOURCE_LIMIT;
+    // Remove first when the chosen folders would exceed the limit or duplicate the moved collection.
+    // A refused add leaves that removal recorded, so a retry does not remove it again.
+    const first = replacing !== undefined && (replacing.followed + chosen.length > SKILL_SOURCE_LIMIT
+      || (probe.identity === replacing.source.identity && chosen.includes(replacing.source.folder)));
     if (first && !(await remove())) return;
     const addedLines = () => added.current.map((name) => `Added ${name}.`);
     const stopped = () => {

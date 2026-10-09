@@ -167,6 +167,37 @@ describe("the Skills card's lines and actions", () => {
     expect(desk.requests("skills.probe")).toHaveLength(1);
   });
 
+  it("replaces a restored original folder without trying to add it beside its tracked duplicate", async () => {
+    const moved: SkillsViewSource = { ...source, url: linked, identity: linked, folder: "skills", skillCount: 0, sync: { outcome: "layout_moved", since: source.addedAt, commit: found.commit, folders: ["skills"] } };
+    let followed: SkillsViewSource[] = [moved];
+    const { app, desk, update } = await opened({ ...initial(), sources: followed }, { setup: { skills: {
+      state: "needs-attention", reason: "team/procedures (skills) no longer has skills where they were. Choose its folders again.", failing: ["skills.sources-yield"], actions: ["choose-folders"],
+      targets: [{ action: "choose-folders", kind: "skill-source", id: moved.id, label: "team/procedures (skills)" }],
+    } } });
+    desk.wire.answer("skills.probe", () => ({ result: found }));
+    const replacement = { ...moved, id: "1b4e28ba-2fa1-41d2-883f-0016d3cca427", skillCount: 2, sync: { outcome: "ok", since: source.addedAt } } as const;
+    const calls: string[] = [];
+    desk.wire.answer("skills.sources.add", () => {
+      calls.push("add");
+      if (followed.some((held) => held.identity === linked && held.folder === "skills")) return { error: { code: "conflict", message: "You already follow this collection.", data: { reason: "duplicate", sourceId: moved.id } } };
+      followed = [...followed, replacement];
+      update({ ...initial(), sources: followed });
+      return accepted({ source: replacement });
+    });
+    desk.wire.answer("skills.sources.remove", () => {
+      calls.push("remove");
+      followed = followed.filter((held) => held.id !== moved.id);
+      update({ ...initial(), sources: followed });
+      return accepted({ source: moved });
+    });
+    await app.user.click(await within(card()).findByRole("button", { name: "Choose folders: team/procedures (skills)" }));
+    await app.user.click(await within(card()).findByRole("checkbox", { name: "skills · 2 skills" }));
+    await app.user.click(within(card()).getByRole("button", { name: "Add selected" }));
+    expect(await within(card()).findByText("Added team/procedures (skills).")).toBeDefined();
+    expect(calls).toEqual(["remove", "add"]);
+    expect(followed.map((held) => held.id)).toEqual([replacement.id]);
+  });
+
   it("retries a refused removal after adding replacement folders, without adding those folders again", async () => {
     const moved: SkillsViewSource = { ...source, url: linked, identity: linked, folder: "skills", skillCount: 0, sync: { outcome: "layout_moved", since: source.addedAt, commit: found.commit, folders: ["agents"] } };
     const { app, desk, update } = await opened({ ...initial(), sources: [moved] }, { setup: { skills: {
