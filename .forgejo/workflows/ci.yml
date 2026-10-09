@@ -7,8 +7,8 @@
 # The suite includes test/web-smoke.test.ts: the real served client over HTTPS,
 # Chromium and WebKit, only on a hosted runner under its ordinary uid.
 # The secret scan, install, typecheck, lint, suite and schema export drift
-# check's source is .forgejo/github-workflows/ci.yml. Install it byte for byte
-# as .github/workflows/ci.yml on the relay repository's workflows branch.
+# check are in .forgejo/github-workflows/ci.yml; install that source byte for
+# byte as .github/workflows/ci.yml on the relay repository's workflows branch.
 #
 # `relay` jobs only wait, so they use the self-hosted runner's `relay` label.
 # Configure a repository secret named GH_CI_TOKEN: a fine-grained GitHub
