@@ -84,6 +84,7 @@ export const AccountRecord = z
     id: AccountId,
     provider: ProviderId,
     label: AccountLabel,
+    nameByEmail: z.boolean().optional().meta({ description: "True only while this account still has an automatically supplied name, eligible to become its email. An explicit rename clears it." }),
     directory: AccountDirectory,
     identity: AccountIdentity.nullable().meta({ description: "Who the account is signed in as, once a status read has said; null until then." }),
     status: AccountStatus,
@@ -117,6 +118,7 @@ export const AccountAddedPayload = z
     ...accountPart,
     provider: ProviderId,
     label: AccountLabel,
+    nameByEmail: z.boolean().optional().meta({ description: "Whether the supplied label was generated rather than chosen, to be replaced by its email after sign-in." }),
     directory: z.string().min(1).meta({ description: "The directory the environment made for the account under its data directory." }),
   })
   .meta({ description: "account.added: an account was added with a directory of the environment's own, for a fresh sign-in." });

@@ -136,7 +136,7 @@ describe("a step's result", () => {
     expect(result).toEqual({
       step: "permissions",
       state: "needs-attention",
-      reason: "A saved setting for this step cannot be used: Unanswered permission timeout. Set it again in Settings. The paths section is short. Root.",
+      reason: "A saved setting for this step cannot be used: If nobody answers a question. Set it again in Settings. The paths section is short. Root.",
       details: ["permissions.parkedPrompt.ttl"],
       failing: ["permissions.parkedPrompt.ttl", "permissions.denylist", "permissions.not-root"],
       actions: ["restore"],
@@ -196,7 +196,7 @@ describe("a step's result", () => {
       "permissions.containment": () => ({ reason: "The sandbox you chose does not work on this computer yet.", details: ["bwrap: setting up uid map: Permission denied"] }),
     });
     expect(result).toMatchObject({
-      reason: "A saved setting for this step cannot be used: Unanswered permission timeout. Set it again in Settings. The sandbox you chose does not work on this computer yet.",
+      reason: "A saved setting for this step cannot be used: If nobody answers a question. Set it again in Settings. The sandbox you chose does not work on this computer yet.",
       details: ["permissions.parkedPrompt.ttl", "bwrap: setting up uid map: Permission denied"],
     });
   });

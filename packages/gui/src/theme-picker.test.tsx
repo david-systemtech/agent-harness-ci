@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { DEFAULT_THEME, THEME_SEED_NAMES, type Theme } from "@agent-harness/contracts";
-import { SHIPPED_THEMES, cssVariables, derive, readThemeFile, themeFile, windowBackground, type LadderName } from "@agent-harness/theme";
+import { SHIPPED_THEMES, COLOUR_NAMES, cssVariables, derive, readThemeFile, themeFile, windowBackground, type LadderName } from "@agent-harness/theme";
 import { beforeEach, describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -41,19 +41,23 @@ const opened = async (desk: Partial<ScriptedEnvironment> = {}, ...more: Scripted
   renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }], ...desk }, ...more] });
 
 /** Opens Settings with Mod+, and the Theme row from its rail; answers its part showing the home environment's theme. */
-const openTheme = async (app: RenderedApp) => {
+const openTheme = async (app: RenderedApp, customise = true) => {
   await app.user.keyboard("{Control>},{/Control}");
   await app.user.click(within(await screen.findByRole("navigation", { name: "Settings rows" })).getByRole("button", { name: "Theme" }));
   const row = within(screen.getByRole("region", { name: "Settings" })).getByRole("region", { name: "Theme" });
-  return within(row).getByRole("region", { name: "The home environment's theme" });
+  const picker = within(row).getByRole("region", { name: "The home environment's theme" });
+  await within(picker).findByText(/, on /);
+  const more = within(picker).getByRole("button", { name: "More options" });
+  if (customise && more.getAttribute("aria-expanded") !== "true") await app.user.click(more);
+  return picker;
 };
 
 /** The picker's controls, by what a person reads on them. */
 const controls = (picker: HTMLElement) => ({
-  shipped: () => within(picker).getByRole("radiogroup", { name: "Shipped themes" }),
-  radio: (name: string) => within(within(picker).getByRole("radiogroup", { name: "Shipped themes" })).getByRole("radio", { name }) as HTMLInputElement,
+  shipped: () => within(picker).getByRole("radiogroup", { name: "Theme" }),
+  radio: (name: string) => within(within(picker).getByRole("radiogroup", { name: "Theme" })).getByRole("radio", { name }) as HTMLInputElement,
   checked: () =>
-    within(within(picker).getByRole("radiogroup", { name: "Shipped themes" }))
+    within(within(picker).getByRole("radiogroup", { name: "Theme" }))
       .getAllByRole("radio")
       .filter((radio) => (radio as HTMLInputElement).checked)
       .map((radio) => radio.closest("label")?.textContent),
@@ -61,7 +65,7 @@ const controls = (picker: HTMLElement) => ({
   slider: (name: string) => within(picker).getByRole("slider", { name }) as HTMLInputElement,
   button: (name: string) => within(picker).getByRole("button", { name }) as HTMLButtonElement,
   clamps: () =>
-    within(within(picker).getByRole("list", { name: "Clamped seeds" }))
+    within(within(picker).getByRole("list", { name: "Adjusted colours" }))
       .getAllByRole("listitem")
       .map((item) => item.textContent),
 });
@@ -72,7 +76,7 @@ const slide = (slider: HTMLInputElement, value: number) => fireEvent.change(slid
 /** The ladder each swatch group carries, beside what the theme package derives for `theme`. */
 const swatchesOf = (picker: HTMLElement, theme: Theme) =>
   (["light", "dark"] as const).map((ladder) => {
-    const group = within(picker).getByRole("group", { name: ladder === "light" ? "Light ladder" : "Dark ladder" });
+    const group = within(picker).getByRole("group", { name: ladder === "light" ? "Light colours" : "Dark colours" });
     const expected = cssVariables(derive(theme)[ladder]);
     return [Object.fromEntries(Object.keys(expected).map((name) => [name, group.style.getPropertyValue(name)])), expected];
   });
@@ -87,14 +91,30 @@ const themeWrites = (app: RenderedApp, name: string) =>
 /** A file the shell's open dialog hands back, read. */
 const fileOf = (name: string, text: string) => ({ name, size: new TextEncoder().encode(text).length, bytes: new TextEncoder().encode(text) });
 
+it("keeps custom colours in More options while offering the three themes as swatches", async () => {
+  const app = await opened();
+  const picker = await openTheme(app, false);
+  await within(picker).findByText("Default, on desk");
+  expect(within(picker).queryAllByRole("slider")).toEqual([]);
+  const themes = within(picker).getByRole("radiogroup", { name: "Theme" });
+  expect(within(themes).getAllByRole("radio").map((radio) => radio.closest("label")?.textContent)).toEqual(["Default", "Ember", "Lagoon"]);
+  expect(within(themes).getAllByRole("img")).toHaveLength(3);
+  await app.user.click(within(picker).getByRole("button", { name: "More options" }));
+  const custom = within(picker).getByRole("region", { name: "Customise colours" });
+  expect(within(custom).getAllByRole("slider").map((slider) => slider.getAttribute("aria-label"))).toEqual([
+    "Background Colour", "Background Strength", "Accent Colour", "Accent Strength", "Code Colour", "Code Strength",
+    "Thinking Colour", "Thinking Strength", "Success Colour", "Success Strength", "Warning Colour", "Warning Strength", "Danger Colour", "Danger Strength",
+  ]);
+});
+
 describe("the shipped themes", () => {
   it("are offered by name with the one saved checked; choosing one paints it on the window and its swatches without writing, and Cancel paints the saved theme again", async () => {
     const app = await opened();
     const picker = await openTheme(app);
     const ui = controls(picker);
-    expect(within(picker).getByRole("region", { name: "Theme choices" })).toBeDefined();
-    expect(within(picker).getByRole("region", { name: "Theme seeds" })).toBeDefined();
-    expect(within(picker).getByRole("region", { name: "Preview and contrast" })).toBeDefined();
+    expect(within(picker).getByRole("radiogroup", { name: "Theme" })).toBeDefined();
+    expect(within(picker).getByRole("region", { name: "Customise colours" })).toBeDefined();
+    expect(within(picker).getByRole("region", { name: "Colour preview" })).toBeDefined();
     expect(await within(picker).findByText("Default, on desk")).toBeDefined();
     expect(within(ui.shipped()).getAllByRole("radio").map((radio) => radio.closest("label")?.textContent)).toEqual(["Default", "Ember", "Lagoon"]);
     expect(ui.checked()).toEqual(["Default"]);
@@ -107,7 +127,7 @@ describe("the shipped themes", () => {
     expect(ui.checked()).toEqual(["Ember"]);
     expect(ui.name().value).toBe("Ember");
     expect(within(picker).getByText("Previewing Ember in this window: not saved on desk.")).toBeDefined();
-    expect(within(picker).getByText("No seed is clamped: both ladders meet the contrast, gamut and hue-separation rules.")).toBeDefined();
+    expect(within(picker).getByText("Your theme is easy to read.")).toBeDefined();
 
     await app.user.click(ui.radio("Lagoon"));
     await paintedWith(LAGOON);
@@ -138,11 +158,11 @@ describe("the seeds", () => {
     const ui = controls(picker);
     expect(await within(picker).findByText("Olive, on desk")).toBeDefined();
     for (const seed of THEME_SEED_NAMES) {
-      const hue = ui.slider(`${seed} hue`);
-      const chroma = ui.slider(`${seed} chroma`);
-      expect([hue.min, hue.max, hue.step, hue.value], `${seed} hue`).toEqual(["0", "359", "1", String(OLIVE.seeds[seed].hue)]);
-      expect([chroma.min, chroma.max, chroma.step, chroma.value], `${seed} chroma`).toEqual(["0", "0.4", "0.005", String(OLIVE.seeds[seed].chroma)]);
-      expect(within(picker).getByText(`${seed}: hue ${String(OLIVE.seeds[seed].hue)}, chroma ${String(OLIVE.seeds[seed].chroma)}`)).toBeDefined();
+      const hue = ui.slider(`${COLOUR_NAMES[seed]} Colour`);
+      const chroma = ui.slider(`${COLOUR_NAMES[seed]} Strength`);
+      expect([hue.min, hue.max, hue.step, hue.value], `${COLOUR_NAMES[seed]} Colour`).toEqual(["0", "359", "1", String(OLIVE.seeds[seed].hue)]);
+      expect([chroma.min, chroma.max, chroma.step, chroma.value], `${COLOUR_NAMES[seed]} Strength`).toEqual(["0", "0.4", "0.005", String(OLIVE.seeds[seed].chroma)]);
+      expect(within(picker).getByText(COLOUR_NAMES[seed])).toBeDefined();
     }
     // A theme of the environment's own is none of the shipped three.
     expect(controls(picker).checked()).toEqual([]);
@@ -154,24 +174,24 @@ describe("the seeds", () => {
     const ui = controls(picker);
     await within(picker).findByText("Default, on desk");
 
-    slide(ui.slider("accent hue"), 45);
+    slide(ui.slider("Accent Colour"), 45);
     const orange: Theme = { name: "Default", seeds: { ...DEFAULT_THEME.seeds, accent: { hue: 45, chroma: 0.21 } } };
     await paintedWith(orange);
-    expect(within(picker).getByText("accent: hue 45, chroma 0.21")).toBeDefined();
+    expect(within(picker).getByText("Accent")).toBeDefined();
     // An orange at the preset's chroma is past sRGB, and 20 degrees from the danger hue, which the derivation moves.
-    expect(ui.clamps()).toEqual(["accent: gamut, light and dark ladders", "danger: hue separation, light and dark ladders"]);
+    expect(ui.clamps()).toEqual(["Accent: screen colour limits, Light and Dark mode", "Danger: distinct colours, Light and Dark mode"]);
     expect(ui.checked()).toEqual([]);
 
-    slide(ui.slider("accent chroma"), 0.14);
-    slide(ui.slider("danger hue"), 5);
-    slide(ui.slider("canvas hue"), 50);
-    slide(ui.slider("canvas chroma"), 0.012);
+    slide(ui.slider("Accent Strength"), 0.14);
+    slide(ui.slider("Danger Colour"), 5);
+    slide(ui.slider("Background Colour"), 50);
+    slide(ui.slider("Background Strength"), 0.012);
     await app.user.clear(ui.name());
     await app.user.type(ui.name(), "Ember");
     // Seeds moved one by one to Ember's are Ember: it is checked, nothing is clamped, and the ladders are its own.
     await paintedWith(EMBER);
     expect(ui.checked()).toEqual(["Ember"]);
-    expect(within(picker).queryByRole("list", { name: "Clamped seeds" })).toBeNull();
+    expect(within(picker).queryByRole("list", { name: "Adjusted colours" })).toBeNull();
     for (const [actual, expected] of swatchesOf(picker, EMBER)) expect(actual).toEqual(expected);
     expect(themeWrites(app, "desk")).toEqual([]);
   });
@@ -180,15 +200,15 @@ describe("the seeds", () => {
     const app = await opened();
     const picker = await openTheme(app);
     await app.user.click(controls(picker).radio("Lagoon"));
-    for (const label of ["Light ladder", "Dark ladder"]) {
+    for (const label of ["Light colours", "Dark colours"]) {
       expect(within(within(picker).getByRole("group", { name: label })).getAllByRole("img").map((swatch) => [swatch.getAttribute("aria-label"), swatch.style.backgroundColor])).toEqual([
-        ["canvas", "var(--abyss)"],
-        ["accent", "var(--beam)"],
-        ["machine", "var(--cyan)"],
-        ["thinking", "var(--sage)"],
-        ["success", "var(--mint)"],
-        ["warning", "var(--amber)"],
-        ["danger", "var(--signal)"],
+        ["Background", "var(--abyss)"],
+        ["Accent", "var(--beam)"],
+        ["Code", "var(--cyan)"],
+        ["Thinking", "var(--sage)"],
+        ["Success", "var(--mint)"],
+        ["Warning", "var(--amber)"],
+        ["Danger", "var(--signal)"],
       ]);
     }
     // A ladder's own variables carry its colours; every other style names a token.
@@ -208,6 +228,10 @@ describe("the seeds", () => {
     expect(within(picker).getByText("A theme's name is 1 to 40 characters on one line, with no white space at either end.")).toBeDefined();
     expect(ui.button("Save").disabled).toBe(true);
     expect(ui.button("Export").disabled).toBe(true);
+    await app.user.click(ui.button("More options"));
+    expect(within(picker).getByRole("alert").textContent).toContain("A theme's name is 1 to 40 characters on one line, with no white space at either end.");
+    expect(ui.button("Save").disabled).toBe(true);
+    await app.user.click(ui.button("More options"));
     await app.user.type(ui.name(), "Ember at night");
     expect(ui.button("Save").disabled).toBe(false);
   });
@@ -271,7 +295,8 @@ describe("saving", () => {
     const ui = controls(picker);
     await app.user.click(ui.radio("Ember"));
     await app.user.click(ui.button("Save"));
-    expect(await within(picker).findByText("Not saved: appearance.theme changed while it was being written.")).toBeDefined();
+    expect(await within(picker).findByText("This cannot be done right now. Wait a moment, then choose Save.")).toBeDefined();
+    expect(within(picker).queryByText(/appearance.theme changed/)).toBeNull();
     expect(within(picker).queryByText(/^Saved/)).toBeNull();
     expect(within(picker).getByText("Previewing Ember in this window: not saved on desk.")).toBeDefined();
     expect(within(picker).getByText("Default, on desk")).toBeDefined();
@@ -279,6 +304,28 @@ describe("saving", () => {
     expect(ui.checked()).toEqual(["Ember"]);
     expect(ui.button("Save").disabled).toBe(false);
     expect(app.environment("desk").settings()["appearance.theme"]).toEqual(DEFAULT_THEME);
+  });
+
+  it("keeps custom colours after a refused Default reset and announces the refusal", async () => {
+    const app = await opened({ settings: { "appearance.theme": OLIVE }, receipts: { "settings.update": { rejected: "internal", message: "disk full" } } });
+    const picker = await openTheme(app);
+    const ui = controls(picker);
+    await app.user.click(ui.radio("Ember"));
+    await app.user.click(ui.button("Use the Default theme"));
+    const question = await screen.findByRole("alertdialog", { name: "Use the Default theme?" });
+    expect(within(question).getByText("Your colour changes to Ember will be lost.")).toBeDefined();
+    expect(themeWrites(app, "desk")).toEqual([]);
+    await app.user.click(within(question).getByRole("button", { name: "Use Default" }));
+    const refusal = await within(picker).findByRole("alert");
+    expect(refusal.textContent).toBe("Error: agent-harness ran into a problem. Choose Use Default to try again.");
+    expect(within(picker).queryByText(/disk full/)).toBeNull();
+    await app.user.click(ui.button("Details"));
+    expect(within(picker).getByText(/internal: disk full/)).toBeDefined();
+    await app.user.click(ui.button("Copy details"));
+    expect(app.shell.calls.find(([member]) => member === "clipboard.writeText")?.[1]).toEqual(expect.stringContaining("internal: disk full"));
+    expect(app.environment("desk").settings()["appearance.theme"]).toEqual(OLIVE);
+    expect(ui.name().value).toBe("Ember");
+    await paintedWith(EMBER);
   });
 
   it("paints the home environment's theme whichever session is open: another environment's session leaves the row on desk's", async () => {
@@ -380,7 +427,7 @@ describe("where the theme cannot be written", () => {
     expect(within(picker).getAllByText(/^Read-only:/)).toHaveLength(1);
     expect(await within(picker).findByText("Lagoon, on laptop")).toBeDefined();
     for (const radio of within(ui.shipped()).getAllByRole("radio")) expect((radio as HTMLInputElement).disabled).toBe(true);
-    expect(ui.slider("accent hue").disabled).toBe(true);
+    expect(ui.slider("Accent Colour").disabled).toBe(true);
     expect(ui.name().disabled).toBe(true);
     for (const name of ["Save", "Cancel", "Import"]) expect(ui.button(name).disabled, name).toBe(true);
     expect(ui.button("Export").disabled).toBe(false);
@@ -410,9 +457,11 @@ describe("on the Appearance card", () => {
     await app.user.click(within(rail).getByRole("button", { name: "Appearance" }));
     await app.user.selectOptions(within(checklist).getByRole("combobox", { name: "Setting up" }), "laptop");
     const card = within(checklist).getByRole("region", { name: "Appearance" });
-    const picker = within(card).getByRole("region", { name: "The environment's theme" });
+    const picker = within(card).getByRole("region", { name: "Theme" });
     expect(await within(picker).findByText("Default, on laptop")).toBeDefined();
-    for (const seed of THEME_SEED_NAMES) for (const part of ["hue", "chroma"]) expect(controls(picker).slider(`${seed} ${part}`).disabled).toBe(false);
+    const more = within(picker).getByRole("button", { name: "More options" });
+    if (more.getAttribute("aria-expanded") !== "true") await app.user.click(more);
+    for (const seed of THEME_SEED_NAMES) for (const part of ["Colour", "Strength"]) expect(controls(picker).slider(`${COLOUR_NAMES[seed]} ${part}`).disabled).toBe(false);
 
     await app.user.click(controls(picker).radio("Lagoon"));
     await paintedWith(LAGOON);

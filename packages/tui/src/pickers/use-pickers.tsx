@@ -12,9 +12,9 @@ import {
   labelProblem,
   modelDisplayName,
   modelsOf,
-  nextRunWords,
   noKeysLine,
   oneLine,
+  onLocalDayChange,
   outcomeWords,
   parseTyped,
   pullSetupSources,
@@ -26,6 +26,7 @@ import {
   sessionModeOf,
   setSessionContainment,
   setSessionMode,
+  setSessionModel,
   signInEnd,
   startSignIn as startSignInOf,
   startingAccount,
@@ -131,8 +132,6 @@ export interface Pickers {
   scroll(panel: Panel, to: (top: number) => number): Panel;
   hint(panel: Panel): string;
   render(panel: Panel, size: { readonly width: number; readonly height: number }): ReactElement;
-  /** The model and effort this terminal chose for the session's next runs. */
-  choice(opened: Opened | null): RunChoice | undefined;
   /** The containment level this terminal set on the session. */
   containment(opened: Opened | null): ContainmentLevel | undefined;
   /** The account this terminal handed the session off onto, until a run of it says its own. */
@@ -147,8 +146,7 @@ const isSignIn = (panel: Panel): boolean => panel.kind === "signin";
 const clamp = (cursor: number, rows: number): number => (rows <= 0 ? 0 : Math.min(Math.max(cursor, 0), rows - 1));
 
 export const usePickers = (host: PickersHost): Pickers => {
-  const { runtime, request, panel, opened, projection, views } = host;
-  const [choices, setChoices] = useState<ReadonlyMap<string, RunChoice>>(new Map());
+  const { runtime, clock, request, panel, opened, projection, views } = host;
   const [levels, setLevels] = useState<ReadonlyMap<string, ContainmentLevel>>(new Map());
   const [forks, setForks] = useState<ReadonlyMap<string, string>>(new Map());
   // The lines a card of lines drew last: what its scroll is clamped to.
@@ -170,6 +168,11 @@ export const usePickers = (host: PickersHost): Pickers => {
 
   // What the open card shows, followed while it is open.
   const kind = panel?.kind;
+  useEffect(() => {
+    if (kind !== "usage") return;
+    const timer = onLocalDayChange(clock, request);
+    return () => timer.cancel();
+  }, [clock, kind, request]);
   const panelEnvironment = panel !== undefined && "environmentId" in panel ? panel.environmentId : undefined;
   const accounts = useMemo(() => (panelEnvironment !== undefined ? runtime.projections.accounts(panelEnvironment) : undefined), [runtime, panelEnvironment]);
   useFollow(kind === "accounts" || kind === "signin" || kind === "models" ? accounts : undefined, request);
@@ -362,9 +365,10 @@ export const usePickers = (host: PickersHost): Pickers => {
     card.cursor ?? startingAccount(accountList(), card.purpose === "handoff" ? recommendation?.read().result?.accountId : undefined, sessionAccount());
 
   const modelList = (card: Extract<Panel, { kind: "models" }>) => modelsOf(models?.read().value ?? [], card.accountId);
+  /** The model and effort the session's next run goes out on: its own (#1961), else, from an environment that keeps none, the latest run's. */
   const currentChoice = (): RunChoice | undefined => {
     if (!opened) return undefined;
-    const chosen = choices.get(keyOf(opened));
+    const chosen = projection?.summary?.runChoice;
     if (chosen) return chosen;
     const last = projection?.runs.at(-1);
     if (last) return { model: last.model, effort: last.effort };
@@ -610,9 +614,8 @@ export const usePickers = (host: PickersHost): Pickers => {
           if (!opened) return host.say("No session is open: a model rides a session's runs. /resume opens one, /new starts one.");
           const target = opened;
           const choose = (model: ModelEntry, effort: string | null) => {
-            setChoices((held) => new Map(held).set(keyOf(target), { model: model.id, effort }));
             host.close();
-            host.say(nextRunWords(sessionName(), { model: model.id, effort }, model.label));
+            void setSessionModel(runtime, target.environmentId, target.sessionId, { model: model.id, effort }, { session: sessionName(), model: model.label }).then(host.say);
           };
           if (card.model !== null) return choose(card.model, card.cursor === 0 ? null : (card.model.efforts[card.cursor - 1] ?? null));
           const model = modelList(card)[card.cursor];
@@ -932,7 +935,6 @@ export const usePickers = (host: PickersHost): Pickers => {
       }
     },
 
-    choice: (target) => (target ? choices.get(keyOf(target)) : undefined),
     containment: (target) => (target ? levels.get(keyOf(target)) : undefined),
     forkedOnto: (target) => (target ? forks.get(keyOf(target)) : undefined),
   };

@@ -217,7 +217,7 @@ const twoEnvironments = async () => {
         capabilities: ["setup"],
         setup: onlySteps({
           ...PASSING,
-          appearance: { state: "needs-attention", reason: "Theme \"Olive\" has 1 seed clamped.", failing: ["appearance.contrast"], actions: ["restore"] },
+          appearance: { state: "needs-attention", reason: "Some colours in Olive were adjusted so text stays readable.", failing: ["appearance.contrast"], actions: ["restore"] },
         }),
       },
     ],
@@ -295,7 +295,7 @@ describe("the Set up pane", () => {
     await app.user.click(within(within(within(settings()).getByRole("region", { name: "Set up" })).getByRole("list", { name: "Steps" })).getByRole("button", { name: "Appearance" }));
     expect(screen.queryByRole("region", { name: "Settings" })).toBeNull();
     expect(within(steps()).getByRole("button", { name: "Appearance" }).getAttribute("aria-current")).toBe("step");
-    expect(within(within(checklist() as HTMLElement).getByRole("region", { name: "Appearance" })).getByText("Theme \"Olive\" has 1 seed clamped.")).toBeDefined();
+    expect(within(within(checklist() as HTMLElement).getByRole("region", { name: "Appearance" })).getByText("Some colours in Olive were adjusted so text stays readable.")).toBeDefined();
     await app.user.click(screen.getByRole("button", { name: "Close Set up" }));
     await app.user.click(screen.getByRole("button", { name: "Leave for now" }));
 
@@ -340,14 +340,31 @@ describe("the Set up pane", () => {
     expect(screen.queryByRole("navigation", { name: "Set up steps" })).toBeNull();
 
     desk.setSetup({
-      permissions: { state: "needs-attention", reason: "The denylist lost 2 presets.", failing: ["permissions.denylist"], actions: ["restore"] },
-      appearance: { state: "needs-attention", reason: "Theme \"Olive\" has 1 seed clamped.", failing: ["appearance.contrast"], actions: ["restore"] },
+      permissions: { state: "needs-attention", reason: "Some built-in entries are missing from the paths always-ask list.", failing: ["permissions.denylist"], actions: ["restore"] },
+      appearance: { state: "needs-attention", reason: "Some colours in Olive were adjusted so text stays readable.", failing: ["appearance.contrast"], actions: ["restore"] },
     });
     await app.user.click(within(pane).getByRole("button", { name: "Check everything again" }));
     const card = await within(await screen.findByRole("region", { name: "Set up" })).findByRole("region", { name: "Permissions" });
-    expect(within(card).getByText("The denylist lost 2 presets.")).toBeDefined();
-    expect(within(card).getByRole("button", { name: "Restore" })).toBeDefined();
+    expect(within(card).getByText("Some built-in entries are missing from the paths always-ask list.")).toBeDefined();
+    expect(within(card).getByRole("button", { name: "Restore them" })).toBeDefined();
     expect(within(steps()).getByRole("button", { name: "Permissions" }).getAttribute("aria-current")).toBe("step");
+  });
+
+  it("explains a jump from Check everything again above the notice, but forgets it when the rail chooses the step", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["setup"], setup: {
+      permissions: { state: "needs-attention", reason: "The denylist lost 2 presets.", failing: ["permissions.denylist"], actions: ["restore"] },
+    } }] });
+    const pane = await setupPane(app);
+    await app.user.click(within(pane).getByRole("button", { name: "Check everything again" }));
+    const card = await within(await screen.findByRole("region", { name: "Set up" })).findByRole("region", { name: "Permissions" });
+    const checked = within(card).getByText("Checked just now.");
+    const notice = within(card).getByRole("alert");
+    expect(checked.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    await app.user.click(within(steps()).getByRole("button", { name: "Permissions" }));
+    expect(within(card).queryByText("Checked just now.")).toBeNull();
+    await app.user.click(within(steps()).getByRole("button", { name: "Appearance" }));
+    await app.user.click(within(steps()).getByRole("button", { name: "Permissions" }));
+    expect(within(screen.getByRole("region", { name: "Permissions" })).queryByText("Checked just now.")).toBeNull();
   });
 
   it("keeps Check everything again busy, and what it found, to each computer it checks", async () => {
@@ -537,7 +554,7 @@ describe("a step's named actions", () => {
           reach: "local",
           setup: {
             permissions: { state: "needs-attention", reason: "The denylist lost 2 presets.", failing: ["permissions.denylist"], actions: ["restore"] },
-            appearance: { state: "needs-attention", reason: "Theme \"Olive\" has 1 seed clamped.", failing: ["appearance.contrast"], actions: ["restore"] },
+            appearance: { state: "needs-attention", reason: "Some colours in Olive were adjusted so text stays readable.", failing: ["appearance.contrast"], actions: ["restore"] },
           },
           settings: { "appearance.theme": { ...SETTINGS["appearance.theme"].preset, name: "Olive" } },
           lostPresets: denylistPresets("/home").paths.slice(0, 2).map((entry) => entry.id),
@@ -549,10 +566,10 @@ describe("a step's named actions", () => {
 
     const permissions = await cardOf(app, "Permissions");
     desk.setSetup({ permissions: {} });
-    await app.user.click(within(permissions).getByRole("button", { name: "Restore" }));
-    // The Permissions card asks once, as a section's Restore presets does (#594).
-    await app.user.click(within(await screen.findByRole("dialog", { name: "Restore the presets the denylist lost?" })).getByRole("button", { name: "Restore" }));
-    expect(await within(permissions).findByText("Restored the denylist's presets: 2 put back.")).toBeDefined();
+    await app.user.click(within(permissions).getByRole("button", { name: "Restore them" }));
+    // The Permissions card asks once, as a list's Restore built-in entries does (#594).
+    await app.user.click(within(await screen.findByRole("dialog", { name: "Restore the always-ask list's missing built-in entries?" })).getByRole("button", { name: "Restore" }));
+    expect(await within(permissions).findByText("Put back 2 built-in entries.")).toBeDefined();
     expect(await within(steps()).findByRole("button", { name: "Permissions", description: / Done / })).toBeDefined();
     expect(within(permissions).getByText(/^Set\./)).toBeDefined();
     expect(desk.requests("permissions.denylist.restorePresets")).toHaveLength(1);
@@ -560,8 +577,11 @@ describe("a step's named actions", () => {
 
     await app.user.click(within(steps()).getByRole("button", { name: "Appearance" }));
     const appearance = within(checklist() as HTMLElement).getByRole("region", { name: "Appearance" });
-    await app.user.click(within(appearance).getByRole("button", { name: "Restore" }));
-    expect(await within(appearance).findByText("Restored the Default theme.")).toBeDefined();
+    await app.user.click(await within(appearance).findByRole("button", { name: "Use the Default theme" }));
+    const question = await screen.findByRole("alertdialog", { name: "Use the Default theme?" });
+    expect(desk.settings()["appearance.theme"].name).toBe("Olive");
+    await app.user.click(within(question).getByRole("button", { name: "Use Default" }));
+    expect(await within(appearance).findByText("Saved Default on desk.")).toBeDefined();
     expect(desk.settings()["appearance.theme"]).toEqual(SETTINGS["appearance.theme"].preset);
     expect(desk.requests("setup.check").at(-1)?.params).toEqual({ step: "appearance" });
   });
@@ -707,19 +727,19 @@ describe("a step's named actions on their targets", () => {
 
   it("says a refused restore on the Permissions card plainly, its raw words under Details", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", setup: { permissions: {
-      state: "needs-attention", reason: "The paths section of the denylist is missing 1 of its presets (~/.ssh); Restore puts them back.", failing: ["permissions.denylist"],
+      state: "needs-attention", reason: "Some built-in entries are missing from the paths always-ask list.", failing: ["permissions.denylist"],
       actions: ["restore"], targets: [{ action: "restore", kind: "denylist-section", id: "paths", label: "paths" }],
     } } }] });
     await screen.findByText(NO_SESSION);
     app.environment("desk").wire.answer("permissions.denylist.restorePresets", () => ({ error: { code: "internal", message: "The denylist store is locked.", data: {} } }));
     const permissions = await cardOf(app, "Permissions");
-    await app.user.click(within(permissions).getByRole("button", { name: "Restore: paths" }));
-    await app.user.click(within(await screen.findByRole("dialog", { name: "Restore the presets Paths lost?" })).getByRole("button", { name: "Restore" }));
+    await app.user.click(within(permissions).getByRole("button", { name: "Restore them" }));
+    await app.user.click(within(await screen.findByRole("dialog", { name: "Restore the missing built-in entries of Paths?" })).getByRole("button", { name: "Restore" }));
     expect(await detailsOf(app, permissions, "agent-harness ran into a problem. Choose Restore to try again.")).toContain("internal: The denylist store is locked.");
     expect(within(permissions).queryByText(/Not restored/)).toBeNull();
   });
 
-  it("restore puts back the presets of the denylist sections it names alone, and update is Update now on Your machines", async () => {
+  it("Restore them puts back the built-in entries of the always-ask lists it names alone, and update is Update now on Your machines", async () => {
     const presets = denylistPresets("/home");
     const app = await renderApp({
       environments: [
@@ -729,7 +749,7 @@ describe("a step's named actions on their targets", () => {
           setup: {
             permissions: {
               state: "needs-attention",
-              reason: "The paths section of the denylist is missing 1 of its presets (~/.ssh); Restore puts them back.",
+              reason: "Some built-in entries are missing from the paths always-ask list.",
               failing: ["permissions.denylist"],
               actions: ["restore"],
               targets: [{ action: "restore", kind: "denylist-section", id: "paths", label: "paths" }],
@@ -750,9 +770,9 @@ describe("a step's named actions on their targets", () => {
     const desk = app.environment("desk");
 
     const permissions = await cardOf(app, "Permissions");
-    await app.user.click(within(permissions).getByRole("button", { name: "Restore: paths" }));
-    await app.user.click(within(await screen.findByRole("dialog", { name: "Restore the presets Paths lost?" })).getByRole("button", { name: "Restore" }));
-    expect(await within(permissions).findByText("Restored the denylist's presets: 1 put back.")).toBeDefined();
+    await app.user.click(within(permissions).getByRole("button", { name: "Restore them" }));
+    await app.user.click(within(await screen.findByRole("dialog", { name: "Restore the missing built-in entries of Paths?" })).getByRole("button", { name: "Restore" }));
+    expect(await within(permissions).findByText("Put back 1 built-in entry.")).toBeDefined();
     expect(desk.requests("permissions.denylist.restorePresets").map((request) => request.params["sections"])).toEqual([["paths"]]);
 
     await app.user.click(within(steps()).getByRole("button", { name: "Your machines" }));

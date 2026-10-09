@@ -1,6 +1,58 @@
 # Accepting window gallery captures
 
+Every pull request gets a `gallery / gallery` result. The trusted relay compares
+the entire PR head to its merge base against main, including earlier commits.
+Changes under `packages/gui/` (scenes, baselines and bundled fonts included),
+`packages/theme/`, `packages/client-runtime/`, `packages/contracts/` or
+`packages/browser/` render,
+as do gallery scripts and workflows, the root dependency manifests/lockfile and
+`tsconfig.base.json`. The path rule lives in `.forgejo/scripts/gallery-needed.py`.
+Other changes succeed with `no GUI change: gallery skipped`, without dispatching
+a hosted render or posting a screenshot comment. Add the `gallery` label to
+force a render; adding or removing that label reevaluates the decision.
+
+Events for the same PR head queue in Forgejo instead of cancelling one another.
+Forgejo publishes cancellation statuses outside the relay script; cancelling an
+older run could otherwise overwrite a replacement's success on the same head.
+Each new head has its own queue and hosted capture group, so queued work for an
+older head cannot cancel a newer head's captures. Label changes can wait for the
+active gallery to finish before their result appears.
+
+The hosted gallery workflow remains unchanged and installed byte for byte on
+the relay repository. The decision happens before dispatch. A PR changing this
+rule must render because gallery machinery is an input; `pull_request_target`
+uses the trusted base's rule, so live skip verification needs a non-GUI PR after
+the rule lands. Then verify a GUI change (including one in an earlier commit)
+still renders and posts screenshots, and the label forces a non-GUI render.
+
 Use this recipe when a deliberate GUI change produces reviewed pixel differences in a pull request.
+
+## Pull request checks
+
+The gallery check selects GUI and gallery-tooling changes in
+`.forgejo/workflows/gallery.yml`. Review its captures using the recipe below.
+
+The `image / image` check compares the complete PR head with its merge base
+against `main`, including earlier commits in the PR. It builds for changes to
+CLI/environment workspace dependencies, the GUI bundle staged into the image,
+container/build scripts, compose and release inputs, root build configuration
+or workspace manifests and lockfiles. The dependency set is read from the
+workspace manifests so a new workspace dependency is included automatically.
+Non-GUI tests, PNG gallery captures, desktop source and docs skip the build;
+the job still succeeds with `no image input changed: build skipped`.
+GUI source, web assets and wizard copy currently enter the image through the
+Dockerfile's GUI build and staging step, so they require an image build.
+GUI tests and gallery text require a build too: Tailwind scans those files
+for utility classes that can change the staged production CSS. PNG captures are
+binary and do not contribute utility classes.
+
+Add the PR label `image` to force a build, including on a head whose check
+already skipped. Other labels neither launch nor cancel an image build.
+Releases, manual release builds and main's release smoke still build the image
+unconditionally. A PR changing the image workflow or selector itself builds
+the image too; its skip path is covered by the selector's fixture tests.
+
+## Accept captures
 
 1. Work in the pull request's worktree with its current head checked out. Wait for every hosted gallery shard comment for that head. Review every baseline/capture/difference triplet and any new scene image; confirm the captures show the intended change.
 2. Resolve every geometry failure in the layout or measurement expectations. Baseline acceptance changes pixel comparisons; geometry checks continue to block immediately.
@@ -30,11 +82,13 @@ The #1537 hosted probe (run 37178192474, PR #1538) repeated restore captures eig
 
 Each completed report stores immutable capture bytes in the `window-gallery` generic package under version `<head>-<comment-id>`. Repeating a hosted run on the same head creates another report version, so a retry cannot replace bytes in an earlier review. The comment manifest records the version, exact package download URL and SHA-256 of each capture. Acceptance selects the latest reported shard group (or legacy single report) for the current head and verifies its hashes before writing any baseline. Existing head-only manifests remain downloadable for compatibility.
 
+The trusted Unix publisher bounds each complete API request (including response reads and reused-package verification) to 60 seconds. The report-set budget scales with the validated workload: one second per attachment, capture-storage request, possible reused-package verification and comment write, with a ten-minute minimum. The relay bounds the complete job to 55 minutes. Socket activity does not extend either deadline. A termination signal also finalizes an active report as interrupted. If comment creation committed but its response was lost, a unique attempt marker recovers the matching relay-authored comment from the bounded thread before finalizing it. Recovery and failure finalization each get a fresh 60-second request budget.
+
 Attachment or package upload failures finalize the comment with the failed stage, HTTP status when available, and instructions to rerun the gallery job or check write permissions. A failed report carries no acceptance manifest. If tracker connectivity also prevents finalizing the comment, the relay log explicitly reports that failure.
 
 Capture versions expire 30 days after their package creation time, except every version referenced by a relay-authored gallery manifest in an open pull request and every version belonging to an open pull request's current head. This includes earlier reviewed heads and the head-only versions created before per-report versioning. Unfinished uploads that no longer belong to an open PR's current head receive the same 30-day grace period. The `window-gallery` package is reserved for this repository's gallery captures; other package names and types are untouched. Closing a PR releases its captures for cleanup once their creation time is past the retention period.
 
-Cleanup runs daily in the `gallery-retention` workflow, can be dispatched manually, and also runs after each completed report. It reads every page of open PRs and package versions, and each complete comment thread, before deleting anything; unreadable or invalid API listings stop cleanup. Acceptance and cleanup only use reports authored by Forgejo’s reserved Actions identity. A modern version must match the head and the containing comment’s own ID; older head-only reports from that identity remain supported. Copied markers in ordinary discussion and malformed examples are ignored. A concurrent cleanup's already-deleted version is harmless. Cleanup errors leave completed reports usable and emit a workflow warning; rerun the retention workflow after restoring API access. Authenticated manual cleanup uses `FORGEJO_URL`, `FORGEJO_REPOSITORY` and `FORGEJO_TOKEN` with `python3 scripts/gallery-retention.py`.
+Cleanup runs daily in the `gallery-retention` workflow and can be dispatched manually. It runs separately from gallery publication so a repository-wide inventory scan cannot invalidate clean reports or consume their relay deadline. It reads every page of open PRs and package versions, and each complete comment thread, before deleting anything; unreadable or invalid API listings stop cleanup. Acceptance and cleanup only use reports authored by Forgejo’s reserved Actions identity. A modern version must match the head and the containing comment’s own ID; older head-only reports from that identity remain supported. Copied markers in ordinary discussion and malformed examples are ignored. A concurrent cleanup's already-deleted version is harmless. Cleanup errors leave completed reports usable and fail the retention job; rerun the retention workflow after restoring API access. Authenticated manual cleanup uses `FORGEJO_URL`, `FORGEJO_REPOSITORY` and `FORGEJO_TOKEN` with `python3 scripts/gallery-retention.py`.
 
 The workflows use the repository job token for PRs and comments and the existing `PACKAGES_TOKEN` secret (with package read/write access) for owner-scoped capture storage, inventory and deletion. For manual cleanup, `FORGEJO_TOKEN` may be a user token with both repository and package access, or set `PACKAGES_TOKEN` separately. Acceptance likewise needs a user token with package read access.
 
@@ -95,3 +149,14 @@ unfinished retries and mixed runs before writing baselines. Acceptance stages
 capture bytes on disk and validates each report's 48 MiB bound. Acceptance and
 retention read complete comment threads with a 64 MiB bound; individual capture
 and report limits remain unchanged.
+
+The hosted plan uploads its exact matrix as `gallery-plan` (`matrix.json`). The
+trusted relay validates this bounded artifact and waits for `plan` and every
+`gallery (<shard>)` job named by the matrix, including captures not yet present
+in the jobs listing. Once they finish, it downloads the complete planned report
+set, validates each report against the matrix, and publishes before returning
+its capture verdict. Queued or failed hosted cleanup does not delay publication
+or change that verdict. Geometry, pixel differences, incomplete artifacts and
+publication failures still fail. The hosted cleanup job and scheduled ref sweep
+continue removing temporary `ci/*` branches. During workflow rollout, a run
+without the plan artifact retains the whole-run completion path.

@@ -66,8 +66,8 @@ describe("the account stream", () => {
 });
 
 describe("the account record", () => {
-  it("holds the id, provider, label, directory kind and path, identity, status with checked-at, and created-at", () => {
-    expect(Object.keys(AccountRecord.shape)).toEqual(["id", "provider", "label", "directory", "identity", "status", "createdAt"]);
+  it("holds the id, provider, label and generated-name flag, directory kind and path, identity, status with checked-at, and created-at", () => {
+    expect(Object.keys(AccountRecord.shape)).toEqual(["id", "provider", "label", "nameByEmail", "directory", "identity", "status", "createdAt"]);
     expect(AccountRecord.parse(record)).toEqual(record);
     expect(AccountRecord.safeParse({ ...record, directory: { kind: "linked", path: "/x" } }).success).toBe(false);
     expect(AccountRecord.safeParse({ ...record, identity: null, status: { state: "signed-out", checkedAt: null, detail: null } }).success).toBe(true);

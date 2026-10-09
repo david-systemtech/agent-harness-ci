@@ -1,9 +1,12 @@
+import { useToastTimers } from "../test/toast-timers.js";
 import { chooseHeaderAction, openHeaderMenu } from "../test/header-actions.js";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { RenderedApp, ScriptedEnvironment } from "../test/harness.js";
 import { renderApp } from "../test/harness.js";
 import { dataTransfer, heading, inUtc, region, row, sidebar } from "../test/sidebar-fixtures.js";
+
+useToastTimers();
 
 /**
  * A new session in the window (docs/specs/gui.md, "A new session" and "The
@@ -250,16 +253,13 @@ describe("new-session readiness", () => {
     const accountsPane = await within(settings).findByRole("region", { name: "Accounts" });
     expect((within(accountsPane).getByRole("combobox", { name: "Environment" }) as HTMLSelectElement).value).toBe(LAPTOP_ID);
     if (accounts.length === 0) {
-      await app.user.click(within(accountsPane).getByRole("button", { name: "Add an account…" }));
-      const adding = await within(accountsPane).findByRole("region", { name: "Add an account on laptop" });
-      await app.user.type(within(adding).getByRole("textbox", { name: "Label for the new account" }), "Personal");
-      await app.user.click(within(adding).getByRole("button", { name: "Add" }));
+      await app.user.click(within(within(accountsPane).getByRole("group", { name: "How do you want to sign in?" })).getByRole("button", { name: "Sign in with Claude" }));
     } else {
       const adopted = await within(accountsPane).findByRole("region", { name: "Adopted" });
       await app.user.click(within(adopted).getByRole("button", { name: "Sign in again" }));
     }
     const signing = await within(accountsPane).findByRole("region", { name: "Sign in to Claude on laptop" });
-    await waitFor(() => expect(params(app, "laptop", accounts.length === 0 ? "accounts.add" : "accounts.signin.start")).toEqual([expect.objectContaining(accounts.length === 0 ? { label: "Personal" } : { accountId: "signed-out" })]));
+    await waitFor(() => expect(params(app, "laptop", accounts.length === 0 ? "accounts.add" : "accounts.signin.start")).toEqual([expect.objectContaining(accounts.length === 0 ? { label: "Claude account" } : { accountId: "signed-out" })]));
     expect(params(app, "desk", "accounts.add")).toEqual([]);
     expect(params(app, "desk", "accounts.signin.start")).toEqual([]);
     app.environment("laptop").signIn("awaiting-code", { url: "https://claude.test/sign-in" });
@@ -335,6 +335,56 @@ describe("the chips", () => {
     // What was chosen is layout: the surface comes back with its chips after the window opens again.
     await app.remount();
     await chipsRead(surface, ["Environment: laptop", "Account: Home milo@home.test", "Model: Sonnet 5", "Workspace: scratch"]);
+  });
+});
+
+describe("the first run's effort (ticket 1950)", () => {
+  // Laptop's Home account offers Fable, which takes efforts, and Sonnet 5, which takes none; its default effort is High.
+  const FABLE = { id: "fable", family: "fable", tier: 3, efforts: ["low", "medium", "high"], label: "Fable" };
+  const onLaptop = async () => {
+    const app = await withOpen("Train tidy", { laptop: { models: [{ ...SONNET, models: [FABLE, ...SONNET.models] }], settings: { "accounts.defaultEffort": "high" } } });
+    await app.user.keyboard("{Control>}n{/Control}");
+    return app;
+  };
+  /** The picker's effort rows as they read, the ticked one with its note ("Highthe default effort"). */
+  const effortRows = (menu: HTMLElement) => within(within(menu).getByRole("group", { name: "Effort" })).getAllByRole("menuitem").map((item) => item.textContent);
+  /** The session pane's status line, once the first send has opened the session there. */
+  const statusModel = () => within(paneOf("New session")).findByRole("button", { name: /^Model: / });
+
+  it("ticks and words the environment's default effort until one is chosen, and the first run goes out at it", async () => {
+    const app = await onLaptop();
+    const surface = () => surfaces()[0] as HTMLElement;
+    await chipsRead(surface, ["Environment: laptop", "Account: Home milo@home.test", "Model: Fable 5.1 - High", "Workspace: directory train"]);
+    for (const chip of ["Account", "Model"]) {
+      await openChip(app, surface(), chip);
+      expect(effortRows(await screen.findByRole("menu"))).toEqual(["its own effort", "Low", "Medium", "Highthe default effort"]);
+      await app.user.keyboard("{Escape}");
+    }
+    await typeOn(app, surface(), "Tidy the tracks{Enter}");
+    await waitFor(() => expect(params(app, "laptop", "runs.start")).toHaveLength(1));
+    expect(params(app, "laptop", "runs.start")[0]).not.toHaveProperty("effort");
+    expect((await statusModel()).getAttribute("aria-label")).toBe("Model: Fable 5.1 - High");
+  });
+
+  it("sends an explicit its own effort as null, and the session's first run goes out at the model's own", async () => {
+    const app = await onLaptop();
+    const surface = () => surfaces()[0] as HTMLElement;
+    await openChip(app, surface(), "Model");
+    await app.user.click(within(within(await screen.findByRole("menu")).getByRole("group", { name: "Effort" })).getByRole("menuitem", { name: /^its own effort/ }));
+    await chipsRead(surface, ["Environment: laptop", "Account: Home milo@home.test", "Model: Fable 5.1", "Workspace: directory train"]);
+    await typeOn(app, surface(), "Tidy the tracks{Enter}");
+    await waitFor(() => expect(params(app, "laptop", "runs.start")).toEqual([expect.objectContaining({ model: "fable", effort: null })]));
+    expect((await statusModel()).getAttribute("aria-label")).toBe("Model: Fable 5.1");
+  });
+
+  it("shows no Effort column and no effort for a model that takes none", async () => {
+    const app = await onLaptop();
+    const surface = () => surfaces()[0] as HTMLElement;
+    await openChip(app, surface(), "Model");
+    await app.user.click(within(await screen.findByRole("menu")).getByRole("menuitem", { name: /^Sonnet 5/ }));
+    await chipsRead(surface, ["Environment: laptop", "Account: Home milo@home.test", "Model: Sonnet 5", "Workspace: directory train"]);
+    await openChip(app, surface(), "Model");
+    expect(within(await screen.findByRole("menu")).queryByRole("group", { name: "Effort" })).toBeNull();
   });
 });
 
@@ -537,17 +587,14 @@ describe("a new session in a new pane", () => {
 
   it("shows a fresh refusal while the previous toast is leaving", async () => {
     await twoPanes();
-    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
-    try {
-      expect(dropControl(headingControl("laptop"), () => heading("desk"))).toBe(false);
-      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
-      expect(gridLine()).toBe("A new session opens in a pane.");
-      await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
-      expect(gridLine()).toBeUndefined();
-      expect(dropControl(headingControl("laptop"), () => heading("desk"))).toBe(false);
-      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
-      expect(gridLine()).toBe("A new session opens in a pane.");
-    } finally { vi.useRealTimers(); }
+    expect(dropControl(headingControl("laptop"), () => heading("desk"))).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(gridLine()).toBe("A new session opens in a pane.");
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    expect(gridLine()).toBeUndefined();
+    expect(dropControl(headingControl("laptop"), () => heading("desk"))).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(gridLine()).toBe("A new session opens in a pane.");
   });
 
   it("is refused off the grid, and with every other way of adding a pane at eight panes, each with its reason in a toast", async () => {

@@ -39,7 +39,7 @@ it("opens every registered row through the phone drawer, closes it on selection,
 it("explains deliberate admin re-pairing without sending account mutations on the Phone grant", async () => {
   const app = await opened(["read", "sessions:write", "runs:drive"]);
   expect(await screen.findByRole("button", { name: "Give this phone full access" })).toBeDefined();
-  expect(screen.getByRole("button", { name: "Add an account…" }).hasAttribute("disabled")).toBe(true);
+  expect(screen.getByRole("button", { name: "Sign in with Claude" }).hasAttribute("disabled")).toBe(true);
   expect(app.environment.requests("accounts.add")).toHaveLength(0);
 });
 
@@ -56,10 +56,9 @@ it.each(["admin", "own-client"])("completes scripted sign-in and persists a sett
       await app.environment.accept({ scopes: ["read", "sessions:write", "runs:drive", "admin"], ceiling: "acceptEdits" });
       await repairing;
     });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Add an account…" }).hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Sign in with Claude" }).hasAttribute("disabled")).toBe(false));
   }
-  await app.user.click(screen.getByRole("button", { name: "Add an account…" }));
-  await app.user.type(await screen.findByRole("textbox", { name: "Label for the new account" }), "Test account{Enter}");
+  await app.user.click(screen.getByRole("button", { name: "Sign in with Claude" }));
   act(() => app.environment.signIn("awaiting-code", { url: "https://provider.example.test/verify" }));
   const link = await screen.findByRole("link", { name: "Open the sign-in page" });
   expect(link.getAttribute("href")).toBe("https://provider.example.test/verify");
@@ -76,7 +75,7 @@ it.each(["admin", "own-client"])("completes scripted sign-in and persists a sett
   }
   await waitFor(() => expect(app.environment.requests("accounts.signin.code")).toHaveLength(1));
   act(() => app.environment.signIn("done"));
-  expect(await screen.findByText("Test account is signed in.")).toBeDefined();
+  expect(await screen.findByText("Claude account is signed in.")).toBeDefined();
   await app.user.click(screen.getByRole("button", { name: "Done" }));
   await app.user.click(screen.getByRole("button", { name: "Settings rows" }));
   await app.user.click(screen.getByRole("button", { name: "Service" }));
@@ -112,14 +111,13 @@ it("opens the full web checklist and exposes all eleven registered steps from it
 
 it("resumes provider status when returning to a tab without restarting the flow", async () => {
   const app = await opened();
-  await app.user.click(screen.getByRole("button", { name: "Add an account…" }));
-  await app.user.type(await screen.findByRole("textbox", { name: "Label for the new account" }), "Visit account{Enter}");
+  await app.user.click(screen.getByRole("button", { name: "Sign in with Claude" }));
   act(() => app.environment.signIn("awaiting-code", { url: "https://provider.example.test/verify" }));
   await screen.findByRole("link", { name: "Open the sign-in page" });
   const signIn = app.runtime.requests.cached(app.environment.environmentId, "accounts.signin.get", {}).read().result?.signIn;
   app.environment.wire.answer("accounts.signin.get", () => ({ result: { signIn: signIn && { ...signIn, state: "done" } } }));
   act(() => window.dispatchEvent(new Event("focus")));
-  expect(await screen.findByText("Visit account is signed in.")).toBeDefined();
+  expect(await screen.findByText("Claude account is signed in.")).toBeDefined();
   expect(app.environment.requests("accounts.add")).toHaveLength(1);
   expect(app.environment.requests("accounts.signin.start")).toHaveLength(0);
 });
@@ -134,6 +132,10 @@ it.each(["settings", "setup"])("opens portaled default choices in phone %s", asy
     await app.user.click(screen.getByRole("button", { name: "Open the Carry over step in Set up" }));
     await app.user.click(await screen.findByRole("button", { name: "Set up steps" }));
     await app.user.click(within(await screen.findByRole("dialog", { name: "Set up steps" })).getByRole("button", { name: "Account" }));
+    // setup-copy.md §5.1: the defaults sit in the step's own More options, after each account's.
+    await screen.findByRole("group", { name: "How do you want to sign in?" });
+    const fold = screen.getAllByRole("button", { name: "More options" }).at(-1) as HTMLElement;
+    if (fold.getAttribute("aria-expanded") !== "true") await app.user.click(fold);
   }
   await app.user.click(await screen.findByRole("button", { name: /^Default account:/ }));
   const picker = await screen.findByRole("dialog", { name: "New-session defaults" });

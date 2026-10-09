@@ -236,24 +236,24 @@ const SETTING_WORDS = {
     description: "Keep an agent process ready between runs for this many minutes. A later run starts it again when needed.",
   },
   "permissions.defaultCeiling": {
-    label: "Maximum permission mode",
-    description: "The most permissive mode a session may use. A session can choose a stricter mode.",
+    label: "How much agents may do without asking",
+    description: "This is the most any session may do without asking. A session can always ask more often.",
   },
   "permissions.unattended.mode": {
-    label: "Unattended permission mode",
-    description: "The permission mode for scheduled or programmatic runs unless they choose their own. Bypassing permission checks requires your acknowledgement.",
+    label: "For scheduled and automatic runs",
+    description: "How much scheduled and automatic runs may do without asking, unless they choose for themselves. Never ask needs your agreement first.",
   },
   "permissions.unattended.bypassAcknowledgedAt": {
-    label: "Permission bypass acknowledged",
-    description: "When you last accepted the warning about running unattended without permission checks. Recorded automatically when you accept it.",
+    label: "Agreed to never ask on scheduled runs",
+    description: "When you agreed that scheduled runs may act without asking. It is recorded when you agree.",
   },
   "permissions.parkedPrompt.ttl": {
-    label: "Unanswered permission timeout",
-    description: "How long a permission question can wait before it is denied and the run continues. Choose never to wait until you answer; provider time limits may still apply.",
+    label: "If nobody answers a question",
+    description: "How long an agent's question waits for your answer before it is denied and the run goes on. With Never deny it, the provider may still stop waiting.",
   },
   "permissions.containment.default": {
-    label: "Default process containment",
-    description: "How new sessions restrict agent processes and network access. The environment reports which restrictions this machine supports.",
+    label: "Sandbox",
+    description: "A sandbox keeps an agent's commands inside the project folder, so they cannot change the rest of the computer.",
   },
   "updates.autoUpdate": {
     label: "Automatic updates",

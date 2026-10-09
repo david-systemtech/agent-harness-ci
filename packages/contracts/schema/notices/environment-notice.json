@@ -7343,13 +7343,14 @@
                       "start-over",
                       "revise",
                       "check-certificate",
-                      "how-to-set-up"
+                      "how-to-set-up",
+                      "turn-sandbox-off"
                     ],
-                    "description": "A named action a step's result offers, from ADR 0031's fixed vocabulary and the verbs the step decisions added to it: sign-in-again (opens the sign-in of each account, forge account or key-manager connection it targets); pull-now (pulls the skill sources it targets now); check-again (runs the step's check again through setup.check); unpair (unpairs the Chrome it targets); pair-another (pairs another Chrome); install (installs the tool it targets); update (updates the tool it targets, or this machine); reload (shows how to reload the extension in the Chrome it targets); set-up-this-machine (switches the checklist to the environment it targets); restore (runs the step's restore method: the Permissions step's puts the denylist's missing presets back, and the Appearance step's writes the preset theme back through settings.update); move (opens the Move card, which moves stored tokens into a key manager); start-service (starts the local environment's service when it is down); import-again (runs the step's import again, for real rather than as a dry run, after one that failed part way); try-again (continues the authoring session it targets where its run stopped); write-it-myself (opens the step's artefact to write by hand: the bank's checkout, or the Instructions editor); start-over (starts a new authoring session for the step, the old one staying); revise (starts an authoring session that revises the step's artefact); check-certificate (opens the certificate check of each key-manager connection it targets, where a person reviews the certificate it presents and trusts it); how-to-set-up (shows how to set up what the step needs outside the environment: on Your machines, the host-side updater on the Docker host)."
+                    "description": "A named action a step's result offers, from ADR 0031's fixed vocabulary and the verbs the step decisions added to it: sign-in-again (opens the sign-in of each account, forge account or key-manager connection it targets); pull-now (pulls the skill sources it targets now); check-again (runs the step's check again through setup.check); unpair (unpairs the Chrome it targets); pair-another (pairs another Chrome); install (installs the tool it targets); update (updates the tool it targets, or this machine); reload (shows how to reload the extension in the Chrome it targets); set-up-this-machine (switches the checklist to the environment it targets); restore (runs the step's restore method: the Permissions step's puts the denylist's missing presets back, and the Appearance step's writes the preset theme back through settings.update); move (opens the Move card, which moves stored tokens into a key manager); start-service (starts the local environment's service when it is down); import-again (runs the step's import again, for real rather than as a dry run, after one that failed part way); try-again (continues the authoring session it targets where its run stopped); write-it-myself (opens the step's artefact to write by hand: the bank's checkout, or the Instructions editor); start-over (starts a new authoring session for the step, the old one staying); revise (starts an authoring session that revises the step's artefact); check-certificate (opens the certificate check of each key-manager connection it targets, where a person reviews the certificate it presents and trusts it); how-to-set-up (shows how to set up what the step needs outside the environment: on Your machines, the host-side updater on the Docker host); turn-sandbox-off (writes the containment default off through permissions.settings.set, on the Permissions step whose chosen sandbox cannot be enforced here)."
                   },
                   {
                     "type": "string",
-                    "pattern": "^(?!(?:sign-in-again|pull-now|check-again|unpair|pair-another|install|update|reload|set-up-this-machine|restore|move|start-service|import-again|try-again|write-it-myself|start-over|revise|check-certificate|how-to-set-up)$)[a-z][a-z0-9-]*$",
+                    "pattern": "^(?!(?:sign-in-again|pull-now|check-again|unpair|pair-another|install|update|reload|set-up-this-machine|restore|move|start-service|import-again|try-again|write-it-myself|start-over|revise|check-certificate|how-to-set-up|turn-sandbox-off)$)[a-z][a-z0-9-]*$",
                     "description": "A verb a newer environment offers that the reader's vocabulary lacks: lowercase words joined by hyphens, which the reader offers as no action."
                   }
                 ]
@@ -7385,13 +7386,14 @@
                           "start-over",
                           "revise",
                           "check-certificate",
-                          "how-to-set-up"
+                          "how-to-set-up",
+                          "turn-sandbox-off"
                         ],
-                        "description": "A named action a step's result offers, from ADR 0031's fixed vocabulary and the verbs the step decisions added to it: sign-in-again (opens the sign-in of each account, forge account or key-manager connection it targets); pull-now (pulls the skill sources it targets now); check-again (runs the step's check again through setup.check); unpair (unpairs the Chrome it targets); pair-another (pairs another Chrome); install (installs the tool it targets); update (updates the tool it targets, or this machine); reload (shows how to reload the extension in the Chrome it targets); set-up-this-machine (switches the checklist to the environment it targets); restore (runs the step's restore method: the Permissions step's puts the denylist's missing presets back, and the Appearance step's writes the preset theme back through settings.update); move (opens the Move card, which moves stored tokens into a key manager); start-service (starts the local environment's service when it is down); import-again (runs the step's import again, for real rather than as a dry run, after one that failed part way); try-again (continues the authoring session it targets where its run stopped); write-it-myself (opens the step's artefact to write by hand: the bank's checkout, or the Instructions editor); start-over (starts a new authoring session for the step, the old one staying); revise (starts an authoring session that revises the step's artefact); check-certificate (opens the certificate check of each key-manager connection it targets, where a person reviews the certificate it presents and trusts it); how-to-set-up (shows how to set up what the step needs outside the environment: on Your machines, the host-side updater on the Docker host)."
+                        "description": "A named action a step's result offers, from ADR 0031's fixed vocabulary and the verbs the step decisions added to it: sign-in-again (opens the sign-in of each account, forge account or key-manager connection it targets); pull-now (pulls the skill sources it targets now); check-again (runs the step's check again through setup.check); unpair (unpairs the Chrome it targets); pair-another (pairs another Chrome); install (installs the tool it targets); update (updates the tool it targets, or this machine); reload (shows how to reload the extension in the Chrome it targets); set-up-this-machine (switches the checklist to the environment it targets); restore (runs the step's restore method: the Permissions step's puts the denylist's missing presets back, and the Appearance step's writes the preset theme back through settings.update); move (opens the Move card, which moves stored tokens into a key manager); start-service (starts the local environment's service when it is down); import-again (runs the step's import again, for real rather than as a dry run, after one that failed part way); try-again (continues the authoring session it targets where its run stopped); write-it-myself (opens the step's artefact to write by hand: the bank's checkout, or the Instructions editor); start-over (starts a new authoring session for the step, the old one staying); revise (starts an authoring session that revises the step's artefact); check-certificate (opens the certificate check of each key-manager connection it targets, where a person reviews the certificate it presents and trusts it); how-to-set-up (shows how to set up what the step needs outside the environment: on Your machines, the host-side updater on the Docker host); turn-sandbox-off (writes the containment default off through permissions.settings.set, on the Permissions step whose chosen sandbox cannot be enforced here)."
                       },
                       {
                         "type": "string",
-                        "pattern": "^(?!(?:sign-in-again|pull-now|check-again|unpair|pair-another|install|update|reload|set-up-this-machine|restore|move|start-service|import-again|try-again|write-it-myself|start-over|revise|check-certificate|how-to-set-up)$)[a-z][a-z0-9-]*$",
+                        "pattern": "^(?!(?:sign-in-again|pull-now|check-again|unpair|pair-another|install|update|reload|set-up-this-machine|restore|move|start-service|import-again|try-again|write-it-myself|start-over|revise|check-certificate|how-to-set-up|turn-sandbox-off)$)[a-z][a-z0-9-]*$",
                         "description": "A verb a newer environment offers that the reader's vocabulary lacks: lowercase words joined by hyphens, which the reader offers as no action."
                       }
                     ]
@@ -8900,14 +8902,39 @@
                   "message": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "What went wrong, for a person."
+                    "description": "What went wrong, for a person, in plain words: no path, id or raw diagnostic."
+                  },
+                  "step": {
+                    "description": "The step whose card fixes it: Forges for a forge's token, Skills for a missing skill; absent when no card does.",
+                    "type": "string",
+                    "enum": [
+                      "account",
+                      "carry-over",
+                      "your-machines",
+                      "forges",
+                      "key-manager",
+                      "memory-bank",
+                      "skills",
+                      "instructions",
+                      "browser",
+                      "permissions",
+                      "appearance"
+                    ]
+                  },
+                  "details": {
+                    "description": "The technical facts behind it, one line each, for Details: a repository, a folder, a store's diagnostic, the raw refusal.",
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
                   }
                 },
                 "required": [
                   "label",
                   "message"
                 ],
-                "description": "What a state import could not carry: the item, and why."
+                "description": "What a state import could not carry: the item, why in plain words, the step that fixes it, and the facts for Details."
               },
               "description": "What could not be carried, each with why; empty when everything was."
             }

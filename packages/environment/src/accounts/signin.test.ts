@@ -327,7 +327,7 @@ describe("accounts.signin.code", () => {
     setup.t.adapter.setStatus(() => signedInAs("david@example.com"));
     login.exit(0);
     const failed = await reaches(setup.t, "failed");
-    expect(failed).toMatchObject({ accountId: added.id, error: "david@example.com is already added as work." });
+    expect(failed).toMatchObject({ accountId: added.id, error: "This sign-in is already used by work." });
     expect(existsSync(added.directory.path)).toBe(false);
     expect((await setup.client.request("accounts.list", {})).accounts.map((account) => account.id)).toEqual(["work"]);
     expect(accountEvents(setup.t, added.id).map((event) => event.type)).toEqual(["account.added", "account.removed", "account.directory-deleted"]);

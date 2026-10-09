@@ -2,12 +2,14 @@ import { BYPASS_SENTENCE, type AccountRecord, type CommandMethodName, type Comma
 import type { RequestAnswer } from "../requests.js";
 import type { RefusedAnswer } from "../words/refusal.js";
 import type { Runtime } from "../runtime.js";
+import type { RunChoice } from "./line.js";
+import { nextRunWords } from "./words.js";
 
 /**
  * What the status line's pickers do, as both renderers do it and say it
  * (docs/specs/tui.md, "Status, usage, pickers"; docs/specs/gui.md, "A session
- * pane"; #147, moved here by #402): the session's mode and containment set,
- * the hand-off onto another account, and an `admin` command as a direct
+ * pane"; #147, moved here by #402): the session's mode, containment and
+ * model set, the hand-off onto another account, and an `admin` command as a direct
  * request. Each answers the one line a renderer says, so both say the same.
  */
 
@@ -58,6 +60,17 @@ export const setSessionMode = async (runtime: Runtime, environmentId: string, se
   }
   const why = resolved.clampReason === "unavailable" ? `its account cannot use ${resolved.requested}` : `clamped to this connection's ceiling (${resolved.ceiling})`;
   return { ok: true, mode: resolved.effective, line: `Asked for ${resolved.requested}; ${sessionName} has ${resolved.effective}: ${why}.${live}`, transient: false };
+};
+
+/**
+ * Chooses the model and effort the session's next runs go out on
+ * (`sessions.setModel`, #1961): the session's own, so it outlives this
+ * client and an environment restart, and every status line names it. The
+ * line to say: what the next run goes out on, or why it was not chosen.
+ */
+export const setSessionModel = async (runtime: Runtime, environmentId: string, sessionId: string, choice: RunChoice, names: { readonly session: string; readonly model?: string | null }): Promise<string> => {
+  const answer = await runtime.commands.dispatch(environmentId, "sessions.setModel", { sessionId, model: choice.model, effort: choice.effort });
+  return answer.ok ? nextRunWords(names.session, choice, names.model ?? null) : `The model was not chosen: ${answer.error.message}`;
 };
 
 /** What setting a session's containment said: the level the session got, or the refusal, in one line. */
