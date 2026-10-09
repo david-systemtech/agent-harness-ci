@@ -1,7 +1,8 @@
 import type { AccountCatalogue, AccountRecord, AmbientProbe, ModelEntry } from "@agent-harness/contracts";
 import type { UsageGauge } from "../projections/accounts.js";
 import { ACCOUNT_STATUS_WORDS, effortName, modelName, readingWords } from "../status/words.js";
-import { clockTime } from "../transcript/format.js";
+import { daysBetween, weekdayWords } from "../sidebar/when.js";
+import { clockTime, whenWords } from "../transcript/format.js";
 
 /**
  * What the Accounts rows say, as both renderers say it (docs/specs/gui.md,
@@ -90,8 +91,20 @@ export const gaugeWho = (gauge: Pick<UsageGauge, "identity">): string => gauge.i
 /** An account a gauge pools: its label on its environment. */
 export const pooledWords = (label: string, environment: string): string => `${label} on ${environment}`;
 
-/** When a window rolls over, on this client's clock; undefined when the provider does not say. */
-export const resetWords = (resetsAt: string | null): string | undefined => (resetsAt === null ? undefined : `resets ${clockTime(resetsAt)}`);
+/**
+ * When a window rolls over, on this client's calendar from `now` (#1955): the
+ * clock time today, `tomorrow` and the time on the next day, the weekday and
+ * time within the week, else the date and time; undefined when the provider
+ * does not say.
+ */
+export const resetWords = (resetsAt: string | null, now: Date): string | undefined => {
+  if (resetsAt === null) return undefined;
+  const at = new Date(resetsAt);
+  const days = daysBetween(now, at);
+  if (days === 1) return `resets tomorrow ${clockTime(resetsAt)}`;
+  if (days > 1 && days < 7) return `resets ${weekdayWords(at)} ${clockTime(resetsAt)}`;
+  return `resets ${whenWords(resetsAt, now)}`;
+};
 
 /** A gauge with no window, whose reading gives no reason. */
 export const NO_WINDOWS_READ = "No plan windows read yet.";
