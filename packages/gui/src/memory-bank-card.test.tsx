@@ -83,7 +83,9 @@ describe("the Memory bank card", () => {
     const scoped = { ...bank({ commandId: "0199aa00-0000-7000-8000-000000000001", bankId: "0199aa00-0000-4000-8000-000000000002", name: "notes", creation: { kind: "personal", localOnly: true, org: "personal", project: "harness" } }), accounts: [personal, team], defaultFor: [personal, team] };
     const { app, card } = await open({ accounts: [{ id: personal, label: "Personal mail" }, { id: team, label: "Team" }] }, [scoped]);
     const notes = await within(card).findByRole("region", { name: "notes" });
-    await app.user.click(await within(notes).findByRole("button", { name: "Details" }));
+    const details = (await within(notes).findAllByRole("button", { name: "Details" })).find((button) => button.closest("[data-step-status]") === null);
+    expect(details).toBeDefined();
+    await app.user.click(details!);
     expect(within(notes).getAllByText("Personal mail, Team")).toHaveLength(2);
     expect(notes.textContent).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
   });

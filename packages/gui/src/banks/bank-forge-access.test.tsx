@@ -151,7 +151,7 @@ it("says the plain line once an account here covers a notebook the check found n
   await waitFor(() => expect(app.environment("desk").requests("forge.accounts.list").length).toBeGreaterThan(0));
   expect((await within(card).findByRole("alert")).textContent).toBe("Error: agent-harness cannot reach project-memory. Choose Check again.");
   expect(within(card).queryByText(/needs a forge account/)).toBeNull();
-  expect(within(card).getByRole("button", { name: "Check again" })).toBeDefined();
+  expect(within(card).getAllByRole("button", { name: "Check again" }).find((button) => button.closest("[data-step-status]") === null)).toBeDefined();
 });
 
 it("draws Go to Forges beside the forge-account line when this computer's forge accounts cannot be read", async () => {
