@@ -823,6 +823,34 @@ const pooled = (gauge: HTMLElement) =>
     .map((row) => row.textContent);
 
 describe("Usage", () => {
+  it("updates reset day words across local midnights without another reading from an unreachable environment", async () => {
+    const app = await opened({ laptop: { accounts: [{ label: "personal", identity: MILO }] } });
+    const evening = new Date(2026, 8, 24, 23, 50);
+    await act(async () => app.clock.advance(evening.getTime() - app.clock.now().getTime()));
+    const reset = new Date(evening);
+    reset.setDate(reset.getDate() + 1);
+    reset.setHours(1, 0, 0, 0);
+    const laptop = app.environment("laptop");
+    laptop.setUsage([{ ...reading("account-1", 0.42, 0.1), windows: [
+      { window: "five_hour", utilisation: 0.42, resetsAt: reset.toISOString(), verdict: null, observedAt: evening.toISOString() },
+    ] }]);
+    const usage = await openRow(app, "Usage");
+    const gauge = await within(usage).findByRole("region", { name: "milo@example.test" });
+    await within(gauge).findByText(", resets tomorrow 01:00");
+    app.platform.network.setOnline(false);
+    laptop.server.drop();
+    await within(usage).findByText(/laptop: Unreachable since/);
+    const reads = laptop.requests("accounts.usage").length;
+
+    await act(async () => app.clock.advance(10 * 60_000 - 1));
+    expect(windows(gauge)).toEqual(["5-hour 42 42%, resets tomorrow 01:00"]);
+    await act(async () => app.clock.advance(1));
+    expect(windows(gauge)).toEqual(["5-hour 42 42%, resets 01:00"]);
+    await act(async () => app.clock.advance(24 * 60 * 60_000));
+    expect(windows(gauge)).toEqual(["5-hour 42 42%, resets 25 Sep 01:00"]);
+    expect(laptop.requests("accounts.usage")).toHaveLength(reads);
+  });
+
   it("shows an unknown limit once by a human name in settings, with its share and no ring, in a slot the size of one so its bar lines up (ticket 1952)", async () => {
     const app = await opened({ desk: { accounts: [{ label: "personal", identity: MILO }] } });
     const at = "2026-09-30T10:00:00.000Z";
