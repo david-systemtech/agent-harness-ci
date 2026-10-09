@@ -1,5 +1,6 @@
-import { settingsScene, settingsGeometry } from "../settings-scene.js";
-/** look.md §12 and §16: setup Settings state. */
-export default await settingsScene(false, "setup.checklist", { environments: [{ name: "desk", reach: "local" }] });
+import { settingsGeometry } from "../settings-scene.js";
+import { setupPaneScene } from "../setup-pane-scene.js";
+/** look.md §12 and §16; setup-copy.md §4.5: the Set up pane's counts and its rows in every state, a long line wrapped whole. */
+export default await setupPaneScene("states");
 export const geometry = settingsGeometry;
-export const readySelector = '[data-settings-pane]';
+export const readySelector = '[data-settings-pane] [data-step-line]';
