@@ -3,7 +3,7 @@ import { STEP_ORDER } from "@agent-harness/contracts";
 import { settingsScene } from "./settings-scene.js";
 
 /** The Set up pane's states (setup-copy.md §4.5; #1841): its rows in every state, and what Check everything again says. */
-export type SetupPaneState = "states" | "passed" | "checking" | "refused";
+export type SetupPaneState = "states" | "passed" | "checking" | "refused" | "needs-fix";
 
 /** Every state a row shows, a line long enough to wrap among them; the steps given no result read Not checked yet. */
 const MIXED: ScriptedSetup = {
@@ -19,12 +19,17 @@ const MIXED: ScriptedSetup = {
   appearance: {},
 };
 
+/** The first step needing a fix after Check everything again. */
+const NEEDS_FIX: ScriptedSetup = {
+  permissions: { state: "needs-attention", reason: "The always-ask list lost 2 entries.", failing: ["permissions.denylist"], actions: ["restore"] },
+};
+
 /** Every step this build registers done, Browser not set up, which counts as fine. */
 const FINE: ScriptedSetup = { browser: { state: "skipped", reason: "No Chrome is paired." } };
 
 /** Real Settings on the Set up pane of `desk`, in `state`: Check everything again pressed once for each but `states`. */
 export const setupPaneScene = (state: SetupPaneState) =>
-  settingsScene(false, "setup.checklist", { environments: [{ name: "desk", reach: "local", capabilities: ["setup"], setup: state === "states" ? MIXED : FINE }] },
+  settingsScene(false, "setup.checklist", { environments: [{ name: "desk", reach: "local", capabilities: ["setup"], setup: state === "states" ? MIXED : state === "needs-fix" ? NEEDS_FIX : FINE }] },
     state === "states" ? undefined : "Check everything again",
     (world) => {
       const desk = world.environment("desk");

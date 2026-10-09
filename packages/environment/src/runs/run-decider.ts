@@ -120,7 +120,8 @@ export interface StartCommand {
   readonly origin: RunOrigin;
   readonly message: SentMessage | null;
   readonly model?: string | undefined;
-  readonly effort?: string | undefined;
+  /** The run's effort; null for the model's own, whatever the default; the default's when absent. */
+  readonly effort?: string | null | undefined;
   readonly mode?: Mode | undefined;
   /**
    * Text the run's instructions carry after the environment's composed ones,
@@ -342,11 +343,11 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
   const { descriptor } = account;
   const attachments = attachmentsOf(descriptor, command.message?.attachments ?? []);
   const model = modelOf(account, command.model ?? session.model, facts.defaults.modelFamily);
-  // The command's effort, which the model must take; else the default (`accounts.defaultEffort`) when the model takes it; else the model's own.
-  const asked = command.effort ?? null;
-  if (asked !== null && !model.efforts.includes(asked)) throw invalid("effort", `The model ${model.id} does not take the effort ${asked}.`);
+  // The command's effort, which the model must take, or its null for the model's own; else the default (`accounts.defaultEffort`) when the model takes it; else the model's own.
+  const asked = command.effort;
+  if (typeof asked === "string" && !model.efforts.includes(asked)) throw invalid("effort", `The model ${model.id} does not take the effort ${asked}.`);
   const fallback = facts.defaults.effort;
-  const effort = asked ?? (fallback !== null && model.efforts.includes(fallback) ? fallback : null);
+  const effort = asked !== undefined ? asked : fallback !== null && model.efforts.includes(fallback) ? fallback : null;
   const requested = command.mode ?? session.mode;
   // The lowest of the asker's ceiling and each queued sender's (#119), which the policy resolves under (#129).
   const ceiling = [facts.actor.ceiling, ...facts.queued.map((queued) => queued.ceiling)].reduce(lowerMode);

@@ -63,7 +63,7 @@ it("fails invalid entries independently, reports omitted baselines and the revie
   expect(preview.result?.carried.routines).toBe(1);
   expect(preview.result?.failed).toHaveLength(6);
   expect(preview.result?.notCarried).toContainEqual({ label: "Routine pre-check baselines", count: 1, step: null });
-  expect(preview.result?.notCarried).toContainEqual({ label: "Upstream watch: use docs/routines/upstream-watch.md; live cut-over #988", count: 1, step: null });
+  expect(preview.result?.notCarried).toContainEqual({ label: "Upstream watches", count: 1, step: null });
   const commandId = randomUUID();
   const imported = await client.request("stateImport.run", { commandId, dryRun: false });
   expect(imported.result).toEqual({ ...preview.result, dryRun: false });
@@ -142,7 +142,7 @@ it("deduplicates both upstream-watch copies against the reviewed document even w
   write(source, "serverRoutines.json", { routines: [{ name: "upstream watch", profileId: "retired", connectionId: "discarded" }] });
   const { client } = await start(source);
   const preview = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: true });
-  expect(preview.result).toMatchObject({ carried: { routines: 0 }, failed: [], notCarried: [{ label: "Upstream watch: use docs/routines/upstream-watch.md; live cut-over #988", count: 2, step: null }] });
+  expect(preview.result).toMatchObject({ carried: { routines: 0 }, failed: [], notCarried: [{ label: "Upstream watches", count: 2, step: null }] });
   expect((await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).result).toEqual({ ...preview.result, dryRun: false });
   expect((await client.request("routines.list", {})).routines).toEqual([]);
 });

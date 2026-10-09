@@ -5,6 +5,7 @@ import type { Clock } from "../../serve/clock.js";
 import type { ConfigDirQueue } from "./config-dir-queue.js";
 import { isInterruptMarker, scopedStore } from "./history.js";
 import { createMapperState, endTurn, mapSdkMessage } from "./mapper.js";
+import { SpendMeter } from "./spend.js";
 import { TaskLedger } from "./tasks.js";
 
 /**
@@ -104,7 +105,7 @@ const asSdkMessage = (message: SessionMessage): Record_ => ({
 /** A thread's mapper: the time it reads for a call's duration is the record's, as each is mapped. */
 const threadMapper = (clock: Pick<Clock, "now">): { map(message: SessionMessage, at: string | null): HistoryEvent[]; close(at: string | null): HistoryEvent[] } => {
   let now = clock.now().getTime();
-  const state = createMapperState({ ledger: new TaskLedger(clock), now: () => now });
+  const state = createMapperState({ ledger: new TaskLedger(clock), spend: new SpendMeter(), now: () => now });
   const kept = (events: readonly { readonly type: string }[], at: string | null): HistoryEvent[] =>
     events.filter((event) => HISTORY_TYPES.has(event.type)).map((event) => ({ ...(event as Omit<HistoryEvent, "at">), at }) as HistoryEvent);
   return {
