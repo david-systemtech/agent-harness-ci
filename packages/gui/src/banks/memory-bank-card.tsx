@@ -9,21 +9,13 @@ import { MintedSessionCard } from "../setup/minted-session-card.js";
 import { BankForgeAccess } from "./bank-forge-access.js";
 import { JoinBankForm } from "./join-bank.js";
 import { PersonalBankForm, TeamBankForm } from "./create-bank.js";
+import { stepForBank } from "./bank-step.js";
 import { BankInvitation } from "./bank-invitation.js";
 import { ExternalLink } from "../session/external-link.js";
 import { StepStatus } from "../setup/step-status.js";
 import { Badge, Dialog, DialogContent, Fold, Tooltip } from "../ui/index.js";
 import { BankButton, BankChoices, type BankMode } from "./bank-controls.js";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
-
-/** The environment names actions per bank; each card carries only its own bank targets. */
-const stepForBank = (step: StepCardProps["step"], bankId: string): StepCardProps["step"] => {
-  const result = step.result;
-  if (result === null || result.targets === undefined) return step;
-  const targets = result.targets.filter((target) => target.kind !== "bank" || target.id === bankId);
-  const actions = result.actions.filter((action) => !result.targets?.some((target) => target.action === action) || targets.some((target) => target.action === action));
-  return { ...step, result: { ...result, targets, actions } };
-};
 
 /** Set up creates or joins banks here; records and status remain in the runtime cache. */
 export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
@@ -131,7 +123,7 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
     {line !== undefined && removing === undefined && <p role="alert">{line}</p>}
     {read.error !== null && <p role="alert">{oneLine(read.error.message)}</p>}
     <SettingsCardGrid>{read.result?.banks.map((bank) => {
-      const subjectStep = stepForBank(step, bank.id);
+      const subjectStep = stepForBank(step, bank);
       const update = updates[`${environmentId}:${bank.id}`];
       const landing = bank.validator?.needsUpdate === false ? bank.status.landing : update ?? bank.status.landing;
       return <section key={bank.id} data-bank-card aria-label={bank.name} className="flex min-w-0 flex-col gap-4 rounded-lg border border-hairline bg-panel p-4 text-xs text-ink">
