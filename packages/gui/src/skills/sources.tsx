@@ -112,7 +112,7 @@ export const AddFromLink = ({ environmentId, say }: { readonly environmentId: st
       /></label>
       <SkillButton environmentId={environmentId} method="skills.probe" onClick={look}>Look for skills</SkillButton>
       {bad && <RefusedLine environmentId={environmentId} refusal={{ line: NOT_AN_ADDRESS, details: [] }} />}
-      {asked !== undefined && <FoundFolders key={asked} environmentId={environmentId} url={asked} done={say} />}
+      {asked !== undefined && <FoundFolders key={asked} environmentId={environmentId} url={asked} done={say} partly={say} />}
     </section>
   );
 };
@@ -129,14 +129,16 @@ const folderWords = (identity: string, folder: string, count: number): string =>
  * looks afresh on the branch it follows, adds the chosen ones following
  * that branch, and removes the moved one once they are added; or first,
  * when the chosen ones would not fit beside it under the limit of
- * collections (`followed` is how many are followed now). A refused add
- * after that has `removed` say the moved one is gone, on the card itself.
+ * collections (`followed` is how many are followed now). A refusal part
+ * way has `partly` say on the card itself what was done before it: the
+ * folders added, and the moved one removed.
  */
-export const FoundFolders = ({ environmentId, url, replacing, done }: {
+export const FoundFolders = ({ environmentId, url, replacing, done, partly }: {
   readonly environmentId: string;
   readonly url: string;
-  readonly replacing?: { readonly source: SkillsViewSource; readonly followed: number; readonly removed: (line: string) => void };
+  readonly replacing?: { readonly source: SkillsViewSource; readonly followed: number };
   readonly done: (line: string) => void;
+  readonly partly: (line: string) => void;
 }) => {
   const runtime = useRuntime();
   const { choose: goTo } = useChecklist();
@@ -178,6 +180,11 @@ export const FoundFolders = ({ environmentId, url, replacing, done }: {
     const first = replacing !== undefined && replacing.followed + chosen.length > SKILL_SOURCE_LIMIT;
     if (first && !(await remove())) return;
     const added: string[] = [];
+    const addedLines = () => added.map((name) => `Added ${name}.`);
+    const stopped = () => {
+      const lines = [...addedLines(), ...(replacing !== undefined && removed.current ? [`${skillCollectionName(replacing.source, CATALOGUE.skills)} was removed to make room for its new folders.`] : [])];
+      if (lines.length > 0) partly(lines.join(" "));
+    };
     for (const folder of chosen) {
       const ok = await send(
         () => runtime.requests.call(environmentId, "skills.sources.add", { commandId: commandId(), url, folder, probeId: probe.probeId, follow: { kind: "branch", branch } }),
@@ -185,14 +192,17 @@ export const FoundFolders = ({ environmentId, url, replacing, done }: {
       );
       // A refused add stops here, its refusal said, the folders added so far no longer ticked.
       if (!ok) {
-        if (replacing !== undefined && removed.current) replacing.removed(`${skillCollectionName(replacing.source, CATALOGUE.skills)} was removed to make room for its new folders.`);
+        stopped();
         return;
       }
       added.push(skillCollectionName({ identity: probe.identity, folder }, CATALOGUE.skills));
       choose((held) => held.filter((value) => value !== folder));
     }
-    if (!first && !(await remove())) return;
-    done(added.map((name) => `Added ${name}.`).join(" "));
+    if (!first && !(await remove())) {
+      stopped();
+      return;
+    }
+    done(addedLines().join(" "));
   };
   return (
     <div className="flex flex-col gap-2">

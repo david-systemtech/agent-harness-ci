@@ -200,8 +200,8 @@ describe("the Skills card's lines and actions", () => {
     expect(within(card()).queryByText("You can follow up to 20 collections. Remove one first.")).toBeNull();
   });
 
-  /** At 20 collections, one of them moved: Choose folders removes it to make room, and the first add after that is refused. */
-  const refusedAtLimit = async () => {
+  /** At 20 collections, one of them moved: Choose folders removes it to make room for `folders`, and the add numbered `refused` is refused. */
+  const refusedAtLimit = async ({ folders = ["agents"], refused = 0 }: { readonly folders?: readonly string[]; readonly refused?: number } = {}) => {
     const moved: SkillsViewSource = { ...source, url: linked, identity: linked, folder: "skills", skillCount: 0, sync: { outcome: "layout_moved", since: source.addedAt, commit: found.commit, folders: ["agents"] } };
     const others = Array.from({ length: 19 }, (_, index): SkillsViewSource => ({
       ...source, id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`, url: `https://git.example.test/team/c${index}`, identity: `https://git.example.test/team/c${index}`, position: index + 2,
@@ -211,14 +211,11 @@ describe("the Skills card's lines and actions", () => {
       state: "needs-attention", reason: "team/procedures (skills) no longer has skills where they were. Choose its folders again.", failing: ["skills.sources-yield"], actions: ["choose-folders"],
       targets: [{ action: "choose-folders", kind: "skill-source", id: moved.id, label: "team/procedures (skills)" }],
     } } });
-    desk.wire.answer("skills.probe", () => ({ result: { ...found, folders: [{ ...found.folders[0]!, folder: "agents" }] } }));
+    desk.wire.answer("skills.probe", () => ({ result: { ...found, folders: folders.map((folder) => ({ ...found.folders[0]!, folder })) } }));
     const replacement = { ...moved, id: "1b4e28ba-2fa1-41d2-883f-0016d3cca427", folder: "agents", skillCount: 2, sync: { outcome: "ok", since: source.addedAt } } as const;
-    let refuse = true;
+    let adds = 0;
     desk.wire.answer("skills.sources.add", () => {
-      if (refuse) {
-        refuse = false;
-        return unreachable("unreachable", "agent-harness could not reach git.example.test.", "fatal: unable to access");
-      }
+      if (adds++ === refused) return unreachable("unreachable", "agent-harness could not reach git.example.test.", "fatal: unable to access");
       followed = [...followed, replacement];
       update({ ...initial(), sources: followed });
       return accepted({ source: replacement });
@@ -230,10 +227,10 @@ describe("the Skills card's lines and actions", () => {
       return accepted({ source: moved });
     });
     await app.user.click(await within(card()).findByRole("button", { name: "Choose folders: team/procedures (skills)" }));
-    await app.user.click(await within(card()).findByRole("checkbox", { name: "agents · 2 skills" }));
+    for (const folder of folders) await app.user.click(await within(card()).findByRole("checkbox", { name: `${folder} · 2 skills` }));
     await app.user.click(within(card()).getByRole("button", { name: "Add selected" }));
     expect(await within(card()).findByText("agent-harness could not reach git.example.test.")).toBeDefined();
-    expect(within(card()).getByText("team/procedures (skills) was removed to make room for its new folders.")).toBeDefined();
+    expect(within(card()).getByText(/team\/procedures \(skills\) was removed to make room for its new folders\.$/)).toBeDefined();
     expect(desk.requests("skills.sources.remove")).toHaveLength(1);
     return { app, desk, replacement, followed: () => followed };
   };
@@ -252,6 +249,12 @@ describe("the Skills card's lines and actions", () => {
     await app.user.click(within(card()).getByRole("button", { name: "Cancel" }));
     expect(within(card()).queryByRole("checkbox", { name: "agents · 2 skills" })).toBeNull();
     expect(within(card()).getByText("team/procedures (skills) was removed to make room for its new folders.")).toBeDefined();
+  });
+
+  it("at the limit, a refused add after others were added says those were added before the moved collection's removal", async () => {
+    const { app } = await refusedAtLimit({ folders: ["agents", "tools"], refused: 1 });
+    await app.user.click(within(card()).getByRole("button", { name: "Cancel" }));
+    expect(within(card()).getByText("Added team/procedures (agents). team/procedures (skills) was removed to make room for its new folders.")).toBeDefined();
   });
 
   it("reopened after its kept look is five minutes old, Choose folders looks at the repository once", async () => {
@@ -310,6 +313,21 @@ describe("the Skills card's Add from a link", () => {
     await app.user.click(within(card()).getByRole("checkbox", { name: "skills · 2 skills" }));
     await app.user.click(within(card()).getByRole("button", { name: "Add selected" }));
     expect(await within(card()).findByText("Added team/procedures (skills).")).toBeDefined();
+  });
+
+  it("says the folders added before a refused one, beside its refusal", async () => {
+    const { app, desk } = await opened();
+    desk.wire.answer("skills.probe", () => ({ result: { ...found, folders: [found.folders[0]!, { ...found.folders[0]!, folder: "tools" }] } }));
+    const added = { ...source, id: "1b4e28ba-2fa1-41d2-883f-0016d3cca427", url: linked, identity: linked, folder: "skills", skillCount: 2 };
+    desk.wire.answer("skills.sources.add", (params) => params.folder === "tools"
+      ? unreachable("unreachable", "agent-harness could not reach git.example.test.", "fatal: unable to access")
+      : accepted({ source: added }));
+    await lookFor(app, linked);
+    await app.user.click(await within(card()).findByRole("checkbox", { name: "skills · 2 skills" }));
+    await app.user.click(within(card()).getByRole("checkbox", { name: "tools · 2 skills" }));
+    await app.user.click(within(card()).getByRole("button", { name: "Add selected" }));
+    expect(await within(card()).findByText("agent-harness could not reach git.example.test.")).toBeDefined();
+    expect(within(card()).getByText("Added team/procedures (skills).")).toBeDefined();
   });
 
   it("answers an address that is not a repository's with an instruction, sending nothing and keeping what was typed", async () => {

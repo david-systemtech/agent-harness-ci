@@ -73,7 +73,7 @@ export const SkillsCard = ({ environmentId, step }: StepCardProps) => {
       {said !== undefined && <Outcome outcome={said} role="status" className="text-sm text-ink-muted" />}
       {choosing !== undefined && (
         <section aria-label={`Choose folders for ${skillCollectionName(choosing, CATALOGUE.skills)}`} className="flex flex-col gap-3 rounded-md border border-line p-4">
-          <FoundFolders key={choosing.id} environmentId={environmentId} url={choosing.url} replacing={{ source: choosing, followed: sources.length, removed: (line) => setSaid({ line }) }} done={(line) => { setSaid({ line }); setChoosing(undefined); }} />
+          <FoundFolders key={choosing.id} environmentId={environmentId} url={choosing.url} replacing={{ source: choosing, followed: sources.length }} done={(line) => { setSaid({ line }); setChoosing(undefined); }} partly={(line) => setSaid({ line })} />
           <Button variant="outline" className="self-start" onClick={() => setChoosing(undefined)}>Cancel</Button>
         </section>
       )}
