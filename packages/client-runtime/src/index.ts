@@ -547,6 +547,7 @@ export {
   elapsedClock,
   gaugeOf,
   identityWords,
+  modelChoiceWarning,
   modelChoiceWords,
   modelDisplayName,
   modelName,

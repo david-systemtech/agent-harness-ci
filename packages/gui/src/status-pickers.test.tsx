@@ -321,6 +321,15 @@ describe("the model picker", () => {
     await app.user.hover(chip);
     expect((await screen.findByRole("tooltip")).textContent).toContain("This stored model is not listed for this account. Choose an available model for the next run.");
   });
+
+  it("warns before sending when the catalogue no longer offers the stored effort", async () => {
+    const kept = desk({ models, sessions: [{ title: "Receipts", accountId: "account-1", runChoice: { model: "claude-opus-4", effort: "medium" } }] });
+    const { app } = await opened([kept]);
+    const chip = within(statusLine()).getByRole("button", { name: "Model: Opus - Medium" });
+    await waitFor(() => expect(chip.querySelector(".text-amber")).not.toBeNull());
+    await app.user.hover(chip);
+    expect((await screen.findByRole("tooltip")).textContent).toContain("This stored effort is not listed for this model. Choose an available effort for the next run.");
+  });
   it("names the model and effort as the provider does, in the trigger, the rows and the line it says", async () => {
     const fable = [{ accountId: "account-1", live: false, models: [{ id: "fable", family: "fable", tier: 3, efforts: ["low", "medium", "high"], label: "Fable" }] }];
     const { app } = await opened([desk({ models: fable })]);

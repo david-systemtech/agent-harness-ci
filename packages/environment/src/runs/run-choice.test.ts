@@ -96,6 +96,22 @@ describe("sessions.setModel", () => {
     expect(t.env.log.head()).toBe(head);
   });
 
+  it("refuses a stored effort removed from the catalogue after a restart instead of using the default", async () => {
+    const dataDir = join(tempDir(), "data");
+    const first = await startTestEnvironment({ adapter: fakeAdapter(), dataDir });
+    const client = await first.client();
+    await setDefaultEffort(client, "high");
+    const { id } = await create(client);
+    await setModel(client, id, "sonnet", "low");
+    await first.close();
+
+    const again = await start({ models: [{ id: "sonnet", family: "sonnet", tier: 2, efforts: ["high"] }] }, { dataDir });
+    const after = await again.client();
+    expect(await refusal(after.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Go" }))).toMatchObject({ code: "invalid_params" });
+    expect((await get(after, id)).runChoice).toEqual({ model: "sonnet", effort: "low" });
+    expect(again.adapter.runs).toHaveLength(0);
+  });
+
   it("refuses a model the session's account does not list, an effort the model does not take, a session with a run live, and a session not here", async () => {
     const gateOpen = gate();
     const t = await start({ script: held(gateOpen) });
@@ -115,6 +131,25 @@ describe("sessions.setModel", () => {
 });
 
 describe("a run with no model of its own", () => {
+  it("reads an interrupted run's queue on the model and effort chosen while idle", async () => {
+    const gateOpen = gate();
+    const adapter = fakeAdapter({ capabilities: { providerQueue: false, steering: false } });
+    adapter.nextScripts.push(held(gateOpen));
+    const t = await start(adapter);
+    const client = await t.client();
+    const { id } = await create(client);
+    const first = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Go", model: "opus", effort: "high" }));
+    await t.adapter.reached(1);
+    await client.request("runs.send", { commandId: randomUUID(), sessionId: id, text: "And then" });
+    await client.request("runs.interrupt", { commandId: randomUUID(), runId: first.result!.runId });
+    await idle(client, id);
+    await setModel(client, id, "sonnet", "low");
+    await client.request("runs.readNow", { commandId: randomUUID(), sessionId: id });
+    const { input } = await t.adapter.reached(2);
+    expect({ model: input.model, effort: input.effort }).toEqual({ model: "sonnet", effort: "low" });
+    gateOpen.open();
+  });
+
   it("goes out on the model and effort the latest run took, the model's own effort included, which the summary names", async () => {
     const t = await start();
     const client = await t.client();

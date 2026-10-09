@@ -349,7 +349,10 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
   // the session's model; else the default (`accounts.defaultEffort`) when the model takes it; else the model's own.
   const asked = command.effort ?? null;
   if (asked !== null && !model.efforts.includes(asked)) throw invalid("effort", `The model ${model.id} does not take the effort ${asked}.`);
-  const kept = chosen !== null && chosen.model === model.id && (chosen.effort === null || model.efforts.includes(chosen.effort)) ? chosen : null;
+  const kept = chosen !== null && chosen.model === model.id ? chosen : null;
+  if (command.effort === undefined && kept !== null && kept.effort !== null && !model.efforts.includes(kept.effort)) {
+    throw invalid("effort", `The model ${model.id} no longer takes the stored effort ${kept.effort}. Choose an available effort for the next run.`);
+  }
   const fallback = facts.defaults.effort;
   const effort = asked ?? (kept !== null ? kept.effort : fallback !== null && model.efforts.includes(fallback) ? fallback : null);
   const requested = command.mode ?? session.mode;
@@ -543,7 +546,7 @@ export interface ReadNowFacts {
    */
   readonly providerHeld: readonly string[];
   /**
-   * The run before, whose model and effort the run of the queue takes, and
+   * The run before, whose model and effort are the fallback before a session has its own choice, and
    * its own instructions, client tools and extra always-on names (a
    * completions request's, #138, #139, #507; never a routine's, #531), as
    * the queue's run after it would; null before the session's first run.
@@ -574,8 +577,9 @@ export type ReadNowDecision =
  * environment, nothing happens. With a run live, it is to be interrupted
  * (the host re-owns what its provider held and starts the next run after
  * the end); with none, the run of the environment's queue starts now, as
- * the environment's queue would start it after the run before (its model,
- * effort and own instructions), for the caller, clamped to the lowest
+ * the environment's queue would start it after the run before, with the
+ * session's current model and effort and the run before's own instructions,
+ * for the caller, clamped to the lowest
  * ceiling among the caller and the queued senders.
  */
 export const decideReadNow = (facts: ReadNowFacts): ReadNowDecision => {
@@ -590,8 +594,8 @@ export const decideReadNow = (facts: ReadNowFacts): ReadNowDecision => {
   const decision = decideStart(start, {
     origin: "client",
     message: null,
-    ...(basis !== null && { model: basis.model }),
-    ...(basis?.effort !== null && basis?.effort !== undefined && { effort: basis.effort }),
+    ...(start.session.runChoice === null && basis !== null && { model: basis.model }),
+    ...(start.session.runChoice === null && basis?.effort !== null && basis?.effort !== undefined && { effort: basis.effort }),
     ...(basis !== null && basis.appendedInstructions !== null && { appendedInstructions: basis.appendedInstructions }),
     ...(basis !== null && { clientTools: basis.clientTools, alwaysOn: carriedAlwaysOn(basis, start.actor) }),
   });
