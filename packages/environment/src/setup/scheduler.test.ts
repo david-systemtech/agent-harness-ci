@@ -25,7 +25,8 @@ import type { SetupSteps } from "./service.js";
 const { onCleanup, tempDir } = useCleanups();
 
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
-  const t = await startTestEnvironment(options);
+  // These tests drive the start pass, including its held checks and budgets.
+  const t = await startTestEnvironment({ ...options, awaitSetupStartPass: false });
   onCleanup(() => t.close());
   return t;
 };
