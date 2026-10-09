@@ -9,6 +9,7 @@ import { SelectMenu, SelectMenuContent, SelectMenuItem, SelectMenuTrigger, Selec
 import { Popover, PopoverContent, PopoverTrigger } from "./popover.js";
 import { Tooltip, TooltipProvider } from "./tooltip.js";
 import { describe, expect, it, vi } from "vitest";
+import { useToastTimers } from "../../test/toast-timers.js";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogTrigger, Dialog, DialogContent, DialogTrigger } from "./dialog.js";
 
 describe("window overlays", () => {
@@ -227,16 +228,19 @@ describe("window overlays", () => {
     await user.keyboard("{Escape}");
     expect(close).toHaveBeenCalledWith(false);
   });
-  it.each(["Copied", "Saved"])("shows transient %s feedback and lets it be dismissed", async (message) => {
-    const user = userEvent.setup();
-    render(<Toaster />);
-    expect(screen.getByRole("region", { name: /^Status feedback/ })).toBeTruthy();
-    let id: string | number = 0;
-    act(() => { id = toast.success(message, { duration: Infinity }); });
-    await screen.findByText(message);
-    await user.click(screen.getByRole("button", { name: "Close toast" }));
-    await waitFor(() => expect(screen.queryByText(message)).toBeNull());
-    act(() => toast.dismiss(id));
+  describe("transient feedback", () => {
+    useToastTimers();
+    it.each(["Copied", "Saved"])("shows transient %s feedback and lets it be dismissed", async (message) => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<Toaster />);
+      expect(screen.getByRole("region", { name: /^Status feedback/ })).toBeTruthy();
+      let id: string | number = 0;
+      act(() => { id = toast.success(message, { duration: Infinity }); });
+      await screen.findByText(message);
+      await user.click(screen.getByRole("button", { name: "Close toast" }));
+      await waitFor(() => expect(screen.queryByText(message)).toBeNull());
+      act(() => toast.dismiss(id));
+    });
   });
   it("keeps both menu examples and all floating parts in the menus scene", async () => {
     render(<MenusScene />);
