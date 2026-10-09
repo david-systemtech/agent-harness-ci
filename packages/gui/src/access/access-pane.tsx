@@ -66,7 +66,7 @@ const AccessOn = ({ view }: { readonly view: EnvironmentView }) => {
   };
   const revoke = (session: ClientSessionSummary) => {
     setRevoking(undefined);
-    void revokeSession(runtime, environmentId, session, uuidv7(clock.now())).then(done);
+    void revokeSession(runtime, environmentId, session, uuidv7(clock.now()), session.id === own ? view.kind : undefined).then(done);
   };
   const ask = (session: ClientSessionSummary) => {
     setSaid(undefined);

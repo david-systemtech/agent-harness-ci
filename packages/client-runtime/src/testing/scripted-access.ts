@@ -175,6 +175,9 @@ export const scriptedAccess = (host: AccessHost): ScriptedAccessHandle => {
     revoked.set(id, at);
     const answer = accepted({ revokedAt: at });
     append("client-session.revoked", { clientSessionId: id, reason: "requested" }, host.head());
+    // The environment closes the revoked client session's sockets with `bye: revoked` as the revoke commits, so
+    // this client's own never hears the answer (#1962).
+    if (id === own()?.id) wire.server.bye("revoked");
     return answer;
   });
 

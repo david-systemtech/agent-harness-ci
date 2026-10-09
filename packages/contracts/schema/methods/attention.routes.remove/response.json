@@ -95,6 +95,39 @@
       "properties": {
         "id": {
           "type": "string"
+        },
+        "endpoint": {
+          "description": "The webhook endpoint's removal outcome; retained means a routine or another attention target still names it. No secret is returned.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "pattern": "^[a-z0-9-]{1,40}$",
+              "description": "A webhook endpoint's name on its environment: 1 to 40 lower-case letters, digits and hyphens, unique."
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "removed",
+                "retained",
+                "missing"
+              ],
+              "description": "Removed with this route, retained for another user, or already missing."
+            },
+            "secretKind": {
+              "description": "The credential removed with the endpoint: a saved signing secret, an external key-manager reference, or no credential. Absent when the endpoint was retained or already missing.",
+              "type": "string",
+              "enum": [
+                "pasted",
+                "reference",
+                "missing"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "state"
+          ]
         }
       },
       "required": [

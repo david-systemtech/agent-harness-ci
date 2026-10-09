@@ -25,6 +25,7 @@ import { carryListedSources } from "./sessions.js";
 import { profileLabel } from "./accounts.js";
 import { readSourceStores } from "./source/stores.js";
 import { readSourceFileFrecency } from "./source/report-stores.js";
+import { unreadStore } from "./failures.js";
 
 /**
  * The state import's methods (setup spec, "2. Carry over"; switch-over spec,
@@ -129,7 +130,7 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
             ...(Object.values(store.read.records).some((entries) => Array.isArray(entries) && entries.length > 0) ? combined.stores.filter((s) => s.label === "Accounts").map((s) => s.snapshot) : []),
             ...(store.store === "organisation.ledger" && store.read.records.ledger.length > 0 ? organisationStores.filter((s) => s.store === "organisation.routines").map((s) => s.read.snapshot) : []),
           ] }] : [])],
-          failed: [...combined.failed, ...organisationStores.flatMap((store) => store.read.status === "failed" ? [{ label: store.label, message: store.read.diagnostic }] : [])],
+          failed: [...combined.failed, ...organisationStores.flatMap((store) => store.read.status === "failed" ? [unreadStore(store.label, store.read.diagnostic)] : [])],
         };
         const organisation = (preview: boolean, plan: ImportPlan) => {
           const accountIds = preview ? plan.accountIds ?? new Map<string, string>() : new Map([...plan.accountIds?.keys() ?? []].flatMap((sourceId) => {
