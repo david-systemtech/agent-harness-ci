@@ -43,6 +43,19 @@ if [ "$event" = gallery ]; then
   sha=$GH_CI_SHA
   git fetch --quiet --no-tags origin "$sha"
   git cat-file -e "$sha^{commit}"
+  # Earlier trusted workflows omit GH_CI_BASE and retain their full render.
+  # Never check out the head to decide: its scripts are untrusted PR data.
+  if [ -n "${GH_CI_BASE:-}" ]; then
+    decision=$(python3 "$(dirname "$0")/gallery-needed.py" "$GH_CI_BASE" "$sha" "${GITHUB_EVENT_PATH:?}")
+    if [ "$decision" = render=false ]; then
+      echo "no GUI change: gallery skipped"
+      if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+        echo "no GUI change: gallery skipped" >> "$GITHUB_STEP_SUMMARY"
+      fi
+      exit 0
+    fi
+    [ "$decision" = render=true ] || { echo "::error::invalid gallery decision"; exit 1; }
+  fi
 fi
 id="$(date -u +%Y%m%d%H%M%S)-${sha:0:12}-$RANDOM"
 
