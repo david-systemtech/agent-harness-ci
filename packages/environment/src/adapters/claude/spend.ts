@@ -50,10 +50,16 @@ const spentNothing = (usage: ModelUsage): boolean => TOKENS.every((key) => usage
  * turn's own spend is the difference from the reading before. The process
  * owns one, shared by its turns as the ledger is, and every result it hears
  * moves it, a turn's or not, so each request is counted once. A new process
- * has a new meter and counts from nothing.
+ * has a new meter; a cold continuation seeds it with the saved ledger the CLI restores,
+ * while a process with no saved spend counts from nothing.
  */
 export class SpendMeter {
   readonly #last = new Map<string, ModelUsage>();
+
+  /** A cold resume restores the provider's saved ledger before sampling; that spend belongs to earlier runs. */
+  restore(modelUsage: unknown): void {
+    for (const usage of readModelUsage(modelUsage)) this.#last.set(usage.model, usage);
+  }
 
   /** A result message's reading, and its share: each model's spend since the reading before, a model that spent nothing left out. Null for any other message. */
   read(message: unknown): { readonly reading: ModelUsage[]; readonly share: ModelUsage[] } | null {
