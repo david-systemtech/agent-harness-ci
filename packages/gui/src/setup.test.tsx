@@ -350,6 +350,23 @@ describe("the Set up pane", () => {
     expect(within(steps()).getByRole("button", { name: "Permissions" }).getAttribute("aria-current")).toBe("step");
   });
 
+  it("explains a jump from Check everything again above the notice, but forgets it when the rail chooses the step", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["setup"], setup: {
+      permissions: { state: "needs-attention", reason: "The denylist lost 2 presets.", failing: ["permissions.denylist"], actions: ["restore"] },
+    } }] });
+    const pane = await setupPane(app);
+    await app.user.click(within(pane).getByRole("button", { name: "Check everything again" }));
+    const card = await within(await screen.findByRole("region", { name: "Set up" })).findByRole("region", { name: "Permissions" });
+    const checked = within(card).getByText("Checked just now.");
+    const notice = within(card).getByRole("alert");
+    expect(checked.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    await app.user.click(within(steps()).getByRole("button", { name: "Permissions" }));
+    expect(within(card).queryByText("Checked just now.")).toBeNull();
+    await app.user.click(within(steps()).getByRole("button", { name: "Appearance" }));
+    await app.user.click(within(steps()).getByRole("button", { name: "Permissions" }));
+    expect(within(screen.getByRole("region", { name: "Permissions" })).queryByText("Checked just now.")).toBeNull();
+  });
+
   it("keeps Check everything again busy, and what it found, to each computer it checks", async () => {
     const app = await twoEnvironments();
     const desk = app.environment("desk");
