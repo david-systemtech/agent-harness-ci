@@ -485,7 +485,7 @@ quoted from the files named; a builder greps for them.
 - Words the card needs beyond the list above (#1853; the card had them in older words, or none):
   ready-to-go row while forges are connected but none is main, `Choose your main forge. New notebooks go there.` **Go to Forges** (§5.6's line); outside Set up **Go to Forges** opens
   Settings › Forges. The team form's empty fields read `Enter a team name.` / `Enter a repository name.` / `Enter a first organisation.` / `Enter the first projects.`, its
-  unpicked forge and owner `Choose a forge.` / `Choose the owner from the list.`, each beside its own field; the join form's empty link `Enter a notebook link.` on **Preview**. `Now describe your notebook. …` shows while the notebook has no description; once a
+  unpicked forge and owner `Choose a forge.` / `Choose the owner from the list.`, each beside its own field; the join form's empty link `Enter a notebook link.` on **Preview**. A notebook that cannot be reached shows **Check again** beside its line on its card (it verifies that notebook), and a forge-account line always comes with **Go to Forges**. `Now describe your notebook. …` shows while the notebook has no description; once a
   conversation exists, **Describe it** opens it again, and a conversation that ended without saving reads `Stopped`. Who describes it: `Account`, `Model`, `Effort` with
   `No signed-in account`, `No model to choose` and `This computer's usual effort`. Try again with no conversation: `There is no conversation to continue. Choose Start again.`
   A notebook's card: `Working on it…`; `Reading your notebooks…`; **Sync all** / **Sync** / **Turn on** / **Turn off** / **Remove**, a disabled one's reason beside it

@@ -41,8 +41,11 @@ export const unreachableLine = ({ name, copiedFrom, location, status: { reachabl
     return copiedFrom === null ? `${name} needs a forge account for ${host} on this computer.` : `Your ${host} account is connected on ${copiedFrom.environmentName}, not here. Connect it here too.`;
   }
   if (cause === "repository-missing" && host !== null) return `The repository for ${name} is missing on ${host}.`;
-  return `agent-harness cannot reach ${name}. Choose Check again.`;
+  return cannotReach(name);
 };
+
+/** §5.8's plain unreachable line, for a cause it has no line of its own for; the card draws Check again beside it. */
+export const cannotReach = (name: string): string => `agent-harness cannot reach ${name}. Choose Check again.`;
 
 /** A notebook's badges (setup-copy.md §5.8): Personal or Team, On or Off, and where it is kept; the rest is in Details. */
 export const bankBadges = (bank: BankRecord): readonly string[] => [

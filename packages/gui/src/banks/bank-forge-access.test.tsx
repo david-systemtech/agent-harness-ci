@@ -120,3 +120,48 @@ it.each([
   expect(details.querySelector("pre")?.textContent).toBe(`project-memory: ${reason}`);
   expect(within(card).queryByText((_, element) => element?.tagName === "P" && element.textContent?.includes("HTTP") === true)).toBeNull();
 });
+
+it("draws Check again beside a turned-off notebook that cannot be reached, which verifies that notebook", async () => {
+  const off: BankRecord = { ...bank, enabled: false, status: { ...bank.status, reachable: { state: "unreachable", since, reason: `${origin} did not answer: connect ECONNREFUSED` } } };
+  const app = await renderApp({ environments: [
+    { name: "desk", reach: "local", capabilities: ["banks", "forge", "setup"], accounts: [{ label: "Project" }], forges: { accounts: [{ origin, kind: "forgejo" }] } },
+  ] }, {}, (world) => {
+    world.environment("desk").wire.answer("banks.list", () => ({ result: { banks: [off] } }));
+    world.environment("desk").wire.answer("banks.verify", () => ({ result: { banks: [off] } }));
+  });
+  await app.user.click(screen.getByRole("button", { name: "Settings" }));
+  await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
+  const card = await screen.findByRole("region", { name: bank.name });
+  expect((await within(card).findByRole("alert")).textContent).toBe("Error: agent-harness cannot reach project-memory. Choose Check again.");
+  await app.user.click(within(card).getByRole("button", { name: "Check again" }));
+  await waitFor(() => expect(app.environment("desk").requests("banks.verify").at(-1)?.params).toEqual({ bankId: bank.id }));
+});
+
+it("says the plain line once an account here covers a notebook the check found no forge account for", async () => {
+  const app = await renderApp({ environments: [
+    { name: "desk", reach: "local", capabilities: ["banks", "forge", "setup"], accounts: [{ label: "Project" }], forges: { accounts: [{ origin, kind: "forgejo" }] } },
+  ] }, {}, (world) => {
+    world.environment("desk").wire.answer("banks.list", () => ({ result: { banks: [{ ...bank, status: { ...bank.status, reachable: { state: "unreachable", since, reason: "it refused an anonymous read (HTTP 403)", cause: "no-forge-account" } } }] } }));
+  });
+  await app.user.click(screen.getByRole("button", { name: "Settings" }));
+  await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
+  const card = await screen.findByRole("region", { name: bank.name });
+  await waitFor(() => expect(app.environment("desk").requests("forge.accounts.list").length).toBeGreaterThan(0));
+  expect((await within(card).findByRole("alert")).textContent).toBe("Error: agent-harness cannot reach project-memory. Choose Check again.");
+  expect(within(card).queryByText(/needs a forge account/)).toBeNull();
+  expect(within(card).getByRole("button", { name: "Check again" })).toBeDefined();
+});
+
+it("draws Go to Forges beside the forge-account line when this computer's forge accounts cannot be read", async () => {
+  const app = await renderApp({ environments: [
+    { name: "desk", reach: "local", capabilities: ["banks", "forge", "setup"], accounts: [{ label: "Project" }], forges: { accounts: [] } },
+  ] }, {}, (world) => {
+    world.environment("desk").wire.answer("banks.list", () => ({ result: { banks: [{ ...bank, status: { ...bank.status, reachable: { state: "unreachable", since, reason: "it refused an anonymous read (HTTP 403)", cause: "no-forge-account" } } }] } }));
+    world.environment("desk").wire.answer("forge.accounts.list", () => ({ error: { code: "conflict", message: "The forge list is unavailable.", data: {} } }));
+  });
+  await app.user.click(screen.getByRole("button", { name: "Settings" }));
+  await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
+  const card = await screen.findByRole("region", { name: bank.name });
+  expect(await within(card).findByText("project-memory needs a forge account for forge.example.test:5526 on this computer.")).toBeDefined();
+  expect(within(card).getByRole("button", { name: "Go to Forges" })).toBeDefined();
+});

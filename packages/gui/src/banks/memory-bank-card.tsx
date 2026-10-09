@@ -105,6 +105,7 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
   const registryUpdate = runtime.capability(environmentId, "banks.registry.update");
   const forget = runtime.capability(environmentId, "banks.forget");
   const syncCapability = runtime.capability(environmentId, "banks.sync");
+  const verifyCapability = runtime.capability(environmentId, "banks.verify");
   const disabled = busy || command.status === "absent";
   const refresh = () => runtime.requests.refresh(environmentId, "banks.list", {});
   /** Runs one bank command, saying its refusal in plain words beside what asked (`at`: a notebook's card, or the form); `done` runs on success. */
@@ -122,6 +123,10 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
   const sync = (bankId?: string) => send(async () => {
     const answer = await runtime.requests.call(environmentId, "banks.sync", bankId === undefined ? {} : { bankId });
     return answer.ok ? { ok: true } : { ok: false, refusal: plainRefusal(answer.error, bankId === undefined ? "Sync all" : "Sync") };
+  });
+  const verify = (bankId: string) => send(async () => {
+    const answer = await runtime.requests.call(environmentId, "banks.verify", { bankId });
+    return answer.ok ? { ok: true } : { ok: false, refusal: plainRefusal(answer.error, "Check again") };
   });
   const create = (name: string, creation: ParamsOf<"banks.create">["creation"]) => send(async () => said(await adminCall(() => runtime.requests.call(environmentId, "banks.create", { commandId: uuidv7(clock.now()), bankId: uuidv4(), name, creation })), creation.kind === "personal" && creation.localOnly ? "Keep it on this computer for now" : "Create notebook", bankRefusal), refresh, "form");
   const join = (url: string, accounts: string[]) => send(async () => said(await adminCall(() => runtime.requests.call(environmentId, "banks.join", { commandId: uuidv7(clock.now()), bankId: uuidv4(), url, accounts, repositories: "all" })), "Join notebook", bankRefusal), refresh, "form");
@@ -159,7 +164,7 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
           </div>
         </header>
         {bank.line !== null && <p className="text-ink-muted">{bank.line}</p>}
-        <BankForgeAccess environmentId={environmentId} bank={bank} accounts={forges.result?.accounts} />
+        <BankForgeAccess environmentId={environmentId} bank={bank} accounts={forges.result?.accounts} check={{ busy, reason: verifyCapability.status === "absent" ? verifyCapability.message : undefined, run: () => void verify(bank.id) }} />
         {landing.state === "failed" && <BankRefusal refusal={{ line: forgeHost === null ? `The last change to ${bank.name} could not be saved.` : `The last change to ${bank.name} could not be saved to ${forgeHost}.`, details: [`${landing.step}: ${landing.reason}`] }} />}
         {review !== undefined && <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm">{review.line}</p>
