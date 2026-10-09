@@ -21,7 +21,8 @@ export const environmentStatus = defineMethod({
 /**
  * The environment's notices (`EnvironmentNotice`, the `environment` stream).
  * Its snapshot, sent when replay from the cursor is out of bounds, is the
- * status, the environment's name, icon and colour (#323), and every Set up
+ * status, the environment's name, icon and colour (#323), the last completed
+ * import's failed items (#1935), and every Set up
  * step's cached result (#569: ADR 0031's `setup` subscription, whose changes
  * are the `setup.result-changed` notices); an environment from before the
  * look leaves the look out, and one without the `setup` flag the results.

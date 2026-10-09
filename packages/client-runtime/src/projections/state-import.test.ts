@@ -7,7 +7,7 @@ import { streamDocument } from "../streams/cache.js";
 import { createRuntime } from "../runtime.js";
 import { flush } from "../testing/fake-wire.js";
 
-const finished = (failed = [{ label: "Skill collection Team", message: "Connect a forge for forge.test." }]) => StateImportFinishedPayload.parse({
+const finished = (failed: StateImportFinishedPayload["failed"] = [{ label: "Skill collection Team", message: "Connect a forge for forge.test.", step: "forges", details: ["Repository: https://forge.test/team/skills"] }]) => StateImportFinishedPayload.parse({
   carried: { accounts: 0, archived: 0, pins: 0, groups: 0, forgeAccounts: 0, keyManagerConnections: 0, banks: 0, routines: 0, instructions: 0, skillSources: 0, alwaysOnSkills: 0, drafts: 0, devSites: 0 },
   reEnter: [], later: [], notCarried: [], failed,
 });
@@ -52,7 +52,7 @@ describe("projections.stateImportFailures", () => {
     const { runtime, platform, environments } = await scriptedEnvironments({ onCleanup: onTestFinished, environments: [{ name: "desk" }] });
     const desk = environments[0]!;
     await runtime.close();
-    await platform.documents.set(streamDocument(desk.wire.environmentId, "environment"), { cursor: 1, snapshot: { status, look: {}, setup: [] } });
+    await platform.documents.set(streamDocument(desk.wire.environmentId, "environment"), { format: 1, sequence: 1, snapshot: { status, look: {}, setup: [] } });
     const restarted = createRuntime(platform);
     onTestFinished(() => restarted.close());
     const opening = restarted.start();

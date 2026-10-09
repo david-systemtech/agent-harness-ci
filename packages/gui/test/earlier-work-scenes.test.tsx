@@ -7,6 +7,11 @@ it.each(["found", "preview", "failed"] as const)("captures the earlier-work sect
   const container = document.createElement("div");
   container.id = "root";
   document.body.append(container);
+  let imports = 0;
+  const countImport = (event: MouseEvent) => {
+    if (event.target instanceof Element && event.target.closest("button")?.textContent === "Bring it over") imports += 1;
+  };
+  document.addEventListener("click", countImport, true);
   const gallery = await mountGallery(container, scene);
   try {
     expect(await gallery.ready).toBe(true);
@@ -17,6 +22,7 @@ it.each(["found", "preview", "failed"] as const)("captures the earlier-work sect
     if (state === "found") expect(section.queryByRole("region", { name: "Earlier work result" })).toBeNull();
     if (state === "preview") expect(await section.findByText(/^This would bring over: 2 accounts, .* Nothing has been changed yet\.$/)).toBeDefined();
     if (state === "failed") {
+      expect(imports).toBe(0);
       const failed = within(await section.findByRole("list", { name: "Did not come over" }));
       expect(failed.getByRole("button", { name: "Go to Forges" })).toBeDefined();
       expect(failed.getByRole("button", { name: "Go to Skills" })).toBeDefined();
@@ -25,6 +31,7 @@ it.each(["found", "preview", "failed"] as const)("captures the earlier-work sect
     }
     expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toContainEqual({ selector: 'nav[aria-label="Set up steps"]', width: 280 });
   } finally {
+    document.removeEventListener("click", countImport, true);
     await gallery.close();
     container.remove();
   }

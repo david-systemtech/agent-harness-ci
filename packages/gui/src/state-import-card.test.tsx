@@ -38,9 +38,26 @@ const openDetails = async (app: Awaited<ReturnType<typeof opened>>, scope: Retur
 };
 
 describe("State import on Carry over", () => {
+  it.each(["local", "paired"] as const)("opens retained failed items with their own fixes without running an import (%s)", async (reach) => {
+    const failure = { label: "Skill collection Team", message: "Connect a forge for forge.test.", step: "forges" as const, details: ["Repository: https://forge.test/team/skills"] };
+    const app = await opened({ reach, stateImportFailures: [failure], setup: { "carry-over": {
+      state: "needs-attention", reason: "1 items from your earlier work did not come over. See what to do below each one.",
+      actions: ["import-again"], failing: ["carry-over.last-import"],
+    } } });
+    const failed = within(await section().findByRole("list", { name: "Did not come over" }));
+    expect(failed.getByText("Skill collection Team: Connect a forge for forge.test.")).toBeDefined();
+    await app.user.click(failed.getByRole("button", { name: "Go to Forges" }));
+    expect(steps().getByRole("button", { name: "Forges" }).getAttribute("aria-current")).toBe("step");
+    await app.user.click(steps().getByRole("button", { name: "Carry over" }));
+    expect(await section().findByRole("button", { name: "Go to Forges" })).toBeDefined();
+    const reopenedFailures = within(section().getByRole("list", { name: "Did not come over" }));
+    expect(await openDetails(app, reopenedFailures)).toContain("Repository: https://forge.test/team/skills");
+    expect(app.environment("desk").requests("stateImport.run")).toHaveLength(0);
+  });
+
   it("draws no blanket repair paragraph for a retained state import, and a preview leaves the step's line as it is", async () => {
     const reason = "The last state import failed part way: Skill source: The repository needs a credential. Import again to retry what failed.";
-    const app = await opened({ accounts: [{ label: "Work" }], setup: { "carry-over": {
+    const app = await opened({ accounts: [{ label: "Work" }], stateImportFailures: [{ label: "Team skills", message: "Connect a forge for forge.test.", step: "forges" }], setup: { "carry-over": {
       state: "needs-attention", reason, actions: ["import-again"], failing: ["carry-over.last-import"],
       targets: [{ action: "import-again", kind: "environment", id: "desk", label: "The state import" }],
     } } });
@@ -57,6 +74,10 @@ describe("State import on Carry over", () => {
     await app.user.click(section().getByRole("button", { name: "Preview" }));
     expect(await section().findByText(/^This would bring over: .*\. Nothing has been changed yet\.$/)).toBeDefined();
     expect(screen.getByText(reason)).toBeDefined();
+    expect(section().getByRole("button", { name: "Go to Forges" })).toBeDefined();
+    await act(async () => app.environment("desk").notice("state-import.finished", StateImportFinishedPayload.parse({ ...report(), failed: [] })));
+    expect(section().queryByRole("list", { name: "Did not come over" })).toBeNull();
+    expect(app.environment("desk").requests("stateImport.run")).toHaveLength(1);
   });
 
   it("lets a paired headless environment with signed-in owned accounts finish its empty Carry over step", async () => {

@@ -63,6 +63,13 @@ const Failure = ({ environmentId, failure }: { readonly environmentId: string; r
   );
 };
 
+/** The last import's failed items use the same fixes as the report of a run in this window. */
+export const StateImportFailures = ({ environmentId, failures }: { readonly environmentId: string; readonly failures: readonly StateImportFailure[] }) => failures.length === 0 ? null : (
+  <div role="alert" data-earlier-work-failures>
+    <List label="Did not come over">{failures.map((failure, index) => <Failure key={index} environmentId={environmentId} failure={failure} />)}</List>
+  </div>
+);
+
 /** Two source profiles sharing a projects folder, each by its label (#1726); their source ids wait under Details (#1800). */
 const SharedProjects = ({ environmentId, source }: { readonly environmentId: string; readonly source: NonNullable<StateImportReport["sharedProjects"]>[number] }) => {
   const detailsOf = useEarlierWorkDetails(environmentId);
@@ -109,11 +116,7 @@ export const StateImportResult = ({ environmentId, report, clientLocalApplied }:
       {(report.sharedProjects ?? []).map((source) => <SharedProjects key={source.sourceId} environmentId={environmentId} source={source} />)}
       {(report.reEnter.length > 0 || report.failed.length > 0) && <h4 className="text-xs font-medium">Needs you</h4>}
       {report.reEnter.length > 0 && <List label="Needs you">{report.reEnter.map((item, index) => <Item key={index} line={item.label} step={item.step} />)}</List>}
-      {report.failed.length > 0 && (
-        <div role="alert">
-          <List label="Did not come over">{report.failed.map((failure, index) => <Failure key={index} environmentId={environmentId} failure={failure} />)}</List>
-        </div>
-      )}
+      <StateImportFailures environmentId={environmentId} failures={report.failed} />
       {report.later.length > 0 && <Group heading="Not supported yet">{report.later.map((item, index) => <Item key={index} line={item.label} />)}</Group>}
       {report.notCarried.length > 0 && <Group heading="Not brought over">{report.notCarried.map((item, index) => <Item key={index} line={`${item.label}: ${item.count}`} step={item.step} />)}</Group>}
       {Object.keys(clientLocal).length > 0 && (

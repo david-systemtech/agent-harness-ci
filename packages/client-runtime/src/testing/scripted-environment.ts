@@ -614,8 +614,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   wire.answer("environment.subscribe", (_params, request) => {
     environmentSubscription = subscribed(request);
     // With the `setup` flag, a snapshot carrying every step's result as the environment last checked it (#569).
-    if (flagged) {
-      const payload = { status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false }, setup: setup.snapshot(), stateImportFailures };
+    if (flagged || spec.stateImportFailures !== undefined) {
+      const payload = { status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false }, ...(flagged && { setup: setup.snapshot() }), stateImportFailures };
       wire.server.send({ type: "snapshot", subscription: environmentSubscription, sequence, payload });
     }
     wire.server.send({ type: "synchronized", subscription: environmentSubscription, sequence });

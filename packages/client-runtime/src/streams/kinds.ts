@@ -110,7 +110,8 @@ const sizeOf = (events: readonly EventEnvelope[]): number => events.reduce((sum,
  * The environment's own stream: its status and look as the snapshot gave them
  * and the notices since changed them, and each Set up step's latest result,
  * from the snapshot's `setup` and each `setup.result-changed` since (#570):
- * what `projections.setup` reads, offline too.
+ * what `projections.setup` reads, offline too; and the last completed import's
+ * failed items, read by `projections.stateImportFailures` (#1935).
  */
 export interface EnvironmentData {
   readonly status: EnvironmentStatus | null;
