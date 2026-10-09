@@ -1,4 +1,4 @@
-import { DEFAULT_THEME, CATALOGUE, CATALOGUE_SEED_INSTRUCTION_ID, type BankJoinPreview, type CarryOverInventory, type ContainmentReport, type ResultOf, type SkillsView, type StepId, type StepResult } from "@agent-harness/contracts";
+import { DEFAULT_THEME, CATALOGUE, CATALOGUE_SEED_INSTRUCTION_ID, type BankJoinPreview, type CarryOverInventory, type ContainmentReport, type EnvironmentBinding, type ResultOf, type SkillsView, type StepId, type StepResult } from "@agent-harness/contracts";
 import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
 import type { EnvironmentHandle, ScriptedEnvironment, ScriptedSetup } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { LadderName } from "@agent-harness/theme";
@@ -26,9 +26,16 @@ export const joinPreview: BankJoinPreview = {
 /** A step's status at the head of its card (setup-copy.md §3; #1840): done, needing a fix with Details open, a check that could not run, and the environment out of reach. */
 type StatusRegion = "status-done" | "status-fix" | "status-could-not-check" | "status-unreachable";
 
-type SetupRegion = StepId | "appearance-default" | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | "instructions-unread" | "skills-link-refusal" | "permissions-sandbox" | StatusRegion | AccountRegion | KeyManagerRegion | BrowserRegion;
+type SetupRegion = StepId | "appearance-default" | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | "instructions-unread" | "skills-link-refusal" | "permissions-sandbox" | StatusRegion | AccountRegion | KeyManagerRegion | BrowserRegion | "machines-tailscale" | "machines-unreachable";
 
 const isStatus = (kind: SetupRegion): kind is StatusRegion => kind.startsWith("status-");
+
+/** setup-copy.md §5.4: how desk is reached in the Your machines scenes that answer "Also from my other devices" (#1846); every address is invented. */
+const MACHINES_BINDING: Partial<Record<SetupRegion, EnvironmentBinding>> = {
+  "machines-tailscale": { tailnet: { address: "198.51.100.7", name: "desk.tail1234.ts.net" }, lan: null, lanAddresses: ["192.0.2.20"] },
+  "machines-unreachable": { tailnet: null, tailnetFound: null, tailscaleInstalled: false, lan: null, lanAddresses: ["192.0.2.20"] },
+};
+
 
 /** setup-copy.md §5.1's Account states beyond the empty one (#1842): Claude Code found and signed in, an account signed in, one signed out. */
 type AccountRegion = "account-claude-code" | "account-signed-in" | "account-signed-out";
@@ -172,9 +179,10 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
-  const target: StepId = kind === "appearance-default" ? "appearance" : kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" || ACCOUNT_REGIONS.has(kind) ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" || showsKeyManagers(kind) ? "key-manager" : kind === "instructions-unread" ? "instructions" : kind === "permissions-sandbox" ? "permissions" : kind === "skills-link-refusal" || isStatus(kind) ? "skills" : isBrowserRegion(kind) ? "browser" : kind as StepId;
+  const target: StepId = kind === "appearance-default" ? "appearance" : kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" || ACCOUNT_REGIONS.has(kind) ? "account" : kind === "host-updater" || kind === "machines-tailscale" || kind === "machines-unreachable" ? "your-machines" : kind === "rail-states" || showsKeyManagers(kind) ? "key-manager" : kind === "instructions-unread" ? "instructions" : kind === "permissions-sandbox" ? "permissions" : kind === "skills-link-refusal" || isStatus(kind) ? "skills" : isBrowserRegion(kind) ? "browser" : kind as StepId;
   const keyManagerRegion = showsKeyManagers(kind);
   const status = isStatus(kind) ? STATUS_RESULTS[kind] : undefined;
+  const binding = MACHINES_BINDING[kind];
   const accountState = kind in ACCOUNT_STATES ? ACCOUNT_STATES[kind as AccountRegion] : undefined;
   const prepared = await prepareWorld({ environments: [{
     name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks", ...(keyManagerRegion ? ["keyManagers", "managedTools"] as const : [])],
@@ -189,6 +197,7 @@ async function prepareRegion(kind: SetupRegion) {
     }),
     ...(kind === "host-updater" && { setup: { "your-machines": NEVER_POLLED } }),
     ...(kind === "rail-states" && { setup: RAIL_STATES }),
+    ...(binding !== undefined && { status: { binding } }),
     ...(kind === "instructions-unread" && { setup: { instructions: UNREAD_PARTS } }),
     ...(kind === "permissions-sandbox" && { setup: { permissions: SANDBOX_UNAVAILABLE }, containment: NO_BUBBLEWRAP, settings: { "permissions.containment.default": "workspace" } }),
     ...(status !== undefined && { setup: { skills: status } }),
@@ -287,6 +296,12 @@ export function setupRegionScene(kind: SetupRegion) {
           if (details?.getAttribute("aria-expanded") === "false") details.click();
           // The link's field sits below the catalogue: bring it and the refusal under it into the capture.
           if (details?.getAttribute("aria-expanded") === "true" && scroll !== null) scroll.scrollTop += field.getBoundingClientRect().top - scroll.getBoundingClientRect().top - 48;
+          return;
+        }
+        if (MACHINES_BINDING[kind] !== undefined) {
+          // setup-copy.md §5.4: the question answered "Also from my other devices", as a person answers it.
+          const also = document.querySelector<HTMLButtonElement>('[role="radio"][aria-label="Also from my other devices"]');
+          if (also !== null && also.getAttribute("aria-checked") !== "true") also.click();
           return;
         }
         if (kind === "status-fix" && !finished) {

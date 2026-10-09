@@ -1,11 +1,11 @@
-import { RefreshCw, Network, Radio, type LucideIcon } from "lucide-react";
+import { ExternalLink, RefreshCw, Network, Radio, RotateCw, type LucideIcon } from "lucide-react";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
 import type { EnvironmentBinding, SettingsKey } from "@agent-harness/contracts";
 import { useId, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 import { nameOf } from "../connections/words.js";
 import { useSettingsValues } from "../settings/settings-values.js";
 import { Button, Select, Switch } from "../ui/index.js";
-import { useObservable, useRuntime } from "../window-context.js";
+import { useObservable, useRuntime, useShell } from "../window-context.js";
 
 /** Loopback alone, with the tailnet switch on: ADR 0025's standing notice, never a failure. */
 const TAILSCALE_WARNING = "No Tailscale address found. This machine is reachable only from itself. Install Tailscale to reach it from your other devices.";
@@ -148,7 +148,7 @@ interface SwitchRowProps extends Omit<ComponentProps<typeof Switch>, "id" | "ari
 }
 
 /** A binding switch in its wash box, its label (icon and words) right after it and toggling it too (#1728). */
-const SwitchRow = ({ icon: Icon, words, children, ...props }: SwitchRowProps) => {
+export const SwitchRow = ({ icon: Icon, words, children, ...props }: SwitchRowProps) => {
   const control = useId();
   const label = useId();
   return (
@@ -197,6 +197,138 @@ const LanSwitch = ({ bound, addresses, writable, save }: LanSwitchProps) => {
       {address === undefined && <p className="text-ink-muted">No LAN address found on this machine.</p>}
       {address?.includes(":") && <p className="text-ink-muted">An IPv6 address may change. If it does, choose an address this machine still holds.</p>}
       <p className="text-ink-muted">{LAN_WARNING}</p>
+    </div>
+  );
+};
+
+/** Where Get Tailscale goes (setup-copy.md §5.4). */
+export const TAILSCALE_DOWNLOAD = "https://tailscale.com/download";
+
+/**
+ * Whether other devices reach the computer, as Set up's Your machines step
+ * says it with "Also from my other devices" chosen (setup-copy.md §5.4): its
+ * Tailscale address bound; a Tailscale address found since its start, used
+ * once it starts again; its local network address bound, so devices on that
+ * network reach it; Use Tailscale off, which no install helps; Tailscale
+ * installed with no address; or not installed, which is what an environment
+ * too old to say whether it is installed reads too.
+ */
+export type ReachVerdict = "reachable" | "needs-restart" | "wifi" | "tailscale-off" | "not-connected" | "not-installed";
+
+export const reachVerdict = (binding: EnvironmentBinding, tailnetOff: boolean): ReachVerdict => {
+  if (binding.tailnet !== null) return "reachable";
+  if (!tailnetOff && (binding.tailnetFound ?? null) !== null) return "needs-restart";
+  if (binding.lan !== null) return "wifi";
+  if (tailnetOff) return "tailscale-off";
+  return binding.tailscaleInstalled === true ? "not-connected" : "not-installed";
+};
+
+const VERDICT_WORDS: Readonly<Record<ReachVerdict, string>> = {
+  reachable: "Your devices can reach this computer through Tailscale.",
+  "tailscale-off": "Use Tailscale is off in More options, so your other devices cannot reach this computer.",
+  "needs-restart": "Tailscale is ready. Restart agent-harness to use it.",
+  wifi: "Devices on this Wi-Fi network can reach this computer. To reach it from anywhere else, use Tailscale.",
+  "not-connected": "Tailscale is installed but not connected. Open Tailscale and sign in, then choose Check again.",
+  "not-installed": "Your other devices cannot reach this computer yet. Install Tailscale here and on your other devices.",
+};
+
+/** What Windows asks once, before the first start that uses Tailscale or the Wi-Fi network (#1910), in Set up's words. */
+const FIREWALL_WORDS = "Windows asks once whether Node.js may accept connections. Keep Private networks ticked and choose Allow access.";
+
+/** Restarting the computer's agent-harness from this app, where its service can restart: none for a paired computer. */
+export interface Restart {
+  readonly restarting: boolean;
+  readonly start: () => void;
+  /** What stopped the last restart, as a notice. */
+  readonly failure: ReactNode;
+}
+
+/**
+ * The reach verdict of Set up's Your machines step (setup-copy.md §5.4,
+ * #1846), from `environment.status` in the request cache: one line, with
+ * Get Tailscale where it is not installed, Restart agent-harness where an
+ * address found since the start waits for one (else that it is used from the
+ * next start), and Check again, which reads the status again, the
+ * environment looking for a Tailscale address again as it answers; on
+ * Windows, what its firewall asks once. A region of its own, under the
+ * question, while "Also from my other devices" is chosen.
+ */
+export const ReachVerdictLine = ({ view, restart }: { readonly view: EnvironmentView; readonly restart: Restart | undefined }) => {
+  const runtime = useRuntime();
+  const shell = useShell();
+  const { environmentId } = view;
+  const status = useObservable(useMemo(() => runtime.requests.cached(environmentId, "environment.status", {}), [runtime, environmentId]));
+  const values = useSettingsValues(environmentId).values;
+  const binding = status.result?.binding;
+  const ready = view.phase === "ready";
+  const recheck = () => runtime.requests.refresh(environmentId, "environment.status", {});
+  const download = () => (shell?.openExternal === undefined ? void window.open(TAILSCALE_DOWNLOAD, "_blank", "noreferrer") : void shell.openExternal(TAILSCALE_DOWNLOAD));
+  const verdict = binding === undefined ? undefined : reachVerdict(binding, values?.["network.bindTailnet"] === false);
+  return (
+    <section aria-label="How your devices reach this computer" data-reach-verdict={verdict} className="flex flex-col gap-2 text-sm">
+      {restart?.restarting === true ? (
+        <p role="status" className="text-ink">{nameOf(view)} is restarting.</p>
+      ) : (
+        verdict !== undefined && (
+          <>
+            <p className={verdict === "reachable" || verdict === "wifi" ? "text-ink" : "text-amber"}>{VERDICT_WORDS[verdict]}</p>
+            {verdict === "needs-restart" && restart === undefined && <p className="text-ink-muted">It is used from the next start.</p>}
+            <div className="flex flex-wrap items-center gap-2">
+              {verdict === "not-installed" && (
+                <Button variant="default" onClick={download} title="Get Tailscale (Enter or Space)"><ExternalLink aria-hidden="true" data-icon="inline-start" />Get Tailscale</Button>
+              )}
+              {verdict === "needs-restart" && restart !== undefined && (
+                <Button variant="default" disabled={!ready} onClick={restart.start} title="Restart agent-harness (Enter or Space)"><RotateCw aria-hidden="true" data-icon="inline-start" />Restart agent-harness</Button>
+              )}
+              {verdict !== "reachable" && (
+                <Button disabled={!ready} onClick={recheck} title="Check again (Enter or Space)"><RefreshCw aria-hidden="true" data-icon="inline-start" />Check again</Button>
+              )}
+            </div>
+          </>
+        )
+      )}
+      {binding === undefined && ready && status.result === null && (status.error === null ? <p role="status" className="text-ink-faint">Checking…</p> : (
+        <div className="flex flex-wrap items-center gap-2">
+          <p role="alert" className="text-signal"><span className="sr-only">Error: </span>agent-harness could not run the check. Choose Check again.</p>
+          <Button onClick={recheck} title="Check again (Enter or Space)"><RefreshCw aria-hidden="true" data-icon="inline-start" />Check again</Button>
+        </div>
+      ))}
+      {restart?.failure}
+      {binding?.firewallAsksOnce === true && verdict !== "reachable" && verdict !== "tailscale-off" && <p className="text-ink-muted">{FIREWALL_WORDS}</p>}
+    </section>
+  );
+};
+
+/**
+ * The two network switches in the More options of Set up's Your machines
+ * step (setup-copy.md §5.4, #1846): Use Tailscale (`network.bindTailnet`,
+ * preset on, so its line says what on means, never that Tailscale works) and
+ * Also allow devices on this Wi-Fi network (`network.bindLan`, the first
+ * address the computer holds, private IPv4 first), with its warning; each
+ * applied at the next start. Choosing among several addresses is Settings'.
+ */
+export const SetupNetworkSwitches = ({ view, writable }: { readonly view: EnvironmentView; readonly writable: boolean }) => {
+  const runtime = useRuntime();
+  const { environmentId } = view;
+  const status = useObservable(useMemo(() => runtime.requests.cached(environmentId, "environment.status", {}), [runtime, environmentId]));
+  const settings = useSettingsValues(environmentId);
+  const [refused, setRefused] = useState<string | undefined>(undefined);
+  const values = settings.values;
+  if (values === null || !("network.bindTailnet" in values)) return null;
+  const bound = typeof values["network.bindLan"] === "string" ? values["network.bindLan"] : null;
+  const address = bound ?? status.result?.binding?.lanAddresses[0];
+  const save = (key: SettingsKey, value: unknown) => {
+    setRefused(undefined);
+    void settings.save(key, value).then((saved) => !saved.ok && setRefused(saved.line));
+  };
+  return (
+    <div className="flex flex-col gap-2 text-sm">
+      <SwitchRow icon={Radio} words="Use Tailscale" title="Use Tailscale (Space)" checked={values["network.bindTailnet"] === true} disabled={!writable} onCheckedChange={(on) => save("network.bindTailnet", on)} />
+      <p className="text-ink-muted">On: agent-harness uses Tailscale whenever it is installed.</p>
+      <SwitchRow icon={Network} words="Also allow devices on this Wi-Fi network" title="Also allow devices on this Wi-Fi network (Space)" checked={bound !== null} disabled={!writable || address === undefined} onCheckedChange={(on) => save("network.bindLan", on ? (address ?? null) : null)} />
+      {address === undefined && status.result?.binding !== undefined && <p className="text-ink-muted">This computer is not on a local network.</p>}
+      <p className="text-ink-muted">Anyone on this network could try to connect. They still need a pairing code.</p>
+      {refused !== undefined && <p role="alert" className="text-signal"><span className="sr-only">Error: </span>{refused}</p>}
     </div>
   );
 };

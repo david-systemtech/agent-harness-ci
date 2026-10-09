@@ -41,7 +41,7 @@ const saysTruly = (said: Said, read: CachedAnswer<"updates.status">["result"]): 
 };
 
 /** A channel as a person reads it. */
-const CHANNEL_WORDS: Readonly<Record<(typeof RELEASE_CHANNELS)[number], string>> = { stable: "Stable", beta: "Beta" };
+export const CHANNEL_WORDS: Readonly<Record<(typeof RELEASE_CHANNELS)[number], string>> = { stable: "Stable", beta: "Beta" };
 
 /**
  * An environment's update controls (launcher-update spec, "Settings,

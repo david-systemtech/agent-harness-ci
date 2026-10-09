@@ -113,6 +113,25 @@ it("captures Add from a link refused because git is missing, git's words open un
   } finally { view.unmount(); }
 });
 
+// setup-copy.md §5.4: the Your machines question in its three states, only this computer, reachable through Tailscale and not reachable (#1846).
+it.each([
+  ["your-machines", "Only on this computer", undefined],
+  ["machines-tailscale", "Also from my other devices", "Your devices can reach this computer through Tailscale."],
+  ["machines-unreachable", "Also from my other devices", "Your other devices cannot reach this computer yet. Install Tailscale here and on your other devices."],
+] as const)("captures Your machines' %s scene with its answer chosen and its reach said", async (kind, answer, verdict) => {
+  const Scene = setupRegionScene(kind);
+  const view = render(<Scene ladder="dark" />);
+  try {
+    const machines = await screen.findByRole("region", { name: "Your machines" });
+    const question = await within(machines).findByRole("radiogroup", { name: "Use agent-harness from other devices?" });
+    await waitFor(() => expect(within(question).getByRole("radio", { name: answer }).getAttribute("aria-checked")).toBe("true"));
+    if (verdict === undefined) expect(within(machines).queryByRole("region", { name: "How your devices reach this computer" })).toBeNull();
+    else expect(await within(within(machines).getByRole("region", { name: "How your devices reach this computer" })).findByText(verdict)).toBeDefined();
+    if (kind === "machines-unreachable") expect(within(machines).getByRole("button", { name: "Get Tailscale" })).toBeDefined();
+    if (kind === "machines-tailscale") expect(within(machines).getByRole("region", { name: "Add a device" })).toBeDefined();
+  } finally { view.unmount(); }
+});
+
 // setup-copy.md §5.7: the Key manager card's states the gallery captures, none chosen, OpenBao's form, connected and not answering (#1851).
 it("captures the Key manager card asking which one you use, OpenBao's form, a key manager connected and one that does not answer", async () => {
   const scene = async (kind: Parameters<typeof setupRegionScene>[0], check: (card: HTMLElement) => Promise<void>) => {

@@ -43,7 +43,8 @@ const RIGHTS = [
   ["admin", "Change Settings and sign in providers"],
 ] as const;
 
-const AccessDetails = ({ view, open, onOpenChange, pairingFirst = false }: { readonly view: EnvironmentView; readonly open: boolean; readonly onOpenChange: (open: boolean) => void; readonly pairingFirst?: boolean }) => {
+/** #1631's limited-access sheet: what the pairing allows, and the way to full access. */
+export const AccessDetails = ({ view, open, onOpenChange, pairingFirst = false }: { readonly view: EnvironmentView; readonly open: boolean; readonly onOpenChange: (open: boolean) => void; readonly pairingFirst?: boolean }) => {
   const [pairing, setPairing] = useState(false);
   const pairingShown = pairingFirst || pairing;
   const close = (next: boolean) => { onOpenChange(next); if (!next) setPairing(false); };
