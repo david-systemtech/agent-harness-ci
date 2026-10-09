@@ -163,9 +163,13 @@ export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
     setRefusals(refused);
     setReports(ran.length > 0 ? ran : reports);
   };
+  // No import has reached an account yet: once the step has checked, it names each one with something to carry as never
+  // brought over (the inventory alone cannot say, a chat run here or a checkout offered as a skill reading as not new).
+  const checked = step.result?.state === "done" || step.result?.state === "needs-attention";
+  const neverBrought = ({ account, inventory }: Found) => !holdsAnything(inventory) || (checked ? named.includes(account.id) && !leftBehind(account) : !broughtBefore(inventory));
   // The earlier work comes over with the first bring-over here, before any account has been, or after it stopped:
   // a re-run would apply its window preferences again.
-  const bringThemOver = () => void bringOver(found, earlierWorkFound && (!found.some(({ inventory }) => broughtBefore(inventory)) || earlierWorkStopped));
+  const bringThemOver = () => void bringOver(found, earlierWorkFound && ((reports === undefined && found.every(neverBrought)) || earlierWorkStopped));
   const checkAgain = () => {
     runtime.requests.refresh(environmentId, "accounts.list", {});
     for (const { account } of unread) runtime.requests.refresh(environmentId, "carryOver.inventory", { accountId: account.id });

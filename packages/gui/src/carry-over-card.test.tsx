@@ -80,6 +80,16 @@ const answerInventory = (app: Awaited<ReturnType<typeof opened>>, listed: CarryO
   app.environment("desk").wire.answer("carryOver.inventory", (params) => ({ result: { ...listed, accountId: String(params["accountId"]) } }));
 /** The step's line after an import, as the environment words it: the card's own Everything is already here is not said twice. */
 const BROUGHT_OVER: ScriptedEnvironment["setup"] = { "carry-over": { state: "done", reason: "Brought over today at 16:24.", failing: [], actions: [] } };
+/** The step before any import reached Personal, as the environment words it (setup-copy.md §5.3). */
+const NEVER_BROUGHT: ScriptedEnvironment["setup"] = {
+  "carry-over": {
+    state: "needs-attention",
+    reason: "Personal has past chats to bring over. Choose Bring them over.",
+    actions: ["import-again"],
+    failing: ["carry-over.last-import"],
+    targets: [{ action: "import-again", kind: "account", id: "account-1", label: "Personal" }],
+  },
+};
 const fold = async (app: Awaited<ReturnType<typeof opened>>, name: string) => {
   await app.user.click(screen.getByRole("button", { name }));
   return within(screen.getByRole("button", { name }).parentElement as HTMLElement);
@@ -312,9 +322,23 @@ describe("Carry over in Set up", () => {
     expect(desk.requests("stateImport.run")).toHaveLength(0);
   });
 
+  it("brings the earlier work over with the first Bring them over when a chat run here or a checkout offered as a skill already reads as not new", async () => {
+    const found: StateImportDetection = { dataFolder: { path: "/data/source", holds: { profiles: 1, banks: 0, routines: 0, instructions: 0, skillSources: 0, connections: 0 } }, terminalFolder: null };
+    const held: CarryOverInventory = { ...inventory(), sessions: { ...inventory().sessions, new: 4 }, skills: { ...inventory().skills, new: 0 } };
+    const app = await opened({ capabilities: ["stateImport"], setup: NEVER_BROUGHT }, held, [], undefined, (desk) => {
+      desk.wire.answer("stateImport.detect", () => ({ result: found }));
+      desk.wire.answer("stateImport.run", () => ({ result: { receipt: { status: "accepted", sequence: 3, changed: true } } }));
+    });
+    const desk = app.environment("desk");
+    await screen.findByRole("region", { name: "State import" });
+    await app.user.click(screen.getByRole("button", { name: "Bring them over" }));
+    await waitFor(() => expect(desk.requests("stateImport.run")).toHaveLength(1));
+    expect(desk.requests("carryOver.run")).toHaveLength(1);
+  });
+
   it("brings the earlier work over with the first Bring them over, and not again with new chats later", async () => {
     const found: StateImportDetection = { dataFolder: { path: "/data/source", holds: { profiles: 1, banks: 0, routines: 0, instructions: 0, skillSources: 0, connections: 0 } }, terminalFolder: null };
-    const app = await opened({ capabilities: ["stateImport"] }, inventory(), [], undefined, (desk) => {
+    const app = await opened({ capabilities: ["stateImport"], setup: NEVER_BROUGHT }, inventory(), [], undefined, (desk) => {
       desk.wire.answer("stateImport.detect", () => ({ result: found }));
       desk.wire.answer("stateImport.run", () => ({ result: { receipt: { status: "accepted", sequence: 3, changed: true } } }));
     });
@@ -323,6 +347,9 @@ describe("Carry over in Set up", () => {
     await app.user.click(screen.getByRole("button", { name: "Bring them over" }));
     await waitFor(() => expect(desk.requests("stateImport.run")).toHaveLength(1));
     expect(desk.requests("stateImport.run")[0]?.params).toMatchObject({ dryRun: false });
+    act(() => desk.setSetup({ "carry-over": { state: "done", reason: "Brought over today at 16:24.", failing: [], actions: [], targets: [] } }));
+    await app.user.click(screen.getByRole("button", { name: "Check now" }));
+    await screen.findByText("Brought over today at 16:24.");
     answerInventory(app, { ...imported(), sessions: { ...imported().sessions, total: 7, new: 2 } });
     await act(async () => desk.notice("carry-over.imported", report()));
     await app.user.click(await screen.findByRole("button", { name: "Bring over 2 new chats" }));
