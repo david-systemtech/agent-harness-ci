@@ -1,17 +1,16 @@
-import { adminCall, plainRefusal, stepLine, uuidv7, LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
+import { adminCall, plainRefusal, uuidv7, LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
 import type { BrowserStatus, PairedChrome } from "@agent-harness/contracts";
 import { Plus, Save, Unplug } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { BrowserSubstep } from "./setup-substep.js";
 import { BrowserDone } from "./done.js";
 import { useSettingsValues } from "../settings/settings-values.js";
-import { TechnicalDetails } from "../setup/details.js";
 import { MoreOptions } from "../setup/more-options.js";
 import { Button } from "../ui/index.js";
 import { BrowserPairingCode, BrowserProblem, CopyText, useBrowserDetails } from "./pairing-code.js";
 import type { StepCardProps } from "../setup/cards.js";
 import { StepStatus } from "../setup/step-status.js";
-import { useClock, useObservable, useRuntime, useShell } from "../window-context.js";
+import { useClock, useFollowed, useObservable, useRuntime, useShell } from "../window-context.js";
 
 /** The Browser card's lines (setup-copy.md §5.11). */
 const DESKTOP_ONLY = "Connecting Chrome works only in the desktop app.";
@@ -51,6 +50,10 @@ export const BrowserCard = (props: StepCardProps) => {
   const [another, pairAnother] = useState<number | null>(null);
   const [said, say] = useState<{ readonly line: string; readonly details?: readonly string[] } | null>(null);
   const local = useObservable(runtime.projections.environments).find((view) => view.kind === "local" && view.environmentId !== LOCAL_PLACEHOLDER_ID);
+  const localId = local?.environmentId;
+  // The step's Details add the extension's folder and listening address, read only from agent-harness on this computer.
+  const status = useFollowed(useMemo(() => localId === undefined ? undefined : runtime.requests.cached(localId, "browser.status", {}), [runtime, localId]))?.result ?? null;
+  const facts = status === null ? [] : [`Extension folder: ${status.folder.path}`, ...listenerLines(status.listener), `Extension shipped: ${status.shippedVersion ?? "none"}`];
   const listed = useObservable(useMemo(() => runtime.requests.cached(props.environmentId, "browser.chromes.list", {}), [runtime, props.environmentId]));
   const chromes = listed.result?.chromes ?? [];
   const details = useBrowserDetails(props.environmentId);
@@ -67,7 +70,7 @@ export const BrowserCard = (props: StepCardProps) => {
   const { result } = props.step;
   return (
     <div className="flex min-w-0 flex-col gap-3.5 text-xs">
-      <StepStatus {...props} handledActions={["unpair", "pair-another", "reload"]} />
+      <StepStatus {...props} handledActions={["unpair", "pair-another", "reload"]} facts={facts} />
       {/* Why pairing, the sites and Use my Chrome for agents are held on a limited connection, said once for all of them. */}
       {admin.status === "absent" && <p className="text-ink-muted">{admin.message}</p>}
       {result?.actions.includes("reload") && <CopyText text={EXTENSIONS_PAGE} words={COPY_EXTENSIONS_PAGE} />}
@@ -86,30 +89,8 @@ export const BrowserCard = (props: StepCardProps) => {
         <Button variant="outline" className="self-start" disabled={!pairable} onClick={() => pairAnother((n) => (n ?? -1) + 1)}><Plus aria-hidden="true" />Pair another</Button>
         {said !== null && (said.details === undefined ? <p role="status">{said.line}</p> : <BrowserProblem line={said.line} details={details(said.line, said.details)} />)}
       </MoreOptions>
-      {local === undefined ? <BrowserDetails {...props} /> : <LocalBrowserDetails {...props} environmentId={local.environmentId} />}
     </div>
   );
-};
-
-/** Details of the step (setup-copy.md §3): its line and raw words, then `facts` about agent-harness on this computer. */
-const BrowserDetails = ({ environmentId, step, facts = [] }: StepCardProps & { readonly facts?: readonly string[] }) => {
-  const runtime = useRuntime();
-  const details = useBrowserDetails(environmentId);
-  const { result } = step;
-  const shown = details(stepLine(step, runtime.environmentNow(environmentId)), [...(result?.details ?? []), ...facts]);
-  return <TechnicalDetails {...shown} report={{
-    ...shown.report,
-    step: { label: step.label, id: step.id, state: result?.state ?? "unchecked" },
-    ...(result !== null && { checkedAt: result.checkedAt, failing: result.failing }),
-  }} />;
-};
-
-/** The step's Details with the extension's folder and listening address on this computer. */
-const LocalBrowserDetails = (props: StepCardProps) => {
-  const runtime = useRuntime();
-  const status = useObservable(useMemo(() => runtime.requests.cached(props.environmentId, "browser.status", {}), [runtime, props.environmentId]));
-  const facts = status.result === null ? [] : [`Extension folder: ${status.result.folder.path}`, ...listenerLines(status.result.listener), `Extension shipped: ${status.result.shippedVersion ?? "none"}`];
-  return <BrowserDetails {...props} facts={facts} />;
 };
 
 /**

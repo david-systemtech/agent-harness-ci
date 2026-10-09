@@ -128,12 +128,14 @@ describe("the Browser card in Set up (setup-copy.md §5.11)", () => {
     expect(within(card()).queryByRole("textbox", { name: "Pairing code" })).toBeNull();
   });
 
-  it("keeps the listening address and ports in Details only", async () => {
+  it("keeps the listening address and ports in the step's one Details only", async () => {
     const { app } = await opened();
     await within(card()).findByRole("heading", { name: STEPS[0] });
     expect(within(card()).queryByText(/127\.0\.0\.1/)).toBeNull();
+    await waitFor(() => expect(within(card()).getAllByRole("button", { name: "Details" })).toHaveLength(1));
     await app.user.click(within(card()).getByRole("button", { name: "Details" }));
-    expect(within(card()).getByText(/Listening on 127\.0\.0\.1:47615/)).toBeDefined();
+    expect(await within(card()).findByText(/Listening on 127\.0\.0\.1:47615/)).toBeDefined();
+    expect(within(card()).getByText(/Extension folder: \/home\/test\/\.agent-harness\/extension\/current/)).toBeDefined();
   });
 
   it("saves optional sites you are building one per line to the page policy, including an empty list", async () => {
