@@ -10,9 +10,12 @@ on:
   pull_request_target:
     branches: [main]
     types: [opened, synchronize, reopened, labeled, unlabeled]
+# Forgejo posts cancellation statuses itself, even after a replacement has
+# succeeded. Queue events for an unchanged head so a label update cannot leave
+# a late cancellation over that head's verdict. New heads use independent groups.
 concurrency:
-  group: gallery-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: gallery-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: false
 jobs:
   gallery:
     runs-on: relay
@@ -35,5 +38,5 @@ jobs:
           FORGEJO_URL: ${{ github.server_url }}
           FORGEJO_REPOSITORY: ${{ github.repository }}
           FORGEJO_PR: ${{ github.event.pull_request.number }}
-          GROUP: ${{ github.event.pull_request.number }}
+          GROUP: gallery-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
           FORGEJO_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}
