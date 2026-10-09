@@ -21,3 +21,7 @@ onlyBuiltDependencies:
 # web_read only reads a PDF's text, so it is not installed.
 ignoredOptionalDependencies:
   - "@napi-rs/canvas"
+
+# Capture Windows console processes before closing their PTY (#2029).
+patchedDependencies:
+  node-pty@1.1.0: patches/node-pty@1.1.0.patch
