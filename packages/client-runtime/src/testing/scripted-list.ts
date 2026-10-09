@@ -224,6 +224,7 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
           parkedPromptCount: 0,
           accountId: params["account"] ?? null,
           model: params["model"] ?? null,
+          runChoice: null,
           mode: params["mode"] ?? null,
           browser: (params["browser"] as { value?: unknown } | undefined)?.value ?? null,
           pullRequests: [],

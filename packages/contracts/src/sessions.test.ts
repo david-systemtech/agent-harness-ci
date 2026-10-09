@@ -114,6 +114,14 @@ describe("the summary field table", () => {
     expect(isListEvent("session", "session.draft-set")).toBe(true);
   });
 
+  it("gives the next run's model and effort to sessions.setModel at runs:drive, through one list-flagged session.model-set (#1961)", () => {
+    expect(SUMMARY_FIELD_OWNERS.runChoice).toEqual({ command: "sessions.setModel" });
+    expect(registry["sessions.setModel"]).toMatchObject({ kind: "command", scope: "runs:drive" });
+    expect(Object.keys(registry["sessions.setModel"].params.shape)).toEqual(["commandId", "sessionId", "model", "effort"]);
+    expect(Object.keys(registry["sessions.setModel"].result.shape)).toEqual(["summary"]);
+    expect(isListEvent("session", "session.model-set")).toBe(true);
+  });
+
   it("gives the shelf fields to settle, unsettle and snooze, each a command, their events list-flagged", () => {
     expect(
       Object.fromEntries((["settledAt", "settledOverride", "settledBy", "unsettledAt", "snoozedUntil", "snoozedAt"] as const).map((key) => [key, SUMMARY_FIELD_OWNERS[key]])),
@@ -298,6 +306,7 @@ const fresh = {
   parkedPromptCount: 0,
   accountId: null,
   model: null,
+  runChoice: null,
   mode: null,
   browser: null,
   pullRequests: [],
@@ -396,6 +405,7 @@ describe("the session summary", () => {
       "parkedPromptCount",
       "accountId",
       "model",
+      "runChoice",
       "mode",
       "browser",
       "pullRequests",

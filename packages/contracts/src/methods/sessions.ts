@@ -243,6 +243,32 @@ export const sessionsSetBrowser = defineMethod({
   errors: [],
 });
 
+/**
+ * Choose the model and effort the session's next runs go out on (#1961): the
+ * session's own, so it outlives the client that chose it and an environment
+ * restart, and the summary's `runChoice` names it to every client. At
+ * `runs:drive`, as `sessions.setBrowser` is. Recorded as
+ * `session.model-set`; the choice the session has already appends nothing.
+ * A run started with no model of its own goes out on it, and on its effort
+ * while the run's model is the chosen one. A model the session's account
+ * does not list, or an effort the model does not take, is `invalid_params`;
+ * a session with a run live is `conflict` reason `run_active` (the run of
+ * its queue would go out on the live run's model); a session that is not
+ * here, or is deleted, is `not_found` (data kind `session`).
+ */
+export const sessionsSetModel = defineMethod({
+  name: "sessions.setModel",
+  scope: "runs:drive",
+  kind: "command",
+  params: commandParams({
+    ...sessionTarget,
+    model: z.string().min(1).meta({ description: "The model, by id, as the session's account lists it." }),
+    effort: z.string().min(1).nullable().meta({ description: "The effort, one the model takes; null for the model's own." }),
+  }),
+  result: summaryResult,
+  errors: [],
+});
+
 /** Put the session in a group on this environment, or take it out with null; `not_found` (data kind `group`) for a group not here. */
 export const sessionsSetGroup = defineMethod({
   name: "sessions.setGroup",

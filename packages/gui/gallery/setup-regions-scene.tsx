@@ -1,4 +1,4 @@
-import { DEFAULT_THEME, CATALOGUE, CATALOGUE_SEED_INSTRUCTION_ID, type BankJoinPreview, type CarryOverInventory, type ResultOf, type StepId, type StepResult } from "@agent-harness/contracts";
+import { DEFAULT_THEME, CATALOGUE, CATALOGUE_SEED_INSTRUCTION_ID, type BankJoinPreview, type CarryOverInventory, type ContainmentReport, type ResultOf, type StepId, type StepResult } from "@agent-harness/contracts";
 import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
 import type { EnvironmentHandle, ScriptedEnvironment, ScriptedSetup } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { LadderName } from "@agent-harness/theme";
@@ -26,7 +26,7 @@ export const joinPreview: BankJoinPreview = {
 /** A step's status at the head of its card (setup-copy.md §3; #1840): done, needing a fix with Details open, a check that could not run, and the environment out of reach. */
 type StatusRegion = "status-done" | "status-fix" | "status-could-not-check" | "status-unreachable";
 
-type SetupRegion = StepId | "appearance-default" | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | "instructions-unread" | StatusRegion | KeyManagerRegion | BrowserRegion;
+type SetupRegion = StepId | "appearance-default" | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | "instructions-unread" | "permissions-sandbox" | StatusRegion | KeyManagerRegion | BrowserRegion;
 
 const isStatus = (kind: SetupRegion): kind is StatusRegion => kind.startsWith("status-");
 
@@ -77,6 +77,22 @@ const UNREAD_PARTS: Partial<StepResult> = {
   failing: ["instructions.orientation-renders"], actions: ["check-again"], details: ["Unread sections of the orientation block: forges, banks"],
 };
 
+/** setup-copy.md §5.12: the sandbox chosen does not work here, so the line offers Turn the sandbox off and How to fix it (#1858). */
+const SANDBOX_UNAVAILABLE: Partial<StepResult> = {
+  state: "needs-attention", reason: "The sandbox you chose does not work on this computer yet.", failing: ["permissions.containment"], actions: ["turn-sandbox-off"],
+  details: ["permissions.containment.default: workspace", "Probe: bubblewrap is not installed: bwrap is not on the PATH. Install the bubblewrap package.", "Cause: binary_missing"],
+};
+
+/** What the probe found for that scene: bubblewrap missing, so neither project-folder level works. */
+const NO_BUBBLEWRAP: Partial<ContainmentReport> = {
+  levels: [
+    { level: "off", available: true, reason: null, cause: null },
+    { level: "workspace", available: false, reason: "bubblewrap is not installed: bwrap is not on the PATH. Install the bubblewrap package.", cause: "binary_missing" },
+    { level: "workspace-no-network", available: false, reason: "bubblewrap is not installed: bwrap is not on the PATH. Install the bubblewrap package.", cause: "binary_missing" },
+  ],
+  mechanism: null,
+};
+
 /** The Instructions card's world: About my setup seeded and one suggestion ticked, and the block a new run is handed (#1856). */
 const scriptInstructions = (desk: EnvironmentHandle, unreadRegistries: readonly string[]) => {
   const text = "## This computer\n\nForges, key managers and notebooks are listed here for every run.";
@@ -125,7 +141,7 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
-  const target: StepId = kind === "appearance-default" ? "appearance" : kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" || showsKeyManagers(kind) ? "key-manager" : kind === "instructions-unread" ? "instructions" : isStatus(kind) ? "skills" : isBrowserRegion(kind) ? "browser" : kind;
+  const target: StepId = kind === "appearance-default" ? "appearance" : kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" || showsKeyManagers(kind) ? "key-manager" : kind === "instructions-unread" ? "instructions" : kind === "permissions-sandbox" ? "permissions" : isStatus(kind) ? "skills" : isBrowserRegion(kind) ? "browser" : kind;
   const keyManagerRegion = showsKeyManagers(kind);
   const status = isStatus(kind) ? STATUS_RESULTS[kind] : undefined;
   const prepared = await prepareWorld({ environments: [{
@@ -141,6 +157,7 @@ async function prepareRegion(kind: SetupRegion) {
     ...(kind === "host-updater" && { setup: { "your-machines": NEVER_POLLED } }),
     ...(kind === "rail-states" && { setup: RAIL_STATES }),
     ...(kind === "instructions-unread" && { setup: { instructions: UNREAD_PARTS } }),
+    ...(kind === "permissions-sandbox" && { setup: { permissions: SANDBOX_UNAVAILABLE }, containment: NO_BUBBLEWRAP, settings: { "permissions.containment.default": "workspace" } }),
     ...(status !== undefined && { setup: { skills: status } }),
     ...(keyManagerRegion && keyManagersOf(kind)),
     ...(isBrowserRegion(kind) && { setup: { browser: BROWSER_RESULTS[kind] } }),
@@ -234,8 +251,9 @@ export function setupRegionScene(kind: SetupRegion) {
           if (!finished && reset !== undefined && !reset.disabled) { finished = true; reset.click(); }
           return;
         }
-        if (kind === "host-updater") {
-          const how = [...document.querySelectorAll<HTMLButtonElement>("[data-setup-scroll] button")].find((button) => button.textContent === "How to set it up");
+        if (kind === "host-updater" || kind === "permissions-sandbox") {
+          const label = kind === "host-updater" ? "How to set it up" : "How to fix it";
+          const how = [...document.querySelectorAll<HTMLButtonElement>("[data-setup-scroll] button")].find((button) => button.textContent === label);
           if (!finished && how !== undefined) { finished = true; how.click(); }
           return;
         }

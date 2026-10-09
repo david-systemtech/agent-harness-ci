@@ -1,7 +1,7 @@
 import type { PromptAnsweredPayload, PromptOpenedPayload, PullRequest, RunEndedPayload, RunStartedPayload, SessionActivity } from "@agent-harness/contracts";
 import type { ProjectionDb } from "../event-log/event-log.js";
 import type { ColumnWriter, Projection } from "./shelf-list.js";
-import type { SessionRow } from "./session-tables.js";
+import { runChoiceColumn, type SessionRow } from "./session-tables.js";
 
 /**
  * How the events other workstreams append change the session-list tables:
@@ -32,7 +32,9 @@ import type { SessionRow } from "./session-tables.js";
  *
  * One module writes the fields the system owns: `activity` from the run and
  * prompt events together, `parkedPromptCount` from the prompt events alone,
- * `accountId` and `model` from `run.started` alone, `lastActivityAt` from a
+ * `accountId` and `model` from `run.started` alone (which writes the
+ * `runChoice` a person's `sessions.setModel` owns too: the next run goes out
+ * on what the latest took, #1961), `lastActivityAt` from a
  * run's start and end and a prompt's answer.
  * - Pull requests (the forge's to append; payload fixed here): each kept by
  *   its url, linked, synced (added when not yet linked) or unlinked.
@@ -69,6 +71,7 @@ export const systemProjections = (setColumns: ColumnWriter): Readonly<Record<str
       last_activity_at: event.occurredAt,
       account_id: payload.accountId,
       model: payload.model,
+      run_choice: runChoiceColumn({ model: payload.model, effort: payload.effort }),
     });
   },
   // A run that ended waits on nothing, unless a prompt a stop left open still waits on a person.

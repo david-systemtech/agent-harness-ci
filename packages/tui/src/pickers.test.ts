@@ -239,7 +239,7 @@ describe("/model", () => {
     },
   ];
 
-  it("lists the models the session's account can use with their efforts, and the choice rides the session's next run", async () => {
+  it("lists the models the session's account can use with their efforts, and the choice is the session's, which its next run goes out on (#1961)", async () => {
     const { app, env } = await launch([desk({ models })]);
     await command(app, "/model");
     await app.waitFor("Models for work on desk");
@@ -255,7 +255,11 @@ describe("/model", () => {
     await app.type("go");
     await app.press(KEY.enter);
     await app.waitFor("▌ go");
-    expect(env.requests("runs.start").map((r) => r.params)).toEqual([expect.objectContaining({ text: "go", model: "claude-opus-4", effort: "high" })]);
+    expect(env.requests("sessions.setModel").map((r) => r.params)).toEqual([expect.objectContaining({ model: "claude-opus-4", effort: "high" })]);
+    const [start] = env.requests("runs.start").map((r) => r.params);
+    expect(start).toMatchObject({ text: "go" });
+    expect(start).not.toHaveProperty("model");
+    await app.waitFor("Opus 4 - High ·");
   });
 
   it("chooses a model with no effort at once", async () => {
@@ -536,9 +540,9 @@ describe("/settings", () => {
     const frame = app.frame();
     expect(frame).toMatch(/Default account\s+none/);
     expect(frame).toMatch(/Stop idle agent processes after minutes\s+30/);
-    expect(frame).toMatch(/Maximum permission mode\s+acceptEdits/);
-    expect(frame).toMatch(/Unanswered permission timeout\s+24 hours/);
-    expect(frame).toMatch(/Permission bypass acknowledged\s+none\s+read-only/);
+    expect(frame).toMatch(/How much agents may do without asking\s+acceptEdits/);
+    expect(frame).toMatch(/If nobody answers a question\s+24 hours/);
+    expect(frame).toMatch(/Agreed to never ask on scheduled runs\s+none\s+read-only/);
     // Down to the Service row's keys, past the five, one, five, nine, two and seven of the rows above it.
     await app.press(...Array.from({ length: 29 }, () => KEY.down));
     await app.waitFor(/Settle idle sessions\s+14 days/);
@@ -569,9 +573,9 @@ describe("/settings", () => {
     expect(env.requests("settings.update").map((r) => r.params)).toContainEqual(expect.objectContaining({ values: { "providers.processIdleMinutes": 45 } }));
     // A choice, through the permission settings' own method, past the Instructions row's switch.
     await app.press(KEY.down, KEY.down, KEY.enter);
-    await app.waitFor("Maximum permission mode:");
+    await app.waitFor("How much agents may do without asking:");
     await app.press(KEY.down, KEY.enter);
-    await app.waitFor("Maximum permission mode is auto.");
+    await app.waitFor("How much agents may do without asking is auto.");
     expect(env.requests("permissions.settings.set").map((r) => r.params)).toEqual([expect.objectContaining({ values: { "permissions.defaultCeiling": "auto" } })]);
     // A switch flips on Enter: down past the rest of Permissions, Browser, Key managers and Your machines to the Service row's second key.
     await app.press(...Array.from({ length: 24 }, () => KEY.down), KEY.enter);
@@ -598,11 +602,11 @@ describe("/settings", () => {
     await command(app, "/settings access.permissions");
     await app.waitFor("Settings on desk");
     await app.press(KEY.down, KEY.enter);
-    await app.waitFor("Unattended permission mode:");
+    await app.waitFor("For scheduled and automatic runs:");
     await app.press(KEY.down, KEY.enter);
     await app.waitFor(`${BYPASS} Make bypassPermissions the unattended mode? y/n`);
     await app.press("y");
-    await app.waitFor("Unattended permission mode is bypassPermissions.");
+    await app.waitFor("For scheduled and automatic runs is bypassPermissions.");
     expect(env.requests("permissions.settings.set").map((r) => r.params)).toEqual([
       expect.objectContaining({ values: { "permissions.unattended.mode": "bypassPermissions" }, acknowledgeBypass: true }),
     ]);
@@ -622,7 +626,7 @@ describe("/settings", () => {
     await command(app, "/settings");
     await app.waitFor("Settings on desk");
     await app.press(KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter);
-    await app.waitFor("Unattended permission mode:");
+    await app.waitFor("For scheduled and automatic runs:");
     await app.press(KEY.down, KEY.enter);
     await app.waitFor("Make bypassPermissions the unattended mode? y/n");
     // The question stands while the list below it opens a value to type.
@@ -692,17 +696,17 @@ describe("/settings by row (#389)", () => {
     const { app, env } = await launch();
     await command(app, "/settings access.permissions");
     await app.waitFor("Settings on desk");
-    await app.waitFor(/Maximum permission mode\s+acceptEdits/);
+    await app.waitFor(/How much agents may do without asking\s+acceptEdits/);
     const frame = app.frame();
     expect(frame).toContain("Permissions");
-    expect(frame).toMatch(/Default process containment\s+off/);
+    expect(frame).toMatch(/Sandbox\s+off/);
     expect(frame).not.toContain("accounts.defaultAccount");
     expect(frame).not.toContain("updates.channel");
     // The cursor starts on the row's first key.
     await app.press(KEY.enter);
-    await app.waitFor("Maximum permission mode:");
+    await app.waitFor("How much agents may do without asking:");
     await app.press(KEY.down, KEY.enter);
-    await app.waitFor("Maximum permission mode is auto.");
+    await app.waitFor("How much agents may do without asking is auto.");
     expect(env.requests("permissions.settings.set").map((r) => r.params)).toEqual([expect.objectContaining({ values: { "permissions.defaultCeiling": "auto" } })]);
   });
 
@@ -915,15 +919,15 @@ describe("/setup", () => {
     await app.waitUntil(() => env.requests("tools.run").length === 1, "the update to start after the list answers");
   });
 
-  it("restores the denylist sections named by the line then checks Permissions", async () => {
+  it("restores the always-ask lists named by the line with Restore them, then checks Permissions", async () => {
     const { app, env } = await launch([desk({ capabilities: ["setup"], setup: {
       ...Object.fromEntries(STEP_ORDER.map((step) => [step, null])),
-      permissions: { state: "needs-attention", reason: "Denylist presets are missing.", actions: ["restore"],
+      permissions: { state: "needs-attention", reason: "Some built-in entries are missing from the paths and hosts always-ask lists.", actions: ["restore"],
         targets: [{ action: "restore", kind: "denylist-section", id: "paths", label: "paths" }, { action: "restore", kind: "denylist-section", id: "hosts", label: "hosts" }],
       },
     } })]);
     await command(app, "/setup");
-    await app.waitFor("Restore: paths, hosts");
+    await app.waitFor("Restore them");
     await app.press(KEY.enter);
     await app.waitUntil(() => env.requests("setup.check").length === 1, "the restored step checked");
     expect(env.requests("permissions.denylist.restorePresets").map((r) => r.params)).toEqual([expect.objectContaining({ sections: ["paths", "hosts"] })]);
