@@ -933,6 +933,7 @@ export const App = (props: AppProps) => {
   useFollow(runInfoModels, request);
   const pickers = usePickers({
     runtime,
+    clock,
     request,
     views,
     current,

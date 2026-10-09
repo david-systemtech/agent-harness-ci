@@ -24,6 +24,7 @@ import {
   type ProviderTurn,
   type RunContext,
   type RunInput,
+  type UsageWindow,
 } from "../../adapter/contract.js";
 import { EMPTY_PROCESS_ENVIRONMENT } from "../../adapter/process-environment.js";
 
@@ -2077,10 +2078,30 @@ describe("plan usage", () => {
     await adapter.usage(account);
     const run = adapter.createRun(runInput(), contextWith());
     const query = await started(2);
-    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]), sdk.rateLimit("five_hour", "rejected", 100), sdk.result(PROVIDER_SESSION));
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]), sdk.rateLimit("five_hour", "rejected", 1), sdk.result(PROVIDER_SESSION));
     const events = await drain(run);
     expect(events.filter((event) => event.type === "plan.limit")).toEqual([{ type: "plan.limit", payload: { window: "five_hour", status: "rejected", utilisation: 1, resetsAt: null } }]);
     expect((await adapter.usage(account)).windows).toEqual([{ window: "five_hour", utilisation: 1, resetsAt: null, verdict: "rejected" }]);
+  });
+
+  it("folds a run's verdict on a window at the same percentage the plan-usage read gives it, the SDK's fraction kept a fraction (#1953)", async () => {
+    const recorded = JSON.parse(readFileSync(join(import.meta.dirname, "../../../test/fixtures/sdk/weekly-verdict.json"), "utf8")) as { usage: unknown; messages: unknown[] };
+    fake.controls = { usage: { name: "usage", answer: async () => recorded.usage } };
+    const adapter = adapterWith();
+    const account = { id: "work", directory: "/data/accounts/work" };
+    const weekly = (windows: readonly UsageWindow[]) => windows.find((window) => window.window === "seven_day");
+    const read = weekly((await adapter.usage(account)).windows);
+    expect(read?.utilisation).toBe(0.86);
+    const run = adapter.createRun(runInput(), contextWith());
+    const query = await started(2);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]), ...recorded.messages, sdk.result(PROVIDER_SESSION));
+    const events = await drain(run);
+    expect(events.filter((event) => event.type === "plan.limit")).toEqual([
+      { type: "plan.limit", payload: { window: "seven_day", status: "allowed", utilisation: 0.86, resetsAt: "2026-10-11T22:00:00.000Z" } },
+    ]);
+    const folded = weekly((await adapter.usage(account)).windows);
+    expect(folded).toEqual({ window: "seven_day", utilisation: 0.86, resetsAt: "2026-10-11T22:00:00.000Z", verdict: "allowed" });
+    expect(Math.round((folded?.utilisation ?? 0) * 100)).toBe(Math.round((read?.utilisation ?? 0) * 100));
   });
 });
 
