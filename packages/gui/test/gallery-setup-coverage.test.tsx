@@ -88,6 +88,39 @@ it("captures Your machines' never-polled container line with the host updater's 
   } finally { view.unmount(); }
 });
 
+// setup-copy.md §5.7: the Key manager card's states the gallery captures, none chosen, OpenBao's form, connected and not answering (#1851).
+it("captures the Key manager card asking which one you use, OpenBao's form, a key manager connected and one that does not answer", async () => {
+  const scene = async (kind: Parameters<typeof setupRegionScene>[0], check: (card: HTMLElement) => Promise<void>) => {
+    const Scene = setupRegionScene(kind);
+    const view = render(<Scene ladder="dark" />);
+    try {
+      const card = await screen.findByRole("region", { name: "Key manager" });
+      await check(card);
+    } finally { view.unmount(); }
+  };
+  await scene("key-manager", async (card) => {
+    const asked = await within(card).findByRole("radiogroup", { name: "Which one do you use?" });
+    expect(within(asked).getByRole("radio", { name: "I do not use one" }).getAttribute("aria-checked")).toBe("true");
+    expect(within(card).queryByRole("form")).toBeNull();
+  });
+  await scene("key-manager-openbao", async (card) => {
+    const form = await within(card).findByRole("form", { name: "Connect OpenBao" });
+    expect(within(form).getByText("The address you open it at, like https://vault.example.com")).toBeDefined();
+    expect(within(form).getByRole("radio", { name: "With a token" }).getAttribute("aria-checked")).toBe("true");
+  });
+  await scene("key-manager-connected", async (card) => {
+    const home = await within(card).findByRole("region", { name: "Home OpenBao" });
+    expect(within(home).getByText(/^Connected since /)).toBeDefined();
+    expect(within(home).getByRole("switch", { name: "Let every run use Home OpenBao's keys" })).toBeDefined();
+    expect(await within(card).findByText("agent-harness keeps 2 tokens itself. Move them into Home OpenBao?")).toBeDefined();
+  });
+  await scene("key-manager-unreachable", async (card) => {
+    const home = await within(card).findByRole("region", { name: "Home OpenBao" });
+    expect(within(home).getByText(/^Not answering since .+\. Check the address and the connection, then choose Check again\.$/)).toBeDefined();
+    expect(within(home).getByRole("button", { name: "Check again" })).toBeDefined();
+  });
+});
+
 // setup-copy.md §5.11: the Browser card before anything is done, at step 5 with its code, and with its Chrome closed (#1857).
 it("captures the Browser card's steps 1 to 4 with no code, step 5 with its code, and a closed Chrome with no Unpair beside its line", async () => {
   for (const [kind, check] of [

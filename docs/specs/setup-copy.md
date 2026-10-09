@@ -462,6 +462,19 @@ quoted from the files named; a builder greps for them.
 - A connection added while it cannot be reached reads `Saved, but agent-harness could not reach {address}. Check the address, then choose Check again.` (never "Added …" followed by a failure).
 - The "every run uses its keys" switch shows the same state here and in Settings › Key managers; a notice about a removed connection goes away with it.
 - A connection's health is one line: `{state} since {time}. {fix}` with one button; never three sentences saying the same.
+- Lines the code needs beyond these (#1851): a connection's `{state}` and `{fix}` with its button are: connected `Connected` (no fix); signing in `Signing in`;
+  not signed in `Not signed in` `Sign in to use it.` **Sign in**; refused `Not accepted` `Sign in again with a working token.` **Sign in again**;
+  ran out `Expired` `Sign in with a new token.` **Sign in again**; no answer `Not answering` `Check the address and the connection, then choose Check again.` **Check again**;
+  sealed `Locked (sealed)` `Unlock it, then choose Check again.` **Check again**; certificate `Certificate not trusted` `Choose Check certificate to review it.` **Check certificate**;
+  not ready `Not ready` `Choose Check again.` **Check again**; the environment's own words for the status are the step's Details. A Connect that saved a connection
+  awaiting its sign-in says `Saved. {label} is not signed in yet.`; one saved sealed, with its certificate not trusted or not ready says `Saved, but {label} is not
+  connected yet. {fix}`. A Connect refused because that key manager is connected here already says `{provider} at {address} is connected already.` Details.
+  `{provider}` is OpenBao, Doppler, 1Password or Bitwarden Secrets Manager; the choices name OpenBao `OpenBao or Vault`. Once a key manager is connected the
+  question drops `I do not use one` and nothing is chosen: choosing one connects another. The form's name (preset to `{provider}`), and Doppler's and Bitwarden's
+  preset address, sit in More options with the mount, token role and certificate; a connection's policy ticks and its tool's row sit in one More options under
+  the connections. Move with one token reads `agent-harness keeps 1 token itself. Move it into {label}?`.
+  While a connection's switch is on it also says `Turning it off stops every key manager's keys and the forges' credentials for runs here.`: off denies
+  `credentials.injection`, the one answer every supplier reads (whether it should turn off that connection alone is #1956).
 
 ### 5.8 Memory bank (gui/src/banks/*, gui/src/setup/minted-session-card.tsx; environment/src/banks/*)
 - Title `Give your agents a notebook`. Why `Agents write down what they learn, so the next session already knows it.`
