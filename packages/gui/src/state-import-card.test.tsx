@@ -33,7 +33,7 @@ const section = () => within(screen.getByRole("region", { name: "State import" }
 
 describe("State import on Carry over", () => {
   it("offers Continue bringing it over for a retained state import, without the blanket repair paragraph, and without treating a dry run as a repair", async () => {
-    const reason = "1 item from your earlier work did not come over. See what to do below each one.";
+    const reason = "Bringing over your earlier work stopped before the end. Choose Continue bringing it over.";
     const app = await opened({ accounts: [{ label: "Work" }], setup: { "carry-over": {
       state: "needs-attention", reason, actions: ["import-again"], failing: ["carry-over.last-import"],
       targets: [{ action: "import-again", kind: "environment", id: "desk", label: "Your earlier work" }],
@@ -53,6 +53,17 @@ describe("State import on Carry over", () => {
     await app.user.click(await screen.findByRole("button", { name: "Continue bringing it over" }));
     await waitFor(() => expect(app.environment("desk").requests("stateImport.run")).toHaveLength(2));
     expect(app.environment("desk").requests("stateImport.run")[1]?.params).toMatchObject({ dryRun: false });
+  });
+
+  it("offers no Continue bringing it over when the earlier work finished with items left behind, each with its own fix", async () => {
+    const reason = "1 item from your earlier work did not come over. See what to do below each one.";
+    await opened({ accounts: [{ label: "Work" }], setup: { "carry-over": {
+      state: "needs-attention", reason, actions: ["import-again"], failing: ["carry-over.last-import"],
+      targets: [{ action: "import-again", kind: "environment", id: "desk", label: "Your earlier work" }],
+    } } });
+    await screen.findByRole("region", { name: "State import" });
+    expect(screen.getByText(reason)).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Continue bringing it over" })).toBeNull();
   });
 
   it("lets a paired headless environment with signed-in owned accounts finish its empty Carry over step", async () => {

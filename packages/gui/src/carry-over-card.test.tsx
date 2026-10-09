@@ -250,6 +250,68 @@ describe("Carry over in Set up", () => {
     expect(app.environment("desk").requests("carryOver.run")[0]?.params).toMatchObject({ accountId: "account-1", dryRun: false });
   });
 
+  it("offers Try again for an account the step names after an import that brought nothing over", async () => {
+    await opened({
+      setup: {
+        "carry-over": {
+          state: "needs-attention",
+          reason: "5 items from Personal did not come over. Choose Try again.",
+          actions: ["import-again"],
+          failing: ["carry-over.last-import"],
+          targets: [{ action: "import-again", kind: "account", id: "account-1", label: "Personal" }],
+        },
+      },
+    });
+    expect(screen.getAllByRole("button", { name: /^Bring|^Import|^Try again/ }).map((button) => button.textContent)).toEqual(["Try again"]);
+  });
+
+  it("says Everything is already here for a folder of skills alone once they are all brought over", async () => {
+    const skillsOnly: CarryOverInventory = {
+      ...inventory(),
+      sessions: { total: 0, archived: 0, missingDirectory: 0, new: 0 },
+      memory: { folders: 0, repositories: 0, unmappable: [], new: 0 },
+      skills: { skills: 2, commands: 0, new: 0, offered: [], invalid: 0 },
+    };
+    await opened({ setup: BROUGHT_OVER }, skillsOnly, [], "Personal: 0 past chats, 0 notes folders, 2 skills.");
+    expect(await screen.findByText("Everything is already here.")).toBeDefined();
+    expect(screen.queryByRole("button", { name: /^Bring|^Try again/ })).toBeNull();
+  });
+
+  it("says a skill with a problem in a notice of its own, without Try again, since a re-run leaves it where it is", async () => {
+    const app = await opened();
+    app.environment("desk").wire.answer("carryOver.run", (params) => {
+      const ran = report(String(params["accountId"]));
+      ran.skills = {
+        accountId: ran.accountId, dryRun: false, copied: [], kept: [], offered: [], notCarried: [],
+        invalid: [{ kind: "skill", name: null, from: "/home/milo/.claude/skills/broken", problems: [{ kind: "description", message: "Its frontmatter has no description." }] }],
+      };
+      return { result: { receipt: { status: "accepted", sequence: 6, changed: true }, result: ran } };
+    });
+    await app.user.click(screen.getByRole("button", { name: "Bring them over" }));
+    const notice = within(await screen.findByRole("alert"));
+    expect(notice.getByText("1 skill from Personal has a problem, so it stays where it is.")).toBeDefined();
+    expect(notice.queryByText("Choose Try again.")).toBeNull();
+    await app.user.click(notice.getByRole("button", { name: "Details" }));
+    expect(notice.getByText(/\/home\/milo\/\.claude\/skills\/broken: Its frontmatter has no description\./)).toBeDefined();
+    expect(screen.queryByText(/did not come over/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it("does not bring the earlier work over again when a second sign-in is brought over after the first", async () => {
+    const found: StateImportDetection = { dataFolder: { path: "/data/source", holds: { profiles: 1, banks: 0, routines: 0, instructions: 0, skillSources: 0, connections: 0 } }, terminalFolder: null };
+    const app = await opened({ capabilities: ["stateImport"], accounts: [{ label: "Personal" }, { label: "Work" }] }, inventory(), [], undefined, (desk) => {
+      desk.wire.answer("carryOver.inventory", (params) => ({ result: params["accountId"] === "account-1" ? imported() : inventory(String(params["accountId"])) }));
+      desk.wire.answer("stateImport.detect", () => ({ result: found }));
+      desk.wire.answer("stateImport.run", () => ({ result: { receipt: { status: "accepted", sequence: 3, changed: true } } }));
+    });
+    const desk = app.environment("desk");
+    await screen.findByRole("region", { name: "State import" });
+    await app.user.click(screen.getByRole("button", { name: "Bring them over" }));
+    await waitFor(() => expect(desk.requests("carryOver.run")).toHaveLength(2));
+    await screen.findByText(/^Brought over/);
+    expect(desk.requests("stateImport.run")).toHaveLength(0);
+  });
+
   it("brings the earlier work over with the first Bring them over, and not again with new chats later", async () => {
     const found: StateImportDetection = { dataFolder: { path: "/data/source", holds: { profiles: 1, banks: 0, routines: 0, instructions: 0, skillSources: 0, connections: 0 } }, terminalFolder: null };
     const app = await opened({ capabilities: ["stateImport"] }, inventory(), [], undefined, (desk) => {

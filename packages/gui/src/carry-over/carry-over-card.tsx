@@ -34,14 +34,21 @@ interface Found {
   readonly inventory: CarryOverInventory;
 }
 
-/** Whether an import has brought something of the account over already: its directory holds sessions or notes the environment holds. */
-const broughtBefore = ({ sessions, memory }: CarryOverInventory): boolean => sessions.new < sessions.total || memory.new < memory.folders;
+/** The step's line when bringing the earlier work over stopped part way (setup-copy.md §5.3): the one case for Continue bringing it over. */
+const EARLIER_WORK_STOPPED = "Bringing over your earlier work stopped before the end.";
 
 /** Whether the account's directory holds anything to bring over at all. */
 const holdsAnything = ({ sessions, memory, skills }: CarryOverInventory): boolean => sessions.total + memory.folders + skills.skills + skills.commands > 0;
 
 /** The skill folders and command files an account's directory holds, which the summary calls skills. */
-const skillCount = ({ skills }: CarryOverInventory): number => skills.skills + skills.commands;
+const skillCount = ({ skills }: Pick<CarryOverInventory, "skills">): number => skills.skills + skills.commands;
+
+/**
+ * Whether an import has brought something of the account over already: its directory holds sessions or notes the
+ * environment holds, or, for a directory of skills alone, no skill is left to copy.
+ */
+const broughtBefore = ({ sessions, memory, skills }: CarryOverInventory): boolean =>
+  sessions.new < sessions.total || memory.new < memory.folders || (sessions.total + memory.folders === 0 && skillCount({ skills }) > 0 && skills.new === 0);
 
 /** The fold `What will come over`: each account's counts by kind. */
 const ComingOver = ({ found }: { readonly found: readonly Found[] }) => {
@@ -125,14 +132,17 @@ export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
   const looking = (accounts.value === null && accounts.error === null) || adopted.some((account, index) => listed[index]?.result === null && listed[index].error === null);
   const skills = skillsChoice ?? found.some(({ inventory }) => skillCount(inventory) > 0);
   const targets = step.result?.targets ?? [];
-  const retryAccounts = targets.filter((target) => target.action === "import-again" && target.kind === "account").map((target) => target.id);
-  const earlierWorkStopped = targets.some((target) => target.action === "import-again" && target.kind === "environment");
-  // A retry is of an account brought over before, or of one that failed here: Try again, the one button (§5.3).
-  const retry = found.some(({ account, inventory }) => retryAccounts.includes(account.id) && broughtBefore(inventory)) || (reports?.some(({ report }) => report.failed.length > 0) ?? false);
-  const firstTime = found.some(({ inventory }) => holdsAnything(inventory) && !broughtBefore(inventory));
+  const reason = step.result?.reason ?? "";
+  // The step names an account never brought over, or one whose last import left items behind, which its line says (§5.3).
+  const named = targets.filter((target) => target.action === "import-again" && target.kind === "account").map((target) => target.id);
+  const leftBehind = (account: AccountRecord) => named.includes(account.id) && reason.includes(` from ${account.label} did not come over.`);
+  const earlierWorkStopped = targets.some((target) => target.action === "import-again" && target.kind === "environment") && reason.includes(EARLIER_WORK_STOPPED);
+  // A retry is of an account the step says left items behind, or of one that left some here: Try again, the one button (§5.3).
+  const retry = found.some(({ account }) => leftBehind(account)) || (reports?.some(({ report }) => report.failed.length > 0) ?? false);
+  const toBringOver = found.some(({ account, inventory }) => named.includes(account.id) || (holdsAnything(inventory) && !broughtBefore(inventory)));
   const newChats = found.reduce((sum, { inventory }) => sum + inventory.sessions.new, 0);
   const otherNew = found.reduce((sum, { inventory }) => sum + inventory.memory.new + (skills ? inventory.skills.new : 0), 0);
-  const primary = retry ? "Try again" : firstTime || otherNew > 0 ? "Bring them over" : newChats > 0 ? `Bring over ${counted(newChats, "new chat", "new chats")}` : undefined;
+  const primary = retry ? "Try again" : toBringOver || otherNew > 0 ? "Bring them over" : newChats > 0 ? `Bring over ${counted(newChats, "new chat", "new chats")}` : undefined;
 
   const bringOver = async (accountsToRun: readonly Found[], withEarlierWork: boolean) => {
     setBusy(true);
@@ -153,8 +163,9 @@ export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
     setRefusals(refused);
     setReports(ran.length > 0 ? ran : reports);
   };
-  // The earlier work comes over with the first bring-over only: a re-run would apply its window preferences again.
-  const bringThemOver = () => void bringOver(found, earlierWorkFound && (firstTime || earlierWorkStopped));
+  // The earlier work comes over with the first bring-over here, before any account has been, or after it stopped:
+  // a re-run would apply its window preferences again.
+  const bringThemOver = () => void bringOver(found, earlierWorkFound && (!found.some(({ inventory }) => broughtBefore(inventory)) || earlierWorkStopped));
   const checkAgain = () => {
     runtime.requests.refresh(environmentId, "accounts.list", {});
     for (const { account } of unread) runtime.requests.refresh(environmentId, "carryOver.inventory", { accountId: account.id });
@@ -215,7 +226,7 @@ export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
           <Download aria-hidden="true" />Continue bringing it over
         </Button>
       )}
-      {refusals.map((refusal) => <SetupNotice key={refusal.line} tone="error" title={refusal.line} details={noticeDetails(refusal.line, refusal.details)} />)}
+      {refusals.map((refusal, index) => <SetupNotice key={`${index}:${refusal.line}`} tone="error" title={refusal.line} details={noticeDetails(refusal.line, refusal.details)} />)}
       {reports !== undefined && <ImportReport reports={reports} details={noticeDetails} />}
       {found.flatMap(({ inventory }) => inventory.skills.offered.map((offer) => <CheckoutOffer key={offer.from} environmentId={environmentId} offer={offer} details={noticeDetails} />))}
       {found.flatMap(({ inventory }) =>

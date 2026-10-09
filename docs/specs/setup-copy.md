@@ -275,8 +275,8 @@ quoted from the files named; a builder greps for them.
 - What is this? `agent-harness can copy your past Claude Code chats, notes and skills from this computer. Nothing is deleted or changed where they came from.`
 - Nothing found: `Nothing to bring over from this computer.` + `You can continue.` (state Not set up; no other text on the card).
 - Found: one summary sentence per Claude Code sign-in: `{label}: {n} past chats, {m} notes folders, {k} skills.` (singular for 1; skills
-  counts skill folders and command files) and one primary **Bring them over** (all accounts, and the earlier-work import the first time or
-  after it stopped; a re-run would apply its window preferences again). The tick beside it, shown while there are skills, reads
+  counts skill folders and command files) and one primary **Bring them over** (all accounts, and the earlier-work import the first time,
+  before any account has been brought over, or after it stopped; a re-run would apply its window preferences again). The tick beside it, shown while there are skills, reads
   `Bring over skills too`, on. Counts per kind sit in fold `What will come over`, per account: `Past chats`, `New chats`, `Notes folders`,
   `Skills`. While reading: `Looking for past work…`.
 - Fold `What will not come over` holds the list: `Your Claude Code settings, hooks and plugins`, `Personal MCP servers and permission rules`,
@@ -284,7 +284,9 @@ quoted from the files named; a builder greps for them.
 - After: `Brought over {n} chats and {m} notes folders.`; nothing new: `Everything is already here.` (said once: not when the step's line
   already says it); later new chats: **Bring over {n} new chat(s)** (singular for 1). What did not come over from an account is a notice
   `{n} items from {label} did not come over.` `Choose Try again.` with the list in Details, and the one primary reads **Try again** until a
-  run brings the rest (also when the step names an account whose last import failed part way). A refusal is the mapper's line (§3).
+  run brings the rest (also when the step names an account whose last import failed part way). Skills with a problem stay where they are,
+  so Try again would not bring them: `1 skill from {label} has a problem, so it stays where it is.` / `{n} skills from {label} have a
+  problem, so they stay where they are.` with the list in Details. A refusal is the mapper's line (§3).
 - Earlier work found in a folder (state import): `Earlier work found in {folder name}: {counts in words}.` **Preview** (was Dry run) and **Bring it over**.
   Preview result: `This would bring over: {counts}. Nothing has been changed yet.` + **Bring it over**.
 - Lines: skip `Nothing to bring over from this computer.`; found `Found earlier work you can bring over: {counts}.`; done `Brought over {when}.`;
