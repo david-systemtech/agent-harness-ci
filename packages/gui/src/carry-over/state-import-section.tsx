@@ -54,9 +54,9 @@ const DetectedStateImport = ({ environmentId }: { readonly environmentId: string
   const clock = useClock();
   const detailsOf = useEarlierWorkDetails(environmentId);
   const [report, setReport] = useState<StateImportReport | undefined>(undefined);
-  // A later import, including one in another window, replaces a real report's failed items.
+  // A later import, including one in another window, replaces the report's failed items.
   useEffect(() => {
-    setReport((current) => current === undefined || current.dryRun ? current : { ...current, failed: [...failures] });
+    setReport((current) => current === undefined ? current : { ...current, failed: [...failures] });
   }, [failures]);
   const [refusal, setRefusal] = useState<PlainRefusal | undefined>(undefined);
   const [busy, setBusy] = useState(false);

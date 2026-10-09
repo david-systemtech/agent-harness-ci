@@ -114,6 +114,24 @@ describe("State import on Carry over", () => {
     expect(section().getAllByText("Instruction \"Team\": Its text is longer than an instruction's body may be, 20000 characters.")).toHaveLength(shownCount);
   });
 
+  it.each([false, true])("replaces Preview failures when another window completes an import (retained failures: %s)", async (retained) => {
+    const failure = { label: "Desktop routines", message: "This list could not be read." };
+    const app = await opened({ stateImportFailures: retained ? [failure] : [] });
+    const preview = report(true);
+    preview.failed = [failure];
+    preview.reEnter = [];
+    app.environment("desk").wire.answer("stateImport.run", () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: false }, result: preview } }));
+    await app.user.click(section().getByRole("button", { name: "Preview" }));
+    await section().findByText(/^This would bring over:/);
+    expect(section().getByText("Desktop routines: This list could not be read.")).toBeDefined();
+    await act(async () => app.environment("desk").notice("state-import.finished", StateImportFinishedPayload.parse({ ...report(), failed: [] })));
+    expect(section().queryByRole("list", { name: "Did not come over" })).toBeNull();
+    await act(async () => app.environment("desk").notice("state-import.finished", StateImportFinishedPayload.parse({ ...report(), failed: [{ label: "Team skills", message: "Connect a forge for forge.test.", step: "forges" }] })));
+    expect(section().queryByText("Desktop routines: This list could not be read.")).toBeNull();
+    expect(section().getByText("Team skills: Connect a forge for forge.test.")).toBeDefined();
+    expect(section().getByRole("button", { name: "Go to Forges" })).toBeDefined();
+  });
+
   it("lets a paired headless environment with signed-in owned accounts finish its empty Carry over step", async () => {
     const reason = "No adopted account's directory holds anything to carry, and no source data folder or terminal-client state folder is on this machine.";
     const app = await opened({ reach: "paired", accounts: [{ label: "Server", directory: { kind: "owned", path: "/data/owned" } }],
