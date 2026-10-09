@@ -46,6 +46,10 @@ export function measureSceneGeometry(): string[] {
         const first = elements[0]!.getBoundingClientRect().height;
         if (Math.abs(rect.height - first) > (check.tolerance ?? 0.5)) visibility.push(`${check.selector}[${index}].height: got ${rect.height}, expected ${first} like ${check.selector}[0] ±${check.tolerance ?? 0.5}`);
       }
+      if (check.sameLeft === true && index > 0) {
+        const first = elements[0]!.getBoundingClientRect().left;
+        if (Math.abs(rect.left - first) > (check.tolerance ?? 0.5)) visibility.push(`${check.selector}[${index}].left: got ${rect.left}, expected ${first} like ${check.selector}[0] ±${check.tolerance ?? 0.5}`);
+      }
       if (check.minimumTop !== undefined && rect.top < check.minimumTop - (check.tolerance ?? 0.5)) {
         visibility.push(`${check.selector}[${index}].top: got ${rect.top}, expected at least ${check.minimumTop}`);
       }
