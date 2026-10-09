@@ -1880,15 +1880,19 @@ with zipfile.ZipFile(path,'w') as z:
 });
 
 
-/** A queued cleanup with the complete planned desktop and phone matrix. */
-async function queuedGallery() {
+/** Queued cleanup with a complete named or numbered capture plan. */
+async function queuedGallery(format: "named" | "numbered" | "numbered-single" = "named") {
   const g = await storedGallery();
-  const shards = ["desktop-001", "desktop-002", "phone-001", "phone-002"];
+  const numbered = format !== "named";
+  const shards = numbered ? format === "numbered-single" ? ["1"] : ["1", "2"] : ["desktop-001", "desktop-002", "phone-001", "phone-002"];
+  const artifactName = (id: string) => format === "numbered-single" ? "window-gallery" : `window-gallery-${numbered ? "shard-" : ""}${id}`;
   const artifacts = [];
   const archives: Record<string, string> = {};
   for (const [index, id] of shards.entries()) {
     const name = id.startsWith("phone-") ? `phone-scene-${index}-phone-390.dark` : `scene-${index}.dark`;
-    await g.capture(230, 1, [name], undefined, { id, index, count: shards.length });
+    const count = format === "numbered" && index === 0 ? 400 : 1;
+    const names = count === 1 ? [name] : Array.from({ length: count }, (_, capture) => `scene-${index}-${capture}.dark`);
+    await g.capture(230, count, names, undefined, numbered ? { run: "numbered-run", index: index + 1, count: shards.length, total: format === "numbered" ? 401 : 1 } : { id, index, count: shards.length });
     const archive = join(g.f.checkout, `${id}.zip`);
     // A successful job's report has no geometry or comparison failure.
     await run("python3", ["-c", `import json,sys,zipfile
@@ -1898,11 +1902,11 @@ for scene in r['scenes']: scene['pixelFailed']=False
 files['report.json']=json.dumps(r).encode()
 with zipfile.ZipFile(sys.argv[2],'w') as z:
     for n,data in files.items(): z.writestr(n,data)`, g.env.FAKE_GALLERY_ZIP, archive]);
-    artifacts.push({ id: 100 + index, name: `window-gallery-${id}`, size_in_bytes: statSync(archive).size });
+    artifacts.push({ id: 100 + index, name: artifactName(id), size_in_bytes: statSync(archive).size });
     archives[String(100 + index)] = archive;
   }
   const plan = join(g.f.checkout, "plan.zip");
-  const matrix = { include: shards.map(shard => ({ shard, count: shards.length, artifact: `window-gallery-${shard}` })) };
+  const matrix = { include: shards.map(shard => numbered ? { shard: Number(shard), artifact: artifactName(shard) } : { shard, count: shards.length, artifact: artifactName(shard) }) };
   await run("python3", ["-c", "import sys,zipfile; z=zipfile.ZipFile(sys.argv[1],'w'); z.writestr('matrix.json',sys.argv[2]); z.close()", plan, JSON.stringify(matrix)]);
   artifacts.push({ id: 90, name: "gallery-plan", size_in_bytes: statSync(plan).size });
   archives["90"] = plan;
@@ -1914,13 +1918,13 @@ with zipfile.ZipFile(sys.argv[2],'w') as z:
   return { ...g, shards, jobs, artifacts, archives, plan, env };
 }
 
-it("publishes every planned capture and passes while hosted cleanup stays queued", async () => {
-  const g = await queuedGallery();
+it.each(["named", "numbered", "numbered-single"] as const)("publishes every %s planned capture and passes while hosted cleanup stays queued", async (format) => {
+  const g = await queuedGallery(format);
   const result = await relay(g.f, g.env);
   expect(result.code, result.stderr + result.stdout).toBe(0);
-  expect(g.comments).toHaveLength(4);
+  expect(g.comments).toHaveLength(g.shards.length);
   expect(g.comments.every(({ body }) => body.includes("<!-- window-gallery "))).toBe(true);
-  expect(g.captures.size).toBe(4);
+  expect(g.captures.size).toBe(format === "numbered" ? 401 : g.shards.length);
   expect(apiCalls(g.f).filter(({ stage }) => stage === "status")).toHaveLength(1);
 });
 

@@ -126,7 +126,11 @@ if plan_path:
         index, row = by_artifact[os.path.basename(path)]
         if not row['legacy']:
             shard = report.get('shard', {})
-            if shard.get('id') != row['shard'] or shard.get('index') != index or shard.get('count') != len(plan):
+            if isinstance(row['shard'], str):
+                matches = shard.get('id') == row['shard'] and shard.get('index') == index
+            else:
+                matches = 'id' not in shard and shard.get('index') == row['shard']
+            if not matches or shard.get('count') != len(plan):
                 sys.exit('Gallery report differs from hosted plan')
         if report.get('pixelBlocking') is not True: sys.exit('Every planned capture remains gated')
 

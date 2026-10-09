@@ -25,10 +25,16 @@ def read_plan(path):
         numbered = type(shard) is int and 1 <= shard <= 16
         if not (named or numbered) or set(row) - {'shard', 'count', 'artifact', 'legacy'}:
             raise ValueError('invalid planned gallery shard')
-        artifact = 'window-gallery' if legacy else f'window-gallery-{shard}'
+        if legacy or (numbered and len(rows) == 1):
+            artifact = 'window-gallery'
+        elif numbered:
+            artifact = f'window-gallery-shard-{shard}'
+        else:
+            artifact = f'window-gallery-{shard}'
         if row.get('artifact') != artifact or (legacy and (len(rows) != 1 or shard != 1)):
             raise ValueError('invalid planned gallery artifact')
-        if not legacy and (type(row.get('count')) is not int or row['count'] != len(rows)):
+        count = row.get('count', len(rows) if numbered else None)
+        if not legacy and (type(count) is not int or count != len(rows)):
             raise ValueError('invalid planned gallery count')
         expected.append({'job': f'gallery ({shard})', 'artifact': artifact, 'shard': shard, 'legacy': legacy})
     if len({row['job'] for row in expected}) != len(rows):
