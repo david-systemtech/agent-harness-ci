@@ -22,7 +22,8 @@ it.each([
       const personal = await within(pane).findByRole("region", { name: "Personal" });
       expect(within(personal).getByText("Default")).toBeDefined();
       expect(within(personal).getAllByRole("img")).toHaveLength(2);
-      expect(within(personal).getByRole("button", { name: "Relabel" }).querySelector("svg")).not.toBeNull();
+      expect(within(personal).getByText("Plan: 5-hour 42% · Weekly 78%")).toBeDefined();
+      expect(within(personal).getByRole("button", { name: "Sign in again" }).querySelector("svg")).not.toBeNull();
     } else if (scene === "settings-default-model") {
       const model = await within(pane).findByRole("button", { name: "Model family: Claude Sonnet 5" });
       expect(within(model).getByText("claude-sonnet-5").className).toContain("font-mono");
@@ -109,5 +110,20 @@ it("keeps account capture pending while fonts remain held beyond a polling deadl
     container.remove();
     if (originalFonts === undefined) Reflect.deleteProperty(document, "fonts");
     else Object.defineProperty(document, "fonts", originalFonts);
+  }
+});
+
+it("draws the Settings name field for a sign-in without email and reaches capture readiness", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, "settings-accounts-no-email");
+  try {
+    await assertCaptureReady(container, "settings-accounts-no-email", gallery.ready);
+    const pane = within(await screen.findByRole("region", { name: "Settings" })).getByRole("region", { name: "Accounts" });
+    expect(within(pane).getByRole("textbox", { name: "Label for the new account" })).toBeDefined();
+    expect(within(pane).getByRole("button", { name: "Use this sign-in" })).toBeDefined();
+  } finally {
+    await act(async () => gallery.close());
+    container.remove();
   }
 });

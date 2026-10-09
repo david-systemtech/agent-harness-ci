@@ -332,6 +332,30 @@ describe("an import that stops part way", () => {
     expect(await checkCarryOver(after)).toMatchObject({ state: "done", failing: [] });
   });
 
+  it("sends the last import's failed items to a new window after restart, until a real import clears them", async () => {
+    const dataDir = tempDir();
+    const { t, client, dataFolder } = await start({ dataDir, source: { prompts: [sourcePrompt("long", { name: "Too long", markdown: "x".repeat(20_001) })] } });
+    const failures = (await run(client, false)).result!.failed;
+    expect(failures).toHaveLength(1);
+    await t.close();
+    const restarted = await startTestEnvironment({ dataDir, adapter: fakeAdapter(), stateImportSource: machinePointedAt({ dataFolder: dataFolder ?? "", home: tempDir() }) });
+    onCleanup(() => restarted.close());
+    const reader = await restarted.client();
+    const snapshot = async () => {
+      const { subscription } = await reader.subscribe("environment.subscribe", { afterSequence: restarted.env.log.head() + 100 });
+      const frame = await reader.next((frame) => frame.type === "snapshot" && frame.subscription === subscription);
+      if (frame.type !== "snapshot") throw new Error("Expected an environment snapshot.");
+      reader.send({ type: "unsubscribe", subscription });
+      return registry["environment.subscribe"].result.parse(frame.payload);
+    };
+    expect(await snapshot()).toMatchObject({ stateImportFailures: failures });
+    writeSourceFolder(dataFolder ?? "", { prompts: [sourcePrompt("long", { name: "Too long", markdown: "Short now." })] });
+    await run(reader, true);
+    expect(await snapshot()).toMatchObject({ stateImportFailures: failures });
+    await run(reader, false);
+    expect(await snapshot()).toMatchObject({ stateImportFailures: [] });
+  });
+
   it("is named by Carry over's last import while its items fail, which a dry run leaves as it is and a re-run without failures clears", async () => {
     const long = "x".repeat(20_001);
     const { client, dataFolder } = await start({ source: { prompts: [sourcePrompt("p1"), sourcePrompt("p2", { name: "Too long", markdown: long }), sourcePrompt("p3")] } });

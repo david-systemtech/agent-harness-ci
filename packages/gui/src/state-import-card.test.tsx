@@ -38,9 +38,26 @@ const openDetails = async (app: Awaited<ReturnType<typeof opened>>, scope: Retur
 };
 
 describe("State import on Carry over", () => {
+  it.each(["local", "paired"] as const)("opens retained failed items with their own fixes without running an import (%s)", async (reach) => {
+    const failure = { label: "Skill collection Team", message: "Connect a forge for forge.test.", step: "forges" as const, details: ["Repository: https://forge.test/team/skills"] };
+    const app = await opened({ reach, stateImportFailures: [failure], setup: { "carry-over": {
+      state: "needs-attention", reason: "1 items from your earlier work did not come over. See what to do below each one.",
+      actions: ["import-again"], failing: ["carry-over.last-import"],
+    } } });
+    const failed = within(await section().findByRole("list", { name: "Did not come over" }));
+    expect(failed.getByText("Skill collection Team: Connect a forge for forge.test.")).toBeDefined();
+    await app.user.click(failed.getByRole("button", { name: "Go to Forges" }));
+    expect(steps().getByRole("button", { name: "Forges" }).getAttribute("aria-current")).toBe("step");
+    await app.user.click(steps().getByRole("button", { name: "Carry over" }));
+    expect(await section().findByRole("button", { name: "Go to Forges" })).toBeDefined();
+    const reopenedFailures = within(section().getByRole("list", { name: "Did not come over" }));
+    expect(await openDetails(app, reopenedFailures)).toContain("Repository: https://forge.test/team/skills");
+    expect(app.environment("desk").requests("stateImport.run")).toHaveLength(0);
+  });
+
   it("draws no blanket repair paragraph for a retained state import, and a preview leaves the step's line as it is", async () => {
     const reason = "The last state import failed part way: Skill source: The repository needs a credential. Import again to retry what failed.";
-    const app = await opened({ accounts: [{ label: "Work" }], setup: { "carry-over": {
+    const app = await opened({ accounts: [{ label: "Work" }], stateImportFailures: [{ label: "Team skills", message: "Connect a forge for forge.test.", step: "forges" }], setup: { "carry-over": {
       state: "needs-attention", reason, actions: ["import-again"], failing: ["carry-over.last-import"],
       targets: [{ action: "import-again", kind: "environment", id: "desk", label: "The state import" }],
     } } });
@@ -57,6 +74,90 @@ describe("State import on Carry over", () => {
     await app.user.click(section().getByRole("button", { name: "Preview" }));
     expect(await section().findByText(/^This would bring over: .*\. Nothing has been changed yet\.$/)).toBeDefined();
     expect(screen.getByText(reason)).toBeDefined();
+    expect(section().getByRole("button", { name: "Go to Forges" })).toBeDefined();
+    await act(async () => app.environment("desk").notice("state-import.finished", StateImportFinishedPayload.parse({ ...report(), failed: [] })));
+    expect(section().queryByRole("list", { name: "Did not come over" })).toBeNull();
+    expect(app.environment("desk").requests("stateImport.run")).toHaveLength(1);
+  });
+
+  it("shows a retained failure once when Preview finds the same unreadable store, alongside new preview failures", async () => {
+    const failure = { label: "Desktop routines", message: "This list could not be read.", details: ["routines.json: invalid JSON"] };
+    const retained = { label: "Team skills", message: "Connect a forge for forge.test.", step: "forges" as const };
+    const app = await opened({ stateImportFailures: [failure, retained] });
+    const preview = report(true);
+    preview.failed = [failure, { label: "Memory banks", message: "This list could not be read." }];
+    preview.reEnter = [];
+    app.environment("desk").wire.answer("stateImport.run", () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: false }, result: preview } }));
+    await app.user.click(section().getByRole("button", { name: "Preview" }));
+    await section().findByText(/^This would bring over:/);
+    expect(section().getAllByRole("list", { name: "Did not come over" })).toHaveLength(1);
+    expect(section().getAllByText("Desktop routines: This list could not be read.")).toHaveLength(1);
+    expect(section().getByText("Memory banks: This list could not be read.")).toBeDefined();
+    expect(section().getByRole("button", { name: "Go to Forges" })).toBeDefined();
+  });
+
+  it.each([
+    { retainedCount: 2, previewCount: 2, shownCount: 2 },
+    { retainedCount: 2, previewCount: 0, shownCount: 2 },
+    { retainedCount: 0, previewCount: 2, shownCount: 2 },
+    { retainedCount: 1, previewCount: 2, shownCount: 2 },
+    { retainedCount: 2, previewCount: 3, shownCount: 3 },
+  ])("keeps distinct items with identical failure text after Preview ($retainedCount retained, $previewCount previewed)", async ({ retainedCount, previewCount, shownCount }) => {
+    const failure = { label: "Instruction \"Team\"", message: "Its text is longer than an instruction's body may be, 20000 characters." };
+    const app = await opened({ stateImportFailures: Array.from({ length: retainedCount }, () => ({ ...failure })) });
+    const preview = report(true);
+    preview.failed = Array.from({ length: previewCount }, () => ({ ...failure }));
+    preview.reEnter = [];
+    app.environment("desk").wire.answer("stateImport.run", () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: false }, result: preview } }));
+    await app.user.click(section().getByRole("button", { name: "Preview" }));
+    await section().findByText(/^This would bring over:/);
+    expect(section().getAllByText("Instruction \"Team\": Its text is longer than an instruction's body may be, 20000 characters.")).toHaveLength(shownCount);
+  });
+
+  it.each([false, true])("keeps new Preview failures when reconnect receives a fresh snapshot (retained failures: %s)", async (retained) => {
+    const failure = { label: "Team skills", message: "Connect a forge for forge.test.", step: "forges" as const };
+    const app = await opened({ stateImportFailures: retained ? [failure] : [] });
+    const preview = report(true);
+    preview.failed = [{ label: "Desktop routines", message: "This list could not be read." }];
+    preview.reEnter = [];
+    const environment = app.environment("desk");
+    environment.wire.answer("stateImport.run", () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: false }, result: preview } }));
+    await app.user.click(section().getByRole("button", { name: "Preview" }));
+    await section().findByText(/^This would bring over:/);
+    const before = app.runtime.projections.stateImportFailures(environment.environmentId).read();
+    environment.wire.answer("environment.subscribe", (_params, request) => {
+      const subscription = "reconnected-import";
+      environment.server.send({ type: "subscribed", id: request.id, subscription });
+      environment.server.send({ type: "snapshot", subscription, sequence: 100, payload: {
+        status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false },
+        stateImportFailures: retained ? [failure] : [],
+      } });
+      environment.server.send({ type: "synchronized", subscription, sequence: 100 });
+      return undefined;
+    });
+    await act(async () => { environment.discovery("nothing"); environment.server.drop(); });
+    await act(async () => { environment.discovery("ready"); app.clock.advance(5_000); });
+    await waitFor(() => expect(app.runtime.projections.stateImportFailures(environment.environmentId).read()).not.toBe(before));
+    expect(section().getByText("Desktop routines: This list could not be read.")).toBeDefined();
+    if (retained) expect(section().getByRole("button", { name: "Go to Forges" })).toBeDefined();
+  });
+
+  it.each([false, true])("replaces Preview failures when another window completes an import (retained failures: %s)", async (retained) => {
+    const failure = { label: "Desktop routines", message: "This list could not be read." };
+    const app = await opened({ stateImportFailures: retained ? [failure] : [] });
+    const preview = report(true);
+    preview.failed = [failure];
+    preview.reEnter = [];
+    app.environment("desk").wire.answer("stateImport.run", () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: false }, result: preview } }));
+    await app.user.click(section().getByRole("button", { name: "Preview" }));
+    await section().findByText(/^This would bring over:/);
+    expect(section().getByText("Desktop routines: This list could not be read.")).toBeDefined();
+    await act(async () => app.environment("desk").notice("state-import.finished", StateImportFinishedPayload.parse({ ...report(), failed: [] })));
+    expect(section().queryByRole("list", { name: "Did not come over" })).toBeNull();
+    await act(async () => app.environment("desk").notice("state-import.finished", StateImportFinishedPayload.parse({ ...report(), failed: [{ label: "Team skills", message: "Connect a forge for forge.test.", step: "forges" }] })));
+    expect(section().queryByText("Desktop routines: This list could not be read.")).toBeNull();
+    expect(section().getByText("Team skills: Connect a forge for forge.test.")).toBeDefined();
+    expect(section().getByRole("button", { name: "Go to Forges" })).toBeDefined();
   });
 
   it("lets a paired headless environment with signed-in owned accounts finish its empty Carry over step", async () => {

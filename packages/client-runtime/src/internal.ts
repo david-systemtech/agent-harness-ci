@@ -1,5 +1,5 @@
 import { sendMessage, isLive } from "./composer/send.js";
-import { ChecksChangedPayload, ChecksFailuresResetPayload } from "@agent-harness/contracts";
+import { ChecksChangedPayload, ChecksFailuresResetPayload, StateImportFinishedPayload, type StateImportFailure } from "@agent-harness/contracts";
 import { createChecks } from "./checks.js";
 import { PROTOCOL_VERSION, type PromptKind, type RunEndedPayload } from "@agent-harness/contracts";
 import { answerCapability } from "./capabilities.js";
@@ -7,7 +7,7 @@ import { LOCAL_PLACEHOLDER_ID, type ConnectionRecord } from "./connections/recor
 import { createRegistry, type ConnectionSeams, type RegistryCaches } from "./connections/registry.js";
 import { DESKTOP_DOWNLOAD_TIMEOUT_MS, createDesktopUpdate } from "./desktop-update.js";
 import { createNotices } from "./notices.js";
-import { derived, type Observable } from "./observable.js";
+import { derived, writable, type Observable } from "./observable.js";
 import { createDrafts } from "./outbox/drafts.js";
 import { createOutbox, type Outbox } from "./outbox/outbox.js";
 import { awaitedTargets, keepingSameTargets, overlaidLists, pendingTargets } from "./outbox/overlay.js";
@@ -109,6 +109,10 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       keyManagerNotices.heard(environmentId, event, news);
       // A tool run's start and end, history too, so the run under way and each tool's last are as the stream says (#426).
       toolRuns.heard(environmentId, event);
+      if (event.type === "state-import.finished") {
+        const payload = StateImportFinishedPayload.safeParse(event.payload);
+        if (payload.success) stateImportFinished(environmentId).set(payload.data);
+      }
       // Startup supersedes the preceding drain on this stream, including a replay onto an empty cache.
       if (event.type === "environment.started") environmentNotices.restarted(environmentId, event.sequence);
       // A resolution settles a parked ask, and takes back its notice, whether or not it is news: an answered prompt never parks
@@ -326,6 +330,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     hide: (environmentId, path, lastUsedAt) => registry.hideDirectory(environmentId, path, lastUsedAt),
   };
   const knownDirectories = memo((environmentId): Observable<readonly KnownDirectory[]> => knownDirectoriesProjection(directoriesHost, environmentId));
+  const stateImportFinished = memo(() => writable<StateImportFinishedPayload | null>(null, report));
+  const stateImportFailures = memo((environmentId): Observable<readonly StateImportFailure[]> => derived([made.environments] as const, (streams) => streams.get(environmentId)?.data?.stateImportFailures ?? []));
   // Set up (#570): each environment's results from its own stream and this client's checks through the request path.
   const setup = createSetup({
     clock: platform.clock,
@@ -425,6 +431,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       runs: runsProjection,
       accounts: (environmentId) => accountsProjections(environmentId),
       accountNames: (environmentId) => accountNames.view(environmentId),
+      stateImportFailures: (environmentId) => stateImportFailures(environmentId),
+      stateImportFinished: (environmentId) => stateImportFinished(environmentId),
       models: (environmentId) => modelsProjections(environmentId),
       usage,
       modes: (environmentId) => modesProjections(environmentId),
