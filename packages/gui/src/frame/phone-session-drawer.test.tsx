@@ -7,6 +7,7 @@ import { renderApp } from "../../test/harness.js";
 import { mountGallery } from "../../gallery/mount.js";
 import { routineFixture } from "../../gallery/routine-fixtures.js";
 import { phoneLayoutMedia } from "./phone-frame.js";
+import { narrowSheet, phoneLayout } from "../../test/phone-layout.js";
 import { route } from "../../gallery/scenes/phone-gallery-conversation.js";
 
 it("keeps the session drawer inside the shared web bounds and restores focus without scrolling", async () => {
@@ -40,6 +41,21 @@ it("keeps the session drawer inside the shared web bounds and restores focus wit
   await user.click(within(drawer).getByRole("button", { name: "Close sessions" }));
   expect(document.activeElement).toBe(trigger);
   expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+});
+
+it("returns focus to Show sessions even if focus moves outside before the drawer finishes closing", async () => {
+  phoneLayout();
+  narrowSheet();
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipt review" }] }] });
+  const trigger = screen.getByRole("button", { name: "Show sessions" });
+  await app.user.click(trigger);
+  const drawer = screen.getByRole("dialog", { name: "Sessions" });
+  // Touch activation need not focus the row. The browser can move focus as the drawer is removed,
+  // before Radix's delayed close autofocus runs; that is not a request to keep focus in the session.
+  fireEvent.click(within(drawer).getByRole("button", { name: /desk Receipt review/ }));
+  act(() => screen.getByRole("textbox", { name: "Message" }).focus());
+  await act(() => new Promise(resolve => setTimeout(resolve, 0)));
+  expect(document.activeElement).toBe(trigger);
 });
 
 it("searches and switches sessions while retaining both drafts and running work", async () => {
