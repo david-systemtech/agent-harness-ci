@@ -1,0 +1,200 @@
+# Install byte for byte as .github/workflows/ci.yml on the hosted relay
+# repository's default branch (workflows). repository_dispatch reads it there;
+# the payload names the commit checked out by each job.
+# Source: .forgejo/github-workflows/ci.yml in the harness repository.
+
+name: ci
+run-name: ci ${{ github.event.client_payload.sha }} ${{ github.event.client_payload.id }}
+
+on:
+  repository_dispatch:
+    types: [ci]
+
+# A newer push to the same pull request (or ref) cancels the run in flight,
+# as on Forgejo.
+concurrency:
+  group: ci-${{ github.event.client_payload.group }}
+  cancel-in-progress: true
+
+permissions:
+  # Only for the cleanup job, which deletes this run's ci/<id> ref.
+  contents: write
+
+jobs:
+  # Everything but the suite: the secret scan, typecheck, lint, the schema
+  # export drift check.
+  checks:
+    runs-on: ubuntu-24.04
+    # Docker's official ECR Public mirror avoids Docker Hub's anonymous pull
+    # quota while keeping Node 24 and Bookworm. The suite runs as the hosted
+    # runner's ordinary user in the test shards below.
+    container: public.ecr.aws/docker/library/node:24-bookworm
+    timeout-minutes: 25
+    # A container job's default shell is sh; the steps are bash.
+    defaults:
+      run:
+        shell: bash
+    env:
+      SHA: ${{ github.event.client_payload.sha }}
+    steps:
+      - name: Check the payload
+        run: |
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad sha: $SHA"; exit 1; }
+          echo "Forgejo run: ${{ github.event.client_payload.forgejo_run }}"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.client_payload.sha }}
+          # The secret scan reads every commit; tests that read history get it too.
+          fetch-depth: 0
+          persist-credentials: false
+      # The workspace belongs to the runner's user and the job runs as root, so
+      # git refuses the checkout as dubious ownership until it is marked safe;
+      # tests that run git in it need this.
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # The same pin as david/ci scripts/secret-scan.sh; only HEAD's history.
+      - name: Scan every commit for secrets
+        run: |
+          set -euo pipefail
+          v=8.30.1 sum=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          w=$(mktemp -d)
+          curl -sSfL -o "$w/g.tgz" "https://github.com/gitleaks/gitleaks/releases/download/v$v/gitleaks_${v}_linux_x64.tar.gz"
+          echo "$sum  $w/g.tgz" | sha256sum -c - >/dev/null
+          tar -xzf "$w/g.tgz" -C "$w" gitleaks
+          "$w/gitleaks" git --no-banner --redact --exit-code 1 --log-opts="HEAD" .
+
+      - run: corepack enable && corepack prepare --activate
+      - name: Where pnpm keeps its store
+        id: pnpm-store
+        run: echo "dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.dir }}
+          key: pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - name: The JSON Schema export is current
+        run: |
+          set -euo pipefail
+          pnpm --filter @agent-harness/contracts export-schemas
+          if [ -n "$(git status --porcelain -- packages/contracts/schema)" ]; then
+            git status --short -- packages/contracts/schema
+            echo "::error::packages/contracts/schema is stale - run: pnpm --filter @agent-harness/contracts export-schemas, and commit the result"
+            exit 1
+          fi
+
+  # Six shards reduce work queued before the long snapshot-publisher tests.
+  # Keep the full run inside the relay's 55-minute budget. The shard holding
+  # test/web-smoke.test.ts may wait up to 12 minutes for a slow Ubuntu mirror to
+  # install the browsers' system dependencies (agent-harness #1802), so a shard
+  # gets 40 minutes.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    runs-on: ubuntu-24.04
+    # Root bypasses filesystem permissions and skips the serve handshake.
+    # Use the hosted runner's ordinary user for every test file, including
+    # files that exercise permissions without explicitly checking the uid.
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    env:
+      SHA: ${{ github.event.client_payload.sha }}
+    steps:
+      - name: Check the payload
+        run: |
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad sha: $SHA"; exit 1; }
+          echo "Forgejo run: ${{ github.event.client_payload.forgejo_run }}"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.client_payload.sha }}
+          # The secret scan reads every commit; tests that read history get it too.
+          fetch-depth: 0
+          persist-credentials: false
+      # Checkout, dependency installation and cache restores share the runner
+      # user's ownership; no chown or safe.directory override is needed.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - run: corepack enable && corepack prepare --activate
+      - name: Where pnpm keeps its store
+        id: pnpm-store
+        run: echo "dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.dir }}
+          key: pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/agent-harness-pwsh
+          key: pwsh-${{ runner.arch }}-${{ hashFiles('.forgejo/scripts/pwsh.sh') }}
+      - name: PowerShell 7 for the install.ps1 tests
+        run: bash .forgejo/scripts/pwsh.sh
+      # Four workers for four vCPUs.
+      - name: The suite shard, as an ordinary user
+        run: |
+          [ "$(id -u)" != 0 ] || { echo "::error::suite shards must run as an ordinary user"; exit 1; }
+          pnpm test --maxWorkers=4 --shard=${{ matrix.shard }}/6
+
+  # Keep root-only branches, such as serve refusing root, covered separately.
+  # The same uid-based selection finds new files automatically; their ordinary
+  # user branches now run in the full suite shards above.
+  root-user:
+    runs-on: ubuntu-24.04
+    container: public.ecr.aws/docker/library/node:24-bookworm
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    env:
+      SHA: ${{ github.event.client_payload.sha }}
+    steps:
+      - name: Check the payload
+        run: |
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad sha: $SHA"; exit 1; }
+          echo "Forgejo run: ${{ github.event.client_payload.forgejo_run }}"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.client_payload.sha }}
+          persist-credentials: false
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - run: corepack enable && corepack prepare --activate
+      - name: Where pnpm keeps its store
+        id: pnpm-store
+        run: echo "dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.dir }}
+          key: pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - name: The tests that check the user, as root
+        run: |
+          set -euo pipefail
+          [ "$(id -u)" = 0 ] || { echo "::error::this job must cover the root-only branches"; exit 1; }
+          mapfile -t files < <(git grep -lE 'process\.gete?uid' -- '*.test.ts' '*.test.tsx')
+          [ "${#files[@]}" -gt 0 ] || { echo "::error::no test file checks the user, so the rule finds nothing"; exit 1; }
+          echo "As $(id -un), ${#files[@]} files:"; printf '  %s\n' "${files[@]}"
+          pnpm exec vitest run --maxWorkers=4 "${files[@]}"
+
+  # The relay pushed ci/<id> only so the commit could be checked out.
+  cleanup:
+    needs: [checks, test, root-user]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Delete this run's ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_REF: ci/${{ github.event.client_payload.id }}
+        run: |
+          [[ "$RUN_REF" =~ ^ci/[A-Za-z0-9._-]+$ ]] || { echo "::error::bad id: $RUN_REF"; exit 1; }
+          gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/$RUN_REF" || true
