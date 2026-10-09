@@ -110,7 +110,7 @@ describe("saving a key", () => {
     expect(await saveSetting(refused.runtime, "env-a", "sessions.autoSettleOnMerge", true, { commandId: "c-1" })).toEqual({
       ok: false,
       line: "This app has limited access to desk, so it cannot change settings or sign in accounts. Pair again with full access to change this.",
-      refusal: expect.objectContaining({ code: "scope" }),
+      refusal: { code: "scope", message: "This app has limited access to desk, so it cannot change settings or sign in accounts. Pair again with full access to change this." },
     });
     const rejected = requesting({ ok: true, result: { receipt: { status: "rejected", sequence: 4, changed: false, reason: "invalid_params", error: { code: "invalid_params", message: "Not a channel." } } } });
     expect(await saveSetting(rejected.runtime, "env-a", "updates.channel", "nightly", { commandId: "c-1" })).toEqual({ ok: false, line: "Not a channel.", refusal: { code: "invalid_params", message: "Not a channel." } });
