@@ -51,7 +51,7 @@ export const editedSection = (entries: readonly DenylistEntry[], edit: DenylistE
 };
 
 /** What a denylist write did: the denylist the environment answered (none from a retry answered by its stored receipt), or why not in one line. */
-export type DenylistSaved = { readonly ok: true; readonly denylist: Denylist | undefined } | { readonly ok: false; readonly line: string };
+export type DenylistSaved = { readonly ok: true; readonly denylist: Denylist | undefined } | { readonly ok: false; readonly line: string; readonly refusal?: RefusedAnswer };
 
 /** What a restore did, in one line either way, with the denylist the environment answered. */
 export type DenylistRestored = { readonly ok: true; readonly denylist: Denylist | undefined; readonly line: string } | { readonly ok: false; readonly line: string; readonly refusal: RefusedAnswer };
@@ -76,7 +76,8 @@ const refusalOf = (section: DenylistSection, entries: readonly DenylistEntryInpu
 /**
  * Writes a section whole (`permissions.denylist.set`), the entries in the
  * order given; entries its grammar refuses are said as "Not saved: …" and
- * nothing is sent. Answered with the whole denylist after.
+ * nothing is sent; the environment's refusal comes with it, for the refusal
+ * mapper. Answered with the whole denylist after.
  */
 export const saveDenylistSection = async (
   runtime: Pick<Runtime, "requests">,
@@ -88,13 +89,14 @@ export const saveDenylistSection = async (
   const refusal = refusalOf(section, entries);
   if (refusal !== undefined) return { ok: false, line: `Not saved: ${refusal}` };
   const answer = await adminCall(() => runtime.requests.call(environmentId, "permissions.denylist.set", { commandId, sections: { [section]: [...entries] } }));
-  return answer.ok ? { ok: true, denylist: answer.result?.denylist } : { ok: false, line: `Not saved: ${answer.line}` };
+  return answer.ok ? { ok: true, denylist: answer.result?.denylist } : { ok: false, line: `Not saved: ${answer.line}`, refusal: answer.refusal };
 };
 
 /**
  * Puts back the presets the sections named no longer hold, or every
- * section's with none named (`permissions.denylist.restorePresets`): "Restored
- * the denylist's presets: 2 put back.", or "Not restored: <why>".
+ * section's with none named (`permissions.denylist.restorePresets`): "Put
+ * back 2 built-in entries." (setup-copy.md §5.12), or "Not restored: <why>"
+ * with the refusal, which a client says through `restoredOutcome`.
  */
 export const restoreDenylistPresets = async (
   runtime: Pick<Runtime, "requests">,
@@ -105,7 +107,7 @@ export const restoreDenylistPresets = async (
   const answer = await adminCall(() => runtime.requests.call(environmentId, "permissions.denylist.restorePresets", { commandId, ...(sections !== undefined && { sections: [...sections] }) }));
   if (!answer.ok) return { ok: false, line: `Not restored: ${answer.line}`, refusal: answer.refusal };
   const count = answer.result?.restored.length;
-  return { ok: true, denylist: answer.result?.denylist, line: count === undefined ? "Restored the denylist's presets." : `Restored the denylist's presets: ${count} put back.` };
+  return { ok: true, denylist: answer.result?.denylist, line: count === undefined ? "Put back the built-in entries." : `Put back ${count} built-in ${count === 1 ? "entry" : "entries"}.` };
 };
 
 /** What a test found, each line an entry the value matched or a path whose links could not be followed; or why it could not be tested. */

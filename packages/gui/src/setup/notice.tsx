@@ -20,6 +20,8 @@ export interface SetupNoticeProps {
   readonly description?: string;
   /** The buttons that do the next thing, named by what they do. */
   readonly actions?: ReactNode;
+  /** A fold of the card's own beneath the buttons, such as how to fix it outside agent-harness. */
+  readonly fold?: ReactNode;
   /** The technical facts behind Details, with Copy details. */
   readonly details?: TechnicalDetailsProps;
 }
@@ -30,7 +32,7 @@ export interface SetupNoticeProps {
  * Details. A warning or an error is an alert, an error read with a hidden
  * "Error: " first; information is a status. Everything it says is visible text.
  */
-export const SetupNotice = ({ tone, title, description, actions, details }: SetupNoticeProps) => {
+export const SetupNotice = ({ tone, title, description, actions, fold, details }: SetupNoticeProps) => {
   const { Icon, variant, role } = TONES[tone];
   return (
     <Alert role={role} variant={variant} data-notice-tone={tone}>
@@ -38,6 +40,7 @@ export const SetupNotice = ({ tone, title, description, actions, details }: Setu
       <AlertTitle>{tone === "error" && <><span className="sr-only">Error:</span>{" "}</>}{title}</AlertTitle>
       {description !== undefined && <AlertDescription>{description}</AlertDescription>}
       {actions !== undefined && <div className="col-start-2 mt-1.5 flex min-w-0 flex-wrap items-center gap-2">{actions}</div>}
+      {fold !== undefined && <div className="col-start-2 mt-1 min-w-0 text-ink">{fold}</div>}
       {details !== undefined && <div className="col-start-2 mt-1 min-w-0 text-ink"><TechnicalDetails {...details} /></div>}
     </Alert>
   );

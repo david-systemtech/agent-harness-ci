@@ -6,8 +6,9 @@ import { Button, Input, Select } from "../ui/index.js";
 import { useRuntime } from "../window-context.js";
 
 /**
- * Test (permissions spec, "Methods on the wire"; #415): a path, a command
- * line, a host or URL, or a browser address, tested against the denylist
+ * Test the always-ask list (setup-copy.md §5.12; permissions spec, "Methods
+ * on the wire"; #415): a path, a command line, a host or URL, or a browser
+ * address, tested against the denylist
  * as it stands on the environment (`permissions.denylist.test`, a `read`
  * query, so a client without `admin` may test too), naming each entry it
  * matches as a denylist prompt names it, or that nothing does.
@@ -23,8 +24,8 @@ export const DenylistTest = ({ environmentId, ready }: { readonly environmentId:
     void testDenylist(runtime, environmentId, kind, value).then(setTested);
   };
   return (
-    <form aria-label="Test the denylist" onSubmit={submit} className="flex flex-col gap-2 rounded-lg border border-hairline p-3">
-      <span className="flex items-center gap-1.5 text-xs font-semibold text-ink"><FlaskConical aria-hidden="true" className="size-4" />Test the denylist</span>
+    <form aria-label="Test the always-ask list" onSubmit={submit} className="flex flex-col gap-2 rounded-lg border border-hairline p-3">
+      <span className="flex items-center gap-1.5 text-xs font-semibold text-ink"><FlaskConical aria-hidden="true" className="size-4" />Test the always-ask list</span>
       <div className="flex flex-wrap items-end gap-2">
         <label className="flex flex-col gap-1 text-2xs"><span className="flex items-center gap-1.5"><ListFilter aria-hidden="true" className="size-3.5" />Test as</span><Select title="Test as (Arrow keys to choose)" aria-label="Test as" value={kind} onChange={(event) => setKind(event.target.value as DenylistTestKind)}>
           {DENYLIST_TEST_KINDS.map((option) => (
