@@ -167,7 +167,8 @@ const browserPush = (): PushBrowser => {
     },
   };
 };
-const pushFeatures = (): PushFeatures => ({ secure: window.isSecureContext, supported: "serviceWorker" in navigator && "PushManager" in window && "Notification" in window, ios: /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1), standalone: window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true });
+const pushSupported = (): boolean => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const pushFeatures = (): PushFeatures => ({ secure: window.isSecureContext, supported: pushSupported(), ios: /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1), standalone: window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true });
 /** This client session's own push registration in `environmentId`, by its id, and the controller that manages it. */
 const usePushController = (environmentId: string, sessionId: string | undefined) => {
   const runtime = useRuntime();
@@ -266,9 +267,8 @@ const PushSurface = () => {
     find();
     return () => observer.disconnect();
   }, [settings.shown]);
-  // Only a browser that allowed notifications can hold a push registration to carry over.
-  const features = pushFeatures();
-  const carries = home !== undefined && features.secure && features.supported && Notification.permission === "granted";
+  // Only a browser that allowed notifications can hold a push registration to carry over; every render asks, so it reads no more of the browser than that.
+  const carries = home !== undefined && window.isSecureContext && pushSupported() && Notification.permission === "granted";
   return <>
     {carries && <PushAfterRePair key={home.environmentId} home={home} />}
     {settings.shown && anchor && createPortal(home && picked?.environmentId === home.environmentId
