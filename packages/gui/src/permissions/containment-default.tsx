@@ -15,7 +15,7 @@ const KEY = "permissions.containment.default";
 const UNAVAILABLE = "This sandbox does not work on this computer yet. See How to set it up.";
 
 /** How to set up each level the report says needs it, one for each cause, since the workspace levels usually share one. */
-export const sandboxSetups = (report: ContainmentReport): readonly SandboxSetup[] => {
+const sandboxSetups = (report: ContainmentReport): readonly SandboxSetup[] => {
   const container = report.container.declared || report.container.detected;
   const seen = new Set<string>();
   return report.levels.flatMap((availability) => {

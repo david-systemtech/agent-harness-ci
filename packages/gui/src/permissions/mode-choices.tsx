@@ -15,7 +15,7 @@ const RECOMMENDED: Mode = "acceptEdits";
 
 /** What the bypass confirmation says on scheduled runs (setup-copy.md §5.12). */
 const NEVER_ASK = {
-  title: "Never ask on scheduled runs?",
+  heading: "Never ask on scheduled runs?",
   body: "Agents will act without asking and can do anything your account can, inside the sandbox you chose.",
 } as const;
 
@@ -68,7 +68,7 @@ export const ModeChoices = ({ view, name, writable }: { readonly view: Environme
     <TechnicalDetails {...details({ line: `${SETTINGS[name].label}: ${MODE_WORDS[current].label}.`, details: [`${name}: ${current}`, ...modes.map((mode) => `${MODE_WORDS[mode].label}: ${mode}`)] })} />
     {refused !== undefined && <FieldError line={refused.line} details={refused.details} />}
     <Dialog open={asking} onOpenChange={ask}>
-      {asking && <DialogContent title={NEVER_ASK.title} description={NEVER_ASK.body}>
+      {asking && <DialogContent title={NEVER_ASK.heading} description={NEVER_ASK.body}>
         <div className="flex justify-end gap-1.5"><DialogClose asChild><Button title="Cancel (Esc)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button></DialogClose>
           <Button variant="destructive" title="Never ask (Enter or Space)" onClick={() => { ask(false); save("bypassPermissions", true); }}><ShieldAlert aria-hidden="true" data-icon="inline-start" />Never ask</Button></div>
       </DialogContent>}

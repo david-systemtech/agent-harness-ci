@@ -121,17 +121,15 @@ export const PROMPT_TIMEOUT_CHOICES: readonly PromptTimeoutChoice[] = [
   { label: "Never deny it", value: "never" },
 ];
 
-const sameTimeout = (a: ParkedPromptTtl, b: ParkedPromptTtl): boolean => (a === "never" || b === "never" ? a === b : a.amount === b.amount && a.unit === b.unit);
+/** Whether two timeouts are the same: never, or one duration in the same unit. */
+export const isTimeout = (a: ParkedPromptTtl, b: ParkedPromptTtl): boolean => (a === "never" || b === "never" ? a === b : a.amount === b.amount && a.unit === b.unit);
 
 /** A duration in words: "30 minutes", "1 day". */
 const durationWords = ({ amount, unit }: Exclude<ParkedPromptTtl, "never">): string => `${amount} ${amount === 1 ? unit.slice(0, -1) : unit}`;
 
 /** The choices for a timeout now at `current`: the four, and first the one set elsewhere (the CLI, another version) when it is none of them, so it shows as chosen. */
 export const promptTimeoutChoices = (current: ParkedPromptTtl): readonly PromptTimeoutChoice[] =>
-  current === "never" || PROMPT_TIMEOUT_CHOICES.some((choice) => sameTimeout(choice.value, current)) ? PROMPT_TIMEOUT_CHOICES : [{ label: durationWords(current), value: current }, ...PROMPT_TIMEOUT_CHOICES];
-
-/** Whether a timeout choice is the value now set. */
-export const isTimeout = sameTimeout;
+  current === "never" || PROMPT_TIMEOUT_CHOICES.some((choice) => isTimeout(choice.value, current)) ? PROMPT_TIMEOUT_CHOICES : [{ label: durationWords(current), value: current }, ...PROMPT_TIMEOUT_CHOICES];
 
 /** Each denylist section's name, in the order the denylist holds them. */
 export const DENYLIST_SECTION_NAMES: Readonly<Record<DenylistSection, string>> = {
