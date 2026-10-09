@@ -137,10 +137,13 @@ describe("the side column", () => {
 
     again.open("desk", 1);
     await screen.findByRole("region", { name: "Transcript" });
-    again.open("desk", 0);
+    const trigger = screen.getByRole("button", { name: "Show sessions" });
+    await again.user.click(trigger);
+    await again.user.click(within(screen.getByRole("dialog", { name: "Sessions" })).getByRole("button", { name: /desk Receipts/ }));
     expect(await screen.findByRole("region", { name: "Parked prompt" })).toBeDefined();
     await waitFor(() => expect(column()).toBeNull());
     expect(screen.getByRole("button", { name: "Show the side column" })).not.toBe(document.activeElement);
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 
   it("brings back a phone's hidden sheet from the window header, beside More, never from over the session's transcript", async () => {
