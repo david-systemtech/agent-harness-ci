@@ -144,12 +144,14 @@ export const FoundFolders = ({ environmentId, url, replacing, done }: {
   const probed = useObservable(useMemo(() => runtime.requests.cached(environmentId, "skills.probe", params), [runtime, environmentId, params]));
   const [chosen, choose] = useState<readonly string[]>([]);
   const { send, sending, refusal, commandId } = useCollectionVerb();
-  // A look kept from before this opened; with none, following the answer is already the first look.
-  const kept = useRef(probed.fetchedAt !== null);
+  // Set once the moved collection is removed, so a retry after a refused add never removes it again.
+  const removed = useRef(false);
+  const choosingAgain = replacing !== undefined;
   useEffect(() => {
-    // Choosing again reads the repository as it is now, never a look kept from before.
-    if (replacing !== undefined && kept.current) runtime.requests.refresh(environmentId, "skills.probe", params);
-  }, [runtime, environmentId, params, replacing]);
+    // Choosing again reads the repository as it is now, never a look kept from before: once, so not
+    // when following the answer is already fetching it (none kept, or the one kept no longer fresh).
+    if (choosingAgain && !runtime.requests.cached(environmentId, "skills.probe", params).read().loading) runtime.requests.refresh(environmentId, "skills.probe", params);
+  }, [runtime, environmentId, params, choosingAgain]);
   if (probed.error !== null) {
     const problem = probed.error.data?.["problem"];
     return (
@@ -165,8 +167,13 @@ export const FoundFolders = ({ environmentId, url, replacing, done }: {
   const folders = [...(probe.root === null ? [] : [probe.root]), ...probe.folders];
   if (folders.length === 0) return <p className="text-sm">No skill folders were found there.</p>;
   const add = async () => {
-    const remove = async () => replacing === undefined || await send(() => runtime.requests.call(environmentId, "skills.sources.remove", { commandId: commandId(), sourceId: replacing.source.id }), "Add selected");
+    const remove = async () => {
+      if (replacing === undefined || removed.current) return true;
+      removed.current = await send(() => runtime.requests.call(environmentId, "skills.sources.remove", { commandId: commandId(), sourceId: replacing.source.id }), "Add selected");
+      return removed.current;
+    };
     // At the limit the moved collection makes room for the chosen folders, or the first add would be refused.
+    // A refused add after that leaves it removed: its folder is gone from the branch, so it cannot be added back.
     const first = replacing !== undefined && replacing.followed + chosen.length > SKILL_SOURCE_LIMIT;
     if (first && !(await remove())) return;
     const added: string[] = [];

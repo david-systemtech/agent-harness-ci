@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { CATALOGUE, type SkillsProbeResult, type SkillsView, type SkillsViewMember, type SkillsViewSource } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -198,6 +198,64 @@ describe("the Skills card's lines and actions", () => {
     expect(followed.map((held) => held.id)).toContain(replacement.id);
     expect(followed.map((held) => held.id)).not.toContain(moved.id);
     expect(within(card()).queryByText("You can follow up to 20 collections. Remove one first.")).toBeNull();
+  });
+
+  it("at the limit, a refused add after the moved collection made room is tried again without removing it twice", async () => {
+    const moved: SkillsViewSource = { ...source, url: linked, identity: linked, folder: "skills", skillCount: 0, sync: { outcome: "layout_moved", since: source.addedAt, commit: found.commit, folders: ["agents"] } };
+    const others = Array.from({ length: 19 }, (_, index): SkillsViewSource => ({
+      ...source, id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`, url: `https://git.example.test/team/c${index}`, identity: `https://git.example.test/team/c${index}`, position: index + 2,
+    }));
+    let followed: SkillsViewSource[] = [moved, ...others];
+    const { app, desk, update } = await opened({ ...initial(), sources: followed }, { setup: { skills: {
+      state: "needs-attention", reason: "team/procedures (skills) no longer has skills where they were. Choose its folders again.", failing: ["skills.sources-yield"], actions: ["choose-folders"],
+      targets: [{ action: "choose-folders", kind: "skill-source", id: moved.id, label: "team/procedures (skills)" }],
+    } } });
+    desk.wire.answer("skills.probe", () => ({ result: { ...found, folders: [{ ...found.folders[0]!, folder: "agents" }] } }));
+    const replacement = { ...moved, id: "1b4e28ba-2fa1-41d2-883f-0016d3cca427", folder: "agents", skillCount: 2, sync: { outcome: "ok", since: source.addedAt } } as const;
+    let refuse = true;
+    desk.wire.answer("skills.sources.add", () => {
+      if (refuse) {
+        refuse = false;
+        return unreachable("unreachable", "agent-harness could not reach git.example.test.", "fatal: unable to access");
+      }
+      followed = [...followed, replacement];
+      update({ ...initial(), sources: followed });
+      return accepted({ source: replacement });
+    });
+    desk.wire.answer("skills.sources.remove", (params) => {
+      if (!followed.some((held) => held.id === params.sourceId)) return { error: { code: "not_found", message: "No such source.", data: {} } };
+      followed = followed.filter((held) => held.id !== params.sourceId);
+      update({ ...initial(), sources: followed });
+      return accepted({ source: moved });
+    });
+    await app.user.click(await within(card()).findByRole("button", { name: "Choose folders: team/procedures (skills)" }));
+    await app.user.click(await within(card()).findByRole("checkbox", { name: "agents · 2 skills" }));
+    await app.user.click(within(card()).getByRole("button", { name: "Add selected" }));
+    expect(await within(card()).findByText("agent-harness could not reach git.example.test.")).toBeDefined();
+    await app.user.click(within(card()).getByRole("button", { name: "Add selected" }));
+    await waitFor(() => expect(desk.requests("skills.sources.add")).toHaveLength(2));
+    expect(await within(card()).findByText(/^Added .*agents/)).toBeDefined();
+    expect(desk.requests("skills.sources.remove")).toHaveLength(1);
+    expect(followed.map((held) => held.id)).toContain(replacement.id);
+  });
+
+  it("reopened after its kept look is five minutes old, Choose folders looks at the repository once", async () => {
+    const moved: SkillsViewSource = { ...source, url: linked, identity: linked, folder: "skills", skillCount: 0, sync: { outcome: "layout_moved", since: source.addedAt, commit: found.commit, folders: ["agents"] } };
+    const { app, desk } = await opened({ ...initial(), sources: [moved] }, { setup: { skills: {
+      state: "needs-attention", reason: "team/procedures (skills) no longer has skills where they were. Choose its folders again.", failing: ["skills.sources-yield"], actions: ["choose-folders"],
+      targets: [{ action: "choose-folders", kind: "skill-source", id: moved.id, label: "team/procedures (skills)" }],
+    } } });
+    desk.wire.answer("skills.probe", () => ({ result: { ...found, folders: [{ ...found.folders[0]!, folder: "agents" }] } }));
+    await app.user.click(await within(card()).findByRole("button", { name: "Choose folders: team/procedures (skills)" }));
+    expect(await within(card()).findByText("Found 1 skill folder:")).toBeDefined();
+    await app.user.click(within(card()).getByRole("button", { name: "Cancel" }));
+    // Just past the five minutes a look stays fresh, the card's own read answered again on the way.
+    act(() => app.clock.advance(5 * 60_000 + 1_000));
+    await waitFor(() => expect(desk.requests("skills.get").length).toBeGreaterThan(1));
+    await app.user.click(within(card()).getByRole("button", { name: "Choose folders: team/procedures (skills)" }));
+    expect(await within(card()).findByText("Found 1 skill folder:")).toBeDefined();
+    await act(async () => { await Promise.resolve(); });
+    expect(desk.requests("skills.probe")).toHaveLength(2);
   });
 
   it("leaves member cards, always-on switches and repository trust to Settings, and All skill settings opens Settings › Skills", async () => {
