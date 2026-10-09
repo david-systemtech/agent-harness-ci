@@ -64,7 +64,7 @@ export const SkillsCard = ({ environmentId, step }: StepCardProps) => {
             },
           } }),
           "choose-folders": {
-            disabled: !readable,
+            disabled: !readable || addingFolders,
             run: (targets) => {
               const source = sources.find((source) => targets.some((target) => target.id === source.id));
               // An older computer may still offer the branch chooser for a pinned collection.

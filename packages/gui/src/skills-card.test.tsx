@@ -213,6 +213,44 @@ describe("the Skills card's lines and actions", () => {
     expect(followed.map((held) => held.id)).toEqual([replacement.id]);
   });
 
+  it("cannot switch to another collection's chooser until the current replacement batch finishes", async () => {
+    const moved: SkillsViewSource = { ...source, url: linked, identity: linked, folder: "skills", skillCount: 0, sync: { outcome: "layout_moved", since: source.addedAt, commit: found.commit, folders: ["agents"] } };
+    const other: SkillsViewSource = { ...moved, id: "1b4e28ba-2fa1-41d2-883f-0016d3cca427", folder: "tools" };
+    const { app, desk } = await opened({ ...initial(), sources: [moved, other] }, { setup: { skills: {
+      state: "needs-attention", reason: "Choose their folders again.", failing: ["skills.sources-yield"], actions: ["choose-folders"],
+      targets: [moved, other].map((source) => ({ action: "choose-folders", kind: "skill-source", id: source.id, label: `team/procedures (${source.folder})` })),
+    } } });
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    desk.wire.answer("skills.probe", () => ({ result: { ...found, folders: [{ ...found.folders[0]!, folder: "agents" }] } }));
+    desk.wire.answer("skills.sources.add", async () => {
+      await held;
+      return accepted({ source: { ...moved, folder: "agents", skillCount: 2 } });
+    });
+    desk.wire.answer("skills.sources.remove", () => accepted({ source: moved }));
+    await app.user.click(await within(card()).findByRole("button", { name: "Choose folders: team/procedures (skills)" }));
+    const panel = within(card()).getByRole("region", { name: "Choose folders for team/procedures (skills)" });
+    const tick = await within(panel).findByRole("checkbox", { name: "agents · 2 skills" });
+    await app.user.click(tick);
+    try {
+      await app.user.click(within(panel).getByRole("button", { name: "Add selected" }));
+      await waitFor(() => expect(desk.requests("skills.sources.add")).toHaveLength(1));
+      const another = within(card()).getByRole("button", { name: "Choose folders: team/procedures (tools)" });
+      expect((another as HTMLButtonElement).disabled).toBe(true);
+      await app.user.click(another);
+      expect(within(card()).getByRole("region", { name: "Choose folders for team/procedures (skills)" })).toBe(panel);
+      expect((tick as HTMLInputElement).checked).toBe(true);
+      expect(within(card()).queryByRole("region", { name: "Choose folders for team/procedures (tools)" })).toBeNull();
+      await act(async () => release());
+      await waitFor(() => expect(within(card()).queryByRole("region", { name: "Choose folders for team/procedures (skills)" })).toBeNull());
+      expect((another as HTMLButtonElement).disabled).toBe(false);
+      await app.user.click(another);
+      const next = await within(card()).findByRole("region", { name: "Choose folders for team/procedures (tools)" });
+      expect((await within(next).findByRole("checkbox", { name: "agents · 2 skills" }) as HTMLInputElement).checked).toBe(false);
+      expect((within(next).getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(false);
+    } finally { await act(async () => release()); }
+  });
+
   it("keeps Cancel disabled through both folder additions and the original collection's removal", async () => {
     const moved: SkillsViewSource = { ...source, url: linked, identity: linked, folder: "skills", skillCount: 0, sync: { outcome: "layout_moved", since: source.addedAt, commit: found.commit, folders: ["agents", "tools"] } };
     const { app, desk } = await opened({ ...initial(), sources: [moved] }, { setup: { skills: {
