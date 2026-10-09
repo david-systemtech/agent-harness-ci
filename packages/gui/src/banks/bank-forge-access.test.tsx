@@ -12,7 +12,7 @@ const bank: BankRecord = {
   defaultFor: [], pins: [], mergeOverride: "none", privateCopy: false, credential: "forge", importedFrom: null,
   copiedFrom: null, createdAt: since, memories: 0, folders: 0, line: null, sharedAliases: [],
   status: {
-    reachable: { state: "unreachable", since, reason: `agent-harness needed a forge for forge.example.test:5526 and found none. Add forge.example.test:5526. (${origin}: it refused an anonymous read (HTTP 403))` },
+    reachable: { state: "unreachable", since, reason: `agent-harness needed a forge for forge.example.test:5526 and found none. Add forge.example.test:5526. (${origin}: it refused an anonymous read (HTTP 403))`, cause: "no-forge-account" },
     manifest: { state: "invalid", rule: "manifest_fact_missing", since, message: "BANK.md lacks entities." },
     orientation: { missing: [], since }, owners: { unresolved: [], since }, lastSync: null,
     landing: { state: "ok", since },
@@ -29,11 +29,11 @@ it("explains an account held on another environment and opens Forges on the bank
   await app.user.click(screen.getByRole("button", { name: "Settings" }));
   await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
   const card = await screen.findByRole("region", { name: bank.name });
-  expect(await within(card).findByText(`A forge account for ${origin} is connected on server, but this bank belongs to desk. Connect a forge account on desk for this bank.`)).toBeDefined();
-  expect(within(card).getByText(/^agent-harness needed a forge for forge\.example\.test:5526 and found none\./)).toBeDefined();
-  expect(within(card).getByText("BANK.md lacks entities.")).toBeDefined();
+  expect(await within(card).findByText("Your forge.example.test:5526 account is connected on server, not here. Connect it here too.")).toBeDefined();
+  expect(within(card).getByText(`project-memory: ${bank.status.reachable.state === "unreachable" ? bank.status.reachable.reason : ""}`)).toBeDefined();
+  expect(within(card).getByText("Description: has a problem")).toBeDefined();
   expect(app.environment("desk").requests("forge.accounts.add")).toHaveLength(0);
-  await app.user.click(within(card).getByRole("button", { name: "Connect forge on desk" }));
+  await app.user.click(within(card).getByRole("button", { name: "Go to Forges" }));
   const pane = await screen.findByRole("region", { name: "Forges" });
   expect((within(pane).getByRole("combobox", { name: "Environment" }) as HTMLSelectElement).value).toBe(app.environment("desk").environmentId);
   await app.user.click(within(pane).getByRole("button", { name: "Add a forge" }));
@@ -48,28 +48,30 @@ it("explains an account held on another environment and opens Forges on the bank
   expect(app.environment("server").requests("forge.accounts.add")).toHaveLength(0);
   await app.user.click(screen.getByRole("button", { name: "Memory banks" }));
   const repaired = await screen.findByRole("region", { name: bank.name });
-  expect(within(repaired).queryByRole("button", { name: "Connect forge on desk" })).toBeNull();
-  expect(within(repaired).getByText("BANK.md lacks entities.")).toBeDefined();
+  expect(within(repaired).queryByRole("button", { name: "Go to Forges" })).toBeNull();
+  expect(within(repaired).getByText("Description: has a problem")).toBeDefined();
 });
 
 it.each([
-  "its repository at /banks/project-memory is not there",
-  "The repository owner/project-memory does not exist on the forge.",
-])("preserves the reachability failure alongside another environment's account: %s", async (reason) => {
+  ["folder-missing", "its repository at /banks/project-memory is not there", "project-memory's folder on this computer is missing."],
+  ["repository-missing", "The repository owner/project-memory does not exist on the forge.", "The repository for project-memory is missing on forge.example.test:5526."],
+  [undefined, `${origin} did not answer: connect ECONNREFUSED`, "agent-harness cannot reach project-memory. Choose Check again."],
+] as const)("says the check's own cause (%s), not a forge account, though no account here covers the forge and another computer's does", async (cause, reason, line) => {
   const app = await renderApp({ environments: [
     { name: "desk", reach: "local", capabilities: ["banks", "forge", "setup"], accounts: [{ label: "Project" }], forges: { accounts: [] } },
     { name: "server", reach: "paired", capabilities: ["forge"], forges: { accounts: [{ origin, kind: "forgejo" }] } },
   ] }, {}, (world) => {
-    world.environment("desk").wire.answer("banks.list", () => ({ result: { banks: [{ ...bank, status: { ...bank.status, reachable: { state: "unreachable", since, reason } } }] } }));
+    world.environment("desk").wire.answer("banks.list", () => ({ result: { banks: [{ ...bank, status: { ...bank.status, reachable: { state: "unreachable", since, reason, ...(cause !== undefined && { cause }) } } }] } }));
   });
   await app.user.click(screen.getByRole("button", { name: "Settings" }));
   await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
   const card = await screen.findByRole("region", { name: bank.name });
-  expect(await within(card).findByText(/is connected on server, but this bank belongs to desk/)).toBeDefined();
-  expect(within(card).getByText(reason)).toBeDefined();
-  expect(within(card).queryByText(/to reach it/)).toBeNull();
-  expect(within(card).getByText("BANK.md lacks entities.")).toBeDefined();
-  expect(within(card).getByRole("button", { name: "Connect forge on desk" })).toBeDefined();
+  await waitFor(() => expect(app.environment("desk").requests("forge.accounts.list").length).toBeGreaterThan(0));
+  expect((await within(card).findAllByRole("alert")).map((alert) => alert.textContent)).toContain(`Error: ${line}`);
+  expect(within(card).getByText(`project-memory: ${reason}`)).toBeDefined();
+  expect(within(card).queryByText(/is connected on server|needs a forge account/)).toBeNull();
+  expect(within(card).queryByRole("button", { name: "Go to Forges" })).toBeNull();
+  expect(within(card).getByText("Description: has a problem")).toBeDefined();
 });
 
 const cases: readonly [string, Partial<ForgeAccountRecord>, boolean, boolean?][] = [
@@ -93,10 +95,75 @@ it.each(cases)("compares another environment's account with %s", async (_, accou
   await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
   const card = await screen.findByRole("region", { name: bank.name });
   if (!local) await waitFor(() => expect(app.environment("server").requests("forge.accounts.list").length).toBeGreaterThan(0));
-  if (matches) expect(await within(card).findByText(/is connected on server, but this bank belongs to desk/)).toBeDefined();
+  if (matches) expect(await within(card).findByText(/is connected on server, not here\./)).toBeDefined();
   else {
-    expect(await within(card).findByText(/agent-harness needed a forge for forge\.example\.test:5526 and found none\./)).toBeDefined();
+    expect(await within(card).findByText(local ? "agent-harness cannot reach project-memory. Choose Check again." : "project-memory needs a forge account for forge.example.test:5526 on this computer.")).toBeDefined();
+    expect(within(card).getByText(/^project-memory: agent-harness needed a forge for forge\.example\.test:5526 and found none\./)).toBeDefined();
     expect(within(card).queryByText(/is connected on server/)).toBeNull();
-    if (local) expect(within(card).queryByRole("button", { name: "Connect forge on desk" })).toBeNull();
+    if (local) expect(within(card).queryByRole("button", { name: "Go to Forges" })).toBeNull();
   }
+});
+
+it.each([
+  [undefined, "https://forge.example.test:5526 answered HTTP 502: <html>\n<body>Bad gateway</body>\n</html>", "agent-harness cannot reach project-memory. Choose Check again."],
+  ["repository-missing", "https://forge.example.test:5526 answered HTTP 404: Not Found", "The repository for project-memory is missing on forge.example.test:5526."],
+  ["folder-missing", "its repository at /banks/project-memory is not there", "project-memory's folder on this computer is missing."],
+] as const)("says why a notebook it has a forge account for cannot be reached in a plain line, what the check saw (%s) in Details", async (cause, reason, line) => {
+  const app = await renderApp({ environments: [
+    { name: "desk", reach: "local", capabilities: ["banks", "forge", "setup"], accounts: [{ label: "Project" }], forges: { accounts: [{ origin, kind: "forgejo" }] } },
+  ] }, {}, (world) => {
+    world.environment("desk").wire.answer("banks.list", () => ({ result: { banks: [{ ...bank, status: { ...bank.status, reachable: { state: "unreachable", since, reason, ...(cause !== undefined && { cause }) } } }] } }));
+  });
+  await app.user.click(screen.getByRole("button", { name: "Settings" }));
+  await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
+  const card = await screen.findByRole("region", { name: bank.name });
+  expect((await within(card).findAllByRole("alert")).map((alert) => alert.textContent)).toContain(`Error: ${line}`);
+  const details = within(card).getByRole("region", { name: "Details" });
+  expect(details.querySelector("pre")?.textContent).toBe(`project-memory: ${reason}`);
+  expect(within(card).queryByText((_, element) => element?.tagName === "P" && element.textContent?.includes("HTTP") === true)).toBeNull();
+});
+
+it("draws Check again beside a turned-off notebook that cannot be reached, which verifies that notebook", async () => {
+  const off: BankRecord = { ...bank, enabled: false, status: { ...bank.status, reachable: { state: "unreachable", since, reason: `${origin} did not answer: connect ECONNREFUSED` } } };
+  const app = await renderApp({ environments: [
+    { name: "desk", reach: "local", capabilities: ["banks", "forge", "setup"], accounts: [{ label: "Project" }], forges: { accounts: [{ origin, kind: "forgejo" }] } },
+  ] }, {}, (world) => {
+    world.environment("desk").wire.answer("banks.list", () => ({ result: { banks: [off] } }));
+    world.environment("desk").wire.answer("banks.verify", () => ({ result: { banks: [off] } }));
+  });
+  await app.user.click(screen.getByRole("button", { name: "Settings" }));
+  await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
+  const card = await screen.findByRole("region", { name: bank.name });
+  expect((await within(card).findAllByRole("alert")).map((alert) => alert.textContent)).toContain("Error: agent-harness cannot reach project-memory. Choose Check again.");
+  await app.user.click(within(card).getByRole("button", { name: "Check again" }));
+  await waitFor(() => expect(app.environment("desk").requests("banks.verify").at(-1)?.params).toEqual({ bankId: bank.id }));
+});
+
+it("says the plain line once an account here covers a notebook the check found no forge account for", async () => {
+  const app = await renderApp({ environments: [
+    { name: "desk", reach: "local", capabilities: ["banks", "forge", "setup"], accounts: [{ label: "Project" }], forges: { accounts: [{ origin, kind: "forgejo" }] } },
+  ] }, {}, (world) => {
+    world.environment("desk").wire.answer("banks.list", () => ({ result: { banks: [{ ...bank, status: { ...bank.status, reachable: { state: "unreachable", since, reason: "it refused an anonymous read (HTTP 403)", cause: "no-forge-account" } } }] } }));
+  });
+  await app.user.click(screen.getByRole("button", { name: "Settings" }));
+  await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
+  const card = await screen.findByRole("region", { name: bank.name });
+  await waitFor(() => expect(app.environment("desk").requests("forge.accounts.list").length).toBeGreaterThan(0));
+  expect((await within(card).findAllByRole("alert")).map((alert) => alert.textContent)).toContain("Error: agent-harness cannot reach project-memory. Choose Check again.");
+  expect(within(card).queryByText(/needs a forge account/)).toBeNull();
+  expect(within(card).getAllByRole("button", { name: "Check again" }).find((button) => button.closest("[data-step-status]") === null)).toBeDefined();
+});
+
+it("draws Go to Forges beside the forge-account line when this computer's forge accounts cannot be read", async () => {
+  const app = await renderApp({ environments: [
+    { name: "desk", reach: "local", capabilities: ["banks", "forge", "setup"], accounts: [{ label: "Project" }], forges: { accounts: [] } },
+  ] }, {}, (world) => {
+    world.environment("desk").wire.answer("banks.list", () => ({ result: { banks: [{ ...bank, status: { ...bank.status, reachable: { state: "unreachable", since, reason: "it refused an anonymous read (HTTP 403)", cause: "no-forge-account" } } }] } }));
+    world.environment("desk").wire.answer("forge.accounts.list", () => ({ error: { code: "conflict", message: "The forge list is unavailable.", data: {} } }));
+  });
+  await app.user.click(screen.getByRole("button", { name: "Settings" }));
+  await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
+  const card = await screen.findByRole("region", { name: bank.name });
+  expect(await within(card).findByText("project-memory needs a forge account for forge.example.test:5526 on this computer.")).toBeDefined();
+  expect(within(card).getByRole("button", { name: "Go to Forges" })).toBeDefined();
 });
