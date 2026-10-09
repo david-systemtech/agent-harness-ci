@@ -1,10 +1,11 @@
 import { invalidParams, type AttentionTargetInput } from "@agent-harness/contracts";
 import type { CommandContext, MethodHandlers } from "../serve/methods.js";
 import { attentionStream, type AttentionStore } from "./store.js";
+import type { RoutineEndpoints } from "../routines/endpoints.js";
 import type { AttentionTransports } from "./targets.js";
 
 /** Own registrations always derive their owner from the authenticated connection. */
-export const attentionMethods = (store: AttentionStore, transports: AttentionTransports, configured: () => boolean): MethodHandlers => {
+export const attentionMethods = (store: AttentionStore, transports: AttentionTransports, configured: () => boolean, endpoints: RoutineEndpoints): MethodHandlers => {
   const set = (target: AttentionTargetInput, context: CommandContext, global: boolean) => {
     const owner = global ? null : context.clientSession.id;
     const existing = store.targets().find(row => row.target.id === target.id);
@@ -20,7 +21,9 @@ export const attentionMethods = (store: AttentionStore, transports: AttentionTra
     if (existing.owner !== (global ? null : context.clientSession.id) || (global && !context.clientSession.scopes.includes("admin"))) {
       return { aggregate: attentionStream, rejected: { code: "forbidden" as const, message: "This target belongs to another registration." } };
     }
-    return { aggregate: attentionStream, result: { id }, events: [{ type: "attention.target.removed", payload: { id } }] };
+    const name = existing.target.transport === "webhook" ? existing.target.configuration["endpoint"] : undefined;
+    const endpoint = global && typeof name === "string" ? endpoints.removeUnused(name, id, context) : undefined;
+    return { aggregate: attentionStream, result: { id, ...(endpoint && { endpoint }) }, events: [{ type: "attention.target.removed", payload: { id } }] };
   };
   const configure = (id: string, enabled: boolean, completion: boolean, context: CommandContext, global: boolean) => {
     const existing = store.targets().find(row => row.target.id === id);
