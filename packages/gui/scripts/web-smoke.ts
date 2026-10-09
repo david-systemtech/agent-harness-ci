@@ -200,11 +200,26 @@ try {
       const ownDrawer = ownPage.getByRole("dialog", { name: "Sessions", exact: true });
       await ownDrawer.locator("[data-sidebar-row]").filter({ hasText: `Hosted phone conversation (${name})` }).click();
       await ownDrawer.waitFor({ state: "hidden" });
-      // Radix restores focus after its close animation; wait before opening More.
+      // Existing-session selection restores focus to Show sessions after the delayed drawer close (#1933).
       await expect(ownPage.getByRole("button", { name: "Show sessions", exact: true })).toBeFocused({ timeout: 60_000 });
       await expect(ownPage.locator("[data-header-session-title]")).toHaveText(`Hosted phone conversation (${name})`, { timeout: 60_000 });
       await ownPage.getByRole("textbox", { name: "Message", exact: true }).waitFor();
       await phoneSafeAreaSmoke(ownPage, `${name} full grant`);
+      // Returning through the drawer hides a retained side sheet without stealing the drawer's focus.
+      const otherTitle = `Drawer focus fixture (${name})`;
+      await create(admin, { workspace: { kind: "directory", path: workspace }, title: otherTitle });
+      await ownPage.getByRole("button", { name: "More", exact: true }).click();
+      await ownPage.getByRole("menuitem", { name: "Documents", exact: true }).click();
+      await expect(ownPage.getByRole("dialog", { name: "Side column", exact: true })).toBeVisible();
+      for (const title of [otherTitle, `Hosted phone conversation (${name})`]) {
+        await ownPage.getByRole("button", { name: "Show sessions", exact: true }).click();
+        await ownDrawer.locator("[data-sidebar-row]").filter({ hasText: title }).click();
+        await expect(ownDrawer).toBeHidden();
+        await expect(ownPage.locator("[data-header-session-title]")).toHaveText(title);
+        await expect(ownPage.getByRole("dialog", { name: "Side column", exact: true })).toBeHidden();
+        await expect(ownPage.getByRole("button", { name: "Show sessions", exact: true })).toBeFocused();
+      }
+      await expect(ownPage.getByRole("button", { name: "Show the side column", exact: true })).toBeVisible();
       await phonePaneSmoke(ownPage, name, environment, sessionId, () => previewRequests);
       await ownContext.close();
       const denied = await browser.newContext({ viewport: { width: 360, height: 740 }, ignoreHTTPSErrors: true });
