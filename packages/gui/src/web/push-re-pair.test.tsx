@@ -2,6 +2,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { createRuntime } from "@agent-harness/client-runtime";
 import { manualClock } from "@agent-harness/client-runtime/testing";
+import type { FakeAnswer } from "@agent-harness/client-runtime/testing/fake-wire";
 import { scriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { SCOPES, type AttentionTargetInput } from "@agent-harness/contracts";
 import { IDBFactory } from "fake-indexeddb";
@@ -49,7 +50,7 @@ const phoneOnThisOrigin = async ({ subscribeWithoutTap = true } = {}) => {
     fetch: (url: string, init?: Parameters<typeof world.fetch>[1]) => world.fetch(url.replace(location.origin, origin), init),
     webSocket: (...args: Parameters<typeof world.webSocket>) => world.webSocket(args[0].replace(location.origin.replace(/^http/, "ws"), origin.replace(/^http/, "ws")), args[1]),
   };
-  const runtime = createRuntime(platform);
+  let runtime = createRuntime(platform);
   const own = () => runtime.connections.list.read().find(record => record.environmentId === environment.environmentId)?.clientSessionId ?? null;
 
   // The environment's registrations: each owned by the client session that set it; a revoked client session's go with it.
@@ -59,26 +60,58 @@ const phoneOnThisOrigin = async ({ subscribeWithoutTap = true } = {}) => {
   environment.wire.answer("attention.push.key", () => ({ result: { publicKey: "public-key-for-tests" } }));
   environment.wire.answer("attention.targets.set", params => { const target = params["target"] as AttentionTargetInput; targets.set(target.id, { target, owner: own() }); return accepted(target.id); });
   environment.wire.answer("attention.targets.remove", params => { targets.delete(String(params["id"])); return accepted(String(params["id"])); });
-  environment.wire.answer("attention.targets.list", () => ({ result: { targets: [...targets.values()].filter(({ owner }) => owner === own()).map(({ target: { configuration, ...status } }) => { void configuration; return { ...status, global: false, state: "ready" as const, failure: null }; }) } }));
+  environment.wire.answer("attention.targets.configure", params => { const id = String(params["id"]); const row = targets.get(id); if (row) targets.set(id, { ...row, target: { ...row.target, enabled: Boolean(params["enabled"]), completion: Boolean(params["completion"]) } }); return accepted(id); });
+  const listTargets = () => ({ result: { targets: [...targets.values()].filter(({ owner }) => owner === own()).map(({ target: { configuration, ...status } }) => { void configuration; return { ...status, global: false, state: "ready" as const, failure: null }; }) } });
+  environment.wire.answer("attention.targets.list", listTargets);
   const revokeOld = (previous: string) => { for (const [id, { owner }] of targets) if (owner === previous) targets.delete(id); };
 
   await runtime.start();
   const presentation = await openPresentation(platform.documents);
   presentation.set("firstLaunchDone", true); presentation.set("runLocalEnvironment", false);
   const code = new URL(environment.wire.link).hash.slice(1);
-  const app = render(<App runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route: { pairing: { address: location.origin, code } } }} />);
+  const mount = () => render(<App runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route: { pairing: { address: location.origin, code } } }} />);
+  let app = mount();
   onTestFinished(async () => { app.unmount(); await runtime.close(); await presentation.close(); });
   await screen.findByRole("note", { name: "Limited access" });
   const user = userEvent.setup();
 
   return {
     user, targets, own, requestPermission,
+    /** Reload the phone while the first target list is delayed or fails, before the full-access re-pair. */
+    reloadBeforeTargets: async (failed: boolean) => {
+      const previous = own();
+      const oldAnswer = listTargets();
+      app.unmount();
+      await runtime.close();
+      runtime = createRuntime(platform);
+      await runtime.start();
+      let requested!: () => void;
+      const firstRequest = new Promise<void>(resolve => { requested = resolve; });
+      let release!: (answer: FakeAnswer) => void;
+      const pending = new Promise<FakeAnswer>(resolve => { release = resolve; });
+      let first = true;
+      environment.wire.answer("attention.targets.list", () => {
+        if (!first) return listTargets();
+        first = false;
+        requested();
+        return failed ? { error: { code: "unavailable", message: "Target list unavailable.", data: {} } } : pending;
+      });
+      app = mount();
+      await screen.findByRole("note", { name: "Limited access" });
+      await firstRequest;
+      expect(own()).toBe(previous);
+      return async () => { await act(async () => { release(oldAnswer); }); };
+    },
     /** Settings → Attention → Enable push, as the docs tell the owner after pairing the phone. */
     enablePush: async () => {
       await user.click(screen.getByRole("button", { name: "Settings" }));
       await user.click(await screen.findByRole("button", { name: "Attention settings" }));
       await user.click(await screen.findByRole("button", { name: "Enable push" }));
       await screen.findByText("Push enabled for this client.");
+    },
+    enableCompletions: async () => {
+      await user.click(screen.getByRole("checkbox", { name: /^Routine completions for / }));
+      await waitFor(() => expect(screen.getByRole("checkbox", { name: /^Routine completions for / }).matches(":checked")).toBe(true));
     },
     disablePush: async () => {
       await user.click(screen.getByRole("button", { name: "Disable push" }));
@@ -127,6 +160,7 @@ it("carries the phone's push registration over to its new client session when it
 it("says push is off with Enable push right there when the browser cannot subscribe again without a tap", async () => {
   const phone = await phoneOnThisOrigin({ subscribeWithoutTap: false });
   await phone.enablePush();
+  await phone.enableCompletions();
   await phone.closeSettings();
   phone.dropSubscription();
 
@@ -137,6 +171,7 @@ it("says push is off with Enable push right there when the browser cannot subscr
   expect(pushOf(phone.targets, phone.own())).toEqual([]);
   await phone.user.click(within(notice).getByRole("button", { name: "Enable push" }));
   await waitFor(() => expect(pushOf(phone.targets, phone.own())).toHaveLength(1));
+  expect(pushOf(phone.targets, phone.own())[0]?.completion).toBe(true);
   await waitFor(() => expect(screen.queryByRole("status", { name: "Push is off" })).toBeNull());
 });
 
@@ -151,4 +186,34 @@ it("leaves push off after a re-pair when the owner had disabled it", async () =>
 
   expect(pushOf(phone.targets, phone.own())).toEqual([]);
   expect(screen.queryByRole("status", { name: "Push is off" })).toBeNull();
+});
+
+it("keeps routine completion notifications enabled when carrying push over to the full-access client session", async () => {
+  const phone = await phoneOnThisOrigin();
+  await phone.enablePush();
+  await phone.enableCompletions();
+  const [enabled] = pushOf(phone.targets, phone.own());
+  expect(enabled?.completion).toBe(true);
+  await phone.closeSettings();
+
+  await phone.giveFullAccess();
+
+  await waitFor(() => expect(pushOf(phone.targets, phone.own())).toHaveLength(1));
+  expect(pushOf(phone.targets, phone.own())[0]).toMatchObject({ label: enabled?.label, completion: true, enabled: true });
+});
+
+it.each([false, true])("offers Enable push when the old target list was not observed before re-pair (list failed: %s)", async failed => {
+  const phone = await phoneOnThisOrigin();
+  await phone.enablePush();
+  await phone.closeSettings();
+  const releaseOldAnswer = await phone.reloadBeforeTargets(failed);
+
+  await phone.giveFullAccess();
+  await releaseOldAnswer();
+
+  const notice = await screen.findByRole("status", { name: "Push is off" });
+  expect(pushOf(phone.targets, phone.own())).toEqual([]);
+  await phone.user.click(within(notice).getByRole("button", { name: "Enable push" }));
+  await waitFor(() => expect(pushOf(phone.targets, phone.own())).toHaveLength(1));
+  await waitFor(() => expect(screen.queryByRole("status", { name: "Push is off" })).toBeNull());
 });

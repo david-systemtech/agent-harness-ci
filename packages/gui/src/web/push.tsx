@@ -19,7 +19,8 @@ export interface PushBrowser {
   unsubscribe(expected?: PushSubscriptionData): Promise<void>;
 }
 export interface PushFeatures { readonly secure: boolean; readonly supported: boolean; readonly ios: boolean; readonly standalone: boolean }
-interface PushActions { key(): Promise<string>; registered(): Promise<boolean>; set(subscription: PushSubscriptionData, label?: string): Promise<void>; remove(): Promise<void>; test(): Promise<"sent" | "retry" | "retire"> }
+interface PushRegistration { readonly label: string | undefined; readonly completion: boolean }
+interface PushActions { key(): Promise<string>; registered(): Promise<boolean>; set(subscription: PushSubscriptionData, label?: string, completion?: boolean): Promise<void>; remove(): Promise<void>; test(): Promise<"sent" | "retry" | "retire"> }
 export type PushState = "disabled" | "ready" | "denied" | "unavailable" | "install";
 
 const ENABLED_AT = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
@@ -39,7 +40,7 @@ export class PushController {
     if (!registered && this.read().status === "ready" && !this.read().busy) this.state.update(state => ({ ...state, status: "disabled" }));
     if (this.read().status === "disabled" && registered && await this.browser.subscription()) this.state.update(state => ({ ...state, status: "ready" }));
   }
-  async enable(): Promise<void> {
+  async enable(registration?: PushRegistration): Promise<void> {
     if (this.read().busy || !["disabled", "ready"].includes(this.read().status)) return;
     this.state.update(state => ({ ...state, busy: true, line: undefined }));
     let created = false;
@@ -54,7 +55,7 @@ export class PushController {
       }
       const subscription = existing ?? await this.browser.subscribe(await this.actions.key());
       created = existing === null;
-      await this.actions.set(subscription);
+      await this.actions.set(subscription, registration?.label, registration?.completion);
       this.state.set({ status: "ready", busy: false, line: "Push enabled for this client." });
     } catch {
       if (created) await this.browser.unsubscribe().catch(() => undefined);
@@ -65,12 +66,12 @@ export class PushController {
    * Registers this browser for a client session that replaced the one push was enabled for, under the label it had (#1959):
    * the subscription the browser holds, else a new one while permission stands. False, push left off, when neither can be had.
    */
-  async carryOver(label: string | undefined): Promise<boolean> {
+  async carryOver(label: string | undefined, completion: boolean): Promise<boolean> {
     if (this.read().busy || !["disabled", "ready"].includes(this.read().status)) return false;
     this.state.update(state => ({ ...state, busy: true, line: undefined }));
     try {
       if (this.browser.permission() !== "granted") throw new Error("Permission unavailable.");
-      await this.actions.set(await this.browser.subscription() ?? await this.browser.subscribe(await this.actions.key()), label);
+      await this.actions.set(await this.browser.subscription() ?? await this.browser.subscribe(await this.actions.key()), label, completion);
       this.state.set({ status: "ready", busy: false });
       return true;
     } catch {
@@ -190,7 +191,7 @@ const usePushController = (environmentId: string, sessionId: string | undefined)
         if (!result.ok) throw new Error("Registration unavailable.");
         return result.result.targets.some(target => target.id === id && !target.global && target.transport === "push" && target.enabled);
       },
-      set: (subscription, label = pushTargetLabel(navigator.userAgent, clock.now(), navigator.maxTouchPoints)) => accepted({ id, label, transport: "push", enabled: true, completion: false, configuration: { endpoint: subscription.endpoint, ...subscription.keys } }),
+      set: (subscription, label = pushTargetLabel(navigator.userAgent, clock.now(), navigator.maxTouchPoints), completion = false) => accepted({ id, label, transport: "push", enabled: true, completion, configuration: { endpoint: subscription.endpoint, ...subscription.keys } }),
       remove: () => accepted(),
       test: async () => { if (!sessionId) throw new Error("Open a session first."); const result = await runtime.requests.call(environmentId, "attention.push.test", { id, sessionId }); if (!result.ok) throw new Error("Test failed."); return result.result.status; },
     });
@@ -221,34 +222,39 @@ const PushAfterRePair = ({ home }: { readonly home: ConnectionRecord }) => {
   const runtime = useRuntime();
   const answer = useObservable(useMemo(() => runtime.requests.cached(home.environmentId, "attention.targets.list", {}), [runtime, home.environmentId]));
   const { controller } = usePushController(home.environmentId, undefined);
-  const seen = useRef<{ readonly clientSessionId: string; readonly label: string | undefined } | undefined>(undefined);
+  const seen = useRef<(PushRegistration & { readonly clientSessionId: string; readonly enabled: boolean }) | undefined>(undefined);
   const before = useRef(home.clientSessionId);
-  const [carrying, carry] = useState<{ readonly label: string | undefined } | undefined>(undefined);
-  const [off, setOff] = useState(false);
+  const [carrying, carry] = useState<PushRegistration | undefined>(undefined);
+  const recovery = useRef<PushRegistration | undefined>(undefined);
+  const [off, setOff] = useState<"unknown" | "failed" | undefined>(undefined);
   const state = useSyncExternalStore(controller.subscribe, controller.read);
   useEffect(() => {
     const own = home.clientSessionId;
     if (before.current !== own) {
-      if (seen.current && seen.current.clientSessionId === before.current && own !== null) carry({ label: seen.current.label });
+      if (before.current !== null && own !== null) {
+        const previous = seen.current?.clientSessionId === before.current ? seen.current : undefined;
+        recovery.current = previous?.enabled ? previous : undefined;
+        if (previous?.enabled) carry(previous);
+        else if (!previous) setOff("unknown");
+      }
       before.current = own;
       return;
     }
     if (own === null || !answer.result) return;
     // Registrations are keyed by their client session, so a list fetched before the re-pair names only the old one's.
-    const target = answer.result.targets.find(candidate => candidate.id === `push-${own}` && candidate.transport === "push" && candidate.enabled);
-    if (target) seen.current = { clientSessionId: own, label: target.label };
-    else if (seen.current?.clientSessionId === own) seen.current = undefined;
+    const target = answer.result.targets.find(candidate => candidate.id === `push-${own}` && candidate.transport === "push");
+    seen.current = { clientSessionId: own, label: target?.label, completion: target?.completion ?? false, enabled: target?.enabled ?? false };
   }, [home.clientSessionId, answer.result]);
   useEffect(() => {
     if (!carrying || home.phase !== "ready") return;
     carry(undefined);
-    void controller.carryOver(carrying.label).then(carried => setOff(!carried));
+    void controller.carryOver(carrying.label, carrying.completion).then(carried => setOff(carried ? undefined : "failed"));
   }, [carrying, home.phase, controller]);
   if (!off || state.status === "ready") return null;
   return <div role="status" aria-label="Push is off" data-push-off className="flex shrink-0 flex-col gap-2 border-b border-hairline bg-panel px-3 py-2 text-sm">
-    <p>Pairing this client again turned off its push notifications. Enable push to be notified while it is closed.</p>
+    <p>{off === "unknown" ? "Check push notifications after pairing this client again." : "Pairing this client again turned off its push notifications."} Enable push to be notified while it is closed.</p>
     <PushStateLines controller={controller} />
-    {state.status === "disabled" && <Button className="h-11 self-start" title="Enable push" disabled={state.busy} onClick={() => { void controller.enable(); }}>Enable push</Button>}
+    {state.status === "disabled" && <Button className="h-11 self-start" title="Enable push" disabled={state.busy} onClick={() => { void controller.enable(recovery.current); }}>Enable push</Button>}
   </div>;
 };
 const PushSurface = () => {
