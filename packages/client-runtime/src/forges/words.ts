@@ -278,9 +278,7 @@ const forgeRefusalLine = ({ code, data }: RefusedAnswer, site: string): string |
  */
 export const forgeRefusal = (refusal: RefusedAnswer, site: string, verb: string): PlainRefusal => {
   const plain = plainRefusal(refusal, verb);
-  const raw = refusal.data?.["details"];
-  const facts = Array.isArray(raw) ? raw.filter((fact): fact is string => typeof fact === "string") : [];
-  return { line: forgeRefusalLine(refusal, site) ?? plain.line, details: [...plain.details, ...facts] };
+  return { line: forgeRefusalLine(refusal, site) ?? plain.line, details: plain.details };
 };
 
 /** The site a typed address names, as a line names it: its origin's host, or what was typed where it names no forge. */
