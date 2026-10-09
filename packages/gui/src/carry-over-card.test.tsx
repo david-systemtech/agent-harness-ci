@@ -214,11 +214,12 @@ describe("Carry over in Set up", () => {
   });
 
   it("offers Bring over 2 new chats once another client imports, and Everything is already here when all are held", async () => {
-    const app = await opened({ setup: BROUGHT_OVER });
+    const app = await opened({ setup: { "carry-over": { state: "done", reason: "Everything is already here.", failing: [], actions: [] } } });
     const desk = app.environment("desk");
     answerInventory(app, { ...imported(), sessions: { total: 7, archived: 3, missingDirectory: 2, new: 2 } });
     await act(async () => desk.notice("carry-over.imported", report()));
     expect(await screen.findByRole("button", { name: "Bring over 2 new chats" })).toBeDefined();
+    expect(screen.queryByText("Everything is already here.")).toBeNull();
     answerInventory(app, imported());
     await act(async () => desk.notice("carry-over.imported", report()));
     expect(await screen.findByText("Everything is already here.")).toBeDefined();

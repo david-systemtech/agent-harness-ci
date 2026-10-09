@@ -145,6 +145,12 @@ export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
   const otherNew = found.reduce((sum, { inventory }) => sum + inventory.memory.new + (skills ? inventory.skills.new : 0), 0);
   const primary = retry ? "Try again" : toBringOver || otherNew > 0 ? "Bring them over" : newChats > 0 ? `Bring over ${counted(newChats, "new chat", "new chats")}` : undefined;
 
+  const checkedLine = stepLine(step, runtime.environmentNow(environmentId));
+  // New inventory can arrive after a successful check found everything already here.
+  const shownStep = primary !== undefined && step.result?.state === "done" && checkedLine === ALREADY_HERE
+    ? { ...step, result: { ...step.result, reason: `${primary}.` } }
+    : step;
+
   const bringOver = async (accountsToRun: readonly Found[], withEarlierWork: boolean) => {
     setBusy(true);
     setRefusals([]);
@@ -182,7 +188,7 @@ export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
 
   return (
     <>
-      <StepStatus environmentId={environmentId} step={step} handledActions={["import-again"]} />
+      <StepStatus environmentId={environmentId} step={shownStep} handledActions={["import-again"]} facts={shownStep === step ? [] : [reason]} />
       {admin.status === "absent" && <AccessUnavailable environmentId={environmentId} answer={admin}><p className="text-sm text-amber">You can look but not change this. {admin.message}</p></AccessUnavailable>}
       {accounts.error !== null && (
         <SetupNotice
@@ -222,7 +228,7 @@ export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
               <Download aria-hidden="true" />{primary}
             </Button>
           )}
-          {primary === undefined && (reports !== undefined || found.some(({ inventory }) => broughtBefore(inventory))) && stepLine(step, runtime.environmentNow(environmentId)) !== ALREADY_HERE && (
+          {primary === undefined && (reports !== undefined || found.some(({ inventory }) => broughtBefore(inventory))) && checkedLine !== ALREADY_HERE && (
             <p role="status" className="text-sm text-ink-muted">{ALREADY_HERE}</p>
           )}
           <ComingOver found={found} />
