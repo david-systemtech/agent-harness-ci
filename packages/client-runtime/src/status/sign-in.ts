@@ -102,8 +102,21 @@ export const signInEnd = (signIn: SignIn, label: string): SignInEnding | undefin
  */
 export const signInLeftWords = (remainingMs: number): string => (remainingMs > 60_000 ? `${Math.ceil(remainingMs / 60_000)} min left` : "Less than a minute left.");
 
-/** A refusal of the code (`accounts.signin.code`), said as the provider's refusal is, with Start again. */
-export const codeRefused = (refusal: RefusedAnswer): SignInEnding => refusedCode(plainRefusal(refusal, "Start again").details);
+/**
+ * What a code sent (`accounts.signin.code`) got back: taken; the environment's refusal, said as the provider's
+ * refusal is, with Start again; or no answer this client could read, which leaves the sign-in waiting, since the
+ * environment may already be checking the code.
+ */
+export type CodeSent =
+  | { readonly kind: "taken" }
+  | { readonly kind: "refused"; readonly ending: SignInEnding }
+  | { readonly kind: "unanswered"; readonly line: string };
+
+/** A refusal of the code: the environment's ends the sign-in, this client's own (no data) does not. */
+export const codeRefused = (refusal: RefusedAnswer): CodeSent =>
+  refusal.data === undefined
+    ? { kind: "unanswered", line: plainRefusal(refusal, "Sign in").line }
+    : { kind: "refused", ending: refusedCode(plainRefusal(refusal, "Start again").details) };
 
 /** A refused start, in one line: another account's running sign-in by its label, any other refusal in plain words. */
 export const startRefusedLine = (refusal: RefusedAnswer): string => {
@@ -164,9 +177,9 @@ export const startSignIn = async (
 };
 
 /** Sends the code the sign-in page showed, trimmed as the environment asks (`accounts.signin.code`); undefined once taken, else how the refusal ends the attempt. */
-export const sendSignInCode = async (runtime: Runtime, environmentId: string, accountId: string, code: string, commandId: string): Promise<SignInEnding | undefined> => {
+export const sendSignInCode = async (runtime: Runtime, environmentId: string, accountId: string, code: string, commandId: string): Promise<CodeSent> => {
   const answer: AdminOutcome<"accounts.signin.code"> = await adminCall(() => runtime.requests.call(environmentId, "accounts.signin.code", { commandId, accountId, code: code.trim() }));
-  return answer.ok ? undefined : codeRefused(answer.refusal);
+  return answer.ok ? { kind: "taken" } : codeRefused(answer.refusal);
 };
 
 /** Cancels the sign-in the card started (`accounts.signin.cancel`): the line saying how it ended. */

@@ -164,6 +164,25 @@ describe("/account", () => {
     answer();
   });
 
+  it("says a code that got no answer as the connection's failure, not Claude's refusal (PR review)", async () => {
+    const { app, env } = await launch();
+    await command(app, "/account");
+    await app.waitFor("+ Add an account");
+    await app.press(KEY.down, KEY.down, KEY.enter);
+    await app.type("side");
+    await app.press(KEY.enter);
+    env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true" });
+    await app.waitFor("Then paste the code");
+    // The code reaches the environment, then the link drops before its answer: this client meets the failure itself.
+    env.wire.answer("accounts.signin.code", () => new Promise<undefined>(() => undefined));
+    await app.type("abc-123");
+    await app.press(KEY.enter);
+    await app.waitFor("Checking the code");
+    env.wire.server.drop();
+    await app.waitFor("This app cannot reach that computer right now.");
+    expect(app.frame()).not.toContain("Claude did not accept this code.");
+  });
+
   it("leaves a card opened meanwhile alone when a sign-in's start answers late with a refusal (PR review)", async () => {
     const { app, env } = await launch([desk({ accounts: [{ id: "account-1", label: "work", identity: MILO }, { id: "account-2", label: "personal", status: { state: "signed-out", checkedAt: null, detail: null } }] })]);
     let refuse = () => undefined as void;

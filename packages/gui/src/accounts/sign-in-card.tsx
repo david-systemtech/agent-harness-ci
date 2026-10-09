@@ -231,12 +231,14 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
     }
     setSending("code");
     setError(null);
-    void sendSignInCode(runtime, environmentId, accountId, code, uuidv4()).then((refused) => {
+    void sendSignInCode(runtime, environmentId, accountId, code, uuidv4()).then((sent) => {
       setSending(null);
-      if (refused === undefined) return setTyped("");
+      if (sent.kind === "taken") return setTyped("");
       if (departed.current || ended.current) return;
+      // No answer: the environment may be checking the code, so the sign-in goes on and the card follows it.
+      if (sent.kind === "unanswered") return setError(sent.line);
       ended.current = true;
-      setStopped(refused);
+      setStopped(sent.ending);
       // The environment's sign-in may still wait for a code: the card ends it, so it holds no sign-in after this one.
       void cancelSignIn(runtime, environmentId, { id: accountId, label }, uuidv4());
     });

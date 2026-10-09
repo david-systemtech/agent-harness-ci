@@ -719,6 +719,27 @@ describe("sign-in", () => {
     expect(sent(env, "accounts.signin.cancel")).toHaveLength(1);
   });
 
+  it("keeps the sign-in waiting when its code got no answer, since the environment may be checking it, and says the connection's failure by the field (PR review)", async () => {
+    const { app, env } = await opened([desk({
+      accounts: [{ id: "account-1", label: "work", identity: WORK }, { id: "account-2", label: "personal", status: { state: "signed-out", checkedAt: null, detail: null } }],
+    })]);
+    // The code reaches the environment, then the link drops before its answer: this client meets the failure itself.
+    env.wire.answer("accounts.signin.code", () => new Promise<undefined>(() => undefined));
+    await app.user.click(within(await openPicker(app, "Account")).getByRole("menuitem", { name: /^personal/ }));
+    const card = await screen.findByRole("dialog", { name: "Sign in to Claude" });
+    env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true&state=for-tests" });
+    await app.user.click(await within(card).findByRole("button", { name: "The page did not open?" }));
+    await app.user.type(within(card).getByRole("textbox", { name: "Code" }), "code-for-tests#for-tests{Enter}");
+    await waitFor(() => expect(sent(env, "accounts.signin.code")).toHaveLength(1));
+    env.wire.server.drop();
+    const alert = await within(card).findByRole("alert");
+    expect(alert.textContent).toBe("Error: This app cannot reach that computer right now. Choose Sign in to try again.");
+    // The sign-in goes on: no stopped notice, no Start again, the steps still there (a cancel comes only with a stop).
+    expect(within(card).queryByText("Claude did not accept this code.")).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Start again" })).toBeNull();
+    expect(within(card).getByRole("textbox", { name: "Code" })).toBeTruthy();
+  });
+
   it("keeps the dialog open on an expiry and a failed CLI, each with Start again, and Close then leaves without a line", async () => {
     for (const [state, title] of [["expired", "The sign-in ran out of time."], ["failed", "The sign-in did not finish."]] as const) {
       const { app, env, card, lineBefore } = await signingIn();

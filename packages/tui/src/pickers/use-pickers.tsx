@@ -265,9 +265,9 @@ export const usePickers = (host: PickersHost): Pickers => {
     const code = card.text.trim();
     if (code === "" || card.accountId === null) return;
     host.change((c) => (c.kind === "signin" ? { ...c, sending: "code", error: null } : c));
-    void sendSignInCode(runtime, card.environmentId, card.accountId, code, host.newCommandId()).then((refused) => {
-      if (refused === undefined) void runtime.setup.check(card.environmentId, "account");
-      host.change((c) => (c.kind === "signin" ? { ...c, sending: null, ...(refused === undefined ? { text: "" } : { error: refused.line }) } : c));
+    void sendSignInCode(runtime, card.environmentId, card.accountId, code, host.newCommandId()).then((sent) => {
+      if (sent.kind === "taken") void runtime.setup.check(card.environmentId, "account");
+      host.change((c) => (c.kind === "signin" ? { ...c, sending: null, ...(sent.kind === "taken" ? { text: "" } : { error: sent.kind === "refused" ? sent.ending.line : sent.line }) } : c));
     });
   };
 

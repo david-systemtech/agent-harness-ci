@@ -77,14 +77,19 @@ describe("the time a sign-in has left", () => {
 
 describe("a refusal along the way", () => {
   it("of the code says Claude did not accept it, the refusal in Details", () => {
-    expect(codeRefused({ code: "conflict", message: "The sign-in of Personal is starting, not awaiting a code.", data: { reason: "not_awaiting_code" } })).toEqual({
+    expect(codeRefused({ code: "conflict", message: "The sign-in of Personal is starting, not awaiting a code.", data: { reason: "not_awaiting_code" } })).toEqual({ kind: "refused", ending: {
       kind: "stopped",
       title: "Claude did not accept this code.",
       next: "Start the sign-in again.",
       line: "Claude did not accept this code. Start the sign-in again.",
       again: true,
       details: ["conflict (not_awaiting_code): The sign-in of Personal is starting, not awaiting a code."],
-    });
+    } });
+  });
+
+  it("of the code by this client, with no answer from the environment, keeps the sign-in: the environment may be checking the code", () => {
+    expect(codeRefused({ code: "timeout", message: "No answer to accounts.signin.code in time." })).toEqual({ kind: "unanswered", line: "There was no answer in time. Choose Sign in to try again." });
+    expect(codeRefused({ code: "unreachable", message: "The connection to desk was lost." })).toEqual({ kind: "unanswered", line: "This app cannot reach that computer right now. Choose Sign in to try again." });
   });
 
   it("of the start names the account whose sign-in runs, else words the refusal plainly", () => {
