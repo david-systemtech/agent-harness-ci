@@ -640,6 +640,7 @@ export {
   RECOMMENDED_MODELS,
   addFavourite,
   favouriteCandidates,
+  favouriteModelIds,
   moveFavourite,
   pickerModels,
   pinWords,
