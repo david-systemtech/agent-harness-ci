@@ -338,6 +338,56 @@ describe("the chips", () => {
   });
 });
 
+describe("the first run's effort (#1950)", () => {
+  // Laptop's Home account offers Fable, which takes efforts, and Sonnet 5, which takes none; its default effort is High.
+  const FABLE = { id: "fable", family: "fable", tier: 3, efforts: ["low", "medium", "high"], label: "Fable" };
+  const onLaptop = async () => {
+    const app = await withOpen("Train tidy", { laptop: { models: [{ ...SONNET, models: [FABLE, ...SONNET.models] }], settings: { "accounts.defaultEffort": "high" } } });
+    await app.user.keyboard("{Control>}n{/Control}");
+    return app;
+  };
+  /** The picker's effort rows as they read, the ticked one with its note ("Highthe default effort"). */
+  const effortRows = (menu: HTMLElement) => within(within(menu).getByRole("group", { name: "Effort" })).getAllByRole("menuitem").map((item) => item.textContent);
+  /** The session pane's status line, once the first send has opened the session there. */
+  const statusModel = () => within(paneOf("New session")).findByRole("button", { name: /^Model: / });
+
+  it("ticks and words the environment's default effort until one is chosen, and the first run goes out at it", async () => {
+    const app = await onLaptop();
+    const surface = () => surfaces()[0] as HTMLElement;
+    await chipsRead(surface, ["Environment: laptop", "Account: Home milo@home.test", "Model: Fable 5.1 - High", "Workspace: directory train"]);
+    for (const chip of ["Account", "Model"]) {
+      await openChip(app, surface(), chip);
+      expect(effortRows(await screen.findByRole("menu"))).toEqual(["its own effort", "Low", "Medium", "Highthe default effort"]);
+      await app.user.keyboard("{Escape}");
+    }
+    await typeOn(app, surface(), "Tidy the tracks{Enter}");
+    await waitFor(() => expect(params(app, "laptop", "runs.start")).toHaveLength(1));
+    expect(params(app, "laptop", "runs.start")[0]).not.toHaveProperty("effort");
+    expect((await statusModel()).getAttribute("aria-label")).toBe("Model: Fable 5.1 - High");
+  });
+
+  it("sends an explicit its own effort as null, and the session's first run goes out at the model's own", async () => {
+    const app = await onLaptop();
+    const surface = () => surfaces()[0] as HTMLElement;
+    await openChip(app, surface(), "Model");
+    await app.user.click(within(within(await screen.findByRole("menu")).getByRole("group", { name: "Effort" })).getByRole("menuitem", { name: /^its own effort/ }));
+    await chipsRead(surface, ["Environment: laptop", "Account: Home milo@home.test", "Model: Fable 5.1", "Workspace: directory train"]);
+    await typeOn(app, surface(), "Tidy the tracks{Enter}");
+    await waitFor(() => expect(params(app, "laptop", "runs.start")).toEqual([expect.objectContaining({ model: "fable", effort: null })]));
+    expect((await statusModel()).getAttribute("aria-label")).toBe("Model: Fable 5.1");
+  });
+
+  it("shows no Effort column and no effort for a model that takes none", async () => {
+    const app = await onLaptop();
+    const surface = () => surfaces()[0] as HTMLElement;
+    await openChip(app, surface(), "Model");
+    await app.user.click(within(await screen.findByRole("menu")).getByRole("menuitem", { name: /^Sonnet 5/ }));
+    await chipsRead(surface, ["Environment: laptop", "Account: Home milo@home.test", "Model: Sonnet 5", "Workspace: directory train"]);
+    await openChip(app, surface(), "Model");
+    expect(within(await screen.findByRole("menu")).queryByRole("group", { name: "Effort" })).toBeNull();
+  });
+});
+
 describe("the workspace chip", () => {
   /** The known directories the open workspace chip lists, each as it reads. */
   const known = () =>
