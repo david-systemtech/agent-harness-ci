@@ -67,7 +67,7 @@ export const PermissionsCard = ({ environmentId, step }: StepCardProps) => {
   const report = permissions.result?.containment;
   const availability = report?.levels.find((level) => level.level === chosen);
   const fixFold: ReactNode =
-    step.result?.failing.includes("permissions.containment") === true && report !== undefined && availability !== undefined && !availability.available
+    step.result?.failing.includes("permissions.containment") === true && report !== undefined && chosen !== undefined && availability?.available !== true
       ? <SandboxSetupFold summary="How to fix it" setups={[sandboxSetup(availability, report.container.declared || report.container.detected, report.platform)]} />
       : undefined;
   const writable = view?.phase === "ready" && runtime.capability(environmentId, "permissions.settings.set").status === "present";

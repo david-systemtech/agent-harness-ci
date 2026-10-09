@@ -201,6 +201,20 @@ describe("the Permissions step's Restore", () => {
 });
 
 describe("the Permissions card's sandbox", () => {
+  it("offers How to fix it and a restart when the report omits the chosen sandbox level", async () => {
+    const app = await firstLaunch({
+      containment: { levels: [{ level: "off", available: true, reason: null, cause: null }] },
+      settings: { "permissions.containment.default": "workspace" },
+      setup: { permissions: { state: "needs-attention", reason: "The sandbox you chose does not work on this computer yet.", failing: ["permissions.containment"], actions: ["turn-sandbox-off"] } },
+    });
+    const permissions = await cardOf(app, "Permissions");
+    const notice = within(permissions).getAllByRole("alert").find((alert) => alert.textContent?.includes("The sandbox you chose does not work on this computer yet."))!;
+    await app.user.click(await within(notice).findByRole("button", { name: "How to fix it" }));
+    expect(within(notice).getByText("agent-harness has not checked the sandbox here yet.")).toBeDefined();
+    expect(within(notice).getByText("agent-harness service stop && agent-harness service start")).toBeDefined();
+    expect(notice.textContent).not.toContain("apt-get");
+  });
+
   it("uses the computer's reported macOS for How to fix it", async () => {
     const app = await firstLaunch({
       containment: { ...NO_BUBBLEWRAP, platform: "darwin" },

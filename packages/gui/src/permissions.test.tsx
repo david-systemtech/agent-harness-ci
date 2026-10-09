@@ -144,6 +144,18 @@ describe("the permission settings", () => {
     expect(within(permissions).queryByText(desk.settings()["permissions.unattended.bypassAcknowledgedAt"] as string)).toBeNull();
   });
 
+  it("offers one restart guide when the report omits the project-folder levels", async () => {
+    const app = await opened({ laptop: { containment: { levels: [{ level: "off", available: true, reason: null, cause: null }] } } });
+    const permissions = await openPermissions(app, "laptop");
+    const group = field(permissions, "permissions.containment.default");
+    await app.user.click(await within(group).findByRole("button", { name: "How to set it up" }));
+    expect(within(group).getAllByText("agent-harness has not checked the sandbox here yet.")).toHaveLength(1);
+    expect(within(group).getByText("agent-harness service stop && agent-harness service start")).toBeDefined();
+    expect(group.textContent).not.toContain("apt-get");
+    expect(within(group).getByRole("radio", { name: "Project folder", description: "Needs setup" })).toBeDefined();
+    expect(within(group).getByRole("radio", { name: "Project folder, no internet", description: "Needs setup" })).toBeDefined();
+  });
+
   it("offers each sandbox level saying whether it works here, How to set it up for those that need it, and says a refusal as an error", async () => {
     const app = await opened({ laptop: { containment: NO_BUBBLEWRAP } });
     const laptop = app.environment("laptop");

@@ -14,13 +14,15 @@ const KEY = "permissions.containment.default";
 /** What a sandbox the computer refused says when chosen (setup-copy.md §5.12, the messages). */
 const UNAVAILABLE = "This sandbox does not work on this computer yet. See How to set it up.";
 
-/** How to set up each level the report says needs it, one for each cause, since the workspace levels usually share one. */
+/** How to set up the workspace levels, including ones the report omitted, one for each cause. */
 const sandboxSetups = (report: ContainmentReport): readonly SandboxSetup[] => {
   const container = report.container.declared || report.container.detected;
   const seen = new Set<string>();
-  return report.levels.flatMap((availability) => {
-    if (availability.available || seen.has(availability.cause)) return [];
-    seen.add(availability.cause);
+  return CONTAINMENT_LEVELS.filter((level) => level !== "off").flatMap((level) => {
+    const availability = report.levels.find((entry) => entry.level === level);
+    const cause = availability?.cause ?? "not_probed";
+    if (availability?.available === true || seen.has(cause)) return [];
+    seen.add(cause);
     return [sandboxSetup(availability, container, report.platform)];
   });
 };
