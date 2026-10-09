@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button, Dialog, DialogContent, Field, Input, Tooltip } from "../ui/index.js";
 import { MarkdownEditor } from "../ui/markdown-editor.js";
 import { useRuntime } from "../window-context.js";
+import { InstructionError } from "./instruction-error.js";
 import { useInstructionCommand } from "./use-instruction-command.js";
 
 export const MarkdownField = ({ value, change, disabled = false }: { readonly value: string; change(text: string): void; readonly disabled?: boolean }) => (
@@ -50,11 +51,7 @@ export const InstructionEditor = ({ environmentId, row, close, inline = false }:
           <MarkdownField value={body} change={setBody} disabled={disabled} />
           {offer.status === "absent" && <p className="text-sm text-ink-faint">{offer.message}</p>}
           {sending && <p role="status" className="text-2xs text-ink-muted">Saving…</p>}
-          {line !== undefined && (
-            <p role="status" className="text-sm text-signal">
-              {line}
-            </p>
-          )}
+          {line !== undefined && <InstructionError>{line}</InstructionError>}
           <div className="flex justify-end gap-2">
             <Tooltip content="Cancel" keys="Escape"><Button onClick={close}><X aria-hidden="true" />Cancel</Button></Tooltip>
             <Tooltip content="Save instruction" keys="Enter"><Button type="submit" disabled={disabled || heading.trim() === ""}>

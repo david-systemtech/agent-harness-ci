@@ -11,46 +11,53 @@ const openCard = async (app: RenderedApp) => {
   return screen.findByRole("region", { name: "Instructions" });
 };
 
-const scriptPreview = (desk: EnvironmentHandle) => {
+const scriptPreview = (desk: EnvironmentHandle, unreadRegistries: string[] = []) => {
   desk.wire.answer("workspaces.browse", () => ({ result: { path: "/home/test", parent: "/home", directories: [], truncated: false } }));
   const result: ResultOf<"instructions.preview"> = {
     parts: [{ layer: "user", id: "orientation", title: "Orientation", text: "# Orientation\nPreview: verified on this environment." }],
     text: "# Orientation\nPreview: verified on this environment.",
-    manifest: { channel: "system-prompt-append", layers: [], alwaysOn: [], skillSetFingerprint: null, unreadRegistries: [], leftOut: [] },
+    manifest: { channel: "system-prompt-append", layers: [], alwaysOn: [], skillSetFingerprint: null, unreadRegistries, leftOut: [] },
   };
   desk.wire.answer("instructions.preview", () => ({ result }));
 };
 
 describe("the Instructions card in Set up", () => {
-  it("seeds About my setup once across two runtimes on the same environment", async () => {
+  it("seeds About my setup once across two runtimes on the same environment and offers it as Your note with Edit", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { firstLaunch: true });
     await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     const desk = app.environment("desk");
     scriptInstructions(desk);
     const card = await openCard(app);
-    const seed = await within(card).findByRole("region", { name: "About my setup" });
-    expect(within(seed).getByText(/The orientation block at the start/)).toBeDefined();
+    const note = await within(await within(card).findByRole("region", { name: "Your note" })).findByRole("region", { name: "About my setup" });
     expect(desk.requests("instructions.create").map((request) => request.params["catalogueId"])).toEqual(["setup.about-my-setup"]);
+    await app.user.click(within(note).getByRole("button", { name: "Edit" }));
+    const editor = await within(note).findByRole("region", { name: "Edit About my setup" });
+    await app.user.clear(within(editor).getByRole("textbox", { name: "Title" }));
+    await app.user.type(within(editor).getByRole("textbox", { name: "Title" }), "How my computer is set up");
+    await app.user.click(within(editor).getByRole("button", { name: "Save instruction" }));
+    expect(await within(card).findByRole("region", { name: "How my computer is set up" })).toBeDefined();
+    expect(desk.requests("instructions.edit").at(-1)?.params).toMatchObject({ title: "How my computer is set up" });
     const next = await app.remount();
     await next.user.click(await screen.findByRole("button", { name: "Begin set up" }));
-    await within(await openCard(next)).findByRole("region", { name: "About my setup" });
+    await within(await openCard(next)).findByRole("region", { name: "Your note" });
     expect(desk.requests("instructions.create")).toHaveLength(0);
   });
 
-  it("shows the rendered Orientation preview read-only, switches it off, and reads done from the environment's check", async () => {
-    const app = await renderApp({ environments: [{ name: "desk", reach: "local", setup: { instructions: { state: "needs-attention", reason: "The block could not render.", failing: ["instructions.orientation-renders"], actions: ["check-again"] } } }] }, { firstLaunch: true });
+  it("folds what agents are told about this computer: the preview, its switch and warning, and reads done from the environment's check", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", setup: { instructions: { state: "needs-attention", reason: "agent-harness could not finish checking this step. Choose Check again.", failing: ["instructions.orientation-renders"], actions: ["check-again"] } } }] }, { firstLaunch: true });
     await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     const desk = app.environment("desk");
     scriptInstructions(desk);
     scriptPreview(desk);
     const card = await openCard(app);
-    const orientation = await within(card).findByRole("region", { name: "Orientation" });
-    expect(await within(orientation).findByText(/Preview: verified/)).toBeDefined();
-    expect(within(orientation).queryByRole("textbox")).toBeNull();
-    expect(within(orientation).getByText("Turning Orientation off means the model will not know where its forges, keys and banks are.")).toBeDefined();
+    await within(card).findByRole("region", { name: "Your note" });
+    expect(within(card).queryByText(/Preview: verified/)).toBeNull();
+    await app.user.click(within(card).getByRole("button", { name: "What agents are told about this computer" }));
+    expect(await within(card).findByText(/Preview: verified/)).toBeDefined();
+    expect(within(card).getByText("If you turn this off, agents will not know where your forges, keys and notebooks are.")).toBeDefined();
     expect(desk.requests("instructions.preview")[0]?.params).toEqual({ accountId: "account-1", workspace: { kind: "directory", path: "/home/test" } });
-    await app.user.click(within(orientation).getByRole("switch", { name: "Orientation enabled" }));
-    await waitFor(() => expect(within(orientation).getByRole("switch", { name: "Orientation enabled" }).getAttribute("aria-checked")).toBe("false"));
+    await app.user.click(within(card).getByRole("switch", { name: "Tell agents about this computer" }));
+    await waitFor(() => expect(within(card).getByRole("switch", { name: "Tell agents about this computer" }).getAttribute("aria-checked")).toBe("false"));
     expect(desk.requests("settings.update").at(-1)?.params["values"]).toEqual({ "instructions.orientation": false });
     act(() => {
       desk.setSetup({ instructions: { state: "done", reason: "Agents get your notes and a summary of this computer." } });
@@ -60,80 +67,134 @@ describe("the Instructions card in Set up", () => {
     expect(within(screen.getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Instructions", description: / Done / })).toBeDefined();
   });
 
-  it("creates Custom text without an origin, with all account chips on", async () => {
+  it("names each part it could not read by its step, with Go to that step inside Set up, and no raw section names", async () => {
+    const reason = "agent-harness could not read part of this computer's setup: Your machines, Forges, Memory bank.";
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", setup: { instructions: { state: "needs-attention", reason, failing: ["instructions.orientation-renders"], actions: [], details: ["Unread sections of the orientation block: banks, forges, other-environments"] } } }] }, { firstLaunch: true });
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
+    const desk = app.environment("desk");
+    scriptInstructions(desk);
+    scriptPreview(desk, ["banks", "forges", "other-environments"]);
+    const card = await openCard(app);
+    expect(await within(card).findByText(reason)).toBeDefined();
+    expect((await within(card).findAllByRole("button", { name: /^Go to / })).map((button) => button.textContent)).toEqual(["Go to Your machines", "Go to Forges", "Go to Memory bank"]);
+    await app.user.click(within(card).getByRole("button", { name: "What agents are told about this computer" }));
+    expect(within(card).queryByText(/other-environments|banks, forges/)).toBeNull();
+    await app.user.click(within(card).getByRole("button", { name: "Go to Forges" }));
+    const rail = screen.getByRole("navigation", { name: "Set up steps" });
+    await waitFor(() => expect(within(rail).getByRole("button", { name: "Forges" }).getAttribute("aria-current")).toBe("step"));
+    expect(screen.getByRole("region", { name: "Forges" })).toBeDefined();
+  });
+
+  it("offers no Go to while the step's check passes, though the preview still names an unread part", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", setup: { instructions: { state: "done", reason: "Agents get your notes and a summary of this computer." } } }] }, { firstLaunch: true });
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
+    const desk = app.environment("desk");
+    scriptInstructions(desk);
+    scriptPreview(desk, ["forges"]);
+    const card = await openCard(app);
+    await app.user.click(await within(card).findByRole("button", { name: "What agents are told about this computer" }));
+    await within(card).findByText(/Preview: verified/);
+    expect(within(card).queryByRole("button", { name: /^Go to / })).toBeNull();
+  });
+
+  it("writes your own note without an origin and shows it beside About my setup", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { firstLaunch: true });
     await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     const desk = app.environment("desk");
     scriptInstructions(desk);
     const card = await openCard(app);
-    const custom = await within(card).findByRole("region", { name: "Custom" });
-    await app.user.click(within(custom).getByRole("button", { name: "Write a custom instruction" }));
+    await within(card).findByRole("region", { name: "Your note" });
+    await app.user.click(within(card).getByRole("button", { name: "Write your own" }));
     const editor = await screen.findByRole("dialog", { name: "New instruction" });
     await app.user.type(within(editor).getByRole("textbox", { name: "Title" }), "My review habits");
     await app.user.click(within(editor).getByRole("textbox", { name: "Markdown body" }));
     await app.user.paste("**Read** the comments.");
     await app.user.click(within(editor).getByRole("button", { name: "Save instruction" }));
-    const row = await within(card).findByRole("region", { name: "My review habits" });
-    expect(within(row).getByText("Read", { selector: "strong" })).toBeDefined();
-    expect(row.textContent).toContain("Read the comments.");
-    expect((within(row).getByRole("checkbox", { name: "All accounts, including future accounts" }) as HTMLInputElement).checked).toBe(true);
-    expect((within(row).getByRole("checkbox", { name: "Main account" }) as HTMLInputElement).checked).toBe(true);
-    expect((within(row).getByRole("checkbox", { name: /Other account/ }) as HTMLInputElement).checked).toBe(true);
+    const note = within(card).getByRole("region", { name: "Your note" });
+    expect(await within(note).findByRole("region", { name: "My review habits" })).toBeDefined();
     const created = desk.requests("instructions.create").find((request) => request.params["title"] === "My review habits");
     expect(created?.params).toMatchObject({ title: "My review habits", body: "**Read** the comments." });
     expect(created?.params).not.toHaveProperty("catalogueId");
     expect(created?.params).not.toHaveProperty("origin");
   });
 
-
-  it("does not recreate a removed and dismissed seed when another runtime opens the step", async () => {
+  it("does not recreate a removed and dismissed seed when the step opens, and shows no note for it", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { firstLaunch: true });
     await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     const desk = app.environment("desk");
     scriptInstructions(desk);
-    const seed = await within(await openCard(app)).findByRole("region", { name: "About my setup" });
-    await app.user.click(within(seed).getByRole("button", { name: "Remove" }));
-    await app.user.click(within(await screen.findByRole("dialog", { name: "Remove About my setup?" })).getByRole("button", { name: "Remove instruction" }));
-    await waitFor(() => expect(screen.queryByRole("region", { name: "About my setup" })).toBeNull());
-    const next = await app.remount();
-    await next.user.click(await screen.findByRole("button", { name: "Begin set up" }));
-    const card = await openCard(next);
-    await within(card).findByRole("region", { name: "Suggested instructions" });
-    await next.user.click(within(card).getByRole("button", { name: "Dismissed" }));
-    expect(await within(card).findByRole("button", { name: "Restore About my setup" })).toBeDefined();
-    expect(within(card).queryByRole("region", { name: "About my setup" })).toBeNull();
+    desk.wire.answer("instructions.list", () => ({ result: { orientation: { enabled: true, text: "# Orientation", unreadRegistries: [], accounts: [] }, instructions: [], dismissed: ["setup.about-my-setup"] } }));
+    const card = await openCard(app);
+    await within(card).findByRole("region", { name: "Suggestions" });
+    expect(within(card).queryByRole("region", { name: "Your note" })).toBeNull();
+    expect(within(card).queryByRole("checkbox", { name: "About my setup" })).toBeNull();
     expect(desk.requests("instructions.create")).toHaveLength(0);
   });
 
-  it("ticks a catalogue entry into a copy with all accounts reached", async () => {
+  it("ticks a suggestion with its one line into a copy, and leaves owned lists, order and account reach to Settings", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { firstLaunch: true });
     await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     const desk = app.environment("desk");
     scriptInstructions(desk);
     const card = await openCard(app);
-    const suggestions = await within(card).findByRole("region", { name: "Suggested instructions" });
+    const suggestions = await within(card).findByRole("region", { name: "Suggestions" });
+    expect(within(suggestions).getByText("Pull or clone before you reference code, and say which commit you read.")).toBeDefined();
     await app.user.click(within(suggestions).getByRole("checkbox", { name: "Read code from a fresh checkout" }));
-    const row = await within(card).findByRole("region", { name: "Read code from a fresh checkout" });
-    expect(within(row).getByText("coding.fresh-checkout")).toBeDefined();
-    expect((within(row).getByRole("checkbox", { name: "All accounts, including future accounts" }) as HTMLInputElement).checked).toBe(true);
-    expect((within(row).getByRole("checkbox", { name: "Main account" }) as HTMLInputElement).checked).toBe(true);
+    await waitFor(() => expect((within(suggestions).getByRole("checkbox", { name: "Read code from a fresh checkout" }) as HTMLInputElement).checked).toBe(true));
+    expect((within(suggestions).getByRole("checkbox", { name: "Read code from a fresh checkout" }) as HTMLInputElement).disabled).toBe(true);
+    expect(within(suggestions).getByText("Added. Change or remove it in Settings › Instructions.")).toBeDefined();
     expect(desk.requests("instructions.create").filter((request) => request.params["catalogueId"] === "coding.fresh-checkout")).toHaveLength(1);
+    expect(within(card).queryByRole("region", { name: "Read code from a fresh checkout" })).toBeNull();
+    expect(within(card).queryByRole("region", { name: "Owned instructions" })).toBeNull();
+    expect(within(card).queryByRole("button", { name: /Move (up|down)|Dismiss/ })).toBeNull();
+    expect(within(card).queryByRole("checkbox", { name: "All accounts, including future accounts" })).toBeNull();
   });
 
-  it.each(["keep", "replace"] as const)("opens the reused version comparison and resolves it by %s", async (choice) => {
+  it("shows a refused tick, a refused switch and a preview it could not read as errors: text, colour, an alert and a hidden Error prefix", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { firstLaunch: true });
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
+    const desk = app.environment("desk");
+    scriptInstructions(desk);
+    desk.wire.answer("workspaces.browse", () => ({ result: { path: "/home/test", parent: "/home", directories: [], truncated: false } }));
+    desk.wire.answer("instructions.preview", () => ({ error: { code: "unavailable", message: "The account's runner is not reachable.", data: {} } }));
+    const card = await openCard(app);
+    const preview = await within(card).findByRole("alert");
+    expect(preview.textContent).toBe("Error: Could not preview the run: The account's runner is not reachable.");
+    expect(preview.className).toContain("text-signal");
+    expect(preview.querySelector(".sr-only")?.textContent).toBe("Error: ");
+    scriptPreview(desk);
+    desk.wire.answer("instructions.create", () => ({ error: { code: "conflict", message: "The catalogue changed meanwhile.", data: {} } }));
+    const suggestions = await within(card).findByRole("region", { name: "Suggestions" });
+    await app.user.click(within(suggestions).getByRole("checkbox", { name: "Read code from a fresh checkout" }));
+    expect((await within(suggestions).findByRole("alert")).textContent).toBe("Error: Not saved: The catalogue changed meanwhile.");
+    expect(within(suggestions).queryByRole("status")).toBeNull();
+    desk.wire.answer("settings.update", () => ({ error: { code: "conflict", message: "instructions.orientation changed while it was being written.", data: {} } }));
+    await app.user.click(within(card).getByRole("button", { name: "What agents are told about this computer" }));
+    await app.user.click(await within(card).findByRole("switch", { name: "Tell agents about this computer" }));
+    await waitFor(() => expect(within(card).getAllByRole("alert").map((alert) => alert.textContent)).toContain("Error: Not saved: instructions.orientation changed while it was being written."));
+  });
+
+  it("shows a list the environment refused on first read as an error with a hidden Error prefix", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { firstLaunch: true });
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
+    const desk = app.environment("desk");
+    scriptInstructions(desk);
+    desk.wire.answer("instructions.list", () => ({ error: { code: "unavailable", message: "The instructions store is busy.", data: {} } }));
+    const card = await openCard(app);
+    await waitFor(() => expect(within(card).getAllByRole("alert").map((alert) => alert.textContent)).toContain("Error: The instructions store is busy."));
+  });
+
+  it("leaves a copy's newer version to Settings, where its comparison opens", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { firstLaunch: true });
     await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     scriptInstructions(app.environment("desk"), [ownedInstruction({ origin: { catalogueId: "coding.fresh-checkout", version: 1 }, newerVersion: 2 })], { to: "Updated source.", toVersion: 2 });
     const card = await openCard(app);
-    const row = await within(card).findByRole("region", { name: "Review habits" });
+    await within(card).findByRole("region", { name: "Suggestions" });
+    expect(within(card).queryByText("Newer version 2")).toBeNull();
+    await app.user.click(within(card).getByRole("button", { name: "Open in Settings" }));
+    const pane = await screen.findByRole("region", { name: "Instructions" });
+    const row = await within(pane).findByRole("region", { name: "Review habits" });
     expect(within(row).getByText("Newer version 2")).toBeDefined();
-    await app.user.click(within(row).getByRole("button", { name: "See what changed" }));
-    const dialog = await screen.findByRole("dialog", { name: "Changes to Review habits" });
-    expect(await within(dialog).findByRole("table", { name: "Catalogue changes" })).toBeDefined();
-    expect(within(dialog).getByText("Replace loses your edits. Keep mine keeps your text and clears this version badge.")).toBeDefined();
-    await app.user.click(within(dialog).getByRole("button", { name: choice === "keep" ? "Keep mine" : "Replace with new text" }));
-    await waitFor(() => expect(within(row).queryByText("Newer version 2")).toBeNull());
-    expect(within(row).getByText(choice === "keep" ? "Read every comment." : "Updated source.")).toBeDefined();
   });
 
   it("leaves Instructions in Settings unseeded", async () => {
@@ -147,14 +208,13 @@ describe("the Instructions card in Set up", () => {
     expect(desk.requests("instructions.create")).toHaveLength(0);
   });
 
-
-  it("recognizes a renamed, switched-off seed by its origin", async () => {
+  it("recognizes a renamed, switched-off seed by its origin as Your note", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { firstLaunch: true });
     await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     const desk = app.environment("desk");
     scriptInstructions(desk, [ownedInstruction({ title: "My setup notes", enabled: false, origin: { catalogueId: "setup.about-my-setup", version: 1 } })]);
-    const row = await within(await openCard(app)).findByRole("region", { name: "My setup notes" });
-    expect(within(row).getByRole("switch", { name: "Enabled" }).getAttribute("aria-checked")).toBe("false");
+    const note = await within(await openCard(app)).findByRole("region", { name: "Your note" });
+    expect(within(note).getByRole("region", { name: "My setup notes" })).toBeDefined();
     expect(desk.requests("instructions.create")).toHaveLength(0);
   });
 
@@ -174,9 +234,18 @@ describe("the Instructions card in Set up", () => {
       return { result: { receipt: { status: "rejected", sequence: 1, changed: false, reason: "conflict", error: { code: "conflict", message: "This id is already held.", data: { reason: "exists" } } } } };
     });
     const card = await openCard(app);
-    await within(card).findByRole("region", { name: "About my setup" });
+    await within(await within(card).findByRole("region", { name: "Your note" })).findByRole("region", { name: "About my setup" });
     expect(within(card).queryByText(/About my setup was not created/)).toBeNull();
     expect(desk.requests("instructions.create")).toHaveLength(1);
   });
 
+  it("shows a seed the environment refused as an error with a hidden Error prefix", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { firstLaunch: true });
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
+    const desk = app.environment("desk");
+    scriptInstructions(desk);
+    desk.wire.answer("instructions.create", () => ({ error: { code: "unavailable", message: "The instructions store is busy.", data: {} } }));
+    const card = await openCard(app);
+    await waitFor(() => expect(within(card).getAllByRole("alert").map((alert) => alert.textContent)).toContain("Error: About my setup was not created: The instructions store is busy."));
+  });
 });
