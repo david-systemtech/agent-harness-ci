@@ -4,6 +4,7 @@ import type { LadderName } from "@agent-harness/theme";
 import { useEffect, useState } from "react";
 import { App, type AppProps } from "../src/app.js";
 import { showSession } from "../src/grid/layout.js";
+import { PANE_CARD_UNSCROLLABLE } from "./geometry.js";
 import type { SceneGeometry } from "./scene-registry.js";
 import { prepareWorld, startWorld } from "./world.js";
 
@@ -100,6 +101,7 @@ export function PromptScene({ kind, ladder, state = "pending" }: { readonly kind
 
 /** look.md §10.3 and §5.1: pending buttons 28, semantic icon 14, keycaps 20, argument/plan caps. */
 export const promptGeometry = (kind: PromptKind): readonly SceneGeometry[] => [
+  PANE_CARD_UNSCROLLABLE,
   { selector: '[aria-label="Parked prompt"] button', height: 28 },
   { selector: '[aria-label="Parked prompt"] header > svg', width: 14, height: 14 },
   { selector: '[aria-label="Parked prompt"] kbd', height: 20 },

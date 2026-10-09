@@ -1,6 +1,7 @@
 import type { LadderName } from "@agent-harness/theme";
 import { useEffect } from "react";
 import { App } from "../../src/app.js";
+import { PANE_CARD_UNSCROLLABLE } from "../geometry.js";
 import { prepareWorld, startWorld } from "../world.js";
 import type { Script } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { PresentationValues } from "../../src/presentation.js";
@@ -21,6 +22,7 @@ export const presentation: Partial<PresentationValues> = { paneLayout: { focused
 export const geometry = [
   // The 245px sidebar and 7px separator leave equal cards in both capture sizes.
   { selector: "[data-grid-card]", width: (window.innerWidth - 252) / 2, tolerance: 1 },
+  PANE_CARD_UNSCROLLABLE,
   { selector: "[data-pane-caption]", height: 32 },
   { selector: '[aria-label="Resize the panes"]', width: 7 },
   { selector: '[aria-label="Close the pane"]', width: 24, height: 24 },

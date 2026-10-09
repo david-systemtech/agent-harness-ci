@@ -9,7 +9,7 @@ const CONTROLS = [
   { action: "Dismiss or restore a suggested instruction", keys: "Tab to Dismiss or Restore; Enter" },
   { action: "See what changed in an instruction's source and copy", keys: "Tab to See what changed; Enter" },
   { action: "Replace with new text or Keep mine", keys: "Tab to choice in comparison; Enter" },
-  { action: "Switch the read-only Orientation row on or off", keys: "Tab to Orientation enabled; Space" },
+  { action: "Turn Tell agents about this computer on or off", keys: "Tab to Tell agents about this computer; Space" },
   { action: "Edit or clear session instructions from its menu", keys: "Shift+F10 on session; arrows to Session instructions; Enter" },
   { action: "Close an instruction editor or comparison", keys: "Esc" },
 ] as const;

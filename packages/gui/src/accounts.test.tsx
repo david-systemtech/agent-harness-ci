@@ -1,4 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { resetWords } from "@agent-harness/client-runtime";
 import type { AccountIdentity, AccountUsage } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -720,6 +721,29 @@ describe("Favourite models (ticket 1821)", () => {
     expect(within(menu).getAllByRole("menuitem").map((entry) => entry.textContent)).toEqual(["Haiku 4.5haiku"]);
   });
 
+  it("names a favourite an earlier carry over wrote as `<account>/<model>` by the model it names, and its next edit writes the model ids (ticket 1954)", async () => {
+    const models: ScriptedEnvironment["models"] = [{ accountId: "account-1", models: [
+      { id: "opus", family: "opus", tier: 2, efforts: ["low", "high"], label: "Opus" },
+      { id: "claude-fable-5-1", family: "fable", tier: 3, efforts: ["high"], label: null },
+    ] }];
+    const carried = ["account-a/claude-fable-5-1", "account-a/opus", "account-b/opus", "opus", "account-b/claude-haiku-4-5"];
+    const app = await opened({ desk: { accounts: [{ label: "personal" }], models, settings: { "accounts.favouriteModels": carried } } });
+    const row = await openRow(app, "Default account and model");
+    const section = await within(row).findByRole("region", { name: "Favourite models" });
+    await waitFor(() => expect(favourites(section)).toEqual(["claude-fable-5-1", "opus", "claude-haiku-4-5"]));
+    const items = within(within(section).getByRole("list", { name: "Favourite models, in order" })).getAllByRole("listitem");
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Fable 5.1claude-fable-5-1",
+      "Opus 5.5opus",
+      "Haiku 4.5claude-haiku-4-5No signed-in account lists it: the picker passes it over.",
+    ]);
+    expect(section.textContent).not.toContain("account-");
+    // Every model the account lists is a favourite already.
+    expect(within(section).getByRole("button", { name: "Add a favourite" }).hasAttribute("disabled")).toBe(true);
+    await app.user.click(within(section).getByRole("button", { name: "Move Opus 5.5 up" }));
+    await waitFor(() => expect(app.environment("desk").settings()["accounts.favouriteModels"]).toEqual(["opus", "claude-fable-5-1", "claude-haiku-4-5"]));
+  });
+
   it("leaves the keyboard where the person took it before the write was answered", async () => {
     const app = await opened({ desk: { accounts: [{ label: "personal" }], models: MODELS, settings: { "accounts.favouriteModels": ["claude-opus-5", "claude-sonnet-5"] } } });
     const row = await openRow(app, "Default account and model");
@@ -780,11 +804,34 @@ describe("Usage", () => {
     app.environment("desk").setUsage([{ ...known, windows: [...known.windows, unknown("iguana_necktie", 0), unknown("walrus_hat", null), unknown("otter_scarf", null, "rejected"), unknown("mole_cap", null)] }]);
     const usage = await openRow(app, "Usage");
     const gauge = await within(usage).findByRole("region", { name: "milo@example.test" });
-    expect(windows(gauge)).toEqual([expect.stringMatching(/^5-hour 42 42%, resets \d\d:\d\d$/), "Weekly 10 10%", "Other limit 0%", "Other limit — out"]);
+    const reset = resetWords("2026-09-30T14:00:00.000Z", app.clock.now());
+    expect(windows(gauge)).toEqual([`5-hour 42 42%, ${reset}`, "Weekly 10 10%", "Other limit 0%", "Other limit — out"]);
     expect(within(gauge).getByText("2 other limits give no reading.")).toBeDefined();
     // The comma is not an item of its own in the row's flex line, so no gap sits before it.
     const fiveHour = within(within(gauge).getByRole("list", { name: "Windows" })).getAllByRole("listitem")[0]!;
-    expect(within(fiveHour).getByText("42%").parentElement?.textContent).toMatch(/^42%, resets \d\d:\d\d$/);
+    expect(within(fiveHour).getByText("42%").parentElement?.textContent).toBe(`42%, ${reset}`);
+  });
+
+  it("names the day a window resets on when it is not today, counted from the window's clock", async () => {
+    const app = await opened({ desk: { accounts: [{ label: "personal", identity: MILO }] } });
+    const now = app.clock.now().getTime();
+    const at = new Date(now).toISOString();
+    const days = (count: number) => new Date(now + count * 86_400_000).toISOString();
+    app.environment("desk").setUsage([
+      {
+        ...reading("account-1", 0.42, 0.1, at),
+        windows: [
+          { window: "five_hour", utilisation: 0.42, resetsAt: days(3), verdict: null, observedAt: at },
+          { window: "seven_day", utilisation: 0.1, resetsAt: days(30), verdict: null, observedAt: at },
+        ],
+      },
+    ]);
+    const usage = await openRow(app, "Usage");
+    const gauge = await within(usage).findByRole("region", { name: "milo@example.test" });
+    expect(windows(gauge)).toEqual([
+      expect.stringMatching(/^5-hour 42 42%, resets (Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d\d:\d\d$/),
+      expect.stringMatching(/^Weekly 10 10%, resets \d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d\d:\d\d$/),
+    ]);
   });
 
   it("says only how many unknown limits give no reading when a gauge has no other window", async () => {
@@ -817,7 +864,7 @@ describe("Usage", () => {
 
     const milo = await within(usage).findByRole("region", { name: "milo@example.test" });
     await waitFor(() => expect(pooled(milo)).toEqual(["personal on desk", "laptop milo on laptop"]));
-    expect(windows(milo)).toEqual([expect.stringMatching(/^5-hour 50 50%, resets \d\d:\d\d$/), "Weekly 20 20%"]);
+    expect(windows(milo)).toEqual([`5-hour 50 50%, ${resetWords("2026-09-30T14:00:00.000Z", app.clock.now())}`, "Weekly 20 20%"]);
     expect(windows(within(usage).getByRole("region", { name: "work@example.test" }))).toEqual(["5-hour 95 95% out"]);
     const unread = within(usage).getByRole("region", { name: "An account never read" });
     expect(pooled(unread)).toEqual(["spare on desk"]);
