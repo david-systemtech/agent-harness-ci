@@ -142,7 +142,10 @@ export const AccountsList = ({ view, label = "", labelTaken, inlineSignIn = fals
       const email = emailLabel(account);
       if (email === undefined || named.current.has(account.id) || accounts.some((other) => other.label.toLowerCase() === email.toLowerCase())) continue;
       named.current.add(account.id);
-      void relabelAccount(runtime, environmentId, account, email, uuidv7(clock.now()), true);
+      void relabelAccount(runtime, environmentId, account, email, uuidv7(clock.now()), true).then((outcome) => {
+        // Keep an in-flight attempt unique, but allow a later account update or reconnection to retry a refusal.
+        if (!outcome.ok) named.current.delete(account.id);
+      });
     }
   }, [runtime, environmentId, accounts, writable]);
 

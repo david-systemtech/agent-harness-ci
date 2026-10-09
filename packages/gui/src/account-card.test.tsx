@@ -162,6 +162,41 @@ describe("the Account card in Set up", () => {
     expect(desk.requests("accounts.relabel")).toEqual([]);
   });
 
+  it("keeps the generated name when the person explicitly confirms that same name with Rename", async () => {
+    const app = await opened({ accounts: [{ label: "Claude account", nameByEmail: true, directory: { kind: "owned", path: "/accounts/new" }, identity: null, status: { state: "signed-out", checkedAt: null, detail: null } }] });
+    const desk = app.environment("desk");
+    const row = await within(step()).findByRole("region", { name: "Claude account" });
+    const fold = within(row).getByRole("button", { name: "More options" });
+    if (fold.getAttribute("aria-expanded") !== "true") await app.user.click(fold);
+    await app.user.click(within(row).getByRole("button", { name: "Rename" }));
+    await waitFor(() => expect(desk.requests("accounts.relabel")).toHaveLength(1));
+    expect(desk.accounts()[0]?.nameByEmail).not.toBe(true);
+    desk.changeAccount("account-1", { identity: MILO, status: { state: "signed-in", checkedAt: null, detail: null } });
+    await waitFor(() => expect(facts(row)["Email"]).toBe(MILO.email));
+    expect(desk.requests("accounts.relabel")).toHaveLength(1);
+    expect(desk.accounts()[0]?.label).toBe("Claude account");
+  });
+
+  it("retries a rejected email rename on a later account update without closing the list", async () => {
+    const app = await opened({ accounts: [{ label: "Claude account", nameByEmail: true, directory: { kind: "owned", path: "/accounts/new" }, identity: null, status: { state: "signed-out", checkedAt: null, detail: null } }] });
+    const desk = app.environment("desk");
+    let attempts = 0;
+    desk.wire.answer("accounts.relabel", (params) => {
+      attempts++;
+      if (attempts === 1) return { result: { receipt: { status: "rejected", sequence: 1, changed: false, reason: "conflict", error: { code: "conflict", message: "Another account is already called milo@example.test. Choose another name.", data: { reason: "label_taken" } } } } };
+      const label = String(params["label"]);
+      desk.changeAccount("account-1", { label });
+      return { result: { receipt: { status: "accepted", sequence: 2, changed: true }, result: { account: desk.accounts()[0] } } };
+    });
+    desk.changeAccount("account-1", { identity: MILO, status: { state: "signed-in", checkedAt: null, detail: null } });
+    await waitFor(() => expect(attempts).toBe(1));
+    // A round trip on the same wire waits for the first command's refusal before the next update.
+    await act(async () => { await app.runtime.requests.call(desk.environmentId, "accounts.list", {}); });
+    desk.changeAccount("account-1", { status: { state: "signed-in", checkedAt: app.clock.now().toISOString(), detail: null } });
+    await within(step()).findByRole("region", { name: MILO.email });
+    expect(attempts).toBe(2);
+  });
+
   it("refuses a name typed in More options that an account cannot have before any sign-in starts", async () => {
     const app = await opened();
     const desk = app.environment("desk");

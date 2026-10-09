@@ -110,7 +110,7 @@ const LabelField = ({ label, writable, relabel }: { readonly label: string; read
     event.preventDefault();
     const found = nameProblem(typed);
     setProblem(found);
-    if (found === undefined && typed.trim() !== label) relabel(typed);
+    if (found === undefined) relabel(typed);
   };
   return (
     <form className="flex flex-col gap-1" onSubmit={submit}>
