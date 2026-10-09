@@ -54,7 +54,7 @@ gh_api() {
 }
 # Gallery ZIPs can take minutes on a slow link. Give each attempt ten minutes,
 # with retries starting within ten minutes (at most twenty including the last
-# attempt). The gallery workflow's 30-minute deadline still bounds the entire
+# attempt). The gallery workflow's 55-minute deadline still bounds the entire
 # shard set, capture and publication included. Keep the 64 MiB transfer cap.
 gh_artifact() {
   curl -sS --connect-timeout 15 --max-time 600 --retry 2 --retry-delay 3 --retry-max-time 600 --retry-all-errors --fail -L --max-filesize 67108864 -H @<(printf 'Authorization: Bearer %s\n' "$GH_CI_TOKEN") \
@@ -302,9 +302,8 @@ PYFORMAT
     else
       run_attempt=$(printf '%s' "$reply_run" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("run_attempt",1))')
       GALLERY_PLAN="$gallery_plan" GALLERY_PUBLICATION_RUN="run-$run_id-$run_attempt" python3 "$(dirname "${BASH_SOURCE[0]}")/../../scripts/gallery-publish.py" "$sha" "${archives[@]}"
-      # Cleanup failure must not invalidate a completed, downloadable report.
-      python3 "$(dirname "${BASH_SOURCE[0]}")/../../scripts/gallery-retention.py" || \
-        echo "::warning::Gallery retention failed; rerun the gallery-retention workflow."
+      # Repository-wide retention has its own daily/manual workflow. Do not let
+      # its inventory scan consume the publication job's remaining deadline.
     fi
   fi
 fi
