@@ -21,7 +21,7 @@ const sandboxSetups = (report: ContainmentReport): readonly SandboxSetup[] => {
   return report.levels.flatMap((availability) => {
     if (availability.available || seen.has(availability.cause)) return [];
     seen.add(availability.cause);
-    return [sandboxSetup(availability, container)];
+    return [sandboxSetup(availability, container, report.platform)];
   });
 };
 

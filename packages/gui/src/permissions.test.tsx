@@ -331,6 +331,29 @@ describe("the denylist", () => {
     expect(entries(commands)[0]).toBe("sudo *");
   });
 
+  it("announces a refused list test plainly and keeps the raw refusal under Details", async () => {
+    const app = await opened();
+    app.environment("desk").wire.answer("permissions.denylist.test", () => ({ error: { code: "conflict", message: "The list changed meanwhile.", data: {} } }));
+    const permissions = await openPermissions(app);
+    const test = within(denylistOf(permissions)).getByRole("form", { name: "Test the always-ask list" });
+    await app.user.type(within(test).getByRole("textbox", { name: "Value to test" }), "~/.ssh");
+    await app.user.click(within(test).getByRole("button", { name: "Test" }));
+    const alert = await within(test).findByRole("alert");
+    expect(alert.textContent).toContain("Error: This cannot be done right now. Wait a moment, then choose Test.");
+    expect(alert.textContent).not.toContain("The list changed meanwhile.");
+    await app.user.click(within(alert).getByRole("button", { name: "Details" }));
+    expect(alert.textContent).toContain("conflict: The list changed meanwhile.");
+  });
+
+  it("uses the remote Mac's operating system for the sandbox setup fold", async () => {
+    const app = await opened({ laptop: { containment: { ...NO_BUBBLEWRAP, platform: "darwin" } } });
+    const permissions = await openPermissions(app, "laptop");
+    const sandbox = field(permissions, "permissions.containment.default");
+    await app.user.click(await within(sandbox).findByRole("button", { name: "How to set it up" }));
+    expect(within(sandbox).getByText("This Mac is missing its built-in sandbox. Choose Off, or use a computer with a working sandbox.")).toBeDefined();
+    expect(sandbox.textContent).not.toContain("apt-get");
+  });
+
   it("tests a path, a command or a host and names the entries it matches", async () => {
     const app = await opened();
     const permissions = await openPermissions(app);

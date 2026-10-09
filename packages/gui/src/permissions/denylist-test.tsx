@@ -1,9 +1,10 @@
-import { DENYLIST_TEST_KIND_NAMES, testDenylist, type DenylistTested } from "@agent-harness/client-runtime";
+import { DENYLIST_TEST_KIND_NAMES, plainRefusal, testDenylist, type DenylistTested } from "@agent-harness/client-runtime";
 import { DENYLIST_TEST_KINDS, type DenylistTestKind } from "@agent-harness/contracts";
 import { FlaskConical, ListFilter, Text } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Button, Input, Select } from "../ui/index.js";
 import { useRuntime } from "../window-context.js";
+import { FieldError } from "./field-error.js";
 
 /**
  * Test the always-ask list (setup-copy.md §5.12; permissions spec, "Methods
@@ -23,6 +24,7 @@ export const DenylistTest = ({ environmentId, ready }: { readonly environmentId:
     setTested(undefined);
     void testDenylist(runtime, environmentId, kind, value).then(setTested);
   };
+  const refusal = tested !== undefined && !tested.ok ? tested.refusal === undefined ? { line: tested.line, details: [] } : plainRefusal(tested.refusal, "Test") : undefined;
   return (
     <form aria-label="Test the always-ask list" onSubmit={submit} className="flex flex-col gap-2 rounded-lg border border-hairline p-3">
       <span className="flex items-center gap-1.5 text-xs font-semibold text-ink"><FlaskConical aria-hidden="true" className="size-4" />Test the always-ask list</span>
@@ -47,7 +49,7 @@ export const DenylistTest = ({ environmentId, ready }: { readonly environmentId:
             ))}
           </ul>
         ) : (
-          <p className="text-xs text-signal">{tested.line}</p>
+          refusal !== undefined && <FieldError {...refusal} />
         ))}
     </form>
   );

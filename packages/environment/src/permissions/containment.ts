@@ -37,6 +37,7 @@ export const containmentReport = (probe: ContainmentProbe): ContainmentReport =>
     if (found.available) return { level, available: true, reason: null, cause: null };
     return { level, available: false, reason: found.reason, cause: found.cause, ...(found.detail === null ? {} : { detail: found.detail }) };
   }),
+  ...(probe.platform !== undefined && { platform: probe.platform }),
   mechanism: probe.mechanism,
   container: probe.container,
 });

@@ -201,6 +201,19 @@ describe("the Permissions step's Restore", () => {
 });
 
 describe("the Permissions card's sandbox", () => {
+  it("uses the computer's reported macOS for How to fix it", async () => {
+    const app = await firstLaunch({
+      containment: { ...NO_BUBBLEWRAP, platform: "darwin" },
+      settings: { "permissions.containment.default": "workspace" },
+      setup: { permissions: { state: "needs-attention", reason: "The sandbox you chose does not work on this computer yet.", failing: ["permissions.containment"], actions: ["turn-sandbox-off"] } },
+    });
+    const permissions = await cardOf(app, "Permissions");
+    const notice = within(permissions).getAllByRole("alert").find((alert) => alert.textContent?.includes("The sandbox you chose does not work on this computer yet."))!;
+    await app.user.click(within(notice).getByRole("button", { name: "How to fix it" }));
+    expect(within(notice).getByText("This Mac is missing its built-in sandbox. Choose Off, or use a computer with a working sandbox.")).toBeDefined();
+    expect(notice.textContent).not.toContain("apt-get");
+  });
+
   it("says a sandbox that does not work here in one line, with Turn the sandbox off, which writes it off and checks again, and How to fix it with the OS's commands", async () => {
     const app = await firstLaunch({
       containment: NO_BUBBLEWRAP,

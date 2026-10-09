@@ -78,11 +78,15 @@ const USER_NAMESPACES: CommandToCopy = {
  * for what the computer itself can fix, then the restart, which a container
  * gets from docker compose; a line alone where nothing on the computer helps.
  */
-export const sandboxSetup = (availability: Extract<ContainmentAvailability, { readonly available: false }>, container: boolean): SandboxSetup => {
+export const sandboxSetup = (availability: Extract<ContainmentAvailability, { readonly available: false }>, container: boolean, platform?: string): SandboxSetup => {
   const restart: CommandToCopy = {
     label: `Then restart ${PRODUCT_NAME}, which checks the sandbox as it starts`,
     text: container ? "docker compose restart environment" : `${PRODUCT_NAME} service stop && ${PRODUCT_NAME} service start`,
   };
+  // Older environments identify Seatbelt in the reason, before reporting their OS.
+  const mac = platform === "darwin" || (platform === undefined && /seatbelt|sandbox-exec/i.test(availability.reason));
+  if (mac && availability.cause === "binary_missing") return { line: "This Mac is missing its built-in sandbox. Choose Off, or use a computer with a working sandbox.", commands: [] };
+  if (mac && availability.cause === "failed") return { line: `macOS could not start its built-in sandbox. Check Details, then restart ${PRODUCT_NAME} to check again. If it still does not work, choose Off or use a computer with a working sandbox.`, commands: [], restart };
   switch (availability.cause) {
     case "binary_missing":
     case "socat_missing":

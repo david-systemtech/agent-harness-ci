@@ -32,6 +32,18 @@ describe("the sandbox", () => {
     expect(sandboxReadiness(undefined)).toBe("Needs setup");
   });
 
+  it("gives macOS guidance for a missing or failed built-in sandbox, without Linux install commands", () => {
+    const missing = sandboxSetup(refused("binary_missing"), false, "darwin");
+    expect(missing.line).toBe("This Mac is missing its built-in sandbox. Choose Off, or use a computer with a working sandbox.");
+    expect(missing.commands).toEqual([]);
+    expect(missing.restart).toBeUndefined();
+    expect(sandboxSetup({ ...refused("binary_missing"), reason: "Seatbelt's sandbox-exec is not on this Mac." }, false).commands).toEqual([]);
+    const failed = sandboxSetup(refused("failed"), false, "darwin");
+    expect(failed.line).toContain("macOS could not start its built-in sandbox.");
+    expect(failed.commands).toEqual([]);
+    expect(failed.restart?.text).toBe("agent-harness service stop && agent-harness service start");
+  });
+
   it("gives the OS's commands to copy for what the machine itself can fix, then the restart that probes it again", () => {
     expect(sandboxSetup(refused("binary_missing"), false)).toEqual({
       line: "Install bubblewrap and socat, the two programs the sandbox uses on Linux.",

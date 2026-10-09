@@ -111,7 +111,7 @@ export const restoreDenylistPresets = async (
 };
 
 /** What a test found, each line an entry the value matched or a path whose links could not be followed; or why it could not be tested. */
-export type DenylistTested = { readonly ok: true; readonly lines: readonly string[] } | { readonly ok: false; readonly line: string };
+export type DenylistTested = { readonly ok: true; readonly lines: readonly string[] } | { readonly ok: false; readonly line: string; readonly refusal?: RefusedAnswer };
 
 /**
  * Tests a value against the denylist (`permissions.denylist.test`, a
@@ -123,7 +123,7 @@ export const testDenylist = async (runtime: Pick<Runtime, "requests">, environme
   const typed = value.trim();
   if (typed === "") return { ok: false, line: "Not tested: type a value to test first." };
   const answer = await runtime.requests.call(environmentId, "permissions.denylist.test", { kind, value: typed });
-  if (!answer.ok) return { ok: false, line: `Not tested: ${answer.error.message}` };
+  if (!answer.ok) return { ok: false, line: `Not tested: ${answer.error.message}`, refusal: answer.error };
   const { matches, unresolvable } = answer.result;
   const lines = [
     ...matches.map((match) => `${describeDenylistMatch(match)}.`),
