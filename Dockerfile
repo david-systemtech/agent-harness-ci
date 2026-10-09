@@ -40,6 +40,7 @@ RUN --mount=type=cache,id=agent-harness-pnpm-linux-amd64,target=/pnpm/store,shar
   bash scripts/image-deps.sh \
   && pnpm install --frozen-lockfile --offline --store-dir=/pnpm/store \
   && pnpm exec tsc -b packages/cli \
+  && pnpm --filter @agent-harness/contracts build-validator \
   && HARNESS_VERSION="$HARNESS_VERSION" pnpm --filter @agent-harness/gui build \
   && node scripts/stage-web-client.mjs \
   && pnpm install --frozen-lockfile --offline --store-dir=/pnpm/store --prod --config.confirmModulesPurge=false \
