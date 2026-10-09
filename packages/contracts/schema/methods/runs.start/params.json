@@ -67,9 +67,16 @@
       "minLength": 1
     },
     "effort": {
-      "description": "The reasoning effort for this run; the model's own when absent.",
-      "type": "string",
-      "minLength": 1
+      "description": "The reasoning effort for this run; null for the model's own; when absent, accounts.defaultEffort when the model takes it, else the model's own.",
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "mode": {
       "description": "The mode for this run, clamped to the client session's ceiling and the account's modes; the session's when absent.",
