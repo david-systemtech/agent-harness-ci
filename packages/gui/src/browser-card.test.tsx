@@ -384,4 +384,26 @@ describe("the Browser card in Set up (setup-copy.md §5.11)", () => {
     expect([1, 2, 3, 4].map(tick)).toEqual(["Step 1: done", "Step 2: done", "Step 3: done", "Step 4: done"]);
     expect(within(card()).queryByRole("textbox", { name: "Pairing code" })).toBeNull();
   });
+
+  it("Pair another clears earlier Copy ticks after Chrome has paired", async () => {
+    const { app, status, seen, pair } = await opened();
+    await within(card()).findByRole("heading", { name: STEPS[0] });
+    await app.user.click(within(card()).getByRole("button", { name: "Copy folder location" }));
+    await app.user.click(within(card()).getByRole("button", { name: "Copy chrome://extensions" }));
+    await waitFor(() => expect([1, 2].map(tick)).toEqual(["Step 1: done", "Step 2: done"]));
+    seen();
+    await within(card()).findByDisplayValue("ABCD2345");
+    status.unpairedConnected = false;
+    act(pair);
+    await waitFor(() => expect(tick(5)).toBe("Step 5: done"));
+    await moreOptions(app.user);
+    await app.user.click(within(card()).getByRole("button", { name: "Pair another" }));
+    await waitFor(() => expect([1, 2, 3, 4].map(tick)).toEqual([
+      "Step 1: not done yet", "Step 2: not done yet", "Step 3: not done yet", "Step 4: not done yet",
+    ]));
+    await app.user.click(within(card()).getByRole("button", { name: "Copy folder location" }));
+    await waitFor(() => expect(tick(1)).toBe("Step 1: done"));
+    expect(tick(2)).toBe("Step 2: not done yet");
+  });
+
 });

@@ -114,6 +114,10 @@ export const BrowserPairing = ({ environmentId, accountsEnvironmentId, another, 
   const chromes = listed.result?.chromes ?? [];
   const seen = status.result?.unpairedConnected ?? false;
   const [found, setFound] = useState({ another, seen });
+  if (found.another !== another) {
+    copyFolder(false);
+    copyPage(false);
+  }
   if (found.another !== another || (seen && !found.seen)) setFound({ another, seen });
   const loaded = seen || (another === null ? chromes.length > 0 : found.another === another && found.seen);
   const folder = status.result?.folder;
