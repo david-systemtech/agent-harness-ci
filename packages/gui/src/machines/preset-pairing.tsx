@@ -30,6 +30,8 @@ export const PresetPairing = ({ view, writable, warning }: { readonly view: Envi
     ...(preset.chooses !== "nothing" && { ceiling }),
     ...(preset.chooses === "scopes-and-ceiling" && { scopes: ticked }),
   });
+  // A minted code belongs to this computer and grant; changing either starts with no displayed code.
+  const codeKey = grant.ok ? `${view.environmentId}/${grant.ceiling}/${grant.scopes.join(",")}` : `${view.environmentId}/invalid`;
   const held = (scope: Scope) => view.scopes.includes(scope);
   const missing = grant.ok && grant.scopes.some((scope) => !held(scope));
   const above = ceilingAboveOwn(ceiling, view.ceiling);
@@ -71,7 +73,7 @@ export const PresetPairing = ({ view, writable, warning }: { readonly view: Envi
       </Fold>
       {!grant.ok && <p className="text-xs text-ink-faint">Tick at least one thing it can do.</p>}
       {(above !== null || missing) && <p className="text-xs text-ink-faint">{CANNOT_GIVE_MORE}</p>}
-      <PairingCode view={view} writable={writable && grant.ok && above === null && !missing} grant={grant.ok ? grant : preset} warning={warning} forDevice />
+      <PairingCode key={codeKey} view={view} writable={writable && grant.ok && above === null && !missing} grant={grant.ok ? grant : preset} warning={warning} forDevice={current !== "program"} />
     </div>
   );
 };

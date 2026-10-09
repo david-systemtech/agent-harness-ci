@@ -302,6 +302,32 @@ describe("Add a device, Part 1: connect a phone or computer to this one", () => 
     expect(app.shell.calls).toContainEqual(["clipboard.writeText", address]);
   });
 
+  it("discards a displayed code when its access changes, including an empty Custom choice", async () => {
+    const { app, part, desk } = await partOne();
+    const make = async () => {
+      await app.user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
+      await made(part);
+    };
+    await make();
+    expect(desk.requests("access.pairings.create").at(-1)?.params).toMatchObject({ scopes: [...SCOPES], ceiling: "bypassPermissions" });
+    await app.user.click(within(part).getByRole("radio", { name: "A phone with limited access" }));
+    expect(within(part).queryByRole("group", { name: "Pairing code" })).toBeNull();
+    expect(within(part).queryByRole("button", { name: "Copy pairing link" })).toBeNull();
+    await make();
+    expect(desk.requests("access.pairings.create").at(-1)?.params).toMatchObject({ scopes: ["read", "sessions:write", "runs:drive"], ceiling: "acceptEdits" });
+    await app.user.click(within(part).getByRole("radio", { name: "A program or bot" }));
+    await app.user.click(within(part).getByRole("radio", { name: "Ask before any change" }));
+    expect(within(part).queryByRole("group", { name: "Pairing code" })).toBeNull();
+    await make();
+    await app.user.click(within(part).getByRole("button", { name: "More options" }));
+    await app.user.click(within(part).getByRole("radio", { name: "Custom" }));
+    expect(within(part).queryByRole("group", { name: "Pairing code" })).toBeNull();
+    await make();
+    await app.user.click(within(part).getByRole("checkbox", { name: "See sessions" }));
+    expect(within(part).queryByRole("group", { name: "Pairing code" })).toBeNull();
+    expect(within(part).getByRole("button", { name: "Make a pairing code" }).hasAttribute("disabled")).toBe(true);
+  });
+
   it("says a code ran out once its ten minutes are over, and offers Make a new code", async () => {
     const { app, part, desk } = await partOne();
     await app.user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
@@ -326,7 +352,8 @@ describe("Add a device, Part 1: connect a phone or computer to this one", () => 
     ]);
     await app.user.click(within(freedom).getByRole("radio", { name: "Ask before any change" }));
     await app.user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
-    await made(part);
+    const code = await made(part);
+    expect(code.queryByText(/^On the new device/)).toBeNull();
     expect(desk.requests("access.pairings.create").at(-1)?.params).toMatchObject({ scopes: ["read", "sessions:write", "runs:drive"], ceiling: "plan" });
   });
 
