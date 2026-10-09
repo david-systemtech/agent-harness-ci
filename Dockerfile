@@ -79,5 +79,3 @@ VOLUME ["/data", "/work"]
 EXPOSE 7433
 ENTRYPOINT ["agent-harness"]
 CMD ["serve", "--data-dir", "/data"]
-
-# Temporary image-input verification for ticket #2010; reverted after the hosted build.
