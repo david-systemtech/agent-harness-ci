@@ -180,7 +180,7 @@ describe("the plan gauge", () => {
     expect(within(details).getAllByText("Other limit")).toHaveLength(1);
     const row = label.parentElement?.parentElement as HTMLElement;
     expect(within(row).getByText("37%")).toBeTruthy();
-    expect(within(row).getByText(resetWords("2026-09-25T14:30:00.000Z", app.clock.now())?.slice("resets ".length))).toBeTruthy();
+    expect(within(row).getByText(resetWords("2026-09-25T14:30:00.000Z", app.clock.now())!.slice("resets ".length))).toBeTruthy();
     expect(details.outerHTML).not.toMatch(/iguana[_ ]necktie/);
     expect(within(details).queryByRole("img", { name: /Other limit/ })).toBeNull();
   });
@@ -251,7 +251,7 @@ describe("the plan gauge", () => {
     const details = await screen.findByRole("dialog", { name: "Usage details" });
     expect(within(details).getByText("milo@work.test")).toBeTruthy();
     expect(within(details).getByText("80%")).toBeTruthy();
-    expect(within(details).getByText(resetWords("2026-09-25T14:30:00.000Z", app.clock.now())?.slice("resets ".length))).toBeTruthy();
+    expect(within(details).getByText(resetWords("2026-09-25T14:30:00.000Z", app.clock.now())!.slice("resets ".length))).toBeTruthy();
     expect(within(details).getByText("Current request context appears in the Context meter when supported.")).toBeTruthy();
     await waitFor(() => expect(env.requests("accounts.usage").length).toBeGreaterThan(before));
     const age = within(details).getByLabelText("Reading age").textContent;
