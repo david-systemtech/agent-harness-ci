@@ -348,6 +348,13 @@ esac
     expect(release).not.toContain("needs.image.outputs");
   });
 
+  it("checks native terminal writes, recovery and first/repeated CLI listing on packaged Windows", () => {
+    const smoke = job("smoke-windows").join("\n");
+    expect(smoke).toContain("Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-terminal-state.mjs').Path");
+    expect(smoke).toMatch(/Wait-Ready 'launcher-entry[^\n]*'\s+& \$node scripts\/check-packaged-terminal-state\.mjs \$server \$dataDir/);
+    expect(smoke).toContain("if ($LASTEXITCODE -ne 0) { throw 'Packaged terminal state and CLI listing check failed' }");
+  });
+
   it("checks persisted channel targets on the packaged Linux server's second start", () => {
     const smoke = step("smoke-linux", "Start the packaged environment twice");
     expect(smoke).toContain('environment.update-pending');
