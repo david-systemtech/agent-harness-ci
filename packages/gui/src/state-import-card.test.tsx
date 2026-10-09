@@ -96,6 +96,24 @@ describe("State import on Carry over", () => {
     expect(section().getByRole("button", { name: "Go to Forges" })).toBeDefined();
   });
 
+  it.each([
+    { retainedCount: 2, previewCount: 2, shownCount: 2 },
+    { retainedCount: 2, previewCount: 0, shownCount: 2 },
+    { retainedCount: 0, previewCount: 2, shownCount: 2 },
+    { retainedCount: 1, previewCount: 2, shownCount: 2 },
+    { retainedCount: 2, previewCount: 3, shownCount: 3 },
+  ])("keeps distinct items with identical failure text after Preview ($retainedCount retained, $previewCount previewed)", async ({ retainedCount, previewCount, shownCount }) => {
+    const failure = { label: "Instruction \"Team\"", message: "Its text is longer than an instruction's body may be, 20000 characters." };
+    const app = await opened({ stateImportFailures: Array.from({ length: retainedCount }, () => ({ ...failure })) });
+    const preview = report(true);
+    preview.failed = Array.from({ length: previewCount }, () => ({ ...failure }));
+    preview.reEnter = [];
+    app.environment("desk").wire.answer("stateImport.run", () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: false }, result: preview } }));
+    await app.user.click(section().getByRole("button", { name: "Preview" }));
+    await section().findByText(/^This would bring over:/);
+    expect(section().getAllByText("Instruction \"Team\": Its text is longer than an instruction's body may be, 20000 characters.")).toHaveLength(shownCount);
+  });
+
   it("lets a paired headless environment with signed-in owned accounts finish its empty Carry over step", async () => {
     const reason = "No adopted account's directory holds anything to carry, and no source data folder or terminal-client state folder is on this machine.";
     const app = await opened({ reach: "paired", accounts: [{ label: "Server", directory: { kind: "owned", path: "/data/owned" } }],
