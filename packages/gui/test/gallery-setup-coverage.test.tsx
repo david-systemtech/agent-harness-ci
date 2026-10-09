@@ -210,6 +210,8 @@ it("captures the Permissions card's four choices, and a sandbox that does not wo
     expect(within(card).getByRole("button", { name: "Turn the sandbox off" })).toBeDefined();
     await waitFor(() => expect(within(card).getByRole("button", { name: "How to fix it" }).getAttribute("aria-expanded")).toBe("true"));
     expect(within(card).getByText("sudo apt-get install bubblewrap socat")).toBeDefined();
+    expect(within(card).getByRole("button", { name: "Restart agent-harness" })).toBeDefined();
+    expect(within(card).queryByText("agent-harness service stop && agent-harness service start")).toBeNull();
     expect(card.querySelector("[data-step-status] [data-notice-tone] h5")).not.toBeNull();
   } finally { sandbox.unmount(); }
 });
@@ -274,5 +276,17 @@ it.each(["light", "dark"] as const)("captures the Default theme question in %s b
     const card = screen.getByRole("region", { name: "Appearance" });
     expect(within(card).getByText("Loud, on desk")).toBeDefined();
     expect(within(card).getByRole("button", { name: "Use the Default theme" })).toBeDefined();
+  } finally { view.unmount(); }
+});
+
+// #1988: the paired version of the sandbox guidance keeps a command to copy.
+it("captures the Permissions restart command on a paired computer", async () => {
+  const Scene = setupRegionScene("permissions-sandbox-paired");
+  const view = render(<Scene ladder="dark" />);
+  try {
+    const card = await screen.findByRole("region", { name: "Permissions" });
+    await waitFor(() => expect(within(card).getByRole("button", { name: "How to fix it" }).getAttribute("aria-expanded")).toBe("true"));
+    expect(within(card).getByText("agent-harness service stop && agent-harness service start")).toBeDefined();
+    expect(within(card).queryByRole("button", { name: "Restart agent-harness" })).toBeNull();
   } finally { view.unmount(); }
 });

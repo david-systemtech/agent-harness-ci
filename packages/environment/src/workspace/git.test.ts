@@ -40,6 +40,10 @@ it.skipIf(process.platform === "win32")("stops a clone's pack helper before an o
   const ready = new Promise<Socket>((resolve) => {
     server.on("connection", (socket) => {
       sockets.add(socket);
+      // The killed pack helper may reset its connection instead of ending it.
+      socket.on("error", (error: NodeJS.ErrnoException) => {
+        if (error.code !== "ECONNRESET") throw error;
+      });
       socket.once("data", () => resolve(socket));
     });
   });
@@ -87,6 +91,8 @@ esac
     helper.once("data", () => resolve("wrote"));
   });
   stopping.abort();
+  // Killing the peer can reset this socket; exercise that event on every run.
+  helper.emit("error", Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }));
   expect(await answer).toMatchObject({ ok: false, timedOut: false });
   await removeTree(join(root, "skills"));
   if (!helper.destroyed) helper.write("continue");
