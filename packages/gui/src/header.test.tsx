@@ -69,9 +69,11 @@ describe("the single-line header", () => {
     const header = within(screen.getByRole("banner"));
     expect(await header.findByText("project")).toBeDefined();
     expect(header.getByText("Plan the next task")).toBeDefined();
-    await app.user.click(await header.findByRole("button", { name: "Set up: 1 needs attention" }));
-    expect(await screen.findByRole("region", { name: "Set up" })).toBeDefined();
+    // The chip opens Set up itself, at the step that needs a fix (setup-copy.md §4.5).
     expect(header.queryByRole("button", { name: "Parked asks" })).toBeNull();
+    await app.user.click(await header.findByRole("button", { name: "Set up: 1 to fix" }));
+    const steps = await screen.findByRole("navigation", { name: "Set up steps" });
+    expect(within(steps).getByRole("button", { name: "Permissions" }).getAttribute("aria-current")).toBe("step");
   });
 
   it("shows a failed update as a compact status without offering an unstaged restart", async () => {

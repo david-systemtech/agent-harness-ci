@@ -42,6 +42,9 @@ export const followedSignIn = (held: SignIn | null | undefined, card: AttendedSi
   return held;
 };
 
+/** Whether a sign-in ended without signing the account in: it failed or expired. */
+export const signInFailed = (signIn: SignIn): boolean => signIn.state === "failed" || signIn.state === "expired";
+
 /** A sign-in's end in one line: done, failed, expired or cancelled; undefined while it runs. */
 export const signInEnd = (signIn: SignIn, label: string, environment: string): string | undefined => {
   switch (signIn.state) {
@@ -74,10 +77,10 @@ export const signInLeftWords = (remainingMs: number): string => (remainingMs <= 
 export const fallbackOf = (signIn: SignIn, directory: string | undefined): string =>
   directory !== undefined && (/^[a-z]:/i.test(directory) || directory.includes("\\")) ? signIn.fallback.powershell : signIn.fallback.posix;
 
-/** What adding an account did: refused, added with no sign-in to follow (said in one line), or added with its sign-in started. */
+/** What adding an account did: refused, added with no sign-in to follow (said in one line, `ok` false when its sign-in did not start), or added with its sign-in started. */
 export type AccountAdded =
   | { readonly kind: "refused"; readonly line: string }
-  | { readonly kind: "added"; readonly line: string }
+  | { readonly kind: "added"; readonly ok: boolean; readonly line: string }
   | { readonly kind: "signing-in"; readonly account: AccountRecord };
 
 /**
@@ -90,9 +93,9 @@ export const addAccount = async (runtime: Runtime, environmentId: string, label:
   const answer = await adminCall(() => runtime.requests.call(environmentId, "accounts.add", { commandId, label }));
   if (!answer.ok) return { kind: "refused", line: `Not added: ${answer.line}` };
   const result = answer.result;
-  if (!result) return { kind: "added", line: `${label} was added on ${environment}.` };
+  if (!result) return { kind: "added", ok: true, line: `${label} was added on ${environment}.` };
   if (!result.signIn.started) {
-    return { kind: "added", line: `${label} was added on ${environment}, but its sign-in did not start: ${result.signIn.message ?? "the environment gave no reason"}` };
+    return { kind: "added", ok: false, line: `${label} was added on ${environment}, but its sign-in did not start: ${result.signIn.message ?? "the environment gave no reason"}` };
   }
   return { kind: "signing-in", account: result.account };
 };
@@ -115,10 +118,12 @@ export const sendSignInCode = async (runtime: Runtime, environmentId: string, ac
   return answer.ok ? undefined : `The code was not taken: ${answer.line}`;
 };
 
-/** Cancels the sign-in the card started (`accounts.signin.cancel`): the line saying how it ended. */
-export const cancelSignIn = async (runtime: Runtime, environmentId: string, account: { readonly id: string; readonly label: string }, commandId: string, environment: string): Promise<string> => {
+/** Cancels the sign-in the card started (`accounts.signin.cancel`): the line saying how it ended, and whether that is a failure (a refusal, or a sign-in that had failed or expired). */
+export const cancelSignIn = async (runtime: Runtime, environmentId: string, account: { readonly id: string; readonly label: string }, commandId: string, environment: string): Promise<{ readonly ok: boolean; readonly line: string }> => {
   const answer = await adminCall(() => runtime.requests.call(environmentId, "accounts.signin.cancel", { commandId, accountId: account.id }));
-  if (!answer.ok) return `The sign-in of ${account.label} was not cancelled: ${answer.line}`;
-  const ended = answer.result ? signInEnd(answer.result.signIn, account.label, environment) : undefined;
-  return ended ?? `The sign-in of ${account.label} was cancelled.`;
+  if (!answer.ok) return { ok: false, line: `The sign-in of ${account.label} was not cancelled: ${answer.line}` };
+  const signIn = answer.result?.signIn;
+  const ended = signIn === undefined ? undefined : signInEnd(signIn, account.label, environment);
+  if (signIn === undefined || ended === undefined) return { ok: true, line: `The sign-in of ${account.label} was cancelled.` };
+  return { ok: !signInFailed(signIn), line: ended };
 };

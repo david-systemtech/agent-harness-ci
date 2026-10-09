@@ -1,5 +1,5 @@
-import type { BankJoinPreview, CarryOverInventory, CarryOverReport, StepId, StepResult } from "@agent-harness/contracts";
-import type { ScriptedSetup } from "@agent-harness/client-runtime/testing/scripted-environment";
+import { CATALOGUE, CATALOGUE_SEED_INSTRUCTION_ID, type BankJoinPreview, type CarryOverInventory, type CarryOverReport, type ResultOf, type StepId, type StepResult } from "@agent-harness/contracts";
+import type { EnvironmentHandle, ScriptedSetup } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { LadderName } from "@agent-harness/theme";
 import { useEffect, useState } from "react";
 import { App } from "../src/app.js";
@@ -8,6 +8,7 @@ import { STEP_CARDS } from "../src/setup/cards.js";
 import type { StepCardProps } from "../src/setup/cards.js";
 import { useChecklist } from "../src/setup/checklist-window.js";
 import { MintedSessionCard } from "../src/setup/minted-session-card.js";
+import { StepStatus } from "../src/setup/step-status.js";
 import { authoringQuestions } from "./authoring-scene.js";
 import { prepareWorld, startWorld } from "./world.js";
 
@@ -21,12 +22,53 @@ export const joinPreview: BankJoinPreview = {
   rules: ["No personal facts.", "No secrets."], canRead: true, canPush: false,
 };
 
-type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "carry-over-nothing" | "carry-over-after" | "rail-states";
+/** A step's status at the head of its card (setup-copy.md §3; #1840): done, needing a fix with Details open, a check that could not run, and the environment out of reach. */
+type StatusRegion = "status-done" | "status-fix" | "status-could-not-check" | "status-unreachable";
+
+type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "carry-over-nothing" | "carry-over-after" | "rail-states" | "instructions-unread" | StatusRegion;
+
+const isStatus = (kind: SetupRegion): kind is StatusRegion => kind.startsWith("status-");
 
 /** setup-copy.md §5.4: a container no host updater has polled, its line offering How to set it up (#1883). */
 const NEVER_POLLED: Partial<StepResult> = {
   state: "needs-attention", reason: "This container is not kept up to date yet. Set up the updater on the host computer.",
   failing: ["your-machines.host-updater"], actions: ["how-to-set-up", "check-again"],
+};
+
+/** setup-copy.md §5.10: the block could not read the forges and notebooks parts, so the line names their steps (#1856). */
+const UNREAD_PARTS: Partial<StepResult> = {
+  state: "needs-attention", reason: "agent-harness could not read part of this computer's setup: Forges, Memory bank.",
+  failing: ["instructions.orientation-renders"], actions: ["check-again"], details: ["Unread sections of the orientation block: forges, banks"],
+};
+
+/** The Instructions card's world: About my setup seeded and one suggestion ticked, and the block a new run is handed (#1856). */
+const scriptInstructions = (desk: EnvironmentHandle, unreadRegistries: readonly string[]) => {
+  const text = "## This computer\n\nForges, key managers and notebooks are listed here for every run.";
+  const owned = CATALOGUE.instructions.entries.filter((entry) => entry.id === CATALOGUE_SEED_INSTRUCTION_ID || entry.id === "coding.fresh-checkout");
+  const listed: ResultOf<"instructions.list"> = {
+    orientation: { enabled: true, text, unreadRegistries: [...unreadRegistries], accounts: [] },
+    instructions: owned.map((entry, index) => ({
+      id: `0199dd00-0000-4000-8000-00000000008${index}`, title: entry.title, body: entry.text, origin: { catalogueId: entry.id, version: entry.version },
+      scope: "all", enabled: true, position: String.fromCharCode(109 + index), newerVersion: null, accounts: [],
+    })),
+    dismissed: [],
+  };
+  desk.wire.answer("instructions.list", () => ({ result: listed }));
+  desk.wire.answer("workspaces.browse", () => ({ result: { path: "/home/project", parent: "/home", directories: [], truncated: false } }));
+  desk.wire.answer("instructions.preview", () => ({ result: {
+    parts: [{ layer: "user", id: "orientation", title: "Orientation", text }], text,
+    manifest: { channel: "system-prompt-append", layers: [], alwaysOn: [], skillSetFingerprint: null, unreadRegistries: [...unreadRegistries], leftOut: [] },
+  } }));
+};
+
+/** The Skills step's result in each status scene, drawn by the step's status alone; the rest check as the environment's start did. */
+const STATUS_RESULTS: { readonly [Kind in StatusRegion]?: Partial<StepResult> } = {
+  "status-done": { reason: "Your skills are ready.", details: ["Collections: team-skills, house-skills"] },
+  "status-fix": {
+    state: "needs-attention", reason: "team-skills could not update. Choose Update now.", failing: ["skills.sources-synced"], actions: ["pull-now", "check-again"],
+    targets: [{ action: "pull-now", kind: "skill-source", id: "0f8fad5b-d9cb-469f-a165-70867728950e", label: "team-skills" }],
+    details: ["team-skills: git fetch exited with 128", "team-skills: could not resolve host git.example.test"],
+  },
 };
 
 /**
@@ -59,7 +101,8 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
-  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind === "carry-over-nothing" || kind === "carry-over-after" ? "carry-over" : kind === "rail-states" ? "key-manager" : kind;
+  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind === "carry-over-nothing" || kind === "carry-over-after" ? "carry-over" : kind === "rail-states" ? "key-manager" : kind === "instructions-unread" ? "instructions" : isStatus(kind) ? "skills" : kind;
+  const status = isStatus(kind) ? STATUS_RESULTS[kind] : undefined;
   const prepared = await prepareWorld({ environments: [{
     name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks"],
     accounts: kind === "account" || kind === "close-confirmation" ? [] : kind === "sign-in"
@@ -70,8 +113,11 @@ async function prepareRegion(kind: SetupRegion) {
     ...(kind === "host-updater" && { setup: { "your-machines": NEVER_POLLED } }),
     ...(kind === "carry-over-nothing" && { setup: { "carry-over": NOTHING_TO_BRING } }),
     ...(kind === "rail-states" && { setup: RAIL_STATES }),
+    ...(kind === "instructions-unread" && { setup: { instructions: UNREAD_PARTS } }),
+    ...(status !== undefined && { setup: { skills: status } }),
   }] }, { firstLaunch: true });
   const desk = prepared.world.environment("desk");
+  if (target === "instructions") scriptInstructions(desk, kind === "instructions-unread" ? ["forges", "banks"] : []);
   desk.wire.answer("browser.status", () => ({ result: {
     listener: { state: "listening", port: 47615 }, folder: { path: "/extension/current", problem: null }, shippedVersion: "0.1.0", unpairedConnected: false,
     headless: { allowRuns: true, availability: { available: false, reason: "No browser installed." }, liveContexts: 0 },
@@ -94,6 +140,7 @@ async function prepareRegion(kind: SetupRegion) {
     return { result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: broughtOver(String(params["accountId"])) } };
   });
   const holders = await startWorld(prepared, prepared.paired);
+  if (kind === "status-could-not-check") desk.refuseSetupChecks({ code: "internal", message: "The step registry could not load.", data: {} });
   const sessionId = kind === "authoring" ? desk.sessionId() : undefined;
   if (sessionId !== undefined) {
     const { runId } = desk.startRun(sessionId, "Describe the project memory bank.");
@@ -103,7 +150,7 @@ async function prepareRegion(kind: SetupRegion) {
   const OpenStep = () => { const { choose } = useChecklist(); useEffect(() => choose(target), [choose]); return null; };
   const PreviewCard = () => <JoinPreview preview={joinPreview} />;
   const AuthoringCard = (props: StepCardProps) => <MintedSessionCard {...props} {...(sessionId !== undefined && { sessionId })} artefact={{ kind: "folder", path: "/banks/project-memory" }} />;
-  const cards = { ...STEP_CARDS, ...(target !== "account" && { account: OpenStep }), ...(kind === "bank-preview" ? { "memory-bank": PreviewCard } : kind === "authoring" ? { "memory-bank": AuthoringCard } : {}) };
+  const cards = { ...STEP_CARDS, ...(target !== "account" && { account: OpenStep }), ...(kind === "bank-preview" ? { "memory-bank": PreviewCard } : kind === "authoring" ? { "memory-bank": AuthoringCard } : {}), ...(isStatus(kind) && { skills: StepStatus }) };
   return { holders, prepared, cards };
 }
 
@@ -145,6 +192,16 @@ export function setupRegionScene(kind: SetupRegion) {
         if (kind === "carry-over-after") {
           const bring = [...document.querySelectorAll<HTMLButtonElement>("[data-setup-scroll] button")].find((button) => button.textContent === "Bring them over");
           if (!finished && bring !== undefined && !bring.disabled) { finished = true; bring.click(); }
+          return;
+        }
+        if (kind === "status-fix" && !finished) {
+          const details = [...document.querySelectorAll<HTMLButtonElement>("[data-step-status] [data-notice-tone] button")].find((button) => button.textContent === "Details");
+          if (details !== undefined) { finished = true; details.click(); }
+          return;
+        }
+        if (kind === "status-unreachable" && !finished && document.querySelector("[data-step-status]") !== null) {
+          finished = true;
+          scene.prepared.world.environment("desk").server.drop();
           return;
         }
         if (kind === "host-updater") {
