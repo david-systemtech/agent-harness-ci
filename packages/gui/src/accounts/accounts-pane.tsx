@@ -10,11 +10,12 @@ import { usePickedEnvironment } from "../settings/settings-window.js";
 import { useSettingsValues } from "../settings/settings-values.js";
 import { CopyLine } from "../settings/copy-line.js";
 import { AccountAction } from "./action.js";
-import { useClock, useObservable, useRuntime, useShell } from "../window-context.js";
+import { useClock, useFollowed, useObservable, useRuntime, useShell } from "../window-context.js";
 import { AccountCard } from "./account-card.js";
 import { SignInQuestion } from "./adopt-offer.js";
 import { ConfirmRemove } from "./confirm-remove.js";
 import { SignInCard } from "./sign-in-card.js";
+import { Input } from "../ui/index.js";
 
 /** The step homed on this row beside Account whose card is not drawn here: its link opens it in Set up. */
 const CARRY_OVER = ["carry-over"] as const;
@@ -49,13 +50,24 @@ export const AccountsPane = () => {
   return picked === undefined ? null : <AccountsOn key={picked.environmentId} view={picked} />;
 };
 
-const AccountsOn = ({ view }: { readonly view: EnvironmentView }) => (
-  <>
-    <p className="text-2xs leading-relaxed text-ink-faint">{settingsRow("accounts.accounts").hint}</p>
-    <AccountsList view={view} inlineSignIn />
-    <StepLinks steps={CARRY_OVER} />
-  </>
-);
+const AccountsOn = ({ view }: { readonly view: EnvironmentView }) => {
+  const runtime = useRuntime();
+  const [label, setLabel] = useState("");
+  const probed = runtime.capability(view.environmentId, "accounts.probe").status === "present";
+  const probe = useFollowed(useMemo(() => probed ? runtime.requests.cached(view.environmentId, "accounts.probe", {}) : undefined, [runtime, view.environmentId, probed]))?.result;
+  const needsName = probe?.present === true && probe.signedIn && probe.identity === null && probe.accountId === null;
+  return (
+    <>
+      <p className="text-2xs leading-relaxed text-ink-faint">{settingsRow("accounts.accounts").hint}</p>
+      {(needsName || label !== "") && <label className="flex flex-col gap-1 text-sm text-ink-muted">
+        Label for the new account
+        <Input data-account-name-required disabled={view.phase !== "ready" || runtime.capability(view.environmentId, "accounts.adopt").status !== "present"} value={label} onChange={event => setLabel(event.target.value)} className="w-64 max-w-full" />
+      </label>}
+      <AccountsList view={view} inlineSignIn label={label} labelTaken={() => setLabel("")} />
+      <StepLinks steps={CARRY_OVER} />
+    </>
+  );
+};
 
 export interface AccountsListProps {
   readonly view: EnvironmentView;

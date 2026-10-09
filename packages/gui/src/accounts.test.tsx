@@ -196,6 +196,19 @@ describe("Accounts", () => {
     expect(within(accounts).queryByRole("alert")).toBeNull();
   });
 
+  it("names a Claude Code sign-in without an email from Settings and retries its adoption", async () => {
+    const app = await opened({ desk: { ambient: { present: true, signedIn: true, identity: null } } });
+    const desk = app.environment("desk");
+    const accounts = await openRow(app, "Accounts");
+    await app.user.click(await within(question(accounts)).findByRole("button", { name: "Use this sign-in" }));
+    expect((await within(accounts).findByRole("alert")).textContent).toContain("This sign-in has no email to name the account by. Enter a name.");
+    await app.user.type(within(accounts).getByRole("textbox", { name: "Label for the new account" }), "Personal");
+    await app.user.click(within(question(accounts)).getByRole("button", { name: "Use this sign-in" }));
+    await within(accounts).findByRole("region", { name: "Personal" });
+    expect(desk.requests("accounts.adopt").map(request => request.params["label"])).toEqual([undefined, "Personal"]);
+    expect(within(accounts).queryByRole("alert")).toBeNull();
+  });
+
   it("signs in with Claude on the sign-in card with no label form, names the account by its email once signed in, and signs in again an account whose sign-in lapsed, each end said in one line", async () => {
     const app = await opened({ desk: { accounts: [{ label: "work", identity: MILO, status: { state: "expired", checkedAt: null, detail: null } }] } });
     const desk = app.environment("desk");

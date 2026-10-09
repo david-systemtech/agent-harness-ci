@@ -90,3 +90,18 @@ it("keeps account capture pending while fonts remain held beyond a polling deadl
     else Object.defineProperty(document, "fonts", originalFonts);
   }
 });
+
+it("draws the Settings name field for a sign-in without email and reaches capture readiness", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, "settings-accounts-no-email");
+  try {
+    await assertCaptureReady(container, "settings-accounts-no-email", gallery.ready);
+    const pane = within(await screen.findByRole("region", { name: "Settings" })).getByRole("region", { name: "Accounts" });
+    expect(within(pane).getByRole("textbox", { name: "Label for the new account" })).toBeDefined();
+    expect(within(pane).getByRole("button", { name: "Use this sign-in" })).toBeDefined();
+  } finally {
+    await act(async () => gallery.close());
+    container.remove();
+  }
+});
