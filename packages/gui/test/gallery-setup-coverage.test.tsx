@@ -70,6 +70,31 @@ it.each([
   } finally { view.unmount(); }
 });
 
+// setup-copy.md §5.10: the Instructions card's Your note, Suggestions and fold, and its unread line with Go to each step (#1856).
+it("captures the Instructions card with Your note, Suggestions and Write your own, and its unread line naming the steps with Go to each", async () => {
+  const Scene = setupRegionScene("instructions");
+  const view = render(<Scene ladder="dark" />);
+  try {
+    const card = await screen.findByRole("region", { name: "Instructions" });
+    const note = await within(card).findByRole("region", { name: "Your note" });
+    expect(within(within(note).getByRole("region", { name: "About my setup" })).getByRole("button", { name: "Edit" })).toBeDefined();
+    const suggestions = within(card).getByRole("region", { name: "Suggestions" });
+    expect(suggestions.querySelector("[data-setup-suggestions]")).not.toBeNull();
+    expect((within(suggestions).getByRole("checkbox", { name: "Read code from a fresh checkout" }) as HTMLInputElement).checked).toBe(true);
+    expect(within(card).getByRole("button", { name: "Write your own" })).toBeDefined();
+    expect(await within(card).findByRole("button", { name: "What agents are told about this computer" })).toBeDefined();
+    expect(within(card).queryByRole("button", { name: /^Go to / })).toBeNull();
+  } finally { view.unmount(); }
+  const Unread = setupRegionScene("instructions-unread");
+  const unread = render(<Unread ladder="dark" />);
+  try {
+    const card = await screen.findByRole("region", { name: "Instructions" });
+    expect(await within(card).findByText("agent-harness could not read part of this computer's setup: Forges, Memory bank.")).toBeDefined();
+    expect((await within(card).findAllByRole("button", { name: /^Go to / })).map((button) => button.textContent)).toEqual(["Go to Forges", "Go to Memory bank"]);
+    expect(card.querySelector("[data-go-to-steps]")).not.toBeNull();
+  } finally { unread.unmount(); }
+});
+
 it.each<[StepId, string]>([["your-machines", "Your machines"], ["forges", "Forges"], ["key-manager", "Key manager"], ["instructions", "Instructions"], ["permissions", "Permissions"], ["appearance", "Appearance"]])("captures the real %s card and its persistent footer", async (step, label) => {
   const Scene = setupRegionScene(step);
   const view = render(<Scene ladder="light" />);

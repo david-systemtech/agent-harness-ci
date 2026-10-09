@@ -113,7 +113,7 @@ describe("the Account card in Set up", () => {
     await screen.findByText("No session is open. Choose one from the sidebar.");
     await app.user.keyboard("{Control>},{/Control}");
     const settings = await screen.findByRole("region", { name: "Settings" });
-    await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Open the full checklist" }));
+    await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Open Set up" }));
     await within(step()).findByText("No account is held here.");
     expect(within(step()).getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(true);
     expect(within(step()).getByText("Sign in to continue. Account is the one required step.")).toBeDefined();

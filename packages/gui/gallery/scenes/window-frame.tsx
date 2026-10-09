@@ -8,6 +8,7 @@ import { KeyDispatch } from "../../src/keys/key-dispatch.js";
 import { DEFAULT_KEY_MAP } from "../../src/keys/key-map.js";
 import { NewSessionSurfaces } from "../../src/new-session/surfaces.js";
 import { SettingsProvider } from "../../src/settings/settings-window.js";
+import { ChecklistProvider } from "../../src/setup/checklist-window.js";
 import { TerminalPanesProvider } from "../../src/terminal/terminal-panes.js";
 import { TooltipProvider } from "../../src/ui/tooltip.js";
 import { WindowProvider } from "../../src/window-context.js";
@@ -45,7 +46,7 @@ async function frameScene() {
     return <div ref={ref} data-frame={name}>
       <p className="px-2 py-2 text-xs text-ink-muted">{name}</p>
       <KeyDispatch macOS={name.startsWith("macos")} keyMap={DEFAULT_KEY_MAP}>
-        <SettingsProvider><TerminalPanesProvider><PaneGridProvider><NewSessionSurfaces><Header /></NewSessionSurfaces></PaneGridProvider></TerminalPanesProvider></SettingsProvider>
+        <SettingsProvider><ChecklistProvider><TerminalPanesProvider><PaneGridProvider><NewSessionSurfaces><Header /></NewSessionSurfaces></PaneGridProvider></TerminalPanesProvider></ChecklistProvider></SettingsProvider>
       </KeyDispatch>
     </div>;
   };
