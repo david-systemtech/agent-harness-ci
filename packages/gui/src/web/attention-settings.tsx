@@ -1,5 +1,5 @@
 import { createPortal } from "react-dom";
-import { EndpointName, type AttentionTargetStatus, type CommandReceipt } from "@agent-harness/contracts";
+import { EndpointName, type AttentionTargetStatus, type CommandReceipt, type ResultOf } from "@agent-harness/contracts";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Dialog } from "radix-ui";
 import { Bell, RefreshCw, X } from "lucide-react";
@@ -74,6 +74,7 @@ export const AttentionSettingsPane = ({ targets, admin, busy, onConfigure, onRem
         </label>
       </article>;
     })}
+    {outcome?.target !== undefined && !targets.some(target => target.id === outcome.target) && <OutcomeLine text={outcome.text} />}
     {admin && <WebhookRouteForm busy={busy} onAdd={onAddRoute} outcome={outcome && outcome.target === undefined ? outcome.text : undefined} arrived={outcome?.row !== undefined && targets.some(target => target.id === outcome.row)} />}
   </section>
 );
@@ -108,6 +109,17 @@ const WebhookRouteForm = ({ busy, onAdd, outcome, arrived }: { readonly busy: bo
 const refusal = (answer: { readonly ok: true; readonly result: { readonly receipt: CommandReceipt } } | { readonly ok: false; readonly error: { readonly message: string } } | null): string | null =>
   !answer ? "Check your connection and admin grant." : !answer.ok ? answer.error.message : answer.result.receipt.status === "rejected" ? answer.result.receipt.error.message : null;
 
+/** Describes only the credential the environment actually removed; external key-manager secrets are never deleted here. */
+const routeRemovalText = (id: string, endpoint: ResultOf<"attention.routes.remove">["endpoint"]): string => {
+  if (endpoint?.state === "retained") return `Webhook route ${id} removed. Endpoint ${endpoint.name} and its signing secret kept because a routine or another attention route still uses it.`;
+  if (endpoint?.state === "missing") return `Webhook route ${id} removed. Endpoint ${endpoint.name} was already absent.`;
+  if (!endpoint) return "Attention route removed.";
+  if (endpoint.secretKind === "pasted") return `Webhook route ${id}, endpoint ${endpoint.name} and its signing secret removed.`;
+  if (endpoint.secretKind === "reference") return `Webhook route ${id}, endpoint ${endpoint.name} and its key-manager reference removed. The external signing secret was kept in the key manager.`;
+  if (endpoint.secretKind === "missing") return `Webhook route ${id} and endpoint ${endpoint.name} removed. No saved signing secret was removed.`;
+  return `Webhook route ${id} and endpoint ${endpoint.name} removed.`;
+};
+
 const ConnectedAttention = ({ environmentId }: { readonly environmentId: string }) => {
   const runtime = useRuntime();
   const clock = useClock();
@@ -126,10 +138,19 @@ const ConnectedAttention = ({ environmentId }: { readonly environmentId: string 
     const setLine = (text: string) => setOutcome({ text, target: id });
     try {
       const commandId = crypto.randomUUID();
-      const result = preferences
-        ? await runtime.requests.call(environmentId, global ? "attention.routes.configure" : "attention.targets.configure", { commandId, id, ...preferences })
-        : await runtime.requests.call(environmentId, global ? "attention.routes.remove" : "attention.targets.remove", { commandId, id });
-      setLine(result.ok && result.result.receipt.status === "accepted" ? "Attention preferences saved." : "Could not save attention preferences. Check your connection and grant.");
+      if (global && !preferences) {
+        const result = await runtime.requests.call(environmentId, "attention.routes.remove", { commandId, id });
+        setLine(result.ok && result.result.receipt.status === "accepted"
+          ? routeRemovalText(id, result.result.result?.endpoint)
+          : "Could not save attention preferences. Check your connection and grant.");
+      } else {
+        const result = preferences
+          ? await runtime.requests.call(environmentId, global ? "attention.routes.configure" : "attention.targets.configure", { commandId, id, ...preferences })
+          : await runtime.requests.call(environmentId, "attention.targets.remove", { commandId, id });
+        setLine(result.ok && result.result.receipt.status === "accepted"
+          ? preferences ? "Attention preferences saved." : "Attention delivery target removed."
+          : "Could not save attention preferences. Check your connection and grant.");
+      }
       refresh();
     } catch { setLine("Could not save attention preferences. Check your connection and grant."); }
     finally { setBusy(false); }

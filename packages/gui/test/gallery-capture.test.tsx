@@ -133,6 +133,19 @@ it("fails a row of a list that grows taller than the first row, so rows with lon
   expect(measureSceneGeometry()).toEqual([]);
 });
 
+it("fails a bar that starts left or right of the first, so a column of bars stays one column (ticket 1952)", () => {
+  const root = document.createElement("div");
+  root.id = "root";
+  root.dataset["galleryGeometry"] = JSON.stringify([{ selector: "li", sameLeft: true }]);
+  root.innerHTML = "<ul><li>first</li><li>second</li><li>third</li></ul>";
+  document.body.append(root);
+  const lefts = [884, 884, 852];
+  root.querySelectorAll("li").forEach((bar, index) => vi.spyOn(bar, "getBoundingClientRect").mockImplementation(() => new DOMRect(lefts[index]!, 0, 40, 4)));
+  expect(measureSceneGeometry()).toEqual(["li[2].left: got 852, expected 884 like li[0] ±0.5"]);
+  lefts[2] = 884.3;
+  expect(measureSceneGeometry()).toEqual([]);
+});
+
 
 it("serves the built gallery at the same origin on every run, so a scene that shows the page's origin captures the same pixels (ticket 1763)", async () => {
   const directory = await mkdtemp(join(tmpdir(), "gallery-dist-"));
@@ -153,7 +166,7 @@ it("serves the built gallery at the same origin on every run, so a scene that sh
 });
 
 it("captures every scene in dark and the specified light subset without exceeding the report budget", () => {
-  expect(captureCases(["settings-accounts", "settings-permissions", "settings-theme", "settings-usage", "setup-account", "setup-appearance", "settings-banks", "dock-files"])).toEqual([
+  expect(captureCases(["settings-accounts", "settings-permissions", "settings-theme", "settings-usage", "setup-account", "setup-appearance", "settings-banks", "dock-files", "status-line-usage-details", "status-line-docked"])).toEqual([
     { scene: "settings-accounts", ladder: "light", name: "settings-accounts.light" }, { scene: "settings-accounts", ladder: "dark", name: "settings-accounts.dark" },
     { scene: "settings-permissions", ladder: "light", name: "settings-permissions.light" }, { scene: "settings-permissions", ladder: "dark", name: "settings-permissions.dark" },
     { scene: "settings-theme", ladder: "light", name: "settings-theme.light" }, { scene: "settings-theme", ladder: "dark", name: "settings-theme.dark" },
@@ -161,6 +174,9 @@ it("captures every scene in dark and the specified light subset without exceedin
     { scene: "setup-account", ladder: "light", name: "setup-account.light" }, { scene: "setup-account", ladder: "dark", name: "setup-account.dark" },
     { scene: "setup-appearance", ladder: "light", name: "setup-appearance.light" }, { scene: "setup-appearance", ladder: "dark", name: "setup-appearance.dark" },
     { scene: "settings-banks", ladder: "dark", name: "settings-banks.dark" }, { scene: "dock-files", ladder: "dark", name: "dock-files.dark" },
+    // The status line's usage details popover is in the light subset as the status line is (#1951); the docked status line is not.
+    { scene: "status-line-usage-details", ladder: "light", name: "status-line-usage-details.light" }, { scene: "status-line-usage-details", ladder: "dark", name: "status-line-usage-details.dark" },
+    { scene: "status-line-docked", ladder: "dark", name: "status-line-docked.dark" },
   ]);
 });
 

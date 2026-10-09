@@ -23,6 +23,7 @@ test/release-workflow-input.test.ts
 test/container.test.ts
 test/desktop-builds-script.test.ts
 test/image-script.test.ts
+test/image-inputs.test.ts
 packages/contracts/src/bank-templates.test.ts
 packages/environment/src/skills/catalogue-job.test.ts
 packages/environment/src/banks/create.test.ts
