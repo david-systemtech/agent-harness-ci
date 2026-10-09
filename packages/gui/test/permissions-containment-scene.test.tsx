@@ -10,17 +10,17 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-it.each(["light", "dark"] as const)("shows the Permissions containment label above its muted key in %s", async (ladder) => {
+it.each(["light", "dark"] as const)("shows the sandbox's label above its description, each level saying whether it works here, and no raw key in %s", async (ladder) => {
   const container = document.createElement("div");
   document.body.append(container);
   const gallery = await mountGallery(container, "permissions-containment", ladder);
   close = gallery.close;
-  const group = await screen.findByRole("radiogroup", { name: "Default process containment" });
-  const title = within(group).getByText("Default process containment");
-  const key = within(group).getByText("permissions.containment.default");
-  expect(title.nextElementSibling).toBe(key);
-  expect(key.className).toContain("font-mono text-2xs text-ink-faint");
-  await waitFor(() => expect(within(group).getByRole("radio", { name: "off: available" })).toBeDefined());
+  const group = await screen.findByRole("group", { name: "Sandbox" });
+  const title = within(group).getByText("Sandbox");
+  const description = within(group).getByText("A sandbox keeps an agent's commands inside the project folder, so they cannot change the rest of the computer.");
+  expect(title.nextElementSibling).toBe(description);
+  expect(within(group).queryByText("permissions.containment.default")).toBeNull();
+  await waitFor(() => expect(within(group).getByRole("radio", { name: "Off", description: "Works here" })).toBeDefined());
   expect(container.dataset["galleryReady"]).toBe("permissions-containment");
   expect(JSON.parse(container.dataset["galleryGeometry"] ?? "null")).toEqual(geometry);
   for (const check of geometry) expect(container.querySelector(check.selector)).not.toBeNull();

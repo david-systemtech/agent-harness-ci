@@ -579,19 +579,42 @@ quoted from the files named; a builder greps for them.
 
 ### 5.12 Permissions (gui/src/permissions/*; environment/src/permissions/*; contracts/src/settings.ts descriptions)
 - Title `Choose when agents ask you`. Why `This is the most any session may do without asking. A session can always ask more often.`
-- Choices (labels; the mode id goes to Details):
+- Choices (labels; the mode id goes to Details), under `How much agents may do without asking` (the setting's label, its description the why line):
   - `Ask before any change` `Agents can read and plan. They ask before changing anything.`
   - `Edit files, ask for the rest` (badge `Recommended`) `Agents can edit files in your project. They ask before running commands.`
   - `Let Claude decide` `Claude reviews each action and asks you only when it is unsure.` (where the provider supports it)
   - `Never ask` (warning tone) `Agents act without asking. Use it only for trusted work in a sandbox.`
-- More options `More safety settings`: `For scheduled and automatic runs` (same four); `If nobody answers a question` `Deny it after` 1 hour / 24 hours / 2 days / `Never deny it`;
-  `Sandbox` `Off` / `Project folder` / `Project folder, no internet`, each `Works here` or `Needs setup` with fold `How to set it up` (the OS's command, copyable, then **Restart agent-harness**);
+- More options `More safety settings`: `For scheduled and automatic runs` (the same words, for the two modes that setting takes: `Edit files, ask for the rest`, `Never ask`;
+  #1858: the unattended mode's schema takes no other); `If nobody answers a question` `Deny it after` 1 hour / 24 hours / 2 days / `Never deny it`
+  (a value set elsewhere, such as `30 minutes`, shows first as a choice of its own, chosen);
+  `Sandbox` `Off` / `Project folder` / `Project folder, no internet`, each `Works here` or `Needs setup` (`Not checked yet` until read) with fold `How to set it up` (the OS's command, copyable, then **Restart agent-harness**);
   `Always-ask list` (the four lists) and `Test the always-ask list`. The read-only "Permission bypass acknowledged" field is not shown.
+  - The always-ask list's own words: `Agents always ask you before they use anything on these lists, whatever you chose above. On scheduled runs, nobody is there to answer, so the answer is no.`;
+    an entry's tag `built-in`; a list's **Restore built-in entries**, asking `Restore the missing built-in entries of {list}?` (naming none: `Restore the always-ask list's missing built-in entries?`)
+    `Each missing built-in entry goes back at the end of its list, turned on. Entries you edited or turned off stay as they are.` **Cancel** / **Restore**;
+    done `Put back {n} built-in entries.` (`Put back 1 built-in entry.`); not read `agent-harness could not read the always-ask list.` Details.
+  - How to set it up and How to fix it, by the probe's cause (client-runtime/src/permissions/words.ts): bubblewrap or socat missing `Install bubblewrap and socat, the two programs the sandbox uses on Linux.`
+    with `On Ubuntu or Debian` `sudo apt-get install bubblewrap socat`, `On Fedora` `sudo dnf install bubblewrap socat`, `On Arch Linux` `sudo pacman -S bubblewrap socat`;
+    On macOS, a missing built-in sandbox says `This Mac is missing its built-in sandbox. Choose Off, or use a computer with a working sandbox.` (no install or restart command).
+    A failed macOS probe says `macOS could not start its built-in sandbox. Check Details, then restart agent-harness to check again. If it still does not work, choose Off or use a computer with a working sandbox.`
+    with the restart command below, and no Linux package commands. The computer's reported operating system selects these cases; older reports naming Seatbelt are handled too.
+    AppArmor `Ubuntu needs a rule that lets the sandbox start. Add it with this command.` `Add the rule` (the bwrap profile written to /etc/apparmor.d/bwrap and loaded);
+    the kernel `Linux has turned off the user namespaces the sandbox needs.` `Turn them on` (a sysctl.d file, then `sudo sysctl --system`);
+    a container's seccomp `The container's security profile stops the sandbox. Start the container with a seccomp profile that allows user namespaces.`;
+    another failure on Linux `The sandbox did not start here. On Linux, install bubblewrap and socat; on Ubuntu, also add the rule.` with those commands;
+    no mechanism `This computer has no sandbox agent-harness can use. On Windows, run agent-harness in WSL2 to use one.`; the agent `The agent this computer runs cannot use a sandbox.`;
+    not probed `agent-harness has not checked the sandbox here yet.` Each that something on the computer fixes ends `Then restart agent-harness, which checks the sandbox as it starts:`
+    with `agent-harness service stop && agent-harness service start` (a container: `docker compose restart environment`) to copy, until this app can restart its service
+    (#1858: no client restarts the service yet, so **Restart agent-harness** is that command until the button exists, #1988).
 - Lines: done `Set. Agents {are not sandboxed | stay inside the project folder | stay inside the project folder, offline}.` (+ ` You emptied the {section} always-ask list.`);
-  sandbox unavailable `The sandbox you chose does not work on this computer yet.` **Turn the sandbox off** · fold `How to fix it` Details: the probe;
-  presets missing `Some built-in entries are missing from the {section} always-ask list.` **Restore them**; root as §5.4.
+  sandbox unavailable `The sandbox you chose does not work on this computer yet.` **Turn the sandbox off** · fold `How to fix it` Details: the probe (`permissions.containment.default: {level}`, `Probe: {reason}`, `Cause: {cause}`, `What it printed: {detail}`);
+  presets missing `Some built-in entries are missing from the {section} always-ask list.` (several: `from the {a}, {b} and {c} always-ask lists.`) **Restore them** Details: `{section}: {n} built-in entries are missing: {three} and {n} more.` or `{section}: holds none of its built-in entries, and no person emptied it.`; root as §5.4.
 - Messages: `Not saved: The containment level {x} cannot be enforced here: …` → `This sandbox does not work on this computer yet. See How to set it up.`;
+  any other refusal of a change on the card is the refusal mapper's line as an error, the environment's words in Details;
   the bypass dialog title `Never ask on scheduled runs?` body `Agents will act without asking and can do anything your account can, inside the sandbox you chose.` **Never ask** / **Cancel**.
+- Setting labels and descriptions (contracts/src/settings.ts): `How much agents may do without asking` (the why line); `For scheduled and automatic runs` `How much scheduled and automatic runs may do without asking, unless they choose for themselves. Never ask needs your agreement first.`;
+  `If nobody answers a question` `How long an agent's question waits for your answer before it is denied and the run goes on. With Never deny it, the provider may still stop waiting.`;
+  `Sandbox` (§2's sentence); the agreement's time `Agreed to never ask on scheduled runs` `When you agreed that scheduled runs may act without asking. It is recorded when you agree.`
 
 ### 5.13 Appearance (gui/src/appearance/*; environment/src/appearance/contrast.ts)
 - Title `Choose how the window looks`. Why `You can change this any time.`

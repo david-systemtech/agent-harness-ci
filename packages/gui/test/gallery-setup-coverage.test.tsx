@@ -140,6 +140,28 @@ it("captures the Instructions card with Your note, Suggestions and Write your ow
   } finally { unread.unmount(); }
 });
 
+// setup-copy.md §5.12: the Permissions card's four choices, and its line for a sandbox that does not work here with How to fix it open (#1858).
+it("captures the Permissions card's four choices, and a sandbox that does not work here with Turn the sandbox off and How to fix it open", async () => {
+  const Choices = setupRegionScene("permissions");
+  const choices = render(<Choices ladder="dark" />);
+  try {
+    const card = await screen.findByRole("region", { name: "Permissions" });
+    const ceiling = await within(card).findByRole("radiogroup", { name: "How much agents may do without asking" });
+    expect(within(ceiling).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Ask before any change", "Edit files, ask for the rest", "Let Claude decide", "Never ask"]);
+    expect(within(card).getByRole("button", { name: "More safety settings" })).toBeDefined();
+  } finally { choices.unmount(); }
+  const Sandbox = setupRegionScene("permissions-sandbox");
+  const sandbox = render(<Sandbox ladder="dark" />);
+  try {
+    const card = await screen.findByRole("region", { name: "Permissions" });
+    expect(await within(card).findByText("The sandbox you chose does not work on this computer yet.")).toBeDefined();
+    expect(within(card).getByRole("button", { name: "Turn the sandbox off" })).toBeDefined();
+    await waitFor(() => expect(within(card).getByRole("button", { name: "How to fix it" }).getAttribute("aria-expanded")).toBe("true"));
+    expect(within(card).getByText("sudo apt-get install bubblewrap socat")).toBeDefined();
+    expect(card.querySelector("[data-step-status] [data-notice-tone] h5")).not.toBeNull();
+  } finally { sandbox.unmount(); }
+});
+
 it.each<[StepId, string]>([["your-machines", "Your machines"], ["forges", "Forges"], ["key-manager", "Key manager"], ["instructions", "Instructions"], ["permissions", "Permissions"], ["appearance", "Appearance"]])("captures the real %s card and its persistent footer", async (step, label) => {
   const Scene = setupRegionScene(step);
   const view = render(<Scene ladder="light" />);

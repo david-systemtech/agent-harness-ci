@@ -181,8 +181,8 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ declared: true }, { declared: "yes", detected: false }],
   },
   "permissions/containment-report.json": {
-    valid: [report, bubblewrap],
-    invalid: [{ ...report, mechanism: "none" }, { levels, mechanism: null }, { ...report, levels: [{ level: "off" }] }],
+    valid: [report, bubblewrap, { ...report, platform: "darwin" }, { ...bubblewrap, platform: "linux" }],
+    invalid: [{ ...report, mechanism: "none" }, { ...report, platform: "" }, { ...report, platform: 42 }, { levels, mechanism: null }, { ...report, levels: [{ level: "off" }] }],
   },
   "permissions/containment-resolution.json": {
     valid: [

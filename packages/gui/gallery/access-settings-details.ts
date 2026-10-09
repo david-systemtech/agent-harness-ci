@@ -9,11 +9,11 @@ export interface AccessSettingsDetail {
   readonly controls?: readonly SceneGeometry[];
 }
 
-const unattended = '[role="group"]:has(input[aria-label="Accept file edits"]):not(:has(input[aria-label="Plan only"]))';
-const ttl = '[role="group"]:has(input[title^="Unanswered permission timeout"])';
-const containment = '[role="radiogroup"]:has(input[title^="off ("])';
+const unattended = '[role="group"]:has(input[aria-label="Edit files, ask for the rest"]):not(:has(input[aria-label="Ask before any change"]))';
+const ttl = '[role="group"]:has(select[aria-label="Deny it after"])';
+const containment = '[role="radiogroup"]:has(input[title^="Off ("])';
 const sites = 'section[aria-label="Sites you are developing"]';
-const test = 'form[aria-label="Test the denylist"]';
+const test = 'form[aria-label="Test the always-ask list"]';
 
 const denylist = (name: string): AccessSettingsDetail => {
   const group = `section:has(> form[aria-label="Add to ${name}"])`;
@@ -51,13 +51,13 @@ export const accessSettingsDetails = {
   unattended: {
     row: "access.permissions", anchor: unattended, visible: [unattended],
     controls: [
-      { selector: `${unattended} label .text-xs`, fontSize: 12 },
-      { selector: `${unattended} label code`, fontSize: 11 },
+      { selector: `${unattended} label span.font-medium`, fontSize: 12 },
+      { selector: `${unattended} label span.text-2xs`, fontSize: 11 },
     ],
   },
   containment: {
     row: "access.permissions", anchor: ttl, visible: [ttl, containment],
-    controls: [{ selector: 'input[title^="Unanswered permission timeout"]', height: 32 }],
+    controls: [{ selector: 'select[aria-label="Deny it after"]', height: 32 }],
   },
   domains: denylist("Browser domains"),
   paths: denylist("Paths"),

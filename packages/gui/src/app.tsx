@@ -64,8 +64,8 @@ const WindowEnvironmentState = () => {
  * client's remaps, Settings,
  * Set up as the whole window on first launch (the full checklist) with the
  * step cards registered, the command palette over it, every notice as a
- * banner above the grid, and the window's title, badge and notifications (#405). What the
- * window chose for a session's next runs
+ * banner above the grid, and the window's title, badge and notifications (#405). The
+ * account a hand-off forked a session onto
  * is held for the life of the window (`RunChoicesProvider`), as is what the
  * sidebar keeps while it is hidden (`WindowSidebarProvider`).
  */

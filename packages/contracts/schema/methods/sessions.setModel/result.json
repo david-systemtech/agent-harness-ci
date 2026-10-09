@@ -1,0 +1,640 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "sessions.setModel result",
+  "type": "object",
+  "properties": {
+    "summary": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "An instant as an ISO 8601 UTC timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "The last organisation change; setting the draft is not one."
+        },
+        "lastActivityAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The last run start, run end, user message or prompt answer; null before any."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Never empty: the user's title, else the generated title, else \"New session\"."
+        },
+        "titleSource": {
+          "type": "string",
+          "enum": [
+            "user",
+            "generated",
+            "default"
+          ],
+          "description": "Where a session's title came from: user (sessions.rename), generated (from the first prompt or the provider), default (\"New session\")."
+        },
+        "archivedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pinnedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pinOrderKey": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[abcdefghijklmnopqrstuvwxyz]*[bcdefghijklmnopqrstuvwxyz]$",
+              "description": "A fractional order key: letters a to z compared as plain strings, never empty and never ending in a, so a key can always be made before any other."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "activeOrderKey": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[abcdefghijklmnopqrstuvwxyz]*[bcdefghijklmnopqrstuvwxyz]$",
+              "description": "A fractional order key: letters a to z compared as plain strings, never empty and never ending in a, so a key can always be made before any other."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:[^\\p{Cc}\\p{Cf}]{0,38}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
+            "description": "A free-form tag: 1 to 40 characters once trimmed, no control or format (zero-width) characters; stored trimmed, unique per session ignoring case."
+          },
+          "description": "The session's tags, sorted ignoring case."
+        },
+        "groupId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A group's id: a version 4 UUID the creating client mints, kept in lowercase."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The group on the same environment the session is in, or null."
+        },
+        "settledAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "settledOverride": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "settled",
+                "active"
+              ],
+              "description": "What a settle or an unsettle holds a session to: settled, or active (auto-settle is blocked until the next activity clears it)."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "settledBy": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "user",
+                "auto-idle",
+                "auto-merge",
+                "routine"
+              ],
+              "description": "Who settled a session: user, auto-idle (quiet past the idle span), auto-merge (its pull request merged), routine (it is a routine's firing that ended silent, so it delivered nothing and left the active list)."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "unsettledAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "snoozedUntil": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "snoozedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "workspace": {
+          "anyOf": [
+            {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "directory"
+                    },
+                    "path": {
+                      "type": "string",
+                      "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                      "description": "The directory on the environment's machine."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "path"
+                  ],
+                  "description": "A directory the environment has; the harness never makes, moves or removes it outside a workspace root."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "worktree"
+                    },
+                    "path": {
+                      "type": "string",
+                      "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                      "description": "The worktree's directory, which the environment chose and made."
+                    },
+                    "repository": {
+                      "type": "string",
+                      "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                      "description": "The main checkout (or bare repository) the worktree was made from."
+                    },
+                    "branch": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The branch the worktree was made on; not read again when a run switches branch."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "path",
+                    "repository",
+                    "branch"
+                  ],
+                  "description": "A git worktree the environment made from a repository it has."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "scratch"
+                    },
+                    "path": {
+                      "type": "string",
+                      "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                      "description": "The scratch directory, under the data directory's scratch root."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "path"
+                  ],
+                  "description": "A scratch directory the environment made for the session that asked for it."
+                }
+              ]
+            },
+            {
+              "description": "A workspace of a kind a later environment records: read as a directory at its path.",
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^(?!(?:directory|worktree|scratch)$)",
+                  "description": "A kind this version does not know."
+                },
+                "path": {
+                  "type": "string",
+                  "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                  "description": "An absolute path as the environment's operating system writes it: from /, a drive (C:\\) or a share (\\\\)."
+                }
+              },
+              "required": [
+                "kind",
+                "path"
+              ]
+            }
+          ],
+          "description": "Where a session's code lives on its environment: a directory, a worktree or a scratch directory, each with an absolute path. A kind a client does not know reads as a directory at its path."
+        },
+        "repositoryIdentity": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The repository identity: the remote of the repository the workspace belongs to, in the one form every spelling of it comes down to (https://, the host without its port, then the path; repositoryIdentityOf and its published cases). An identity, not a link; null outside a repository or when its remote gives none."
+        },
+        "workspaceMissingSince": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When the environment found the workspace gone; null while it is present. A missing session lists and opens as ever, and runs nothing until it is given a new workspace."
+        },
+        "activity": {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "idle",
+                "starting",
+                "running",
+                "parked"
+              ],
+              "description": "What a session's runs are doing: idle (no run), starting, running, or parked (a run is waiting on a prompt nobody has answered)."
+            },
+            "since": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            }
+          },
+          "required": [
+            "state",
+            "since"
+          ],
+          "description": "What a session's runs are doing, and since when; a new session is idle since it was created."
+        },
+        "parkedPromptCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Prompts a run of the session is parked on, unanswered."
+        },
+        "accountId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The account the latest run used; null before any run."
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The model the latest run used; null before any run."
+        },
+        "runChoice": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "model": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The model, by id."
+                },
+                "effort": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The effort; null for the model's own."
+                }
+              },
+              "required": [
+                "model",
+                "effort"
+              ],
+              "description": "A model and effort for a session's next run: effort null for the model's own."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The model and effort the session's next run goes out on when its command names none: as sessions.setModel last chose them, else as the latest run used them; null before either, so a run takes the model the session was created with, else the account's default. The status line names it, so it says what the next run uses."
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "plan",
+                "acceptEdits",
+                "auto",
+                "bypassPermissions"
+              ],
+              "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The session's mode: the effective mode permissions.mode.set last gave it, else the one sessions.create recorded (clamped to its caller's ceiling); null when neither did, so a run's default applies. Each run clamps it again."
+        },
+        "browser": {
+          "anyOf": [
+            {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "chrome"
+                    },
+                    "environmentId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "description": "The environment the Chrome is paired with."
+                    },
+                    "chromeId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                          "description": "A paired Chrome's id: a UUID its environment mints when it pairs."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The Chrome; null for the plain My Chrome, whichever of that environment's Chromes is connected."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "environmentId",
+                    "chromeId"
+                  ],
+                  "description": "A Chrome paired with an environment."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "headless"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "description": "The headless browser of the environment the run is on."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "dock"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "description": "The browser dock in the desktop window."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "none"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "description": "No browser: the run reads the web with web_read alone."
+                }
+              ],
+              "description": "A browser a session chose: a Chrome (a null chromeId the plain My Chrome), headless, the dock, or none."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The session's browser: a Chrome (a null chromeId the plain My Chrome), headless, the dock or none, as sessions.setBrowser or sessions.create last set it; null when none was chosen, so each run resolves a default. Each run resolves it again at its start."
+        },
+        "pullRequests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "open",
+                  "closed",
+                  "merged"
+                ],
+                "description": "A pull request's state: open, closed (without merging) or merged."
+              },
+              "mergedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                    "description": "An instant as an ISO 8601 UTC timestamp."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "closedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                    "description": "An instant as an ISO 8601 UTC timestamp."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "url",
+              "state",
+              "mergedAt",
+              "closedAt"
+            ],
+            "description": "A pull request linked to a session: its url, state, and when it merged or closed."
+          }
+        },
+        "draft": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536,
+              "description": "A session's composer draft as sent: the text typed and not sent, up to 65536 characters counted as UTF-16 code units; an empty draft is stored as none (null)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A session's composer draft as stored: the text typed and not sent, 1 to 65536 characters counted as UTF-16 code units, or null when there is none."
+        }
+      },
+      "required": [
+        "id",
+        "createdAt",
+        "updatedAt",
+        "lastActivityAt",
+        "title",
+        "titleSource",
+        "archivedAt",
+        "pinnedAt",
+        "pinOrderKey",
+        "activeOrderKey",
+        "tags",
+        "groupId",
+        "settledAt",
+        "settledOverride",
+        "settledBy",
+        "unsettledAt",
+        "snoozedUntil",
+        "snoozedAt",
+        "workspace",
+        "repositoryIdentity",
+        "workspaceMissingSince",
+        "activity",
+        "parkedPromptCount",
+        "accountId",
+        "model",
+        "runChoice",
+        "mode",
+        "browser",
+        "pullRequests",
+        "draft"
+      ],
+      "description": "A session as every client renders its list row: identity, title, filing, shelf, place, activity, mode, browser, forge and the composer draft."
+    }
+  },
+  "required": [
+    "summary"
+  ]
+}

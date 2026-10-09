@@ -699,7 +699,7 @@ export const STEP_REGISTRY = [
       { key: "permissions.containment.default", check: anyValidValue("permissions.containment.default") },
     ],
     stateChecks: [
-      { id: "permissions.containment", holds: "The containment default can be enforced here.", actions: [] },
+      { id: "permissions.containment", holds: "The containment default can be enforced here.", actions: ["turn-sandbox-off"] },
       { id: "permissions.denylist", holds: "Each denylist section holds its presets, or was emptied on purpose.", actions: ["restore"] },
       { id: "permissions.not-root", holds: "The environment runs as a non-root user.", actions: [] },
     ],

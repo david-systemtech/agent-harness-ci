@@ -45,6 +45,7 @@ export type LevelProbe =
 
 /** What the probe found: each workspace level, the mechanism that enforces them (null when neither can be), the container. */
 export interface ContainmentProbe {
+  readonly platform?: NodeJS.Platform;
   readonly mechanism: ContainmentMechanism | null;
   readonly levels: { readonly workspace: LevelProbe; readonly "workspace-no-network": LevelProbe };
   readonly container: ContainmentContainer;
@@ -238,18 +239,20 @@ export const probeContainment = async (system: ProbeSystem = processProbeSystem(
   const container = containerOf(system);
   switch (system.platform) {
     case "linux":
-      return { ...(await probeLinux(system, container)), container };
+      return { ...(await probeLinux(system, container)), container, platform: system.platform };
     case "darwin":
-      return { ...(await probeMac(system)), container };
+      return { ...(await probeMac(system)), container, platform: system.platform };
     case "win32":
       return {
         ...noMechanism("Native Windows has no containment mechanism the harness can use: run the environment in WSL2, where bubblewrap enforces the workspace levels."),
         container,
+        platform: system.platform,
       };
     default:
       return {
         ...noMechanism(`${system.platform} has no containment mechanism the harness supports (Seatbelt on macOS, bubblewrap on Linux and WSL2).`),
         container,
+        platform: system.platform,
       };
   }
 };
