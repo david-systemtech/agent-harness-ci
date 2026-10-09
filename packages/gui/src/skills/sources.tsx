@@ -129,12 +129,13 @@ const folderWords = (identity: string, folder: string, count: number): string =>
  * looks afresh on the branch it follows, adds the chosen ones following
  * that branch, and removes the moved one once they are added; or first,
  * when the chosen ones would not fit beside it under the limit of
- * collections (`followed` is how many are followed now).
+ * collections (`followed` is how many are followed now). A refused add
+ * after that has `removed` say the moved one is gone, on the card itself.
  */
 export const FoundFolders = ({ environmentId, url, replacing, done }: {
   readonly environmentId: string;
   readonly url: string;
-  readonly replacing?: { readonly source: SkillsViewSource; readonly followed: number };
+  readonly replacing?: { readonly source: SkillsViewSource; readonly followed: number; readonly removed: (line: string) => void };
   readonly done: (line: string) => void;
 }) => {
   const runtime = useRuntime();
@@ -183,7 +184,10 @@ export const FoundFolders = ({ environmentId, url, replacing, done }: {
         "Add selected",
       );
       // A refused add stops here, its refusal said, the folders added so far no longer ticked.
-      if (!ok) return;
+      if (!ok) {
+        if (replacing !== undefined && removed.current) replacing.removed(`${skillCollectionName(replacing.source, CATALOGUE.skills)} was removed to make room for its new folders.`);
+        return;
+      }
       added.push(skillCollectionName({ identity: probe.identity, folder }, CATALOGUE.skills));
       choose((held) => held.filter((value) => value !== folder));
     }

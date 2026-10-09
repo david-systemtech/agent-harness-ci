@@ -200,7 +200,8 @@ describe("the Skills card's lines and actions", () => {
     expect(within(card()).queryByText("You can follow up to 20 collections. Remove one first.")).toBeNull();
   });
 
-  it("at the limit, a refused add after the moved collection made room is tried again without removing it twice", async () => {
+  /** At 20 collections, one of them moved: Choose folders removes it to make room, and the first add after that is refused. */
+  const refusedAtLimit = async () => {
     const moved: SkillsViewSource = { ...source, url: linked, identity: linked, folder: "skills", skillCount: 0, sync: { outcome: "layout_moved", since: source.addedAt, commit: found.commit, folders: ["agents"] } };
     const others = Array.from({ length: 19 }, (_, index): SkillsViewSource => ({
       ...source, id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`, url: `https://git.example.test/team/c${index}`, identity: `https://git.example.test/team/c${index}`, position: index + 2,
@@ -232,11 +233,25 @@ describe("the Skills card's lines and actions", () => {
     await app.user.click(await within(card()).findByRole("checkbox", { name: "agents · 2 skills" }));
     await app.user.click(within(card()).getByRole("button", { name: "Add selected" }));
     expect(await within(card()).findByText("agent-harness could not reach git.example.test.")).toBeDefined();
+    expect(within(card()).getByText("team/procedures (skills) was removed to make room for its new folders.")).toBeDefined();
+    expect(desk.requests("skills.sources.remove")).toHaveLength(1);
+    return { app, desk, replacement, followed: () => followed };
+  };
+
+  it("at the limit, a refused add after the moved collection made room is tried again without removing it twice", async () => {
+    const { app, desk, replacement, followed } = await refusedAtLimit();
     await app.user.click(within(card()).getByRole("button", { name: "Add selected" }));
     await waitFor(() => expect(desk.requests("skills.sources.add")).toHaveLength(2));
     expect(await within(card()).findByText(/^Added .*agents/)).toBeDefined();
     expect(desk.requests("skills.sources.remove")).toHaveLength(1);
-    expect(followed.map((held) => held.id)).toContain(replacement.id);
+    expect(followed().map((held) => held.id)).toContain(replacement.id);
+  });
+
+  it("at the limit, says the moved collection was removed when the add after it is refused, and still says so after Cancel", async () => {
+    const { app } = await refusedAtLimit();
+    await app.user.click(within(card()).getByRole("button", { name: "Cancel" }));
+    expect(within(card()).queryByRole("checkbox", { name: "agents · 2 skills" })).toBeNull();
+    expect(within(card()).getByText("team/procedures (skills) was removed to make room for its new folders.")).toBeDefined();
   });
 
   it("reopened after its kept look is five minutes old, Choose folders looks at the repository once", async () => {

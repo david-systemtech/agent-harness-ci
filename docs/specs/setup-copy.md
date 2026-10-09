@@ -509,7 +509,9 @@ quoted from the files named; a builder greps for them.
   in {the folder {folder} | this repository}.` or, when its skills have problems, `The skills in {…} cannot be used.`, then
   `These folders have skills: {folders}.` when others do.
 - Update now with no collection to update: `There is no collection to update.` Choose folders looks for the collection's folders
-  again (`Found {n} skill folders:` …, **Cancel**); Add selected adds the chosen ones and removes the moved collection.
+  again (`Found {n} skill folders:` …, **Cancel**); Add selected adds the chosen ones and removes the moved collection. At
+  the limit it removes the moved collection first; when an add after that is refused, the card keeps
+  `{collection} was removed to make room for its new folders.` beside the refusal, after **Cancel** too.
 - "Pull now" reads **Update now** everywhere in Set up.
 
 ### 5.10 Instructions (gui/src/instructions/*; environment/src/instructions/*)
