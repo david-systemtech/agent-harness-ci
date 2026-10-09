@@ -97,6 +97,21 @@ describe("plainRefusal", () => {
     expect(wire.line).toBe("The site did not answer. Check the address and your connection, then choose Check again.");
   });
 
+  it("keeps the lines a refusal's data.details names under Details, after its code, its reason and its message (#1851)", () => {
+    const refused = plainRefusal(
+      { code: "verification_failed", message: "OpenBao did not accept these details. Check them and try again.", data: { reason: "rejected", details: ["OpenBao answered HTTP 400: invalid role or secret ID.", "Nothing was stored."] } },
+      "Connect OpenBao or Vault",
+    );
+    expect(refused.details).toEqual([
+      "verification_failed (rejected): OpenBao did not accept these details. Check them and try again.",
+      "OpenBao answered HTTP 400: invalid role or secret ID.",
+      "Nothing was stored.",
+    ]);
+    // Anything but a list of lines there is not said.
+    expect(plainRefusal({ code: "sealed", message: "m", data: { details: "one string" } }, "Check again").details).toEqual(["sealed: m"]);
+    expect(plainRefusal({ code: "sealed", message: "m", data: { details: ["a line", 7] } }, "Check again").details).toEqual(["sealed: m", "a line"]);
+  });
+
   it("says an unknown code or reason with the verb to try again", () => {
     expect(plainRefusal({ code: "frob_jammed", message: "The frob jammed.", data: { attempts: 2 } }, "Check again")).toEqual({ line: UNKNOWN, details: ["frob_jammed: The frob jammed."] });
     expect(plainRefusal({ code: "outbox", message: "x is a sessions:write command." }, "Start").line).toBe("Something went wrong. Choose Start to try again.");
