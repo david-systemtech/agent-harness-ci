@@ -141,7 +141,7 @@ describe("the Account card in Set up", () => {
     expect(facts(row)).toEqual({ Email: "work@example.test", Status: "Signed in" });
   });
 
-  it("numbers the next Claude account, and keeps a name typed in More options instead of the email", async () => {
+  it.each(["Work", "Claude account 3"])("numbers the next Claude account, and keeps the chosen name %s instead of the email", async (chosen) => {
     const app = await opened({ accounts: [{ label: "Claude account", identity: MILO }] });
     const desk = app.environment("desk");
     await within(step()).findByRole("region", { name: "Claude account" });
@@ -151,14 +151,14 @@ describe("the Account card in Set up", () => {
     await app.user.click(within(first).getByRole("button", { name: "Cancel the sign-in" }));
 
     await moreOptions(app);
-    await app.user.type(within(step()).getByRole("textbox", { name: "Label for the new account" }), "Work");
+    await app.user.type(within(step()).getByRole("textbox", { name: "Label for the new account" }), chosen);
     await app.user.click(within(question()).getByRole("button", { name: "Sign in with Claude" }));
-    await waitFor(() => expect(desk.requests("accounts.add").map((request) => request.params["label"])).toEqual(["Claude account 2", "Work"]));
-    await signInWithCode(app, "Sign in: Work on desk");
+    await waitFor(() => expect(desk.requests("accounts.add").map((request) => request.params["label"])).toEqual(["Claude account 2", chosen]));
+    await signInWithCode(app, `Sign in: ${chosen} on desk`);
     // The name typed is the one account's: the field is empty again for the next.
     expect((within(step()).getByRole("textbox", { name: "Label for the new account" }) as HTMLInputElement).value).toBe("");
     desk.changeAccount("account-3", { identity: { provider: "claude", email: "work@example.test", organisation: null } });
-    await within(step()).findByRole("region", { name: "Work" });
+    await within(step()).findByRole("region", { name: chosen });
     expect(desk.requests("accounts.relabel")).toEqual([]);
   });
 

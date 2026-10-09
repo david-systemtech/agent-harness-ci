@@ -36,17 +36,14 @@ export const newAccountLabel = (accounts: readonly Pick<AccountRecord, "label">[
   return label;
 };
 
-/** A name `newAccountLabel` gives, which no person typed. */
-const GIVEN_NAME = new RegExp(`^${NEW_ACCOUNT_LABEL}( [2-9]| [1-9][0-9]+)?$`);
-
 /**
  * The email an account added by Sign in with Claude is renamed to once it is
  * signed in (setup-copy.md §5.1): while it still has the name it was added
  * under, so a name the person gave it stays; undefined otherwise. Claude
  * Code's own sign-in takes its email as it is used, so it is never renamed.
  */
-export const emailLabel = (account: Pick<AccountRecord, "label" | "directory" | "identity" | "status">): string | undefined =>
-  account.directory.kind === "owned" && account.status.state === "signed-in" && GIVEN_NAME.test(account.label) ? account.identity?.email : undefined;
+export const emailLabel = (account: Pick<AccountRecord, "nameByEmail" | "directory" | "identity" | "status">): string | undefined =>
+  account.directory.kind === "owned" && account.status.state === "signed-in" && account.nameByEmail === true ? account.identity?.email : undefined;
 
 /** What to do about a name an account cannot have, trimmed as it is sent (setup-copy.md §5.1); undefined for one it can. */
 export const nameProblem = (label: string): string | undefined => {
@@ -95,11 +92,12 @@ export const relabelAccount = async (
   account: Pick<AccountRecord, "id" | "label">,
   label: string,
   commandId: string,
+  onlyIfNameByEmail = false,
 ): Promise<AccountOutcome> => {
   const problem = nameProblem(label);
   if (problem !== undefined) return { ok: false, line: problem };
   const typed = label.trim();
-  const answer = await adminCall(() => runtime.requests.call(environmentId, "accounts.relabel", { commandId, accountId: account.id, label: typed }));
+  const answer = await adminCall(() => runtime.requests.call(environmentId, "accounts.relabel", { commandId, accountId: account.id, label: typed, ...(onlyIfNameByEmail ? { onlyIfNameByEmail: true } : {}) }));
   if (!answer.ok) return refused(answer, "Rename");
   return { ok: true, line: `Renamed ${account.label} to ${answer.result?.account.label ?? typed}.` };
 };

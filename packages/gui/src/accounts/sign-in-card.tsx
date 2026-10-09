@@ -22,6 +22,8 @@ export interface SignInCardProps {
   readonly suggestion?: { readonly label: string; readonly email: string };
   /** A new account's label, added at once with no label form (the Account step's Sign in with Claude, setup-copy.md §5.1). */
   readonly label?: string;
+  /** True only when the opener generated the name, rather than a person typing it. */
+  readonly nameByEmail?: boolean;
   /** Closes the card. */
   readonly close: () => void;
   /** Told, inline, as the sign-in succeeds, with the line Done will say: the card waits only on Done from then on. */
@@ -62,7 +64,7 @@ type Sending = "add" | "start" | "code" | null;
  *   card cancels the sign-in it started (`accounts.signin.cancel`), since
  *   the card is its attendant.
  */
-export const SignInCard = ({ environmentId, account, close, say, succeeded, inline = false, suggestion, label: given }: SignInCardProps) => {
+export const SignInCard = ({ environmentId, account, close, say, succeeded, inline = false, suggestion, label: given, nameByEmail = false }: SignInCardProps) => {
   const heading = useId();
   const codeForm = useId();
   const runtime = useRuntime();
@@ -154,7 +156,7 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
     setLabel(trimmed);
     setSending("add");
     setError(null);
-    void addAccount(runtime, environmentId, trimmed, uuidv4(), environment).then((added) => {
+    void addAccount(runtime, environmentId, trimmed, uuidv4(), environment, nameByEmail).then((added) => {
       if (added.kind === "refused") {
         setSending(null);
         return setError(added.line);

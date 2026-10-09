@@ -1528,10 +1528,10 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const held = accounts[at];
     if (!held) return accountNotHeld(params["accountId"]);
     const label = String(params["label"]);
-    if (held.label === label) return acceptedWith({ account: held });
+    if ((params["onlyIfNameByEmail"] === true && held.nameByEmail !== true) || (held.label === label && held.nameByEmail !== true)) return acceptedWith({ account: held });
     const taken = labelTaken(label, held.id);
     if (taken) return taken;
-    const account = { ...held, label };
+    const account = { ...held, label, nameByEmail: false };
     accounts[at] = account;
     accountUpdated(account.id, "relabelled");
     return acceptedWith({ account });
@@ -1557,7 +1557,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const held = accounts[at];
     if (!held) throw new Error(`${spec.name} holds no account ${accountId}.`);
     if (changes === null) return removeAccount(held);
-    accounts[at] = checked(AccountRecord, { ...held, ...changes });
+    accounts[at] = checked(AccountRecord, { ...held, ...changes, ...(changes.label === undefined ? {} : { nameByEmail: false }) });
     accountUpdated(accountId, changes.label !== undefined ? "relabelled" : changes.identity !== undefined ? "identity-set" : "status-changed");
   };
 
@@ -1603,7 +1603,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const id = ++accountsMinted;
     const label = String(params["label"]);
     const running = runningSignIn();
-    const account = accountOf({ id: `account-${id}`, label, directory: { kind: "owned", path: `/home/milo/.agent-harness/accounts/${id}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
+    const account = accountOf({ id: `account-${id}`, label, ...(params["nameByEmail"] === true ? { nameByEmail: true } : {}), directory: { kind: "owned", path: `/home/milo/.agent-harness/accounts/${id}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
     accounts.push(account);
     const start =
       spec.addSignIn ?? (running === null ? { started: true, message: null } : { started: false, message: `${heldMessage(running)} Sign ${label} in with accounts.signin.start once it has.` });

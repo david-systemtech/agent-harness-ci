@@ -161,8 +161,8 @@ export interface AccountService extends HostAccounts {
   adopt(params: { readonly provider?: string | undefined; readonly label?: string | undefined }, context: CommandContext): CommandAnswer<{ account: AccountRecord }, Refused>;
   /** Internal only: the importer supplies a validated listed source. Cached identity does not claim current sign-in. */
   adoptDirectory(params: { readonly source: AccountDirectoryObservation; readonly label?: string | undefined }, context: CommandContext): CommandAnswer<{ account: AccountRecord }, Refused>;
-  add(params: { readonly provider?: string | undefined; readonly label: string }, context: CommandContext): CommandAnswer<{ account: AccountRecord; signIn: SignInStart }, Refused>;
-  relabel(params: { readonly accountId: string; readonly label: string }, context: CommandContext): CommandAnswer<{ account: AccountRecord }, Refused>;
+  add(params: { readonly provider?: string | undefined; readonly label: string; readonly nameByEmail?: boolean | undefined }, context: CommandContext): CommandAnswer<{ account: AccountRecord; signIn: SignInStart }, Refused>;
+  relabel(params: { readonly accountId: string; readonly label: string; readonly onlyIfNameByEmail?: boolean | undefined }, context: CommandContext): CommandAnswer<{ account: AccountRecord }, Refused>;
   remove(
     params: { readonly accountId: string; readonly deleteDirectory?: boolean | undefined },
     context: CommandContext,
@@ -697,7 +697,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
       // leaves a directory the store never held, which the next start removes.
       mkdirSync(directory, { recursive: true, mode: 0o700 });
       if (process.platform !== "win32") chmodSync(directory, 0o700);
-      log.append(aggregate, [{ type: "account.added", payload: { accountId, provider, label: params.label, directory } }], {
+      log.append(aggregate, [{ type: "account.added", payload: { accountId, provider, label: params.label, directory, ...(params.nameByEmail === true ? { nameByEmail: true } : {}) } }], {
         tx: context.tx,
         actor: context.actor,
         commandId: context.commandId,
@@ -716,7 +716,8 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
       const aggregate = accountStream(accountId);
       const current = liveAccount(reader, accountId);
       if (current === null) return notFound(aggregate, accountId);
-      if (current.label === label) return { aggregate, result: { account: withChecked(current) } };
+      // Compare the naming choice inside the command transaction: a concurrent explicit rename wins.
+      if ((params.onlyIfNameByEmail === true && current.nameByEmail !== true) || (current.label === label && current.nameByEmail !== true)) return { aggregate, result: { account: withChecked(current) } };
       const taken = labelTaken(aggregate, label, accountId);
       if (taken !== null) return taken;
       log.append(aggregate, [{ type: "account.relabelled", payload: { accountId, label, previous: current.label } }], {

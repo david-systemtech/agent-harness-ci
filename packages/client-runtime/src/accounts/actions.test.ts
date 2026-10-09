@@ -28,6 +28,7 @@ const account = (fields: Partial<AccountRecord> = {}): AccountRecord => ({
   id: "account-1",
   provider: "claude",
   label: "Claude account",
+  nameByEmail: true,
   directory: { kind: "owned", path: "/data/accounts/account-1" },
   identity: { provider: "claude", email: "milo@example.test", organisation: null },
   status: { state: "signed-in", checkedAt: "2026-10-08T12:00:00.000Z", detail: null },
@@ -45,8 +46,8 @@ describe("a new account's name", () => {
   it("becomes its email once it is signed in, unless the person renamed it", () => {
     expect(emailLabel(account())).toBe("milo@example.test");
     expect(emailLabel(account({ label: "Claude account 3" }))).toBe("milo@example.test");
-    expect(emailLabel(account({ label: "Work" }))).toBeUndefined();
-    expect(emailLabel(account({ label: "Claude account two" }))).toBeUndefined();
+    expect(emailLabel(account({ label: "Work", nameByEmail: false }))).toBeUndefined();
+    expect(emailLabel(account({ label: "Claude account 2", nameByEmail: undefined }))).toBeUndefined();
     expect(emailLabel(account({ status: { state: "signed-out", checkedAt: null, detail: null } }))).toBeUndefined();
     expect(emailLabel(account({ identity: null }))).toBeUndefined();
     // Claude Code's own sign-in takes its email when it is added; one named Claude account was named so on purpose.

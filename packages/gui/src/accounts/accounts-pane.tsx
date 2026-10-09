@@ -26,6 +26,7 @@ const SIGN_IN_HELD = "Finish or cancel the open sign-in first.";
 type Opening = {
   readonly account: Pick<AccountRecord, "id" | "label"> | null;
   readonly label?: string;
+  readonly nameByEmail?: boolean;
   readonly suggestion?: { readonly label: string; readonly email: string };
 };
 
@@ -141,7 +142,7 @@ export const AccountsList = ({ view, label = "", labelTaken, inlineSignIn = fals
       const email = emailLabel(account);
       if (email === undefined || named.current.has(account.id) || accounts.some((other) => other.label.toLowerCase() === email.toLowerCase())) continue;
       named.current.add(account.id);
-      void relabelAccount(runtime, environmentId, account, email, uuidv7(clock.now()));
+      void relabelAccount(runtime, environmentId, account, email, uuidv7(clock.now()), true);
     }
   }, [runtime, environmentId, accounts, writable]);
 
@@ -150,7 +151,7 @@ export const AccountsList = ({ view, label = "", labelTaken, inlineSignIn = fals
     const typed = label.trim();
     const problem = typed === "" ? undefined : nameProblem(typed);
     if (problem !== undefined) return setSaid({ ok: false, line: problem });
-    signIn({ account: null, label: typed === "" ? newAccountLabel(accounts ?? []) : typed });
+    signIn({ account: null, label: typed === "" ? newAccountLabel(accounts ?? []) : typed, nameByEmail: typed === "" });
     if (typed !== "") labelTaken?.();
   };
   const adopted = (outcome: AccountOutcome) => {
@@ -167,7 +168,7 @@ export const AccountsList = ({ view, label = "", labelTaken, inlineSignIn = fals
         <AccountsElsewhere key={source.environmentId} source={source} here={accounts} disabled={!writable || held}
           suggest={(suggestion) => signIn({ account: null, suggestion })} />
       ))}
-      {signing !== undefined && <SignInCard key={signing.key} {...(signing.suggestion === undefined ? {} : { suggestion: signing.suggestion })} {...(signing.label === undefined ? {} : { label: signing.label })} inline={inlineSignIn} environmentId={environmentId} account={signing.account} close={() => setSigning(undefined)}
+      {signing !== undefined && <SignInCard key={signing.key} nameByEmail={signing.nameByEmail === true} {...(signing.suggestion === undefined ? {} : { suggestion: signing.suggestion })} {...(signing.label === undefined ? {} : { label: signing.label })} inline={inlineSignIn} environmentId={environmentId} account={signing.account} close={() => setSigning(undefined)}
         succeeded={(line) => setSigning((open) => open?.key === signing.key ? { ...open, succeeded: line } : open)} say={say} />}
       {said !== undefined && <SaidLine said={said} />}
       {accounts === null

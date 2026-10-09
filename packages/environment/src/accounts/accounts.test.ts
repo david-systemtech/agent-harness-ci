@@ -361,6 +361,24 @@ describe("accounts.add", () => {
 });
 
 describe("accounts.relabel", () => {
+  it("preserves an explicitly chosen default-looking name, including a rename to the same name", async () => {
+    const t = await start();
+    const client = await t.client();
+    const typed = (await applied(client, "accounts.add", { label: "Claude account 2" })).account;
+    const automatic = (await applied(client, "accounts.add", { label: "Claude account", nameByEmail: true })).account;
+    expect(automatic.nameByEmail).toBe(true);
+    await applied(client, "accounts.relabel", { accountId: typed.id, label: "typed@example.test", onlyIfNameByEmail: true });
+    expect((await list(client)).find(account => account.id === typed.id)?.label).toBe("Claude account 2");
+    await applied(client, "accounts.relabel", { accountId: automatic.id, label: "Claude account" });
+    await applied(client, "accounts.relabel", { accountId: automatic.id, label: "automatic@example.test", onlyIfNameByEmail: true });
+    expect((await list(client)).find(account => account.id === automatic.id)?.label).toBe("Claude account");
+    const fresh = (await applied(client, "accounts.add", { label: "Claude account 3", nameByEmail: true })).account;
+    await applied(client, "accounts.relabel", { accountId: fresh.id, label: "fresh@example.test", onlyIfNameByEmail: true });
+    expect((await list(client)).find(account => account.id === fresh.id)?.label).toBe("fresh@example.test");
+    await client.request("environment.rebuildProjections", { commandId: randomUUID() });
+    expect((await list(client)).find(account => account.id === automatic.id)?.nameByEmail).not.toBe(true);
+  });
+
   it("changes the label, unique on the environment ignoring case, and changes nothing for the label it has", async () => {
     const t = await start();
     const client = await t.client();

@@ -110,7 +110,7 @@ export const accountsAdd = defineMethod({
   name: "accounts.add",
   scope: "admin",
   kind: "command",
-  params: commandParams({ provider, label: AccountLabel }),
+  params: commandParams({ provider, label: AccountLabel, nameByEmail: z.boolean().optional().meta({ description: "Set only for an automatically supplied name, to become the email after sign-in." }) }),
   result: z.object({ account: AccountRecord, signIn: SignInStart }),
   errors: [],
 });
@@ -120,7 +120,7 @@ export const accountsRelabel = defineMethod({
   name: "accounts.relabel",
   scope: "admin",
   kind: "command",
-  params: commandParams({ accountId: AccountId, label: AccountLabel }),
+  params: commandParams({ accountId: AccountId, label: AccountLabel, onlyIfNameByEmail: z.boolean().optional().meta({ description: "An automatic rename changes nothing after a person has chosen a name." }) }),
   result: z.object({ account: AccountRecord }),
   errors: [],
 });
