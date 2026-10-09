@@ -1,4 +1,4 @@
-import type { Script } from "@agent-harness/client-runtime/testing/scripted-environment";
+import type { Script, ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { SettingsRowId } from "@agent-harness/contracts";
 import { settingsDeepLink } from "@agent-harness/client-runtime";
 import type { LadderName } from "@agent-harness/theme";
@@ -7,13 +7,14 @@ import { App } from "../src/app.js";
 import type { SceneGeometry, SceneViewport } from "./scene-registry.js";
 import { prepareWorld, startWorld } from "./world.js";
 
-/** Real Settings over the session window, with only fake accounts and environments. */
+/** Real Settings over the session window, with only fake accounts and environments; `arrange` changes the started world before the scene draws, `action` presses a button of the pane once. */
 export async function settingsScene(search: boolean, row: SettingsRowId = "accounts.accounts", script: Script = { environments: [
     { name: "desk", reach: "local", accounts: [{ label: "Personal" }, { label: "Project" }] },
     { name: "laptop", reach: "paired", accounts: [{ label: "Travel" }] },
-  ] }, action?: string) {
+  ] }, action?: string, arrange?: (world: ScriptedWorld) => void) {
   const prepared = await prepareWorld(script, { presentation: { settingsRow: row } });
   const holders = await startWorld(prepared, prepared.paired);
+  arrange?.(prepared.world);
   return function SettingsScene({ ladder }: { readonly ladder: LadderName }) {
     useEffect(() => {
       holders.presentation.set("lightOrDark", ladder);

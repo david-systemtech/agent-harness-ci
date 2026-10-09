@@ -7,6 +7,7 @@ import { RUN_ACTOR_KINDS } from "./permissions.js";
 import { normaliseTrimmedName, trimmedNamePattern } from "./primitives.js";
 import { Sha256 } from "./release.js";
 import { SkillName } from "./skill-rules.js";
+import { STEP_LABELS, STEP_ORDER, type StepId } from "./steps.js";
 import { GitCommit, SkillOrigin, SkillSetFingerprint } from "./skills.js";
 
 /**
@@ -386,6 +387,35 @@ export const OrientationRow = z
   })
   .meta({ description: "The read-only Orientation row: the instructions.orientation key, the block as a run receives it, and the environment's accounts." });
 export type OrientationRow = z.infer<typeof OrientationRow>;
+
+/**
+ * The Set up step where each of the orientation block's sections is set up
+ * (setup-copy.md §5.10), which a section the block could not read sends the
+ * person to: other computers are set up on Your machines, as this one is.
+ */
+export const ORIENTATION_SECTION_STEPS = {
+  environment: "your-machines",
+  accounts: "account",
+  "key-managers": "key-manager",
+  forges: "forges",
+  banks: "memory-bank",
+  "other-environments": "your-machines",
+} as const satisfies Readonly<Record<string, StepId>>;
+
+const SECTION_STEPS: ReadonlyMap<string, StepId> = new Map(Object.entries(ORIENTATION_SECTION_STEPS));
+
+/** The steps of the sections the block could not read, each once, in Set up's order; a section this build does not know names none. */
+export const unreadSetupSteps = (unread: readonly string[]): readonly StepId[] => {
+  const named = new Set(unread.map((section) => SECTION_STEPS.get(section)));
+  return STEP_ORDER.filter((step) => named.has(step));
+};
+
+/** The Instructions step's line when the block could not read some sections, naming their steps (setup-copy.md §5.10). */
+export const unreadSetupLine = (steps: readonly StepId[]): string =>
+  steps.length === 0 ? "agent-harness could not read part of this computer's setup." : `agent-harness could not read part of this computer's setup: ${steps.map((step) => STEP_LABELS[step]).join(", ")}.`;
+
+/** The Instructions step's line, and its preview's, while the environment holds no account (setup-copy.md §5.10). */
+export const NO_ACCOUNT_ORIENTATION_LINE = "Sign in on the Account step first. Agents are told about your accounts.";
 
 export const OwnedInstructionRow = z
   .object({
