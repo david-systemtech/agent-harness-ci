@@ -685,6 +685,29 @@ describe("Favourite models (ticket 1821)", () => {
     expect(within(menu).getAllByRole("menuitem").map((entry) => entry.textContent)).toEqual(["Haiku 4.5haiku"]);
   });
 
+  it("names a favourite an earlier carry over wrote as `<account>/<model>` by the model it names, and its next edit writes the model ids (ticket 1954)", async () => {
+    const models: ScriptedEnvironment["models"] = [{ accountId: "account-1", models: [
+      { id: "opus", family: "opus", tier: 2, efforts: ["low", "high"], label: "Opus" },
+      { id: "claude-fable-5-1", family: "fable", tier: 3, efforts: ["high"], label: null },
+    ] }];
+    const carried = ["account-a/claude-fable-5-1", "account-a/opus", "account-b/opus", "opus", "account-b/claude-haiku-4-5"];
+    const app = await opened({ desk: { accounts: [{ label: "personal" }], models, settings: { "accounts.favouriteModels": carried } } });
+    const row = await openRow(app, "Default account and model");
+    const section = await within(row).findByRole("region", { name: "Favourite models" });
+    await waitFor(() => expect(favourites(section)).toEqual(["claude-fable-5-1", "opus", "claude-haiku-4-5"]));
+    const items = within(within(section).getByRole("list", { name: "Favourite models, in order" })).getAllByRole("listitem");
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Fable 5.1claude-fable-5-1",
+      "Opus 5.5opus",
+      "Haiku 4.5claude-haiku-4-5No signed-in account lists it: the picker passes it over.",
+    ]);
+    expect(section.textContent).not.toContain("account-");
+    // Every model the account lists is a favourite already.
+    expect(within(section).getByRole("button", { name: "Add a favourite" }).hasAttribute("disabled")).toBe(true);
+    await app.user.click(within(section).getByRole("button", { name: "Move Opus 5.5 up" }));
+    await waitFor(() => expect(app.environment("desk").settings()["accounts.favouriteModels"]).toEqual(["opus", "claude-fable-5-1", "claude-haiku-4-5"]));
+  });
+
   it("leaves the keyboard where the person took it before the write was answered", async () => {
     const app = await opened({ desk: { accounts: [{ label: "personal" }], models: MODELS, settings: { "accounts.favouriteModels": ["claude-opus-5", "claude-sonnet-5"] } } });
     const row = await openRow(app, "Default account and model");
