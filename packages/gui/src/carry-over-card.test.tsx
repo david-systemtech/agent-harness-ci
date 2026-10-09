@@ -383,6 +383,8 @@ describe("Carry over in Set up", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Bring them over" }).hasAttribute("disabled")).toBe(false));
     await app.user.click(screen.getByRole("button", { name: "Bring them over" }));
     await waitFor(() => expect(desk.requests("carryOver.run")).toHaveLength(4));
+    // The earlier work would follow the last account's run: once the button is back, any second state import has been asked.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Bring them over" }).hasAttribute("disabled")).toBe(false));
     expect(desk.requests("stateImport.run")).toHaveLength(1);
   });
 
