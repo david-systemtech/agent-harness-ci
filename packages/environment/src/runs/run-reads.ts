@@ -1,8 +1,8 @@
-import { Mode, type ContainmentLevel, type SessionBrowser, type SessionCreatedPayload, type Workspace } from "@agent-harness/contracts";
+import { Mode, type ContainmentLevel, type SessionBrowser, type SessionCreatedPayload, type SessionRunChoice, type Workspace } from "@agent-harness/contracts";
 import type { EventLog } from "../event-log/event-log.js";
 import { readSessionContainment, readSessionMode } from "../permissions/permissions-store.js";
 import type { Reader } from "../sessions/session-reads.js";
-import { browserOf } from "../sessions/session-tables.js";
+import { browserOf, runChoiceOf } from "../sessions/session-tables.js";
 import { sessionStream } from "../sessions/streams.js";
 
 /**
@@ -11,7 +11,7 @@ import { sessionStream } from "../sessions/streams.js";
  * Inside a command they read that command's own transaction.
  */
 
-/** A session as a run needs it: whether it is there, its place and whether it is missing, the account and model it was created with, its mode, its own containment level and its browser. */
+/** A session as a run needs it: whether it is there, its place and whether it is missing, the account and model it was created with, the model and effort its next run goes out on, its mode, its own containment level and its browser. */
 export interface SessionFacts {
   readonly deleted: boolean;
   readonly workspace: Workspace;
@@ -20,6 +20,8 @@ export interface SessionFacts {
   readonly workspaceMissingSince: string | null;
   readonly account: string | null;
   readonly model: string | null;
+  /** The model and effort the next run goes out on when its command names no model (#1961): `sessions.setModel`'s, else the latest run's; null before either. */
+  readonly runChoice: SessionRunChoice | null;
   readonly mode: Mode | null;
   /** The containment level the session set for itself (`permissions.containment.set`); null when it set none, and the default applies. */
   readonly containment: ContainmentLevel | null;
@@ -34,8 +36,8 @@ export interface SessionFacts {
  * one `permissions.mode.set` last gave it (`session_modes`) when it has.
  */
 export const readSessionFacts = (log: Pick<EventLog, "readStream">, reader: Reader, sessionId: string): SessionFacts | null => {
-  const [row] = reader.all<{ deleted_at: string | null; workspace: string; repository_identity: string | null; workspace_missing_since: string | null; browser: string | null }>(
-    "SELECT deleted_at, workspace, repository_identity, workspace_missing_since, browser FROM sessions WHERE id = ?",
+  const [row] = reader.all<{ deleted_at: string | null; workspace: string; repository_identity: string | null; workspace_missing_since: string | null; browser: string | null; run_choice: string | null }>(
+    "SELECT deleted_at, workspace, repository_identity, workspace_missing_since, browser, run_choice FROM sessions WHERE id = ?",
     sessionId,
   );
   if (row === undefined) return null;
@@ -48,6 +50,7 @@ export const readSessionFacts = (log: Pick<EventLog, "readStream">, reader: Read
     workspaceMissingSince: row.workspace_missing_since,
     account: payload?.account ?? null,
     model: payload?.model ?? null,
+    runChoice: runChoiceOf(row.run_choice),
     mode: readSessionMode(reader, sessionId) ?? payload?.mode ?? null,
     containment: readSessionContainment(reader, sessionId),
     browser: browserOf(row.browser),

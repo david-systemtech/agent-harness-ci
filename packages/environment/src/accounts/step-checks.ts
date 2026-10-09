@@ -10,7 +10,8 @@ import type { StateChecker } from "../setup/check.js";
  * stay rate-limited. The step is never skipped: with no account it needs
  * attention with no action, since the card's Sign in is the fix; an account
  * that is not signed in is named with Sign in again, which opens its
- * sign-in.
+ * sign-in. The lines are setup-copy.md §5.1's: labels only, never a method,
+ * a path or an id.
  */
 
 /** The Account step's state checks, by id. */
@@ -21,12 +22,26 @@ export interface AccountStateChecksOptions {
   readonly accounts: () => readonly AccountRecord[];
 }
 
-/** What an account's status that is not signed in says, as a line naming it. */
-const NOT_SIGNED_IN: { readonly [State in Exclude<AccountStatusState, "signed-in">]: (account: AccountRecord) => string } = {
-  "signed-out": (account) => `${account.label} is signed out: Sign in again.`,
-  expired: (account) => `The sign-in of ${account.label} has expired: Sign in again.`,
-  // setup-copy.md §5.1: Check again, not Sign in again, the read's error in details.
-  unreadable: (account) => `agent-harness could not read ${account.label}'s sign-in. Choose Check again.`,
+/** What one account that needs to sign in again says (setup-copy.md §5.1): its label, never its directory or id. */
+const SIGN_IN_AGAIN_LINE: { readonly [State in Exclude<AccountStatusState, "signed-in" | "unreadable">]: (label: string) => string } = {
+  "signed-out": (label) => `${label} is signed out. Sign in again to use it.`,
+  expired: (label) => `${label}'s sign-in has run out. Sign in again to keep using it.`,
+};
+
+/** The accounts that need to sign in again, in one line: the one by its state, several by how many and their labels. */
+const signInAgainLine = (accounts: readonly AccountRecord[]): string | undefined => {
+  const [only] = accounts;
+  if (only === undefined) return undefined;
+  if (accounts.length === 1) return SIGN_IN_AGAIN_LINE[only.status.state as keyof typeof SIGN_IN_AGAIN_LINE](only.label);
+  return `${accounts.length} accounts need to sign in again: ${accounts.map((account) => account.label).join(", ")}.`;
+};
+
+/** The accounts whose sign-in could not be read, in one line offering Check again (#1836), not Sign in again. */
+const unreadableLine = (accounts: readonly AccountRecord[]): string | undefined => {
+  const [only] = accounts;
+  if (only === undefined) return undefined;
+  if (accounts.length === 1) return `agent-harness could not read ${only.label}'s sign-in. Choose Check again.`;
+  return `agent-harness could not read the sign-ins of ${accounts.length} accounts: ${accounts.map((account) => account.label).join(", ")}. Choose Check again.`;
 };
 
 /** The account Sign in again opens the sign-in of. */
@@ -34,28 +49,21 @@ const signInAgain = (account: AccountRecord): SetupTarget => ({ action: "sign-in
 
 /** At least one account is on the environment. */
 const accountPresent = (accounts: readonly AccountRecord[]): StateCheckAnswer =>
-  accounts.length > 0 || { reason: "No account is added on this environment: Sign in adds one." };
+  accounts.length > 0 || { reason: "No Claude account yet. Sign in to start." };
 
-/** Every account is signed in: each that is not is named, in the store's order, with Sign in again, or Check again for one whose status could not be read. */
+/**
+ * Every account is signed in. Those that are not make one line, in the
+ * store's order, with a Sign in again for each; those whose status could not
+ * be read make another, with Check again and each read's error in details.
+ */
 const everySignedIn = (accounts: readonly AccountRecord[]): StateCheckAnswer => {
-  const lines: string[] = [];
-  const details: string[] = [];
-  const targets: SetupTarget[] = [];
-  const actions = new Set<SetupAction>();
-  for (const account of accounts) {
-    const { state, detail } = account.status;
-    if (state === "signed-in") continue;
-    lines.push(NOT_SIGNED_IN[state](account));
-    // An unreadable status is read again; a sign-in that is not there is signed in again.
-    if (state === "unreadable") {
-      actions.add("check-again");
-      if (detail !== undefined) details.push(`${account.label}: ${detail}`);
-    } else {
-      actions.add("sign-in-again");
-      targets.push(signInAgain(account));
-    }
-  }
-  return lines.length === 0 || { reason: lines.join(" "), details, targets, actions: [...actions] };
+  const lapsed = accounts.filter((account) => account.status.state === "signed-out" || account.status.state === "expired");
+  const unreadable = accounts.filter((account) => account.status.state === "unreadable");
+  const lines = [signInAgainLine(lapsed), unreadableLine(unreadable)].filter((line) => line !== undefined);
+  if (lines.length === 0) return true;
+  const actions: SetupAction[] = [...(lapsed.length > 0 ? ["sign-in-again" as const] : []), ...(unreadable.length > 0 ? ["check-again" as const] : [])];
+  const details = unreadable.flatMap((account) => (account.status.detail === null ? [] : [`${account.label}: ${account.status.detail}`]));
+  return { reason: lines.join(" "), details, ...(lapsed.length > 0 && { targets: lapsed.map(signInAgain) }), actions };
 };
 
 export const accountStateChecks = ({ accounts }: AccountStateChecksOptions): { readonly [Id in AccountStateCheckId]: StateChecker } => ({

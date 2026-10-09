@@ -72,7 +72,7 @@ export const SessionPane = ({ session, focused, header, authoring = false, ...ca
                       {!authoring && (shell !== undefined || !narrow) && <StatusLine environmentId={environmentId} sessionId={sessionId} />}
                     </div>
                   </section>
-                  <SideColumnView environmentId={environmentId} sessionId={sessionId} restoreInHeader={narrow && !authoring} />
+                  <SideColumnView environmentId={environmentId} sessionId={sessionId} restoreInHeader={narrow} />
                   <PaneOrganising environmentId={environmentId} sessionId={sessionId} />
                 </SessionForkRewindProvider>
               </PaneDialogs>

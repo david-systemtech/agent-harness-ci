@@ -16,4 +16,4 @@ export { contrastRatio, cssColour, hueDistance, inGamut, readCssColour, toHex, t
 export { ANSI_COLOURS, ENVIRONMENT_ANSI, TERMINAL_ROLES, type AnsiColour, type TerminalRole } from "./terminal.js";
 export { SHIPPED_THEMES } from "./shipped.js";
 export { LADDERS, TOKEN_NAMES, type LadderName, type TokenName } from "./tokens.js";
-export { clampWords } from "./words.js";
+export { COLOUR_NAMES, clampWords } from "./words.js";

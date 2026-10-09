@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { manualClock } from "../../../test/clock.js";
 import type { AdapterEvent } from "../../adapter/contract.js";
 import { createMapperState, endTurn, mapSdkMessage, type MapperState } from "./mapper.js";
+import { SpendMeter } from "./spend.js";
 import { TaskLedger } from "./tasks.js";
 
 /**
@@ -18,13 +19,48 @@ import { TaskLedger } from "./tasks.js";
 const fixture = (name: string): unknown[] =>
   (JSON.parse(readFileSync(join(import.meta.dirname, "../../../test/fixtures/sdk", `${name}.json`), "utf8")) as { messages: unknown[] }).messages;
 
-const setup = () => {
+const setup = (spend = new SpendMeter()) => {
   const clock = manualClock();
-  const state = createMapperState({ ledger: new TaskLedger(clock), now: () => clock.now().getTime() });
+  const state = createMapperState({ ledger: new TaskLedger(clock), spend, now: () => clock.now().getTime() });
   return { clock, state };
 };
 
 const mapAll = (messages: unknown[], state: MapperState): AdapterEvent[] => messages.flatMap((message) => mapSdkMessage(message, state));
+
+describe("a turn's share of the process's spend (#1949)", () => {
+  const result = (modelUsage: unknown, subtype = "success") => ({ type: "result", subtype, modelUsage });
+  const spent = (inputTokens: number, outputTokens: number, costUSD?: number) => ({ inputTokens, outputTokens, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, ...(costUSD !== undefined && { costUSD }) });
+  const usageOf = (events: AdapterEvent[]) => events.flatMap((event) => (event.type === "usage.reported" ? [event.payload.models] : []));
+
+  it("counts a result that comes after the host ended its turn, so the next turn does not report it again", () => {
+    const meter = new SpendMeter();
+    const first = setup(meter).state;
+    endTurn(first, { reason: "interrupted", cause: "user" });
+    expect(mapSdkMessage(result({ "model-a": spent(100, 10, 0.5) }, "error_during_execution"), first)).toEqual([]);
+    const next = setup(meter).state;
+    expect(usageOf(mapSdkMessage(result({ "model-a": spent(130, 25, 0.75) }), next))).toEqual([
+      [{ model: "model-a", inputTokens: 30, outputTokens: 15, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.25, contextWindow: null }],
+    ]);
+  });
+
+  it("leaves out a model that spent nothing since, takes a new model whole, and a count that went down as started again", () => {
+    const meter = new SpendMeter();
+    mapSdkMessage(result({ "model-a": spent(100, 10, 0.5), "model-b": spent(40, 4, 0.25) }), setup(meter).state);
+    expect(usageOf(mapSdkMessage(result({ "model-a": spent(100, 10, 0.5), "model-b": spent(10, 1, 0.125), "model-c": spent(7, 3, 0.0625) }), setup(meter).state))).toEqual([
+      [
+        { model: "model-b", inputTokens: 10, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.125, contextWindow: null },
+        { model: "model-c", inputTokens: 7, outputTokens: 3, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.0625, contextWindow: null },
+      ],
+    ]);
+  });
+
+  it("splits no cost off a reading whose reading before said none", () => {
+    const meter = new SpendMeter();
+    mapSdkMessage(result({ "model-a": spent(100, 10) }), setup(meter).state);
+    const ended = mapSdkMessage(result({ "model-a": spent(150, 20, 0.5) }), setup(meter).state);
+    expect(ended.at(-1)).toMatchObject({ type: "end", usage: [{ model: "model-a", inputTokens: 50, outputTokens: 10, costUsd: null }] });
+  });
+});
 
 describe("current request context", () => {
   it("reports each main request independently of cumulative spend and ignores delegated requests", () => {

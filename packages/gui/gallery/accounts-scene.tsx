@@ -5,9 +5,9 @@ import { useEffect, useState } from "react";
 import { App } from "../src/app.js";
 import { prepareWorld, startWorld } from "./world.js";
 
-/** The three Accounts panes over the real Settings dialog, with pooled fake readings; Usage's also has three unknown limits, one with a value (#1893). */
-export async function accountsScene(row: SettingsRowId, openPicker = false) {
-  const identity = { provider: "claude" as const, email: "reader@example.test", organisation: null };
+/** The three Accounts panes over the real Settings dialog (Accounts with the first card's Details open), with pooled fake readings; Usage's also has three unknown limits, one with a value (#1893). */
+export async function accountsScene(row: SettingsRowId, picker?: "Model family" | "Default account") {
+  const identity = { provider: "claude" as const, email: picker === "Default account" ? "account.with-a-long-address@example.test" : "reader@example.test", organisation: null };
   const prepared = await prepareWorld({ environments: [
     { name: "desk", reach: "local", accounts: [
       { label: "Personal", identity },
@@ -32,13 +32,17 @@ export async function accountsScene(row: SettingsRowId, openPicker = false) {
       const selector = row === "accounts.accounts" ? "[data-account-card] svg[role=img]" : row === "accounts.default-model" ? '[data-default-choice="Model family"]' : '[aria-label="Windows"] svg';
       let openedPicker = false;
       const mark = () => {
+        // setup-copy.md §5.1: an account's plan readings are in its Details; the first card's is opened so its rings are captured.
+        if (row === "accounts.accounts") [...document.querySelectorAll<HTMLButtonElement>("[data-account-card] button[aria-expanded=false]")].find((fold) => fold.textContent === "Details")?.click();
         const target = document.querySelector<HTMLElement>(selector);
         if (target === null) return;
         if (row === "accounts.default-model" && !target.textContent?.includes("Claude Sonnet 5")) return;
-        if (openPicker) {
+        if (picker !== undefined) {
           if (!openedPicker) {
+            const trigger = document.querySelector<HTMLElement>(`[data-default-choice="${picker}"]`);
+            if (trigger === null) return;
             openedPicker = true;
-            target.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+            trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
           }
           if (document.querySelector("[data-default-picker]") === null) return;
         }

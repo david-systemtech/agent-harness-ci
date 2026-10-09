@@ -30,7 +30,8 @@ const install = (path: string, text: string, faults: TerminalCommitFaults = {}):
     if (faults.write) faults.write(temporary, text);
     else writeFileSync(temporary, text, { mode: 0o600 });
     if (process.platform !== "win32") chmodSync(temporary, 0o600);
-    const fd = openSync(temporary, "r");
+    // Windows requires write access for FlushFileBuffers (fsync).
+    const fd = openSync(temporary, "r+");
     try { fsyncSync(fd); } finally { closeSync(fd); }
     (faults.rename ?? renameSync)(temporary, path);
     // Persist the rename too, before retiring the recovery journal.

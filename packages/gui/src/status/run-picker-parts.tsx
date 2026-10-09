@@ -40,7 +40,10 @@ export const RunPickerContent = ({ sheet, ...props }: Omit<ComponentProps<typeof
 /** Rows keep the popup open while a dependent choice is made. */
 export const RunChoiceRow = ({ label, note, under, usage, selected, dim, primary, identity, machine, icon: Icon, onSelect }: {
   readonly label: string; readonly primary?: string; readonly machine?: string | undefined; readonly note?: string | undefined; readonly under?: string | undefined;
-  /** An account's email: one line cut with an ellipsis, whole in the row's tooltip, since an address has no place to wrap (#1895). */
+  /**
+   * An account's email: one line cut with an ellipsis, whole in the row's tooltip, since an address has no place to wrap (#1895).
+   * An account row's name is cut the same way, as it is often an address too, so a selected row's check mark never breaks it (#1963).
+   */
   readonly identity?: string;
   /** An account row's plan windows, drawn last (`UsageRings`). */
   readonly usage?: ReactNode;
@@ -49,7 +52,7 @@ export const RunChoiceRow = ({ label, note, under, usage, selected, dim, primary
     className={classes("items-start gap-2 px-2.5 py-2 text-xs [overflow-wrap:anywhere] [&_svg]:size-3", selected && "bg-wash", dim && "opacity-50")}>
     <Icon aria-hidden="true" className="mt-0.5 size-3" />
     <span className="min-w-0 flex-1">
-      <span className="block font-medium">{primary ?? label}</span>
+      <span data-run-primary className={classes("block font-medium", identity !== undefined && "truncate")}>{primary ?? label}</span>
       {identity !== undefined && <span data-run-identity className="block truncate text-2xs text-ink-muted">{identity}</span>}
       {machine !== undefined && <span className="block font-mono text-2xs text-ink-muted">{machine}</span>}
       {note !== undefined && <span className="block text-2xs text-ink-muted">{note}</span>}

@@ -212,6 +212,7 @@ describe("a deleted session", () => {
     "sessions.untag": { sessionId, tag: "wip" },
     "sessions.setDraft": { sessionId, draft: "A draft" },
     "sessions.setBrowser": { sessionId, browser: { kind: "headless" } },
+    "sessions.setModel": { sessionId, model: "sonnet", effort: null },
     "sessions.setGroup": { sessionId, groupId: null },
     "sessions.settle": { sessionId },
     "sessions.unsettle": { sessionId },

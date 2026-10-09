@@ -144,8 +144,9 @@ it showed, so a waiting card is not covered (#1903); a pane a gesture asks for
 as it opens the session, as Set up's "Write it myself" Files, stays shown. In
 the phone layout that header control, a 44px target drawn while a hidden sheet
 has a pane to bring back, is the only way back besides More: no handle floats
-over the transcript (#1960). Outside the phone layout a column is restored as it
-was left, and a narrow pane's hidden sheet comes back from a handle at its edge.
+over the transcript (#1960). An authoring conversation uses its own header
+for that control and returns focus there when its sheet closes (#1977). Outside
+the phone layout a column is restored as it was left, and a narrow pane's hidden sheet comes back from a handle at its edge.
 Drawers/sheets trap and restore focus
 and close predictably. Long titles and labels wrap without page overflow.
 
@@ -156,7 +157,8 @@ in a bounded inner scroller with contained overscroll; Close, New session and
 footer actions stay reachable above the keyboard. At 390×480 visual bounds with
 offsetTop 120 in a tall layout, search/results and dismissal never scroll the
 document. Dismissal restores focus without a page jump. Selecting a result
-closes the drawer and preserves each session's draft and running work. New
+closes the drawer, returns focus to Show sessions without a page jump, and
+preserves each session's draft and running work. New
 session, the drawer's or an environment heading's, closes the drawer and leaves
 the focus in the new session's message box, not on the drawer's trigger. Selected,
 running and waiting rows and explicit touch actions remain readable at text 20.
@@ -285,7 +287,13 @@ explicit; feature-detect support and denial. On supported iOS/iPadOS 16.4+,
 permission requires an installed Home Screen web app and a user gesture.
 Validate supported HTTPS vendor endpoints; reject arbitrary/private fetch
 targets. Retire 404/410 endpoints and revoked/expired-client subscriptions.
-The browser vendor gateway can reach a suspended/closed client; tailnet access
+Pairing the same browser again in place (Give this phone full access)
+revokes its old client session and so its registration: the client registers
+the browser's subscription (or a new one, while permission stands) for the
+new client session under the old label, and where the browser cannot
+subscribe without a tap, says push is off with Enable push in the window
+(#1959). The browser
+ vendor gateway can reach a suspended/closed client; tailnet access
 is required when the user opens the private session. Notification clicks open
 the same-origin session route. The worker never owns a session socket or run.
 
