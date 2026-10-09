@@ -1547,6 +1547,55 @@ describe("the process across turns", () => {
     expect(usageOf(await third.events.done)).toEqual([turnSpend(500, 3000, 80000, 40, 0.5), turnSpend(500, 3000, 80000, 40, 0.5)]);
   });
 
+  it.each([false, true])("does not charge restored session totals to a cold resumed turn stopped before a request settles (invalid trailing ledger: %s)", async (invalidTrailingLedger) => {
+    let saved: { type: string; [key: string]: unknown }[] = [];
+    const store = { append: async () => undefined, load: async () => saved, listUnrenamedSummaries: async () => [] };
+    const adapter = adapterWith({ sessionStore: store });
+    const opening = runInput();
+    const first = await oneTurn(adapter, opening);
+    first.query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [opening.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION, { modelUsage: spentSoFar(100, 448, 72000, 0.25) }));
+    await first.events.done;
+    first.run.release();
+    const next = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const second = await oneTurn(adapter, next, first.query);
+    first.query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [next.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION, { modelUsage: spentSoFar(130, 514, 96000, 0.375) }));
+    expect(usageOf(await second.events.done)).toEqual([turnSpend(30, 66, 24000, 0, 0.125), turnSpend(30, 66, 24000, 0, 0.125)]);
+    second.run.release();
+    // The bundled CLI restores its latest cost-state on resume, including modelUsage.
+    saved = [{
+      type: "cost-state", sessionId: PROVIDER_SESSION, totalCostUSD: 0.375,
+      totalAPIDuration: 20, totalAPIDurationWithoutRetries: 20, totalToolDuration: 0,
+      totalLinesAdded: 0, totalLinesRemoved: 0, totalDuration: 40, startTime: clock.now().getTime(),
+      modelUsage: { "claude-haiku-4-5": { ...spentSoFar(130, 514, 96000, 0.375)["claude-haiku-4-5"], webSearchRequests: 0 } },
+    }];
+    if (invalidTrailingLedger) saved.push({
+      ...saved[0], type: "cost-state", totalDuration: -1,
+      modelUsage: { "claude-haiku-4-5": { ...spentSoFar(160, 580, 120000, 0.5)["claude-haiku-4-5"], webSearchRequests: 0 } },
+    });
+    const input = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION }, instructions: "Be brief." });
+    const run = adapter.createRun(input, contextWith());
+    const query = await started(3); // The login refresh is query two; changed instructions need a new process.
+    expect(query).not.toBe(first.query);
+    const read = reading(run);
+    await vi.waitFor(() => expect(query.prompts.some((prompt) => prompt.uuid === input.prompt[0]?.messageId)).toBe(true));
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_3", [input.prompt[0]?.messageId as string]));
+    await vi.waitFor(() => expect(read.events.length).toBeGreaterThan(0));
+    await run.interrupt();
+    query.emit({ ...sdk.interruptedResult(PROVIDER_SESSION), modelUsage: spentSoFar(130, 514, 96000, 0.375) });
+    const events = await read.done;
+    expect(events.filter((event) => event.type === "usage.reported")).toEqual([]);
+    expect(ends(events)).toEqual([expect.objectContaining({ reason: "interrupted", usage: null })]);
+    run.release();
+    const after = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION }, instructions: "Be brief." });
+    const fourth = await oneTurn(adapter, after, query);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_4", [after.prompt[0]?.messageId as string]));
+    await vi.waitFor(() => expect(fourth.events.events.length).toBeGreaterThan(0));
+    await fourth.run.interrupt();
+    // When a request did settle before Stop, report only its new spend, on both accounting surfaces.
+    query.emit({ ...sdk.interruptedResult(PROVIDER_SESSION), modelUsage: spentSoFar(160, 580, 120000, 0.5) });
+    expect(usageOf(await fourth.events.done)).toEqual([turnSpend(30, 66, 24000, 0, 0.125), turnSpend(30, 66, 24000, 0, 0.125)]);
+  });
+
   it("reports none for a turn stopped before it spent anything, never the turn before's figures", async () => {
     const adapter = adapterWith();
     const opening = runInput();
@@ -1555,12 +1604,17 @@ describe("the process across turns", () => {
     await first.events.done;
     first.run.release();
     const next = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
-    const stopped = await oneTurn(adapter, next, first.query);
-    first.query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [next.prompt[0]?.messageId as string]));
+    const second = await oneTurn(adapter, next, first.query);
+    first.query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [next.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION, { modelUsage: spentSoFar(130, 2745, 95000, 0.5) }));
+    await second.events.done;
+    second.run.release();
+    const third = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const stopped = await oneTurn(adapter, third, first.query);
+    first.query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_3", [third.prompt[0]?.messageId as string]));
     await vi.waitFor(() => expect(stopped.events.events.length).toBeGreaterThan(0));
     expect(await stopped.run.interrupt()).toEqual({ stillQueued: [] });
     // The request it cut off was never counted, so the process's total is the one the turn before ended on.
-    first.query.emit({ ...sdk.interruptedResult(PROVIDER_SESSION), modelUsage: spentSoFar(100, 2679, 71000, 0.375) });
+    first.query.emit({ ...sdk.interruptedResult(PROVIDER_SESSION), modelUsage: spentSoFar(130, 2745, 95000, 0.5) });
     const events = await stopped.events.done;
     expect(events.filter((event) => event.type === "usage.reported")).toEqual([]);
     expect(ends(events)).toEqual([expect.objectContaining({ reason: "interrupted", usage: null })]);
