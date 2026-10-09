@@ -406,6 +406,23 @@ it("sends a repository a connected forge cannot see to that forge's token", asyn
     details: expect.arrayContaining([expect.stringContaining("team/hidden/' not found")]) }]);
 });
 
+it("keeps the forge access fix when an SSH repository refusal retains only an ambiguous fatal line", async () => {
+  const source = tempDir();
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1,
+    sources: [{ url: "git@ssh.skills.test:team/private.git", subdir: "." }], alwaysOn: [] }));
+  const t = await startTestEnvironment({ adapter: fakeAdapter(), setupSteps: NO_SETUP_STEPS,
+    skillsGit: async () => ({ outcome: "ran", git: { ok: false, code: 128, stdout: Buffer.alloc(0),
+      stderr: "ERROR: Repository does not exist.\nfatal: Could not read from remote repository.", truncated: false, timedOut: false, missing: false } }),
+    stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }),
+  });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  expect(imported.result?.failed).toEqual([{ label: "Skill collection private",
+    message: "agent-harness found no such repository or branch. If it is private, connect a forge for ssh.skills.test.", step: "forges",
+    details: expect.arrayContaining([expect.stringContaining("fatal: Could not read from remote repository.")]) }]);
+});
+
 it("says a branch or pin the forge no longer holds is gone, with no forge to fix", async () => {
   const forge = await startFakeForge();
   onCleanup(() => forge.close());
