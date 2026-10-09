@@ -1,5 +1,5 @@
 """Publish validated hosted reports from the trusted checkout only."""
-import hashlib, html, json, os, re, struct, sys, urllib.error, urllib.parse, urllib.request, zipfile
+import hashlib, html, json, os, re, signal, struct, sys, time, urllib.error, urllib.parse, urllib.request, zipfile
 from gallery_reports import validate_shard, complete_set, phone_dimensions, MAX_ROWS, MAX_BYTES
 from gallery_allocation import LIMITS, MAX_PNGS, report_scenes
 base = os.environ['FORGEJO_URL'].rstrip('/')
@@ -9,12 +9,34 @@ api = f'{base}/api/v1/repos/{repository}'
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs): return None
 opener = urllib.request.build_opener(NoRedirect())
-def absolute_request(url, method='GET', data=None, content_type='application/json', token=None):
+# Socket inactivity timeouts do not bound a slow response or the whole shard set.
+# This trusted publisher runs on the Unix relay, in its main thread.
+REQUEST_SECONDS = 60
+PUBLICATION_SECONDS = 600
+publication_deadline = None
+class UploadTimeout(TimeoutError): pass
+class UploadInterrupted(Exception): pass
+def expired(signum, frame):
+    raise UploadTimeout('Gallery request or publication deadline exceeded')
+def interrupted(signum, frame):
+    raise UploadInterrupted('Gallery publication interrupted')
+signal.signal(signal.SIGALRM, expired)
+signal.signal(signal.SIGTERM, interrupted)
+def absolute_request(url, method='GET', data=None, content_type='application/json', token=None, expected_bytes=None):
     req = urllib.request.Request(url, data=data, method=method, headers={
         'Authorization': 'token ' + (token or os.environ['FORGEJO_TOKEN']), 'Content-Type': content_type})
-    with opener.open(req, timeout=120) as response:
-        reply = response.read()
-        return json.loads(reply) if reply else None
+    remaining = REQUEST_SECONDS if publication_deadline is None else min(REQUEST_SECONDS, publication_deadline - time.monotonic())
+    if remaining <= 0: raise UploadTimeout('Gallery publication deadline exceeded')
+    signal.setitimer(signal.ITIMER_REAL, remaining)
+    try:
+        with opener.open(req, timeout=remaining) as response:
+            reply = response.read() if expected_bytes is None else response.read(len(expected_bytes) + 1)
+            if expected_bytes is not None:
+                if reply != expected_bytes: raise ValueError('Existing gallery capture has different bytes')
+                return None
+            return json.loads(reply) if reply else None
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
 def request(path, method='GET', data=None, content_type='application/json'):
     return absolute_request(api + path, method, data, content_type)
 current = request(f'/pulls/{pr}')
@@ -84,6 +106,7 @@ elif len(reports) != 1: sys.exit('Duplicate gallery artifact')
 
 package_token = os.environ.get('PACKAGES_TOKEN')
 if not package_token: sys.exit('PACKAGES_TOKEN is required to publish gallery captures.')
+publication_deadline = time.monotonic() + PUBLICATION_SECONDS
 for report, images, scenes in reports:
     attempt = '\n<!-- window-gallery-attempt ' + json.dumps({'head': head, **({'shard': report['shard']} if 'shard' in report else {})}) + ' -->\n'
     comment = request(f'/issues/{pr}/comments', 'POST', json.dumps({'body': f'Window gallery for `{head}`. Uploading captures…' + attempt}).encode())['id']
@@ -129,9 +152,7 @@ for report, images, scenes in reports:
             except urllib.error.HTTPError as error:
                 if error.code != 409: raise
                 # Reusing this report version is safe only when its bytes are identical.
-                req = urllib.request.Request(download, headers={'Authorization': 'token ' + package_token})
-                with opener.open(req, timeout=120) as response:
-                    if response.read(len(images[name])+1) != images[name]: raise ValueError('Existing gallery capture has different bytes')
+                absolute_request(download, token=package_token, expected_bytes=images[name])
             captures.append({'name': name, 'url': urls[name], 'api_url': download, 'sha256': hashlib.sha256(images[name]).hexdigest()})
         manifest = {'head': head, 'version': version, 'captures': captures}
         if 'shard' in report:
@@ -148,6 +169,8 @@ for report, images, scenes in reports:
         # Never include the API's response, credentials, or untrusted exception text.
         reason = f'HTTP {error.code}' if isinstance(error, urllib.error.HTTPError) else type(error).__name__
         failure = f'Window gallery for `{head}`.\n\nGallery upload failed during {stage} ({reason}). Rerun the gallery job; if it persists, check the relay log and package/attachment write permissions. No captures from this report can be accepted.' + attempt
+        # Leave a fresh bounded request to finalize even after the publication budget expires.
+        publication_deadline = None
         try: request(f'/issues/comments/{comment}', 'PATCH', json.dumps({'body': failure}).encode())
         except Exception: print('::error::Could not finalize the gallery comment; check tracker connectivity and rerun the gallery job.', file=sys.stderr)
         sys.exit(f'Gallery upload failed during {stage} ({reason}); rerun the gallery job.')

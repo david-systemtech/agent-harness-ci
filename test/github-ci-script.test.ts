@@ -661,7 +661,7 @@ it("runs gallery independently and preserves geometry failures as blocking check
   expect(hosted).toContain("runs-on: ubuntu-24.04");
   expect(hosted).toContain("types: [gallery]");
   expect(relayWorkflow).not.toContain("continue-on-error: true");
-  expect(relayWorkflow).toContain("timeout-minutes: 30");
+  expect(relayWorkflow).toContain("timeout-minutes: 55");
   expect(relayWorkflow).toContain("PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
   expect(relayWorkflow).toContain("'packages/gui/**'");
   expect(ci).not.toContain("GH_CI_EVENT: gallery");
@@ -999,10 +999,12 @@ async function storedGallery(packagesToken = "token-for-tests") {
   const zip = join(f.checkout, "gallery.zip");
   const captures = new Map<string, Buffer>();
   const attachments: string[] = [];
+  const requests: string[] = [];
   const comments: { id: number; body: string }[] = [];
   let base = "", failure = "";
   const server = createServer(async (request, response) => {
     const path = request.url ?? "";
+    requests.push(path);
     const expected = path.startsWith("/api/packages/") || path.startsWith("/api/v1/packages/") ? packagesToken : "token-for-tests";
     if (request.headers.authorization !== `token ${expected}`) { response.writeHead(401).end(); return; }
     const chunks: Buffer[] = [];
@@ -1038,7 +1040,7 @@ async function storedGallery(packagesToken = "token-for-tests") {
   base = `http://127.0.0.1:${address.port}`;
   const env = { PACKAGES_TOKEN: packagesToken, GH_CI_EVENT: "gallery", FAKE_GALLERY_ZIP: zip, FORGEJO_PR: "42", FORGEJO_TOKEN: "token-for-tests", FORGEJO_URL: base, FORGEJO_REPOSITORY: "example/project" };
   return {
-    f, sha, comments, captures, attachments, env,
+    f, sha, comments, captures, attachments, requests, env,
     fail: (stage: string) => { failure = stage; },
     capture: async (pixel: number, count = 1, names = count === 1 ? ["window-empty.dark"] : Array.from({ length: count }, (_, index) => `scene-${index}.dark`), viewport?: { width: number; height: number }, shard?: { run: string; index: number; count: number; total: number } | { id: string; index: number; count: number }) => {
       await run("python3", ["-c", `import json,struct,sys,zipfile,zlib,pathlib
@@ -1063,6 +1065,60 @@ with zipfile.ZipFile(sys.argv[1],'w') as z:
     },
   };
 }
+
+it("finishes a published gallery without scanning repository-wide retention", async () => {
+  const g = await storedGallery();
+  await g.capture(230);
+  const result = await relay(g.f, g.env);
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.comments[0]!.body).toContain("<!-- window-gallery ");
+  expect(g.requests.some(path => path.includes("/pulls?state=open") || path.startsWith("/api/v1/packages/"))).toBe(false);
+});
+
+it.each(["attachment", "storage", "read", "reused", "final-report", "terminated", "budget"])("finalizes a held gallery upload when its %s deadline interrupts publication", async (stage) => {
+  const g = await storedGallery();
+  await g.capture(230);
+  // Deliver the deadline signal at the transport boundary, without a wall-clock race.
+  const hooks = join(g.f.checkout, "hooks"); mkdirSync(hooks);
+  writeFileSync(join(hooks, "sitecustomize.py"), `import json,os,signal,time,urllib.error,urllib.request
+original=urllib.request.OpenerDirector.open
+clock=0
+if os.environ['HELD_STAGE']=='budget': time.monotonic=lambda: clock
+def opened(self, req, *args, **kwargs):
+    global clock
+    url=req.full_url
+    stage=os.environ['HELD_STAGE']
+    if stage=='reused' and '/api/packages/' in url and req.get_method()=='PUT':
+        raise urllib.error.HTTPError(url,409,'Conflict',{},None)
+    if stage=='final-report': target=req.get_method()=='PATCH' and b'<!-- window-gallery ' in (req.data or b'')
+    else: target=('/assets' in url if stage in ('attachment','read','terminated') else '/api/packages/' in url)
+    if target:
+        with open(os.environ['DEADLINE_LOG'],'w') as log: json.dump(signal.getitimer(signal.ITIMER_REAL)[0],log)
+        if stage=='budget':
+            clock=601
+        elif stage=='read':
+            reply=original(self,req,*args,**kwargs)
+            def read(*args): os.kill(os.getpid(),signal.SIGALRM)
+            reply.read=read
+            return reply
+        else: os.kill(os.getpid(),signal.SIGTERM if stage=='terminated' else signal.SIGALRM)
+    return original(self,req,*args,**kwargs)
+urllib.request.OpenerDirector.open=opened
+`);
+  const deadlineLog = join(hooks, "deadline.json");
+  const result = await relay(g.f, { ...g.env, PYTHONPATH: hooks, HELD_STAGE: stage, DEADLINE_LOG: deadlineLog });
+  expect(result.code).not.toBe(0);
+  expect(g.comments).toHaveLength(1);
+  const body = g.comments[0]!.body;
+  expect(body).toContain("Gallery upload failed during");
+  expect(body).toContain(stage === "terminated" ? "UploadInterrupted" : "UploadTimeout");
+  expect(body).not.toContain("Uploading captures");
+  expect(body).not.toContain("<!-- window-gallery ");
+  expect(result.stderr).toContain("Gallery upload failed during");
+  const deadline = JSON.parse(readFileSync(deadlineLog, "utf8")) as number;
+  expect(deadline).toBeGreaterThan(0);
+  expect(deadline).toBeLessThanOrEqual(60);
+});
 
 it.each([{ count: 212, status: "new" }, { count: 212, status: "changed" }, { count: 400, status: "changed" }])("publishes $count $status captures across both widths and ladders", async ({ count, status }) => {
   const g = await storedGallery();
@@ -1233,7 +1289,7 @@ it("uses the owner package credential for captures while keeping comment request
 });
 
 
-it("runs cleanup daily and after a completed gallery report", () => {
+it("runs cleanup daily and manually outside gallery publication", () => {
   const workflow = readFileSync(join(import.meta.dirname, "../.forgejo/workflows/gallery-retention.yml"), "utf8");
   expect(workflow).toContain("cron:");
   expect(workflow).toContain("workflow_dispatch:");
@@ -1241,7 +1297,7 @@ it("runs cleanup daily and after a completed gallery report", () => {
   expect(workflow).toContain("python3 scripts/gallery-retention.py");
   expect(workflow).toContain("PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
   expect(readFileSync(join(import.meta.dirname, "../.forgejo/workflows/gallery.yml"), "utf8")).toContain("PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
-  expect(readFileSync(join(import.meta.dirname, "../.forgejo/scripts/github-ci.sh"), "utf8")).toContain("scripts/gallery-retention.py");
+  expect(readFileSync(join(import.meta.dirname, "../.forgejo/scripts/github-ci.sh"), "utf8")).not.toContain("scripts/gallery-retention.py");
 });
 
 it("publishes more than fifty gallery scenes across both themes and viewports", async () => {
