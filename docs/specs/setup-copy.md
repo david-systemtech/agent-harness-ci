@@ -552,10 +552,13 @@ quoted from the files named; a builder greps for them.
     done `Put back {n} built-in entries.` (`Put back 1 built-in entry.`); not read `agent-harness could not read the always-ask list.` Details.
   - How to set it up and How to fix it, by the probe's cause (client-runtime/src/permissions/words.ts): bubblewrap or socat missing `Install bubblewrap and socat, the two programs the sandbox uses on Linux.`
     with `On Ubuntu or Debian` `sudo apt-get install bubblewrap socat`, `On Fedora` `sudo dnf install bubblewrap socat`, `On Arch Linux` `sudo pacman -S bubblewrap socat`;
+    On macOS, a missing built-in sandbox says `This Mac is missing its built-in sandbox. Choose Off, or use a computer with a working sandbox.` (no install or restart command).
+    A failed macOS probe says `macOS could not start its built-in sandbox. Check Details, then restart agent-harness to check again. If it still does not work, choose Off or use a computer with a working sandbox.`
+    with the restart command below, and no Linux package commands. The computer's reported operating system selects these cases; older reports naming Seatbelt are handled too.
     AppArmor `Ubuntu needs a rule that lets the sandbox start. Add it with this command.` `Add the rule` (the bwrap profile written to /etc/apparmor.d/bwrap and loaded);
     the kernel `Linux has turned off the user namespaces the sandbox needs.` `Turn them on` (a sysctl.d file, then `sudo sysctl --system`);
     a container's seccomp `The container's security profile stops the sandbox. Start the container with a seccomp profile that allows user namespaces.`;
-    another failure `The sandbox did not start here. On Linux, install bubblewrap and socat; on Ubuntu, also add the rule.` with those commands;
+    another failure on Linux `The sandbox did not start here. On Linux, install bubblewrap and socat; on Ubuntu, also add the rule.` with those commands;
     no mechanism `This computer has no sandbox agent-harness can use. On Windows, run agent-harness in WSL2 to use one.`; the agent `The agent this computer runs cannot use a sandbox.`;
     not probed `agent-harness has not checked the sandbox here yet.` Each that something on the computer fixes ends `Then restart agent-harness, which checks the sandbox as it starts:`
     with `agent-harness service stop && agent-harness service start` (a container: `docker compose restart environment`) to copy, until this app can restart its service
