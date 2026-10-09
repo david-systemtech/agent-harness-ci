@@ -105,12 +105,15 @@ const InstallLinesOf = ({ view }: { readonly view: EnvironmentView }) => {
  * computer a card, which `added` hears; and installing agent-harness on
  * another computer, the lines from the home environment's release. Opened at
  * it (Set up's "Set up another computer"), the link's field takes the focus.
+ * In Set up, `forComputer` makes its code and install lines belong to the
+ * selected computer; otherwise they belong to this app's home environment.
  */
-export const AddAMachine = ({ added }: { readonly added: (environmentId: string) => void }) => {
+export const AddAMachine = ({ added, forComputer }: { readonly added: (environmentId: string) => void; readonly forComputer?: EnvironmentView }) => {
   const runtime = useRuntime();
   const shell = useShell();
   const { part, open } = useSettings();
   const home = homeEnvironment(useObservable(runtime.projections.environments));
+  const computer = forComputer ?? home;
   const heading = useId();
   const camera = runtime.capability(LOCAL_PLACEHOLDER_ID, "shell.camera");
   const lens = camera.status === "present" ? shell?.camera : undefined;
@@ -122,14 +125,14 @@ export const AddAMachine = ({ added }: { readonly added: (environmentId: string)
         <Laptop aria-hidden="true" className="size-4" />Add a device
       </h3>
       <Part title="Connect a phone or computer to this one">
-        {home === undefined ? unanswered : <ConnectToThisOne key={home.environmentId} view={home} />}
+        {computer === undefined ? unanswered : <ConnectToThisOne key={computer.environmentId} view={computer} />}
       </Part>
       <Part title="Connect this app to another computer">
         <PairingForm onPaired={added} scanQr={scanQr} autoFocus={part === "add-a-machine"} toBrowserOrigins={(environmentId) => open("environments.machines", environmentId, "browser-origins")} />
         {camera.status === "absent" && webCameraFor(runtime) === undefined && <p className="text-xs text-ink-faint">{camera.message}</p>}
       </Part>
       <Part title="Install agent-harness on another computer">
-        {home === undefined ? unanswered : <InstallLinesOf view={home} />}
+        {computer === undefined ? unanswered : <InstallLinesOf view={computer} />}
       </Part>
     </section>
   );
