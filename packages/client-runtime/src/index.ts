@@ -5,6 +5,7 @@ export { createRuntime, type Runtime } from "./runtime.js";
 export { CredentialAccessUnansweredError, isCredentialAccessUnanswered, PairingCodeSpentError, StoredCredentialUnavailableError } from "./credential-unavailable.js";
 export { SERVICE_FAILURE_KINDS, ServiceFailureError, serviceFailureOf, type ServiceFailure, type ServiceFailureKind } from "./service-failure.js";
 export { derived, writable, type Observable, type Writable } from "./observable.js";
+export { onLocalDayChange } from "./local-day.js";
 /** The id a client mints for a session or a group it creates (the contracts' `SessionId` and `GroupId` are version 4), and for a command (version 7). */
 export { uuidv4, uuidv7 } from "./ids.js";
 export type {

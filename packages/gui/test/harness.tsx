@@ -3,7 +3,7 @@ import { userEvent, type UserEvent } from "@testing-library/user-event";
 import type { Runtime } from "@agent-harness/client-runtime";
 import type { FakeShell, ManualClock } from "@agent-harness/client-runtime/testing";
 import type { EnvironmentHandle, Script, ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
-import { onTestFinished } from "vitest";
+import { onTestFinished, vi } from "vitest";
 import { App } from "../src/app.js";
 import { focusedPane, showSession } from "../src/grid/layout.js";
 import type { Presentation, PaneSession } from "../src/presentation.js";
@@ -73,7 +73,7 @@ const mount = async ({ world, clock, shell, macOS, documents, protocolVersion, s
     shell,
     runtime,
     presentation,
-    user: userEvent.setup(),
+    user: userEvent.setup({ advanceTimers: (delay) => { if (vi.isFakeTimers()) vi.advanceTimersByTime(delay); } }),
     view,
     environment: (name) => world.environment(name),
     open(name, index = 0) {

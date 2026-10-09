@@ -1,6 +1,9 @@
+import { useToastTimers } from "./toast-timers.js";
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { mountGallery } from "../gallery/mount.js";
+
+useToastTimers();
 
 let close: (() => Promise<void>) | undefined;
 afterEach(async () => {
