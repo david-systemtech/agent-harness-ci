@@ -1,5 +1,5 @@
 import { usageWindowMeterLabel, whenWords } from "@agent-harness/contracts";
-import { elapsedClock, gaugeOf, gaugeWho, listedReadingsOf, meterReadingsOf, NO_PLAN_READING, NO_WINDOWS_READ, silentLimitsWords, type UsageGauge, type UsageView } from "@agent-harness/client-runtime";
+import { elapsedClock, gaugeOf, gaugeWho, listedReadingsOf, meterReadingsOf, NO_PLAN_READING, NO_WINDOWS_READ, resetWords, silentLimitsWords, type UsageGauge, type UsageView } from "@agent-harness/client-runtime";
 import { Gauge, RefreshCw } from "lucide-react";
 import { useEffect, useReducer, useState } from "react";
 import { Button, Popover, PopoverContent, PopoverTrigger, Tooltip } from "../ui/index.js";
@@ -53,7 +53,7 @@ const UsageDetails = ({ environmentId, gauge, usage, refresh }: { readonly envir
     {readings.length === 0 && silent === 0 && <p className="text-ink-faint">{gauge?.unavailableReason ?? (gauge === undefined ? NO_PLAN_READING : NO_WINDOWS_READ)}</p>}
     {readings.map((reading) => <div key={reading.window} className="flex flex-col gap-1">
       <div className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate">{reading.label}</span><WindowReading reading={reading} /></div>
-      <p className="font-mono text-2xs text-ink-faint">{reading.resetsAt === null ? "Reset time unknown." : <>Resets <time dateTime={reading.resetsAt}>{whenWords(reading.resetsAt, at)}</time> · {now < Date.parse(reading.resetsAt) ? `in ${elapsedClock(Date.parse(reading.resetsAt) - now)}` : "reset time passed"}</>}</p>
+      <p className="font-mono text-2xs text-ink-faint">{reading.resetsAt === null ? "Reset time unknown." : <>Resets <time dateTime={reading.resetsAt}>{resetWords(reading.resetsAt, at)?.slice("resets ".length)}</time> · {now < Date.parse(reading.resetsAt) ? `in ${elapsedClock(Date.parse(reading.resetsAt) - now)}` : "reset time passed"}</>}</p>
     </div>)}
     {silent > 0 && <p className="text-ink-faint">{silentLimitsWords(silent)}</p>}
     {gauge !== undefined && <ReadingAge readAt={gauge.readAt} at={at} />}

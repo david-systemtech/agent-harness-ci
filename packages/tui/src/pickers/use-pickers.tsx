@@ -85,7 +85,7 @@ import { editorKeys, editorRows, noRowLine, settingLabel } from "./settings.js";
 
 export interface PickersHost {
   readonly runtime: Runtime;
-  /** This client's clock: `/usage` says a reset's day when it is not today's (#1951). */
+  /** The platform's clock: the day `/usage` says a window resets on is counted from it. */
   readonly clock: Clock;
   readonly request: () => void;
   readonly views: readonly EnvironmentView[];

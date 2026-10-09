@@ -4,7 +4,7 @@ import { phonePaneScene } from "../phone-pane-scene.js";
 /**
  * A reload with the Documents sheet left open, on a connection another client
  * has revoked (#1741): the session opens with the sheet hidden (#1903), and
- * opened again from its edge handle the sheet takes focus, and its close
+ * opened again from the header's control the sheet takes focus, and its close
  * button floats no hint over the needs-pairing notice, which stays above the
  * sheet. The notice's Pair again is a touch target below the Limited access
  * row (#1776).

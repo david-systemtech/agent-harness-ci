@@ -1,4 +1,5 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
+import { resetWords } from "@agent-harness/client-runtime";
 import { ENVIRONMENT_ICONS, whenWords, type AccountUsage, type EnvironmentIcon } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -179,7 +180,7 @@ describe("the plan gauge", () => {
     expect(within(details).getAllByText("Other limit")).toHaveLength(1);
     const row = label.parentElement?.parentElement as HTMLElement;
     expect(within(row).getByText("37%")).toBeTruthy();
-    expect(within(row).getByText(whenWords("2026-09-25T14:30:00.000Z", app.clock.now()))).toBeTruthy();
+    expect(within(row).getByText(resetWords("2026-09-25T14:30:00.000Z", app.clock.now())?.slice("resets ".length))).toBeTruthy();
     expect(details.outerHTML).not.toMatch(/iguana[_ ]necktie/);
     expect(within(details).queryByRole("img", { name: /Other limit/ })).toBeNull();
   });
@@ -216,10 +217,10 @@ describe("the plan gauge", () => {
     const times = within(details).getAllByText((_, element) => element?.tagName === "TIME");
     expect(times.map((time) => [time.getAttribute("datetime"), time.textContent])).toEqual([
       [soon, whenWords(soon, now)],
-      [later, whenWords(later, now)],
+      [later, "Mon 00:00"],
       [at(-51_000), whenWords(at(-51_000), now)],
     ]);
-    expect(whenWords(later, now)).toMatch(/^\d+ [A-Z][a-z]{2} \d\d:\d\d$/);
+    expect(details.textContent).toContain("Resets Mon 00:00 · in 96h 00m");
     expect(details.textContent).toContain(`Resets ${whenWords(soon, now)} · in 1h 44m`);
     expect(within(details).getByLabelText("Reading age").textContent).toBe(`Read 51s ago · ${whenWords(at(-51_000), now)}`);
     expect(details.textContent).not.toMatch(/\d{4}-\d\d-\d\dT\d\d:\d\d/);
@@ -247,7 +248,7 @@ describe("the plan gauge", () => {
     const details = await screen.findByRole("dialog", { name: "Usage details" });
     expect(within(details).getByText("milo@work.test")).toBeTruthy();
     expect(within(details).getByText("80%")).toBeTruthy();
-    expect(within(details).getByText(whenWords("2026-09-25T14:30:00.000Z", app.clock.now()))).toBeTruthy();
+    expect(within(details).getByText(resetWords("2026-09-25T14:30:00.000Z", app.clock.now())?.slice("resets ".length))).toBeTruthy();
     expect(within(details).getByText("Current request context appears in the Context meter when supported.")).toBeTruthy();
     await waitFor(() => expect(env.requests("accounts.usage").length).toBeGreaterThan(before));
     const age = within(details).getByLabelText("Reading age").textContent;

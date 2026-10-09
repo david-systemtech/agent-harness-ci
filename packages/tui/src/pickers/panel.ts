@@ -217,7 +217,7 @@ export const containmentRows = (report: ContainmentReport | undefined, own: Cont
   });
 };
 
-/** `/usage`: each gauge's identity and the accounts it pools, then each window with its bar, reset and verdict; the reason when it has none. */
+/** `/usage`: each gauge's identity and the accounts it pools, then each window with its bar, reset (its day counted from `now`) and verdict; the reason when it has none. */
 export const usageLines = (
   usage: UsageView,
   views: readonly EnvironmentView[],

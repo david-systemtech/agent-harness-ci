@@ -53,7 +53,7 @@ it("status-line-usage-details opens the popover with one silent-limits line and 
   expect(await within(details).findByText("2 other limits give no reading.")).toBeTruthy();
   expect(within(details).getAllByText("Other limit")).toHaveLength(1);
   expect(details.textContent).toContain(`Resets ${whenWords("2026-09-24T01:44:00.000Z", now)} · in 1h 44m`);
-  expect(details.textContent).toContain(`Resets ${whenWords("2026-09-28T00:00:00.000Z", now)} · in 96h 00m`);
+  expect(details.textContent).toContain("Resets Mon 00:00 · in 96h 00m");
   expect(within(details).getByLabelText("Reading age").textContent).toBe(`Read 51s ago · ${whenWords("2026-09-23T23:59:09.000Z", now)}`);
   expect(details.textContent).not.toMatch(/\d{4}-\d\d-\d\dT/);
 });

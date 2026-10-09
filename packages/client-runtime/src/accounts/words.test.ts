@@ -52,12 +52,40 @@ describe("an account and its gauge", () => {
     expect(accountStatusWords({ state: "unreadable", detail: "auth status exited 1" })).toBe("status unreadable: auth status exited 1");
     expect(gaugeWho({ identity: PROBE.identity })).toBe("milo@example.test");
     expect(gaugeWho({ identity: null })).toBe("An account never read");
-    const now = new Date(2026, 8, 30, 10, 0);
-    expect(resetWords(null, now)).toBeUndefined();
-    expect(resetWords(new Date(2026, 8, 30, 14, 5).toISOString(), now)).toBe("resets 14:05");
+    expect(resetWords(null, new Date(2026, 9, 8, 21, 12))).toBeUndefined();
+  });
+});
+
+describe("when a window resets (#1955)", () => {
+  // Read on a Thursday evening, 2026-10-08 at 21:12 on this client's calendar.
+  const now = new Date(2026, 9, 8, 21, 12);
+  const resets = (month: number, day: number, hours: number, minutes = 0, year = 2026) => resetWords(new Date(year, month, day, hours, minutes).toISOString(), now);
+
+  it("says the clock time alone today", () => {
+    expect(resets(9, 8, 22, 50)).toBe("resets 22:50");
   });
 
-  it("name the day of a reset that is not today, as a weekly window's is (#1951)", () => {
-    expect(resetWords(new Date(2026, 9, 6, 9, 30).toISOString(), new Date(2026, 8, 30, 10, 0))).toBe("resets 6 Oct 09:30");
+  it("says tomorrow and the time on the next day", () => {
+    expect(resets(9, 9, 1)).toBe("resets tomorrow 01:00");
+  });
+
+  it("says the weekday and the time within the week", () => {
+    expect(resets(9, 11, 22)).toBe("resets Sun 22:00");
+    expect(resets(9, 14, 9)).toBe("resets Wed 09:00");
+  });
+
+  it("says the date and the time beyond the week, the year too when it is not this one", () => {
+    expect(resets(9, 15, 9)).toBe("resets 15 Oct 09:00");
+    expect(resets(10, 5, 7, 59)).toBe("resets 5 Nov 07:59");
+    expect(resets(0, 2, 9, 0, 2027)).toBe("resets 2 Jan 2027 09:00");
+  });
+
+  it("counts days on the calendar, not in 24-hour spans, across a local midnight", () => {
+    const beforeMidnight = new Date(2026, 9, 8, 23, 59);
+    const afterMidnight = new Date(2026, 9, 9, 0, 1);
+    expect(resetWords(new Date(2026, 9, 9, 0, 1).toISOString(), beforeMidnight)).toBe("resets tomorrow 00:01");
+    expect(resetWords(new Date(2026, 9, 9, 0, 1).toISOString(), afterMidnight)).toBe("resets 00:01");
+    expect(resetWords(new Date(2026, 9, 9, 23, 0).toISOString(), afterMidnight)).toBe("resets 23:00");
+    expect(resetWords(new Date(2026, 9, 10, 0, 30).toISOString(), afterMidnight)).toBe("resets tomorrow 00:30");
   });
 });
