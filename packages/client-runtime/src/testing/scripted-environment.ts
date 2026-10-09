@@ -1,4 +1,6 @@
 import {
+  StateImportFinishedPayload,
+  type StateImportFailure,
   AdapterCapabilities,
   DISCOVERY_PATH,
   LIST_PATCH_KEY,
@@ -229,6 +231,8 @@ export interface ScriptedEnvironment {
    * `setup` flag, `environment.subscribe`'s snapshot carries the results last checked and a check that changed one is noticed.
    */
   readonly setup?: ScriptedSetup;
+  /** The last completed import's failures, sent in a new window's environment snapshot. */
+  readonly stateImportFailures?: readonly StateImportFailure[];
   /**
    * The key-manager connections, the key manager behind them, the items Move lists and the managed tools' rows
    * (`scripted-key-managers.ts`): preset none held, over a key manager that takes every credential. The `keyManagers` and
@@ -606,11 +610,12 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   });
   const held: (() => void)[] = [];
   let environmentSubscription: string | undefined;
+  let stateImportFailures = [...(spec.stateImportFailures ?? [])];
   wire.answer("environment.subscribe", (_params, request) => {
     environmentSubscription = subscribed(request);
     // With the `setup` flag, a snapshot carrying every step's result as the environment last checked it (#569).
     if (flagged) {
-      const payload = { status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false }, setup: setup.snapshot() };
+      const payload = { status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false }, setup: setup.snapshot(), stateImportFailures };
       wire.server.send({ type: "snapshot", subscription: environmentSubscription, sequence, payload });
     }
     wire.server.send({ type: "synchronized", subscription: environmentSubscription, sequence });
@@ -620,6 +625,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   wire.answer("accounts.usage", () => ({ result: { readings: [...usage] } }));
   /** Says a notice on the environment's own stream, as the environment does. */
   const notice = (type: string, payload: Record<string, unknown>) => {
+    if (type === "state-import.finished") stateImportFailures = StateImportFinishedPayload.parse(payload).failed;
     const at = ++sequence;
     const event: EventEnvelope = {
       sequence: at,

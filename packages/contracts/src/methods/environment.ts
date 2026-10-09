@@ -5,6 +5,7 @@ import { KNOWN_ENVIRONMENTS_MAX, KnownEnvironment } from "../known-environments.
 import { DrainStarted, EnvironmentStatus } from "../lifecycle.js";
 import { commandParams, defineMethod, subscriptionParams } from "../method.js";
 import { Sequence } from "../primitives.js";
+import { StateImportFailure } from "../state-import.js";
 import { StepResults } from "../setup.js";
 
 /** Readiness, idle or busy with the reason or draining, whether updates are managed outside, and what the environment binds and could bind. */
@@ -33,6 +34,9 @@ export const environmentSubscribe = defineMethod({
     status: EnvironmentStatus,
     environment: EnvironmentLook.optional().meta({
       description: "The environment's name, icon and colour as of the snapshot; absent from an environment that predates them.",
+    }),
+    stateImportFailures: z.array(StateImportFailure).optional().meta({
+      description: "The last completed state import's failed items, each with its fix; empty before any import or after a successful one. Absent from an environment that predates this field. A preview leaves them unchanged.",
     }),
     setup: StepResults.optional().meta({
       description:

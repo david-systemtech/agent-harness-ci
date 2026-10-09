@@ -1,0 +1,69 @@
+import { StateImportFinishedPayload } from "@agent-harness/contracts";
+import { describe, expect, it, onTestFinished } from "vitest";
+import { scriptedEnvironments } from "../../test/environments.js";
+import { noticeEvent } from "../../test/events.js";
+import { subscription } from "../../test/scripted.js";
+import { streamDocument } from "../streams/cache.js";
+import { createRuntime } from "../runtime.js";
+import { flush } from "../testing/fake-wire.js";
+
+const finished = (failed = [{ label: "Skill collection Team", message: "Connect a forge for forge.test." }]) => StateImportFinishedPayload.parse({
+  carried: { accounts: 0, archived: 0, pins: 0, groups: 0, forgeAccounts: 0, keyManagerConnections: 0, banks: 0, routines: 0, instructions: 0, skillSources: 0, alwaysOnSkills: 0, drafts: 0, devSites: 0 },
+  reEnter: [], later: [], notCarried: [], failed,
+});
+const status = { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false };
+
+describe("projections.stateImportFailures", () => {
+  it("reads failures from a snapshot and replaces them when another window's import finishes", async () => {
+    const { runtime, environments } = await scriptedEnvironments({ onCleanup: onTestFinished, environments: [{ name: "desk" }, { name: "other" }] });
+    const desk = environments[0]!;
+    const view = runtime.projections.stateImportFailures(desk.wire.environmentId);
+    expect(view.read()).toEqual([]);
+    desk.notices.snapshot(1, { status, stateImportFailures: finished().failed });
+    await flush();
+    expect(view.read()).toEqual(finished().failed);
+    expect(runtime.projections.stateImportFailures(environments[1]!.wire.environmentId).read()).toEqual([]);
+    desk.notices.event(noticeEvent(2, desk.wire.environmentId, "state-import.finished", finished([])));
+    await flush();
+    expect(view.read()).toEqual([]);
+  });
+
+  it("keeps replayed failures for a restarted client resuming from its cached cursor", async () => {
+    const { runtime, platform, environments } = await scriptedEnvironments({ onCleanup: onTestFinished, environments: [{ name: "desk" }] });
+    const desk = environments[0]!;
+    desk.notices.event(noticeEvent(1, desk.wire.environmentId, "state-import.finished", finished()));
+    await flush();
+    expect(runtime.projections.stateImportFailures(desk.wire.environmentId).read()).toEqual(finished().failed);
+    await runtime.close();
+    const restarted = createRuntime(platform);
+    onTestFinished(() => restarted.close());
+    const opening = restarted.start();
+    await desk.wire.server.accept();
+    const list = await subscription(desk.wire, "sessions.subscribe");
+    list.synchronized(1);
+    const notices = await subscription(desk.wire, "environment.subscribe");
+    expect(notices.params["afterSequence"]).toBe(1);
+    notices.synchronized(1);
+    await opening;
+    expect(restarted.projections.stateImportFailures(desk.wire.environmentId).read()).toEqual(finished().failed);
+  });
+
+  it("replays a cache from before failures were retained instead of resuming past the lost report", async () => {
+    const { runtime, platform, environments } = await scriptedEnvironments({ onCleanup: onTestFinished, environments: [{ name: "desk" }] });
+    const desk = environments[0]!;
+    await runtime.close();
+    await platform.documents.set(streamDocument(desk.wire.environmentId, "environment"), { cursor: 1, snapshot: { status, look: {}, setup: [] } });
+    const restarted = createRuntime(platform);
+    onTestFinished(() => restarted.close());
+    const opening = restarted.start();
+    await desk.wire.server.accept();
+    const list = await subscription(desk.wire, "sessions.subscribe");
+    list.synchronized(1);
+    const notices = await subscription(desk.wire, "environment.subscribe");
+    expect(notices.params["afterSequence"]).toBe(0);
+    notices.event(noticeEvent(1, desk.wire.environmentId, "state-import.finished", finished()));
+    notices.synchronized(1);
+    await opening;
+    expect(restarted.projections.stateImportFailures(desk.wire.environmentId).read()).toEqual(finished().failed);
+  });
+});

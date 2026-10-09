@@ -127,6 +127,7 @@ describe("an environment's look before anyone sets it", () => {
       status: expect.objectContaining({ readiness: "ready" }) as unknown,
       environment: { name: "lab", icon: "desktop", colour: (await discoveredLook(t.address)).colour },
       setup: expect.any(Array) as unknown,
+      stateImportFailures: [],
     });
   });
 

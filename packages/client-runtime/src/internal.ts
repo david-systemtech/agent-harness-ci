@@ -1,5 +1,5 @@
 import { sendMessage, isLive } from "./composer/send.js";
-import { ChecksChangedPayload, ChecksFailuresResetPayload } from "@agent-harness/contracts";
+import { ChecksChangedPayload, ChecksFailuresResetPayload, type StateImportFailure } from "@agent-harness/contracts";
 import { createChecks } from "./checks.js";
 import { PROTOCOL_VERSION, type PromptKind, type RunEndedPayload } from "@agent-harness/contracts";
 import { answerCapability } from "./capabilities.js";
@@ -326,6 +326,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     hide: (environmentId, path, lastUsedAt) => registry.hideDirectory(environmentId, path, lastUsedAt),
   };
   const knownDirectories = memo((environmentId): Observable<readonly KnownDirectory[]> => knownDirectoriesProjection(directoriesHost, environmentId));
+  const stateImportFailures = memo((environmentId): Observable<readonly StateImportFailure[]> => derived([made.environments] as const, (streams) => streams.get(environmentId)?.data?.stateImportFailures ?? []));
   // Set up (#570): each environment's results from its own stream and this client's checks through the request path.
   const setup = createSetup({
     clock: platform.clock,
@@ -425,6 +426,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       runs: runsProjection,
       accounts: (environmentId) => accountsProjections(environmentId),
       accountNames: (environmentId) => accountNames.view(environmentId),
+      stateImportFailures: (environmentId) => stateImportFailures(environmentId),
       models: (environmentId) => modelsProjections(environmentId),
       usage,
       modes: (environmentId) => modesProjections(environmentId),

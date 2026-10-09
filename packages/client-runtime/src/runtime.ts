@@ -1,5 +1,5 @@
 import type { Checks, ChecksView } from "./checks.js";
-import type { RegisteredStepId } from "@agent-harness/contracts";
+import type { RegisteredStepId, StateImportFailure } from "@agent-harness/contracts";
 import type { LocalStatus } from "./bootstrap.js";
 import type { CapabilityAnswer, CapabilityName } from "./capabilities.js";
 import type { DesktopUpdate } from "./desktop-update.js";
@@ -100,6 +100,8 @@ export interface Runtime {
     accounts(environmentId: string): Observable<AccountsAnswer>;
     /** What a surface calls the environment's accounts: their labels, kept from the last answer for a window opened while it is not answering (#1752). */
     accountNames(environmentId: string): Observable<AccountNames>;
+    /** The last completed state import's failures, from the environment stream and its retained cache. */
+    stateImportFailures(environmentId: string): Observable<readonly StateImportFailure[]>;
     /** The models the environment's accounts can use, from the request cache; fetched while followed. */
     models(environmentId: string): Observable<ModelsAnswer>;
     /** Plan usage of every enabled environment, pooled by account identity into one gauge per login. */

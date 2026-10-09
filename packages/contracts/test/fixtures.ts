@@ -440,6 +440,8 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
         ...validStatuses.map((status) => ({ status })),
         { status: validStatuses[0], environment: validLook },
         { status: validStatuses[0], setup: [] },
+        { status: validStatuses[0], stateImportFailures: [{ label: "Team skills", message: "Connect a forge." }] },
+        { status: validStatuses[0], stateImportFailures: [] },
         { status: validStatuses[0], setup: [forgeRejected] },
         { status: validStatuses[0], setup: [pendingRead] },
         { status: validStatuses[0], environment: validLook, setup: [forgeRejected] },

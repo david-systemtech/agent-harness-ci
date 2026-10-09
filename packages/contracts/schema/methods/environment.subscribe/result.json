@@ -291,6 +291,30 @@
         "colour"
       ]
     },
+    "stateImportFailures": {
+      "description": "The last completed state import's failed items, each with its fix; empty before any import or after a successful one. Absent from an environment that predates this field. A preview leaves them unchanged.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What it is, for a person."
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What went wrong, for a person."
+          }
+        },
+        "required": [
+          "label",
+          "message"
+        ],
+        "description": "What a state import could not carry: the item, and why."
+      }
+    },
     "setup": {
       "description": "Every registered Set up step's latest result, as the environment's result cache holds it, in the step registry's order, each with when it was checked; a step never checked is absent. Absent from an environment without the setup flag. The reader passes over a result of a step past the milestone-1 order, a later milestone's, and reads the rest.",
       "type": "array",

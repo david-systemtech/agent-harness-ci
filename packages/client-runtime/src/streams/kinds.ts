@@ -14,6 +14,7 @@ import {
   SessionSummary,
   StandingRewind,
   StepResult,
+  StateImportFailure,
   SummaryPatch,
   registry,
 } from "@agent-harness/contracts";
@@ -121,6 +122,8 @@ export interface EnvironmentData {
   readonly look: Partial<EnvironmentLook>;
   /** None from an environment without the `setup` flag, or before it checked anything. */
   readonly setup: readonly StepResult[];
+  /** The last completed import's failures, retained for every Carry over window (#1935). */
+  readonly stateImportFailures: readonly StateImportFailure[];
 }
 
 /** The notices that set a field of the environment's look (#323). */
@@ -268,13 +271,14 @@ export const sessionKind = (): StreamKind<SessionData> => ({
  * first. Each `setup.result-changed` replaces its step's result (#570).
  */
 export const environmentKind = (): StreamKind<EnvironmentData> => ({
-  empty: () => ({ status: null, look: {}, setup: [] }),
+  empty: () => ({ status: null, look: {}, setup: [], stateImportFailures: [] }),
   emptyIsState: true,
   fromSnapshot: (payload) => ({
     status: SnapshotStatus.parse(payload).status,
     // An environment from before #323 sends no look, and a look this build cannot read (a newer environment's icon) is none.
     look: SnapshotLook.safeParse(payload).data?.environment ?? {},
     setup: readResults(payload["setup"]),
+    stateImportFailures: StateImportFailure.array().parse(payload["stateImportFailures"] ?? []),
   }),
   apply(data, event) {
     // A notice this client does not know (a newer environment's) changes nothing it holds.
@@ -406,9 +410,9 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       // A memory folder assigned to a repository (#580) changes no status: the request cache reads carryOver.inventory again.
       case "carry-over.memory-assigned":
         return data;
-      // A state import ending (#581) changes no status: the request cache reads stateImport.detect again.
+      // Keep the last completed import's failures even when heard as history (#1935).
       case "state-import.finished":
-        return data;
+        return { ...data, stateImportFailures: notice.data.payload.failed };
       // A Workspace directory's check command changing (#1187) changes no status: the check view reads checks.get again (#1189).
       case "checks.changed":
       case "checks.failures-reset":
@@ -431,6 +435,7 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
     const look = StoredLook.safeParse(stored["look"]).data as Partial<EnvironmentLook> | undefined;
     // A document from before #570 holds no results and does not read: no cache, so the stream subscribes from nothing and
     // hears every result the environment holds, where resuming from its cursor would miss those noticed before it.
-    return { status: EnvironmentStatus.nullable().parse(stored["status"]), look: look ?? {}, setup: StepResult.array().parse(stored["setup"]) };
+    // A cache from before #1935 missed finished imports: replay from nothing to recover their failures.
+    return { status: EnvironmentStatus.nullable().parse(stored["status"]), look: look ?? {}, setup: StepResult.array().parse(stored["setup"]), stateImportFailures: StateImportFailure.array().parse(stored["stateImportFailures"]) };
   },
 });
