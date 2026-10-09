@@ -59,6 +59,7 @@ describe("the containment probe on Linux and WSL2", () => {
     const { system, ran } = machine({ path: LINUX_TOOLS });
     const probe = await probeContainment(system);
     expect(probe).toEqual({
+      platform: "linux",
       mechanism: "bubblewrap",
       levels: {
         workspace: { available: true, reason: null, cause: null },
@@ -218,6 +219,7 @@ describe("the containment probe on macOS", () => {
     const { system, ran } = machine({ platform: "darwin", path: ["sandbox-exec"] });
     const probe = await probeContainment(system);
     expect(probe).toEqual({
+      platform: "darwin",
       mechanism: "seatbelt",
       levels: {
         workspace: { available: true, reason: null, cause: null },
@@ -230,10 +232,12 @@ describe("the containment probe on macOS", () => {
 
   it("records sandbox-exec missing, and a Seatbelt that fails with what it said", async () => {
     const missing = await probeContainment(machine({ platform: "darwin" }).system);
+    expect(missing.platform).toBe("darwin");
     expect(missing.mechanism).toBeNull();
     for (const level of both(missing)) expect(level).toMatchObject({ available: false, cause: "binary_missing" });
     const failing = await probeContainment(machine({ platform: "darwin", path: ["sandbox-exec"], answers: { "sandbox-exec": () => ({ code: 71, output: "sandbox-exec: sandbox_apply: Operation not permitted\n" }) } }).system);
     for (const level of both(failing)) expect(level).toMatchObject({ available: false, cause: "failed" });
+    expect(failing.platform).toBe("darwin");
     expect(told(failing.levels.workspace)).toEqual({ reason: expect.not.stringMatching(/sandbox_apply/), detail: "sandbox-exec: sandbox_apply: Operation not permitted" });
   });
 });

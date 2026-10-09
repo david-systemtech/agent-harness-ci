@@ -37,7 +37,6 @@ const input = (fields: Partial<StatusInput> = {}): StatusInput => ({
   runState: "idle",
   liveRunId: undefined,
   ceiling: "bypassPermissions",
-  choice: undefined,
   forkedOnto: undefined,
   containmentDefault: "workspace",
   recommendation: null,
@@ -92,9 +91,14 @@ describe("the status line", () => {
     });
   });
 
-  it("says what this client chose and handed off onto before any run says it, and the default containment marked so", () => {
-    const facts = statusOf(input({ choice: { model: "claude-sonnet-4", effort: null }, forkedOnto: "account-2" }));
+  it("says what the session's next run goes out on before any run says it, the account this client handed off onto, and the default containment marked so", () => {
+    const facts = statusOf(input({ projection: { summary: summary({ runChoice: { model: "claude-sonnet-4", effort: null } }), runs: [], items: [], containment: null }, forkedOnto: "account-2" }));
     expect(facts).toMatchObject({ accountId: "account-2", model: { model: "claude-sonnet-4", effort: null }, containment: { level: "workspace", isDefault: true } });
+  });
+
+  it("names the model and effort the session's next run goes out on, not the latest run's, whatever this client last chose (#1961)", () => {
+    const chosen = summary({ accountId: "account-1", model: "claude-opus-4", runChoice: { model: "claude-sonnet-4", effort: null } });
+    expect(statusOf(input({ projection: { summary: chosen, runs: [run()], items: [], containment: null } })).model).toEqual({ model: "claude-sonnet-4", effort: null });
   });
 
   it("says what the live run does and for how long, in the environment's time", () => {

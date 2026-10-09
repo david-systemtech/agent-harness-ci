@@ -123,6 +123,8 @@ describe("the method registry", () => {
       "sessions.setInstructions": ["command", "runs:drive"],
       // The session's browser chooses what its next run may drive (browser spec, "The browser as a session field"; #550).
       "sessions.setBrowser": ["command", "runs:drive"],
+      // The model and effort the session's next runs go out on (#1961), the session's own as its browser is.
+      "sessions.setModel": ["command", "runs:drive"],
       "groups.create": ["command", "sessions:write"],
       "groups.rename": ["command", "sessions:write"],
       "groups.reorder": ["command", "sessions:write"],
@@ -461,6 +463,7 @@ describe("the method registry", () => {
       | "sessions.untag"
       | "sessions.setDraft"
       | "sessions.setBrowser"
+      | "sessions.setModel"
       | "sessions.setGroup"
       | "sessions.settle"
       | "sessions.unsettle"

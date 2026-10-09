@@ -721,6 +721,7 @@ describe("permissions.settings.get", () => {
         ],
         mechanism: null,
         container: { declared: false, detected: false },
+        platform: "linux",
       },
       isRoot: false,
       // The presets seeded on first start (#132).

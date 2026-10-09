@@ -1,29 +1,26 @@
 # Geometry failures, missing baselines and pixel differences block.
 # Gallery runs independently of ci / ci.
+# Every PR gets gallery / gallery. The trusted relay compares the head to its
+# merge base against main: GUI, theme, client dependencies, build inputs and
+# gallery machinery render; other changes succeed without dispatch or comment.
+# The gallery label forces rendering. Keep triggers unfiltered so skips report success.
 name: gallery
 on:
   # Credentials and the publisher come only from the base branch. The PR is data.
   pull_request_target:
     branches: [main]
-    types: [opened, synchronize, reopened]
-    paths:
-      - 'packages/gui/**'
-      - 'scripts/gallery-accept.sh'
-      - 'scripts/gallery-allocation.json'
-      - 'scripts/gallery_allocation.py'
-      - 'scripts/gallery-publish.py'
-      - 'scripts/gallery_reports.py'
-      - '.forgejo/workflows/gallery.yml'
-      - '.forgejo/github-workflows/gallery.yml'
-      - '.forgejo/scripts/gallery-comment.sh'
-      - '.forgejo/scripts/github-ci.sh'
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+# Forgejo posts cancellation statuses itself, even after a replacement has
+# succeeded. Queue events for an unchanged head so a label update cannot leave
+# a late cancellation over that head's verdict. New heads use independent groups.
 concurrency:
-  group: gallery-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: gallery-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: false
 jobs:
   gallery:
     runs-on: relay
-    timeout-minutes: 30
+    # Hosted planning/capture can use 30 minutes; delivery and publication need their own budget.
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -34,11 +31,12 @@ jobs:
         env:
           GH_CI_EVENT: gallery
           GH_CI_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_CI_BASE: ${{ github.event.pull_request.base.sha }}
           GH_CI_TOKEN: ${{ secrets.GH_CI_TOKEN }}
           FORGEJO_TOKEN: ${{ github.token }}
           PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
           FORGEJO_URL: ${{ github.server_url }}
           FORGEJO_REPOSITORY: ${{ github.repository }}
           FORGEJO_PR: ${{ github.event.pull_request.number }}
-          GROUP: ${{ github.event.pull_request.number }}
+          GROUP: gallery-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
           FORGEJO_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}

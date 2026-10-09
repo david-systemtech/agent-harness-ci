@@ -5,7 +5,7 @@ import { KeyDispatch } from "../../src/keys/key-dispatch.js";
 import { PaneLine, PaneLines } from "../../src/session/pane-line.js";
 import { PaneDialogs } from "../../src/status/pane-dialogs.js";
 import { RunPickerColumns } from "../../src/status/pickers.js";
-import { RunChoicesProvider, useModelChoice } from "../../src/status/run-choices.js";
+import { RunChoicesProvider } from "../../src/status/run-choices.js";
 import { Button, Menu, MenuContent, MenuTrigger, Tooltip } from "../../src/ui/index.js";
 import { useObservable, useRuntime } from "../../src/window-context.js";
 import type { SceneGeometry } from "../scene-registry.js";
@@ -38,16 +38,14 @@ export const arrange = (world: ScriptedWorld) => {
   }]));
 };
 
-const Popup = ({ compact }: { readonly compact: boolean }) => {
-  const [choice] = useModelChoice(environmentId, sessionId);
-  return <Menu defaultOpen modal={false}>
+const Popup = ({ compact }: { readonly compact: boolean }) =>
+  <Menu defaultOpen modal={false}>
     <Tooltip content="Model · Enter to open · Escape to close"><MenuTrigger asChild><Button><Cpu aria-hidden="true" />Choose a run</Button></MenuTrigger></Tooltip>
     <MenuContent side="top" align="start" role={compact ? "dialog" : "menu"} aria-label="Run choices" aria-labelledby={undefined}
       className={compact ? "w-auto max-w-[calc(100vw-16px)] rounded-[10px] p-0 [&_[data-run-picker]]:w-[480px]" : "w-auto max-w-[calc(100vw-16px)] overflow-hidden rounded-[10px] p-0"}>
-      <RunPickerColumns environmentId={environmentId} sessionId={sessionId} accountId="account-1" model={choice ?? { model: "fable", effort: "high" }} initialStage="Models" close={() => undefined} compact={compact} />
+      <RunPickerColumns environmentId={environmentId} sessionId={sessionId} accountId="account-1" model={{ model: "fable", effort: "high" }} initialStage="Models" close={() => undefined} compact={compact} />
     </MenuContent>
   </Menu>;
-};
 
 /** Each scene draws the production columns over the scripted runtime. */
 export const RunPickerScene = ({ compact = false }: { readonly compact?: boolean }) => {

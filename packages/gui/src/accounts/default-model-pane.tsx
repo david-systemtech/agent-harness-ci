@@ -101,7 +101,7 @@ export const DefaultChoices = ({ view }: { readonly view: EnvironmentView }) => 
   const accountListing = runtime.capability(environmentId, "accounts.list");
   const modelListing = runtime.capability(environmentId, "models.list");
   const options = {
-    "accounts.defaultAccount": accounts.map((account) => ({ value: account.id, words: accountChoiceWords(account), under: `${identityWords(account)} · ${account.provider}` })),
+    "accounts.defaultAccount": accounts.map((account) => ({ value: account.id, words: accountChoiceWords(account), identity: identityWords(account), under: account.provider })),
     "accounts.defaultModelFamily": families.map(({ family, model }) => ({ value: family, ...modelWords(model), hasEffort: model.efforts.length > 0, under: model.efforts.length > 0 ? "Supports effort" : "Uses its own effort" })),
     "accounts.defaultEffort": efforts.map((effort) => ({ value: effort, words: effortName(effort), under: "Reasoning effort for new sessions." })),
   };
@@ -149,7 +149,7 @@ const DefaultTrigger = ({ name, stage, words, machine, note, icon: Icon, writabl
 </div>;
 
 interface DefaultOption {
-  readonly value: string; readonly words: string; readonly machine?: string | undefined; readonly under?: string; readonly hasEffort?: boolean;
+  readonly value: string; readonly words: string; readonly identity?: string; readonly machine?: string | undefined; readonly under?: string; readonly hasEffort?: boolean;
 }
 
 /** Defaults reuse run-picker rows, columns and keyboard navigation; writes stay with settings.update. */
@@ -182,7 +182,8 @@ const DefaultColumns = ({ initial, narrow, writable, options, valueOf, save, acc
     return <>
       <RunChoiceRow icon={icon} label={words.unset} selected={value === null} dim={!writable || reason !== undefined} onSelect={() => void select(null)} />
       {value !== null && !all.some((option) => option.value === value) && <RunChoiceRow icon={icon} label={words.missing(value)} selected dim onSelect={() => undefined} />}
-      {shown.map((option) => <RunChoiceRow key={option.value} icon={icon} label={option.words} machine={option.machine} under={option.under}
+      {shown.map((option) => <RunChoiceRow key={option.value} icon={icon} label={option.identity === undefined ? option.words : `${option.words} ${option.identity}`} machine={option.machine} under={option.under}
+        {...(option.identity !== undefined && { primary: option.words, identity: option.identity })}
         selected={option.value === value} dim={!writable || reason !== undefined} onSelect={() => void select(option.value)} />)}
       {state !== undefined && <p className="px-2.5 py-2 text-2xs text-ink-muted">{state}</p>}
       {state === undefined && all.length === 0 && <p className="px-2.5 py-2 text-2xs text-ink-muted">{key === "accounts.defaultAccount" ? "No accounts yet." : key === "accounts.defaultModelFamily" ? "No models are listed yet." : "This model uses its own effort."}</p>}

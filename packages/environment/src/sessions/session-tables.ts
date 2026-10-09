@@ -1,4 +1,4 @@
-import { DEFAULT_TITLE, type Group, type SessionBrowser, type SessionSummary, type TitleSource } from "@agent-harness/contracts";
+import { DEFAULT_TITLE, type Group, type SessionBrowser, type SessionRunChoice, type SessionSummary, type TitleSource } from "@agent-harness/contracts";
 import type { SqlValue } from "../event-log/event-log.js";
 
 /**
@@ -47,6 +47,8 @@ export interface SessionRow {
   live_run_prompts: number;
   account_id: string | null;
   model: string | null;
+  /** The model and effort the next run goes out on as JSON (#1961); null before a choice or a run. */
+  run_choice: string | null;
   mode: string | null;
   /** The session's browser as JSON; null for none chosen. */
   browser: string | null;
@@ -99,6 +101,7 @@ export const SESSION_LIST_TABLES = {
     live_run_prompts INTEGER NOT NULL DEFAULT 0,
     account_id TEXT,
     model TEXT,
+    run_choice TEXT,
     mode TEXT,
     browser TEXT,
     pull_requests TEXT NOT NULL DEFAULT '[]',
@@ -139,6 +142,12 @@ export const tagsOf = (reader: Reader, id: string): string[] =>
 /** The browser a `sessions` row holds as JSON; null for none chosen. */
 export const browserOf = (column: string | null): SessionBrowser | null => (column === null ? null : (JSON.parse(column) as SessionBrowser));
 
+/** The next run's model and effort a `sessions` row holds as JSON; null before a choice or a run. */
+export const runChoiceOf = (column: string | null): SessionRunChoice | null => (column === null ? null : (JSON.parse(column) as SessionRunChoice));
+
+/** The column a next run's model and effort are kept in. */
+export const runChoiceColumn = (choice: SessionRunChoice): string => JSON.stringify({ model: choice.model, effort: choice.effort });
+
 /** A `sessions` row as the summary, its tags read beside it. */
 export const toSummary = (reader: Reader, row: SessionRow): SessionSummary => ({
   id: row.id,
@@ -166,6 +175,7 @@ export const toSummary = (reader: Reader, row: SessionRow): SessionSummary => ({
   parkedPromptCount: row.parked_prompt_count,
   accountId: row.account_id,
   model: row.model,
+  runChoice: runChoiceOf(row.run_choice),
   mode: row.mode as SessionSummary["mode"],
   browser: browserOf(row.browser),
   pullRequests: JSON.parse(row.pull_requests) as SessionSummary["pullRequests"],

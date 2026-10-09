@@ -58,6 +58,8 @@ export interface ScriptedKeyManagers {
   readonly rejects?: readonly string[];
   /** The origins whose certificate the environment does not trust: a connection there signs in only with `certificateOf(origin)` pinned. */
   readonly untrusted?: readonly string[];
+  /** The addresses that do not answer: an add signing in to one is saved standing `unreachable`, as the environment saves it (#1851). */
+  readonly unreachable?: readonly string[];
   /** The base path a login suggests while none is set: preset `personal/harness`. */
   readonly suggestedBasePath?: string | null;
   /** The forge accounts holding a stored token, as `keyManagers.move.list` lists them. */
@@ -234,7 +236,8 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
       : rejected("provider_unavailable", `This environment cannot ${what} ${PROVIDER_NAMES[provider]} yet.${after}`, { provider });
 
   /** How a sign-in with `credential` against `address` pinning `ca` goes: signed in, refused, or held back by a certificate the environment does not trust. */
-  const tryCredential = (address: string, ca: string | null, credential: KeyManagerCredential, connectionId: string): "signed-in" | "untrusted" | FakeAnswer => {
+  const tryCredential = (address: string, ca: string | null, credential: KeyManagerCredential, connectionId: string): "signed-in" | "untrusted" | "unreachable" | FakeAnswer => {
+    if ((script.unreachable ?? []).includes(address)) return "unreachable";
     if ((script.rejects ?? []).includes(secretOf(credential))) {
       return rejected("verification_failed", "OpenBao did not accept these details. Check them and try again.", {
         connectionId,
@@ -311,6 +314,7 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
     });
     let record = base;
     if (tried === "untrusted") record = { ...base, status: untrustedStatus(address) };
+    if (tried === "unreachable") record = { ...base, status: status("unreachable", `OpenBao at ${address} could not be reached: connect ECONNREFUSED.`) };
     if (tried === "signed-in") {
       const injects = firstOfProvider(base);
       record = {
@@ -341,6 +345,9 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
     const tried = tryCredential(address, ca, credential, record.id);
     if (typeof tried === "object") return tried;
     if (tried === "untrusted") return rejected("certificate_rejected", `${untrustedStatus(address).message} Nothing was changed.`, { connectionId: record.id });
+    if (tried === "unreachable") {
+      return rejected("unreachable", `agent-harness could not reach ${address}. Check the address.`, { connectionId: record.id, details: [`connect ECONNREFUSED at ${address}.`, "Nothing was changed."] });
+    }
     const injects = record.injects || firstOfProvider(record);
     return {
       ...record,

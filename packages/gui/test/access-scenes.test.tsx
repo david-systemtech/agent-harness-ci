@@ -44,7 +44,7 @@ it.each([
   // A forge's kind is found from its address; it asks for one only where it cannot (setup-copy.md §5.6).
   if (scene === "settings-forges") expect(within(form).queryAllByRole("radio")).toHaveLength(0);
   else expect(within(form).getAllByRole("radio").length).toBeGreaterThan(2);
-  expect(within(form).getByRole("textbox", { name: scene === "settings-forges" ? "Address of the site or of one of your repositories" : "Label" })).toBeDefined();
+  expect(within(form).getByRole("textbox", { name: scene === "settings-forges" ? "Address of the site or of one of your repositories" : "Address" })).toBeDefined();
   await userEvent.setup().click(within(form).getByRole("button", { name: "Cancel" }));
   expect(within(pane).queryByRole("region", { name: `${add} on desk` })).toBeNull();
 });

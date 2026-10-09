@@ -1,4 +1,4 @@
-import { act, screen, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { ServiceFailureError, type ServiceFailureKind } from "@agent-harness/client-runtime";
 import { fakeShell } from "@agent-harness/client-runtime/testing";
 import { expect, it } from "vitest";
@@ -20,9 +20,8 @@ it("keeps the introduction after the environment is ready until Begin set up ope
   expect(screen.queryByText(AVAILABLE_ONCE)).toBeNull();
   await app.user.click(screen.getByRole("button", { name: "Begin set up" }));
   const card = screen.getByRole("region", { name: "Account" });
-  expect(card.textContent).toContain("Your agent needs a signed-in coding account to start a session. We will help you connect it.");
   expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(true);
-  expect(screen.getByRole("button", { name: "Sign in an account" })).toBeDefined();
+  expect(within(within(card).getByRole("group", { name: "How do you want to sign in?" })).getByRole("button", { name: "Sign in with Claude" })).toBeDefined();
 });
 
 it("keeps a failed start in the introduction, words its kind with the text under Details, opens pairing, and retries to readiness", async () => {
@@ -216,12 +215,47 @@ it("offers pairing when this client cannot start a local service", async () => {
   expect(screen.getByText(AVAILABLE_ONCE)).toBeDefined();
 });
 
-it("asks about the home computer's accounts on close, not the picked computer's", async () => {
+it("warns before closing the signed-out computer in the header even when the local account is signed in", async () => {
   const app = await renderApp({ environments: [{ name: "desk", reach: "local", accounts: [{}] }, { name: "laptop", reach: "paired" }] }, { firstLaunch: true });
   await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
   const setup = screen.getByRole("region", { name: "Set up" });
   await app.user.selectOptions(within(setup).getByRole("combobox", { name: "Setting up" }), "laptop");
-  await app.user.click(screen.getByRole("button", { name: "Close Set up" }));
+  await waitFor(() => expect(within(setup).getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(true));
+  await app.user.click(within(setup).getByRole("button", { name: "Close Set up" }));
+  const confirmation = screen.getByRole("dialog", { name: "Leave set up without an account?" });
+  expect(within(confirmation).getByRole("button", { name: "Leave for now" })).toBeDefined();
+  await app.user.click(within(confirmation).getByRole("button", { name: "Keep setting up" }));
+  expect(screen.getByRole("region", { name: "Set up" })).toBe(setup);
+  await app.user.click(within(setup).getByRole("button", { name: "Close Set up" }));
+  await app.user.click(screen.getByRole("button", { name: "Leave for now" }));
+  expect(screen.queryByRole("region", { name: "Set up" })).toBeNull();
+});
+
+it.each(["header", "accounts"] as const)("closes setup opened via %s for the signed-in computer while the local account is signed out", async (entry) => {
+  const app = await renderApp({ environments: [
+    { name: "desk", reach: "local", accounts: [{ label: "Personal", status: { state: "signed-out", checkedAt: null, detail: null } }] },
+    { name: "laptop", reach: "paired", accounts: [{ label: "Personal" }, { label: "Work" }] },
+  ] }, { firstLaunch: entry === "header" });
+  if (entry === "header") {
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
+    await app.user.selectOptions(screen.getByRole("combobox", { name: "Setting up" }), "laptop");
+  } else {
+    await app.user.keyboard("{Control>},{/Control}");
+    const settings = screen.getByRole("region", { name: "Settings" });
+    await app.user.click(within(settings).getByRole("button", { name: "Accounts" }));
+    const accounts = within(settings).getByRole("region", { name: "Accounts" });
+    await app.user.selectOptions(within(accounts).getByRole("combobox", { name: "Environment" }), "laptop");
+    await app.user.click(within(accounts).getByRole("button", { name: "Open the Carry over step in Set up" }));
+    await app.user.click(screen.getByRole("button", { name: "Account" }));
+  }
+  const setup = screen.getByRole("region", { name: "Set up" });
+  expect(within(within(setup).getByRole("combobox", { name: "Setting up" })).getByRole("option", { selected: true }).textContent).toBe("laptop");
+  const account = within(setup).getByRole("region", { name: "Account" });
+  expect(await within(account).findByText("All your accounts are signed in.")).toBeDefined();
+  await waitFor(() => expect(within(setup).getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(false));
+  await app.user.click(within(setup).getByRole("button", { name: "Close Set up" }));
   expect(screen.queryByRole("dialog", { name: "Leave set up without an account?" })).toBeNull();
   expect(screen.queryByRole("region", { name: "Set up" })).toBeNull();
+  await app.remount();
+  expect(screen.queryByRole("heading", { name: "Welcome to agent-harness" })).toBeNull();
 });

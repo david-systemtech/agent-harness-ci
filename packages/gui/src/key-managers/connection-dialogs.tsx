@@ -1,7 +1,6 @@
 import { LogIn, LogOut, Pencil, Trash2, X } from "lucide-react";
 import { ActionButton as Button, AccessField as Field } from "./action-button.js";
 import {
-  KEY_MANAGER_METHOD_WORDS,
   asksAddress,
   credentialOf,
   credentialTyped,
@@ -10,14 +9,16 @@ import {
   signOutConnection,
   updateConnection,
   type ConnectionChanges,
+  type KeyManagerOutcome,
   type TypedCredential,
 } from "@agent-harness/client-runtime";
-import { KEY_MANAGER_AUTH_METHODS, type KeyManagerAuthMethod, type KeyManagerConnectionRecord } from "@agent-harness/contracts";
+import type { KeyManagerAuthMethod, KeyManagerConnectionRecord } from "@agent-harness/contracts";
 import { useState, type FormEvent } from "react";
-import { Dialog, DialogClose, DialogContent, Input, Select } from "../ui/index.js";
+import { Dialog, DialogClose, DialogContent, Input } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
-import { CredentialFields, NO_CREDENTIAL } from "./add-connection.js";
+import { CredentialFields, NO_CREDENTIAL, SignInWay } from "./add-connection.js";
 import { CaChoice } from "./certificate-check.js";
+import { RefusalLine } from "./refusal-line.js";
 
 /** What every dialog of a card is given: the connection, where it is, and how to close it and say what it did in the pane. */
 export interface ConnectionDialogProps {
@@ -34,28 +35,28 @@ const useSender = () => ({ runtime: useRuntime(), clock: useClock() });
  * Sign in, or sign in again (`keyManagers.connections.signIn`, sent
  * directly): how it signs in, preset to the connection's method, the
  * username for userpass, and the credential. A refusal stays in the form
- * in one line, the secret emptied; a sign-in closes it.
+ * as an alert with its Details, the secret emptied; a sign-in closes it.
  */
 export const SignInAgain = ({ environmentId, connection, close, say, again }: ConnectionDialogProps & { readonly again: boolean }) => {
   const sender = useSender();
   const [method, setMethod] = useState<KeyManagerAuthMethod>(connection.method ?? "token");
   const [username, setUsername] = useState(connection.username ?? "");
   const [typed, setTyped] = useState<TypedCredential>(NO_CREDENTIAL);
-  const [line, setLine] = useState<string | undefined>(undefined);
+  const [said, setSaid] = useState<{ readonly line: string; readonly details?: readonly string[] | undefined } | undefined>(undefined);
   const [sending, setSending] = useState(false);
   const openBao = connection.provider === "openbao";
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const credential = credentialOf(connection.provider, method, typed);
-    if (!credentialTyped(credential)) return setLine("Give the credential it signs in with.");
-    if (credential.method === "userpass" && username.trim() === "") return setLine("Give the username it signs in as.");
-    setLine(undefined);
+    if (!credentialTyped(credential)) return setSaid({ line: "Give the credential it signs in with." });
+    if (credential.method === "userpass" && username.trim() === "") return setSaid({ line: "Give the username it signs in as." });
+    setSaid(undefined);
     setSending(true);
     setTyped({ ...NO_CREDENTIAL, roleId: typed.roleId });
     void signInAgain(sender, environmentId, connection, credential, username).then((signed) => {
       setSending(false);
-      if (!signed.ok) return setLine(signed.line);
+      if (!signed.ok) return setSaid(signed);
       close();
       say(signed.line);
     });
@@ -65,24 +66,14 @@ export const SignInAgain = ({ environmentId, connection, close, say, again }: Co
     <Dialog open onOpenChange={(open) => !open && close()}>
       <DialogContent title={again ? `Sign in to ${connection.label} again` : `Sign in to ${connection.label}`} className="max-w-lg">
         <form aria-label={again ? "Sign in again" : "Sign in"} className="flex flex-col gap-3" onSubmit={submit}>
-          {openBao && (
-            <Field label="Signs in by">
-              <Select value={method} onChange={(event) => setMethod(event.target.value as KeyManagerAuthMethod)}>
-                {KEY_MANAGER_AUTH_METHODS.map((each) => (
-                  <option key={each} value={each}>
-                    {KEY_MANAGER_METHOD_WORDS[each]}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          )}
+          {openBao && <SignInWay method={method} choose={setMethod} />}
           {openBao && method === "userpass" && (
             <Field label="Username">
               <Input value={username} onChange={(event) => setUsername(event.target.value)} />
             </Field>
           )}
           <CredentialFields provider={connection.provider} method={method} typed={typed} type={setTyped} />
-          {line !== undefined && <p className="text-sm text-signal">{line}</p>}
+          {said !== undefined && <RefusalLine line={said.line} details={said.details} />}
           <div className="flex justify-end gap-2">
             <Button icon={X} label="Cancel" onClick={close}>Cancel</Button>
             <Button icon={LogIn} label="Sign in" variant="default" type="submit" disabled={sending}>
@@ -109,7 +100,7 @@ export const EditConnection = ({ environmentId, connection, close, say }: Connec
   const [address, setAddress] = useState(connection.address);
   const [tokenRole, setTokenRole] = useState(connection.tokenRole ?? "");
   const [ca, setCa] = useState<string | null>(connection.ca);
-  const [line, setLine] = useState<string | undefined>(undefined);
+  const [refused, setRefused] = useState<KeyManagerOutcome & { readonly ok: false }>();
   const [sending, setSending] = useState(false);
   const openBao = connection.provider === "openbao";
 
@@ -123,11 +114,11 @@ export const EditConnection = ({ environmentId, connection, close, say }: Connec
       ...(ca !== connection.ca && { ca }),
     };
     if (Object.keys(changes).length === 0) return close();
-    setLine(undefined);
+    setRefused(undefined);
     setSending(true);
-    void updateConnection(sender, environmentId, connection, changes).then((updated) => {
+    void updateConnection(sender, environmentId, connection, changes, "Save").then((updated) => {
       setSending(false);
-      if (!updated.ok) return setLine(updated.line);
+      if (!updated.ok) return setRefused(updated);
       close();
       say(updated.line);
     });
@@ -153,7 +144,7 @@ export const EditConnection = ({ environmentId, connection, close, say }: Connec
               <CaChoice environmentId={environmentId} address={address} ca={ca} choose={setCa} />
             </>
           )}
-          {line !== undefined && <p className="text-sm text-signal">{line}</p>}
+          {refused !== undefined && <RefusalLine line={refused.line} details={refused.details} />}
           <div className="flex justify-end gap-2">
             <Button icon={X} label="Cancel" onClick={close}>Cancel</Button>
             <Button icon={Pencil} label="Save" variant="default" type="submit" disabled={sending}>

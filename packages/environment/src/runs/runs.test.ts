@@ -147,7 +147,13 @@ describe("runs.start", () => {
     expect(patchOf(started)).toEqual({
       op: "set",
       sessionId: id,
-      fields: { activity: { state: "running", since: MANUAL_CLOCK_START }, lastActivityAt: MANUAL_CLOCK_START, accountId: "claude-max", model: "sonnet" },
+      fields: {
+        activity: { state: "running", since: MANUAL_CLOCK_START },
+        lastActivityAt: MANUAL_CLOCK_START,
+        accountId: "claude-max",
+        model: "sonnet",
+        runChoice: { model: "sonnet", effort: null },
+      },
     });
     const later = new Date(Date.parse(MANUAL_CLOCK_START) + 1000).toISOString();
     expect(patchOf(ended)).toEqual({ op: "set", sessionId: id, fields: { activity: { state: "idle", since: later }, lastActivityAt: later } });

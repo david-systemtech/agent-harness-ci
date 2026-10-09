@@ -481,8 +481,8 @@ describe("Keep this token in your key manager", () => {
     await app.user.click(within(await row("david on github.com")).getByRole("button", { name: "Keep this token in your key manager" }));
     expect(railStep("Key manager").getAttribute("aria-current")).toBe("step");
     const keyManager = within(checklist()).getByRole("region", { name: "Key manager" });
-    await waitFor(() => expect(document.activeElement).toBe(within(keyManager).getByRole("region", { name: "Move stored tokens" })));
-    expect(await within(within(keyManager).getByRole("region", { name: "Move stored tokens" })).findByRole("listitem", { name: "https://github.com" })).toBeDefined();
+    await waitFor(() => expect(document.activeElement).toBe(within(keyManager).getByRole("region", { name: "Move saved tokens" })));
+    expect(within(within(keyManager).getByRole("region", { name: "Move saved tokens" })).getByText("agent-harness keeps 1 token itself. Move it into Home OpenBao?")).toBeDefined();
   });
 
   it("is not offered while no key manager is connected", async () => {

@@ -41,6 +41,7 @@ import { LOGIN_EXPIRED_CODE, LoginLapsed } from "./login-refresh.js";
 import { readRateLimit, toJson } from "./mapper.js";
 import { buildRunOptions, claudeEffort, claudeMode, type ClaudeMode, type ResumePoint } from "./options.js";
 import type { PlanLimitVerdict } from "./plan-usage.js";
+import { SpendMeter } from "./spend.js";
 import { TaskLedger } from "./tasks.js";
 import { mapSdkMessage } from "./mapper.js";
 import { ClaudeTurn, type TurnControl } from "./turn.js";
@@ -360,6 +361,8 @@ export class ClaudeProcess implements TurnControl {
   readonly #prompts = new AsyncQueue<SDKUserMessage>("prompt pump");
   readonly #abort = new AbortController();
   readonly #ledger: TaskLedger;
+  /** What the process has spent so far, by its results: each turn reports its share (#1949). */
+  readonly #spend = new SpendMeter();
   readonly #spawn: SpawnKey;
   /**
    * The tool servers the process was started with, whose in-process tools
@@ -560,6 +563,7 @@ export class ClaudeProcess implements TurnControl {
       control: this,
       clock: this.#deps.clock,
       ledger: this.#ledger,
+      spend: this.#spend,
     });
     this.#waiting.push(turn);
     return turn;
@@ -653,6 +657,13 @@ export class ClaudeProcess implements TurnControl {
           importSessionToStore: (sessionId, store) => sdkImportSessionToStore(sessionId, store),
         });
 
+      }
+      // The CLI restores its saved cost ledger on cold continuation, even when the new turn is stopped before sampling.
+      // Seed this process's meter with the same baseline, so its first result cannot charge earlier runs again (#1949).
+      if (this.#deps.sessionStore !== null && input.target.kind !== "fresh") {
+        const providerSessionId = input.target.providerSessionId;
+        const entries = await this.#deps.sessionStore.load({ projectKey: input.sessionId, sessionId: input.target.providerSessionId });
+        this.#spend.restore(entries, providerSessionId);
       }
       const resumePoint = await this.#resumePoint(input);
       // Asked once for this spawn (#307), and not for one that will not happen; the pool releases it as it lets the process go.
@@ -858,8 +869,9 @@ export class ClaudeProcess implements TurnControl {
         if (!this.#narrates) this.#decide(this.#waiting.length > 0 ? "first-waiting" : []);
         return;
       }
-      // Between turns: the ledger still reads what the work that outlived the turn says.
+      // Between turns: the ledger still reads what the work that outlived the turn says, and the meter a result's spend.
       this.#ledger.observe(message);
+      this.#spend.read(message);
       return;
     }
     this.#serve(this.#current, message);
@@ -974,7 +986,7 @@ export class ClaudeProcess implements TurnControl {
    * one carrying a subagent's prompt between the CLI's turns.
    */
   #providerTurn(messageIds: readonly string[], forPrompt: boolean): ClaudeTurn {
-    const turn = new ClaudeTurn({ origin: "provider", runId: "", promptIds: [], messageIds, control: this, clock: this.#deps.clock, ledger: this.#ledger });
+    const turn = new ClaudeTurn({ origin: "provider", runId: "", promptIds: [], messageIds, control: this, clock: this.#deps.clock, ledger: this.#ledger, spend: this.#spend });
     turn.markOpened();
     if (forPrompt) this.#forPrompt.add(turn);
     else {

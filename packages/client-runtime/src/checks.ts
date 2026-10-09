@@ -38,7 +38,7 @@ export interface Checks {
   set(environmentId: string, sessionId: string, command: string | null): Promise<RequestAnswer<"checks.set">>;
   run(environmentId: string, sessionId: string): Promise<RequestAnswer<"checks.run">>;
   /** Explicitly sends the offered output through the shared composer send path, leaving drafts alone. */
-  sendFailure(environmentId: string, sessionId: string, choice?: { readonly model: string; readonly effort: string | null }): Promise<SendOutcome>;
+  sendFailure(environmentId: string, sessionId: string): Promise<SendOutcome>;
 }
 
 export const createChecks = (host: {
@@ -47,7 +47,7 @@ export const createChecks = (host: {
   readonly records: Observable<readonly ConnectionRecord[]>;
   readonly terminal: (environmentId: string, terminalId: string, listener: (output: TerminalOutput) => void) => TerminalHandle;
   readonly session: (environmentId: string, sessionId: string) => Observable<SessionProjection>;
-  readonly send: (environmentId: string, sessionId: string, message: OutgoingMessage, choice?: { readonly model: string; readonly effort: string | null }) => Promise<SendOutcome>;
+  readonly send: (environmentId: string, sessionId: string, message: OutgoingMessage) => Promise<SendOutcome>;
   readonly capability: (environmentId: string, name: "checks.get") => CapabilityAnswer;
 }) => {
   const resets = writable(0);
@@ -156,7 +156,7 @@ export const createChecks = (host: {
       }
       return answer;
     },
-    async sendFailure(environmentId, sessionId, choice) {
+    async sendFailure(environmentId, sessionId) {
       const current = view(environmentId, sessionId).read();
       const key = `${environmentId} ${sessionId.toLowerCase()}`;
       const saved = state.get(key)!;
@@ -166,7 +166,7 @@ export const createChecks = (host: {
       try {
         const entry = offer.entry;
         const text = `$ ${entry.command}\nCheck ${entry.result.timedOut ? "timeout" : "failure"}; exit ${entry.result.exitCode ?? "none"}${entry.result.truncated ? "; output truncated" : ""}\n${entry.result.output}`;
-        const answer = await host.send(environmentId, sessionId, { text, attachments: [] }, choice);
+        const answer = await host.send(environmentId, sessionId, { text, attachments: [] });
         if (answer.ok && (offer.entry.finishedSequence ?? offer.entry.sequence) > floorFor(environmentId, view(environmentId, sessionId).read().value)) { saved.sent.set(offer.id, offer.entry.finishedSequence ?? offer.entry.sequence); resets.update((n) => n + 1); }
         return answer;
       } finally { saved.sending = false; }

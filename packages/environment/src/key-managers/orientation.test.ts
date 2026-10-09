@@ -375,7 +375,8 @@ posix("why a run has no token", () => {
     let answer = (): void => undefined;
     before.bao.approle(ROLE_ID, SECRET_ID, { policies: ["default", "reader", "minter"], ttlSeconds: 7200, after: new Promise<void>((resolve) => (answer = resolve)) });
     onCleanup(() => answer());
-    const t = await startTestEnvironment({ dataDir, managedTools: { readPath: async () => before.path.path() } });
+    // This test releases sign-in after startup, while the start pass is still checking it.
+    const t = await startTestEnvironment({ dataDir, awaitSetupStartPass: false, managedTools: { readPath: async () => before.path.path() } });
     onCleanup(() => t.close());
     const client = await t.client();
     expect((await list(client))[0]?.status.kind).toBe("signing-in");

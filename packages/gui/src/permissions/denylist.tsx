@@ -1,14 +1,16 @@
-import { DENYLIST_SECTION_NAMES, editedSection, listWords, sectionHasPresets, sectionHolds, type DenylistEdit, type EnvironmentView } from "@agent-harness/client-runtime";
-import { DENYLIST_SECTIONS, type DenylistEntry, type DenylistSection } from "@agent-harness/contracts";
+import { DENYLIST_SECTION_NAMES, editedSection, listWords, plainRefusal, restoredOutcome, sectionHasPresets, sectionHolds, type DenylistEdit, type EnvironmentView } from "@agent-harness/client-runtime";
+import { DENYLIST_SECTIONS, PRODUCT_NAME, type DenylistEntry, type DenylistSection } from "@agent-harness/contracts";
 import { FileCode, Pencil, Plus, RotateCcw, Save, ShieldAlert, Text, Trash2, X } from "lucide-react";
 import { useId, useState, type FormEvent } from "react";
 import { Button, Dialog, DialogClose, DialogContent, Input, Switch, Tooltip } from "../ui/index.js";
 import { DenylistTest } from "./denylist-test.js";
+import { FieldError } from "./field-error.js";
 import { Part } from "../settings/part.js";
 import type { DenylistValues } from "./use-denylist.js";
 
 /**
- * The denylist (permissions spec, "The denylist"; #415): its four sections
+ * The always-ask list (setup-copy.md §5.12; permissions spec, "The
+ * denylist"; #415, #1858): its four lists
  * from `permissions.denylist.get`, each entry with its pattern, note,
  * whether it is a preset and whether it is enabled; an entry added, edited,
  * enabled or disabled, or removed, each a write of its whole section through
@@ -22,10 +24,10 @@ export const DenylistPart = ({ view, values, writable }: { readonly view: Enviro
   const { denylist, answer } = values;
   const ready = view.phase === "ready";
   return (
-    <Part title="Denylist">
-      <p className="text-sm text-ink-muted">Never approved on its own in any mode: a call that matches an enabled entry asks a person, and on an unattended run it is denied.</p>
+    <Part title="Always-ask list">
+      <p className="text-sm text-ink-muted">Agents always ask you before they use anything on these lists, whatever you chose above. On scheduled runs, nobody is there to answer, so the answer is no.</p>
       {denylist === null
-        ? ready && <p className="text-sm text-ink-faint">{answer.error === null ? "Reading the denylist…" : `The denylist could not be read: ${answer.error.message}`}</p>
+        ? ready && (answer.error === null ? <p className="text-sm text-ink-faint">Reading the always-ask list…</p> : <FieldError line={`${PRODUCT_NAME} could not read the always-ask list.`} details={[answer.error.message]} />)
         : DENYLIST_SECTIONS.map((section) => <SectionCard key={section} section={section} entries={denylist[section]} values={values} writable={writable} />)}
       <DenylistTest environmentId={view.environmentId} ready={ready} />
     </Part>
@@ -39,13 +41,17 @@ interface SectionCardProps {
   readonly writable: boolean;
 }
 
-/** What a section's last write or restore said: a refusal, or what a restore did. */
+/** What a section's last write or restore said: a refusal, with the environment's words for Details, or what a restore did. */
 interface Said {
   readonly line: string;
   readonly refused: boolean;
+  readonly details: readonly string[];
 }
 
-/** One section: what it holds, its entries, a new entry's fields, Restore presets where it has any, and one line for what it last did. */
+/** The button each change of an entry is made with, for a refusal's "Choose … to try again". */
+const EDIT_VERBS: { readonly [Kind in DenylistEdit["kind"]]: string } = { add: "Add", edit: "Save", enable: "Enabled", remove: "Remove" };
+
+/** One list: what it holds, its entries, a new entry's fields, Restore built-in entries where it has any, and one line for what it last did. */
 const SectionCard = ({ section, entries, values, writable }: SectionCardProps) => {
   const heading = useId();
   const name = DENYLIST_SECTION_NAMES[section];
@@ -62,7 +68,7 @@ const SectionCard = ({ section, entries, values, writable }: SectionCardProps) =
     setWriting(true);
     try {
       const saved = await values.save(section, editedSection(entries, edit));
-      if (!saved.ok) setSaid({ line: saved.line, refused: true });
+      if (!saved.ok) setSaid(saved.refusal === undefined ? { line: saved.line, refused: true, details: [] } : { ...plainRefusal(saved.refusal, EDIT_VERBS[edit.kind]), refused: true });
       return saved.ok;
     } finally {
       setWriting(false);
@@ -74,7 +80,10 @@ const SectionCard = ({ section, entries, values, writable }: SectionCardProps) =
     setWriting(true);
     void values
       .restore([section])
-      .then((restored) => setSaid({ line: restored.line, refused: !restored.ok }))
+      .then((restored) => {
+        const outcome = restoredOutcome(restored);
+        setSaid({ line: outcome.line, refused: !outcome.ok, details: outcome.details ?? [] });
+      })
       .finally(() => setWriting(false));
   };
 
@@ -85,8 +94,8 @@ const SectionCard = ({ section, entries, values, writable }: SectionCardProps) =
           <ShieldAlert aria-hidden="true" className="size-4" />{name}
         </h4>
         {sectionHasPresets(section) && (
-          <Button title="Restore presets (Enter or Space)" size="sm" disabled={!writable || writing} onClick={() => setRestoring(true)}>
-            <RotateCcw aria-hidden="true" data-icon="inline-start" />Restore presets
+          <Button title="Restore built-in entries (Enter or Space)" size="sm" disabled={!writable || writing} onClick={() => setRestoring(true)}>
+            <RotateCcw aria-hidden="true" data-icon="inline-start" />Restore built-in entries
           </Button>
         )}
       </header>
@@ -105,7 +114,7 @@ const SectionCard = ({ section, entries, values, writable }: SectionCardProps) =
         </ul>
       )}
       <AddEntry section={name} writable={writable} writing={writing} send={send} />
-      {said !== undefined && <p className={`text-xs ${said.refused ? "text-signal" : "text-ink-muted"}`}>{said.line}</p>}
+      {said !== undefined && (said.refused ? <FieldError line={said.line} details={said.details} /> : <p role="status" className="text-xs text-ink-muted">{said.line}</p>)}
       <RestorePresetsDialog open={restoring} sections={[section]} cancel={() => setRestoring(false)} restore={restore} />
     </section>
   );
@@ -121,10 +130,10 @@ interface RestorePresetsDialogProps {
 }
 
 /**
- * The one confirmation a restore of the denylist's presets asks (permissions
- * spec, "The denylist"): a section's Restore presets, and the Permissions
- * step's Restore on its card (#594), which names its target sections or,
- * naming none, every section.
+ * The one confirmation a restore of the always-ask list's built-in entries
+ * asks (permissions spec, "The denylist"; setup-copy.md §5.12): a list's
+ * Restore built-in entries, and the Permissions step's Restore them on its
+ * card (#594), which names its target lists or, naming none, every list.
  */
 export const RestorePresetsDialog = ({ open, sections, cancel, restore }: RestorePresetsDialogProps) => {
   const named = sections?.map((section) => DENYLIST_SECTION_NAMES[section]) ?? [];
@@ -132,8 +141,8 @@ export const RestorePresetsDialog = ({ open, sections, cancel, restore }: Restor
     <Dialog open={open} onOpenChange={(opened) => !opened && cancel()}>
       {open && (
         <DialogContent
-          title={`Restore the presets ${named.length === 0 ? "the denylist" : listWords(named)} lost?`}
-          description={`Each preset ${named.length === 1 ? "the section" : "a section"} no longer holds is put back at its end, enabled; a preset edited or disabled stays as it is.`}
+          title={named.length === 0 ? "Restore the always-ask list's missing built-in entries?" : `Restore the missing built-in entries of ${listWords(named)}?`}
+          description="Each missing built-in entry goes back at the end of its list, turned on. Entries you edited or turned off stay as they are."
         >
           <div className="flex justify-end gap-2">
             <DialogClose asChild>
@@ -162,7 +171,7 @@ const EntryRow = ({ entry, writable, send, edit }: EntryRowProps) => (
     <Tooltip content={`Enable ${entry.pattern}`} keys="Space to toggle"><Switch aria-label="Enabled" checked={entry.enabled} disabled={!writable} onCheckedChange={(enabled) => void send({ kind: "enable", id: entry.id, enabled })} /></Tooltip>
     <div className="flex min-w-0 flex-1 basis-40 flex-col gap-0.5">
       <span className={`break-all font-mono ${entry.enabled ? "text-ink" : "text-ink-faint"}`}>{entry.pattern}</span>
-      {entry.preset && <span className="text-2xs text-ink-faint">preset</span>}
+      {entry.preset && <span className="text-2xs text-ink-faint">built-in</span>}
       {entry.note !== "" && <span className="text-2xs text-ink-muted">{entry.note}</span>}
     </div>
     <span className="ml-auto flex gap-1">
