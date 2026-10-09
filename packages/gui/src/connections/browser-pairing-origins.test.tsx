@@ -1,3 +1,4 @@
+// @vitest-environment-options {"url":"https://environment.example"}
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { createRuntime } from "@agent-harness/client-runtime";
@@ -52,16 +53,23 @@ const servedByDesk = async (size: { readonly width: number; readonly height: num
   });
   await screen.findByRole("note", { name: "Limited access" });
   const user = userEvent.setup();
-  /** Pastes `link` into the pairing form in `place` and sends it; the refusal under the form, an alert, once it is said. */
+  /** Pastes `link` into the pairing form in `place` and sends it; the refusal alert or already-connected offer, once it is said. */
   const pairIn = async (place: HTMLElement, link: string) => {
     const form = await within(place).findByRole("form", { name: "Pair by link" });
-    await user.click(within(form).getByRole("textbox", { name: "Pairing link" }));
+    const field = within(form).getByRole("textbox", { name: "Pairing link" });
+    await user.clear(field);
+    await user.click(field);
     await user.paste(link);
     await user.click(within(form).getByRole("button", { name: "Pair" }));
     return waitFor(() => {
       const refusal = form.parentElement!.querySelector<HTMLElement>("[data-pairing-refusal]");
-      expect(refusal?.getAttribute("role")).toBe("alert");
-      return refusal as HTMLElement;
+      if (refusal !== null) {
+        expect(refusal.getAttribute("role")).toBe("alert");
+        return refusal;
+      }
+      const status = form.parentElement!.querySelector<HTMLElement>('[role="status"]')!;
+      expect(status.textContent).toContain("is already connected");
+      return status;
     });
   };
   /** A refusal's line, without the hidden "Error: " a screen reader reads first. */
@@ -92,6 +100,42 @@ const servedByDesk = async (size: { readonly width: number; readonly height: num
 const PHONES = [{ width: 390, height: 844 }, { width: 360, height: 640 }] as const;
 
 describe.each(PHONES)("pairing another HTTPS environment from the browser client at $width x $height", (size) => {
+  it("recognises same-origin pairing with or without the explicit HTTPS default port", async () => {
+    const { pair, pairIn, runtime } = await servedByDesk(size);
+    expect(runtime.connections.list.read()[0]?.address).toBe("https://environment.example");
+    const status = await pair("https://environment.example/pair#K7Q2MXH4RT");
+    expect(status.textContent).toContain("desk is already connected. Connect again?");
+    const again = await pairIn(await screen.findByRole("dialog", { name: "Settings" }), "https://environment.example:443/pair#K7Q2MXH4RT");
+    expect(again.textContent).toContain("desk is already connected. Connect again?");
+  });
+
+  it("refuses a standard-port HTTPS origin without adding the native HTTP port or fetching it", async () => {
+    const { pair, lineOf, detailsOf, fetched } = await servedByDesk(size);
+    const status = await pair("https://unapproved.example.invalid/pair#K7Q2MXH4RT");
+    expect(lineOf(status)).toBe("This page is not allowed to connect to unapproved.example.invalid. Ask whoever runs unapproved.example.invalid to allow this page.");
+    expect(await detailsOf(status)).toContain("Add https://unapproved.example.invalid to desk's Allowed connection origins");
+    expect(status.textContent).not.toContain(":7433");
+    expect(fetched.filter((url) => url.startsWith("https://unapproved.example.invalid"))).toEqual([]);
+  });
+
+  it("contacts an exactly approved standard-port HTTPS origin, including links naming port 443, but refuses another port", async () => {
+    const approved = "https://laptop.example.test";
+    const { pair, pairIn, lineOf, fetched } = await servedByDesk(size, [approved]);
+    const status = await pair(`${approved}/pair#K7Q2MXH4RT`);
+    expect(lineOf(status)).toBe("Nothing answered at laptop.example.test. Check that the other computer is on and that both are connected to Tailscale.");
+    expect(fetched).toContain(`${approved}/.well-known/agent-harness/environment`);
+    const settings = await screen.findByRole("dialog", { name: "Settings" });
+    const defaultPort = await pairIn(settings, `${approved}:443/pair#K7Q2MXH4RT`);
+    expect(lineOf(defaultPort)).toBe("Nothing answered at laptop.example.test. Check that the other computer is on and that both are connected to Tailscale.");
+    expect(fetched.filter((url) => url.startsWith(approved))).toEqual([
+      `${approved}/.well-known/agent-harness/environment`,
+      `${approved}/.well-known/agent-harness/environment`,
+    ]);
+    const otherPort = await pairIn(settings, `${approved}:8443/pair#K7Q2MXH4RT`);
+    expect(lineOf(otherPort)).toBe("This page is not allowed to connect to laptop.example.test:8443. Ask whoever runs laptop.example.test:8443 to allow this page.");
+    expect(fetched.filter((url) => url.startsWith(`${approved}:8443`))).toEqual([]);
+  });
+
   it("refuses an origin this environment does not allow before any fetch, names it, keeps both steps in Details and goes to Browser origins", async () => {
     const { user, pair, lineOf, detailsOf, goneToOrigins, fetched, scrolled } = await servedByDesk(size);
     const status = await pair(LINK);
