@@ -87,7 +87,11 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
       }
       if (outcome.status === "failed") setRefusal(outcome.failure);
       setLine(outcome.status === "re-pair-offered" ? "Already paired. Confirm this link to replace the connection deliberately." : undefined);
-    }, () => setLine("Pairing failed. Make a new code and try again."));
+    }, (error: unknown) => {
+      // A thrown failure reads §4.2's `Pairing did not work. Try again.`, its cause in Details, as the form says one.
+      setLine(undefined);
+      setRefusal({ reason: "refused", message: "Pairing did not work. Try again.", details: [error instanceof Error ? error.message : String(error)] });
+    });
   }, [runtime, route]);
   const openedRoute = useRef(false);
   useEffect(() => {
