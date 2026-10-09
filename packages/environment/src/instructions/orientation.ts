@@ -1,3 +1,4 @@
+import type { ORIENTATION_SECTION_STEPS } from "@agent-harness/contracts";
 import type { InjectionLevel } from "../adapter/process-environment.js";
 import type { InstructionScope } from "../adapter/seams.js";
 import type { Clock } from "../serve/clock.js";
@@ -20,8 +21,8 @@ import type { OrientationAnswer, OrientationSeam } from "./composer.js";
  * the seam's answer, and the others render.
  */
 
-/** The block's sections, in the order it holds them. */
-export const ORIENTATION_SECTIONS = ["environment", "accounts", "key-managers", "forges", "banks", "other-environments"] as const;
+/** The block's sections, in the order it holds them, each with the Set up step an unread one sends the person to. */
+export const ORIENTATION_SECTIONS = ["environment", "accounts", "key-managers", "forges", "banks", "other-environments"] as const satisfies readonly (keyof typeof ORIENTATION_SECTION_STEPS)[];
 export type OrientationSectionName = (typeof ORIENTATION_SECTIONS)[number];
 
 /** A list in a section: its heading line, if it has one, over one line per item. A list with no item is left out, its heading with it. */

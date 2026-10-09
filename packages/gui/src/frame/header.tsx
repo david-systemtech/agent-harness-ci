@@ -8,6 +8,7 @@ import { ParkedAsksButton } from "../parked-asks/parked-asks.js";
 import type { PaneSession } from "../presentation.js";
 import { useSettings } from "../settings/settings-window.js";
 import { SetupLine } from "../setup/setup-line.js";
+import { ShowSideColumn } from "../side-column/side-panes-menu.js";
 import { Button, IconButton, Tooltip } from "../ui/index.js";
 import { RestartToUpdate } from "../updates/restart-to-update.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
@@ -53,6 +54,7 @@ export const Header = ({ onPair }: { readonly onPair?: () => void }) => {
   if (narrow) return <header data-window-header className="phone-frame-header flex min-w-0 shrink-0 items-center gap-1 border-b border-hairline bg-abyss px-2">
     <SessionDrawerTrigger asChild><IconButton label="Show sessions" {...(sidebarKeys !== undefined && { keys: sidebarKeys })}><PanelLeft aria-hidden="true" /></IconButton></SessionDrawerTrigger>
     <div className="flex min-w-0 flex-1">{pane.session !== null ? <SessionBreadcrumb session={pane.session} /> : <span className="truncate text-sm text-ink-muted">{pane.newSession !== undefined ? "New session" : "No session"}</span>}</div>
+    {pane.session !== null && <ShowSideColumn session={pane.session} />}
     <ParkedAsksButton />
     <HeaderMenu {...(onPair !== undefined && { onPair })} />
     <IconButton label="Settings" {...(settingsKeys !== undefined && { keys: settingsKeys })} onClick={() => settings.open()}><Settings aria-hidden="true" /></IconButton>
