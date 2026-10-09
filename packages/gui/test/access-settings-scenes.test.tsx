@@ -9,15 +9,15 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-it.each(["light", "dark"] as const)("draws the Permissions scene with mode notes, TTL and the four denylist groups in %s", async (ladder) => {
+it.each(["light", "dark"] as const)("draws the Permissions scene with the mode choices, the timeout and the always-ask list's four lists in %s", async (ladder) => {
   const container = document.createElement("div");
   document.body.append(container);
   const gallery = await mountGallery(container, "settings-permissions", ladder);
   close = gallery.close;
   const pane = await screen.findByRole("region", { name: "Permissions" });
-  expect(await within(pane).findByRole("radiogroup", { name: "Maximum permission mode" })).toBeDefined();
-  expect(within(pane).getByRole("radiogroup", { name: "Unattended permission mode" })).toBeDefined();
-  expect(within(pane).getByRole("textbox", { name: "Unanswered permission timeout" })).toBeDefined();
+  expect(await within(pane).findByRole("radiogroup", { name: "How much agents may do without asking" })).toBeDefined();
+  expect(within(pane).getByRole("radiogroup", { name: "For scheduled and automatic runs" })).toBeDefined();
+  expect(within(pane).getByRole("combobox", { name: "Deny it after" })).toBeDefined();
   for (const name of ["Browser domains", "Paths", "Command patterns", "Hosts"]) expect(await within(pane).findByRole("region", { name })).toBeDefined();
   expect(await gallery.ready).toBe(true);
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe("settings-permissions"));

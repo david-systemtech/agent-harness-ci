@@ -51,7 +51,7 @@ interface Said {
 /** The button each change of an entry is made with, for a refusal's "Choose … to try again". */
 const EDIT_VERBS: { readonly [Kind in DenylistEdit["kind"]]: string } = { add: "Add", edit: "Save", enable: "Enabled", remove: "Remove" };
 
-/** One section: what it holds, its entries, a new entry's fields, Restore presets where it has any, and one line for what it last did. */
+/** One list: what it holds, its entries, a new entry's fields, Restore built-in entries where it has any, and one line for what it last did. */
 const SectionCard = ({ section, entries, values, writable }: SectionCardProps) => {
   const heading = useId();
   const name = DENYLIST_SECTION_NAMES[section];

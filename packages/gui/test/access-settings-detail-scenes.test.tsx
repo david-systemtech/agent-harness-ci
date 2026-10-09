@@ -64,12 +64,12 @@ it.each(details)("prepares %s with its reviewed controls and scroll anchor befor
     const group = within(pane).getByRole("region", { name: groupName });
     expect(within(group).getByRole("switch", { name: "Enabled" })).toBeDefined();
     for (const action of ["Edit", "Remove", "Add"]) expect(within(group).getByRole("button", { name: action })).toBeDefined();
-    if (groupName !== "Hosts") expect(within(group).getByRole("button", { name: "Restore presets" })).toBeDefined();
+    if (groupName !== "Hosts") expect(within(group).getByRole("button", { name: "Restore built-in entries" })).toBeDefined();
   }
-  if (name === "settings-permissions-unattended") expect(within(pane).getByRole("radiogroup", { name: "Unattended permission mode" })).toBeDefined();
+  if (name === "settings-permissions-unattended") expect(within(pane).getByRole("radiogroup", { name: "For scheduled and automatic runs" })).toBeDefined();
   if (name === "settings-permissions-containment") {
-    expect(within(pane).getByRole("textbox", { name: "Unanswered permission timeout" })).toBeDefined();
-    expect(within(pane).getByRole("radiogroup", { name: "Default process containment" })).toBeDefined();
+    expect(within(pane).getByRole("combobox", { name: "Deny it after" })).toBeDefined();
+    expect(within(pane).getByRole("radiogroup", { name: "Sandbox" })).toBeDefined();
   }
   if (name === "settings-permissions-review") {
     expect(within(pane).getByRole("button", { name: "Mark seen" })).toHaveProperty("disabled", false);
