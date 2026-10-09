@@ -25,7 +25,7 @@ export const joinPreview: BankJoinPreview = {
 /** A step's status at the head of its card (setup-copy.md §3; #1840): done, needing a fix with Details open, a check that could not run, and the environment out of reach. */
 type StatusRegion = "status-done" | "status-fix" | "status-could-not-check" | "status-unreachable";
 
-type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | "instructions-unread" | StatusRegion | AccountRegion;
+type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | "instructions-unread" | StatusRegion | AccountRegion | BrowserRegion;
 
 const isStatus = (kind: SetupRegion): kind is StatusRegion => kind.startsWith("status-");
 
@@ -45,6 +45,17 @@ const ACCOUNT_STATES = {
     ambient: { present: true, signedIn: false },
   },
 } as const;
+
+/** setup-copy.md §5.11's Browser states beside the connected one (`browser`): nothing done yet, step 5 with its code, and Chrome closed (#1857). */
+type BrowserRegion = "browser-step-1" | "browser-code" | "browser-closed";
+const isBrowserRegion = (kind: SetupRegion): kind is BrowserRegion => kind === "browser-step-1" || kind === "browser-code" || kind === "browser-closed";
+
+/** The Browser step's lines for those states (setup-copy.md §5.11). */
+const BROWSER_RESULTS: { readonly [Kind in BrowserRegion]: Partial<StepResult> } = {
+  "browser-step-1": { state: "skipped", reason: "Chrome is not connected. Optional." },
+  "browser-code": { state: "skipped", reason: "Chrome is not connected. Optional." },
+  "browser-closed": { state: "needs-attention", reason: "Chrome is closed, so agents cannot use it. Open Chrome. This updates by itself.", failing: ["browser.chrome-connected"], actions: ["check-again"] },
+};
 
 /** setup-copy.md §5.4: a container no host updater has polled, its line offering How to set it up (#1883). */
 const NEVER_POLLED: Partial<StepResult> = {
@@ -106,7 +117,7 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
-  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" || ACCOUNT_REGIONS.has(kind) ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" ? "key-manager" : kind === "instructions-unread" ? "instructions" : isStatus(kind) ? "skills" : kind as StepId;
+  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" || ACCOUNT_REGIONS.has(kind) ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" ? "key-manager" : kind === "instructions-unread" ? "instructions" : isStatus(kind) ? "skills" : isBrowserRegion(kind) ? "browser" : kind as StepId;
   const status = isStatus(kind) ? STATUS_RESULTS[kind] : undefined;
   const accountState = kind in ACCOUNT_STATES ? ACCOUNT_STATES[kind as AccountRegion] : undefined;
   const prepared = await prepareWorld({ environments: [{
@@ -120,15 +131,17 @@ async function prepareRegion(kind: SetupRegion) {
     ...(kind === "rail-states" && { setup: RAIL_STATES }),
     ...(kind === "instructions-unread" && { setup: { instructions: UNREAD_PARTS } }),
     ...(status !== undefined && { setup: { skills: status } }),
+    ...(isBrowserRegion(kind) && { setup: { browser: BROWSER_RESULTS[kind] } }),
   }] }, { firstLaunch: true });
   const desk = prepared.world.environment("desk");
   if (target === "instructions") scriptInstructions(desk, kind === "instructions-unread" ? ["forges", "banks"] : []);
   desk.wire.answer("browser.status", () => ({ result: {
-    listener: { state: "listening", port: 47615 }, folder: { path: "/extension/current", problem: null }, shippedVersion: "0.1.0", unpairedConnected: false,
+    listener: { state: "listening", port: 47615 }, folder: { path: "/extension/current", problem: null }, shippedVersion: "0.1.0", unpairedConnected: kind === "browser-code",
     headless: { allowRuns: true, availability: { available: false, reason: "No browser installed." }, liveContexts: 0 },
   } }));
   const since = prepared.clock.now().toISOString();
-  desk.wire.answer("browser.chromes.list", () => ({ result: { chromes: [{ id: "0199aa00-0000-4000-8000-000000000041", name: "Project Chrome", pairedAt: since, lastConnectedAt: since, lastReportedVersion: "0.1.0", connected: true, outdated: false }] } }));
+  const chromes = kind === "browser-step-1" || kind === "browser-code" ? [] : [{ id: "0199aa00-0000-4000-8000-000000000041", name: "Project Chrome", pairedAt: since, lastConnectedAt: since, lastReportedVersion: "0.1.0", connected: kind !== "browser-closed", outdated: false }];
+  desk.wire.answer("browser.chromes.list", () => ({ result: { chromes } }));
   desk.wire.answer("browser.pairing.code", () => ({ result: { code: "TEST2345", expiresAt: new Date(prepared.clock.now().getTime() + 300_000).toISOString() } }));
   desk.wire.answer("carryOver.inventory", (params) => {
     const inventory: CarryOverInventory = {
@@ -205,7 +218,7 @@ export function setupRegionScene(kind: SetupRegion) {
           return;
         }
         if (kind !== "browser" || finished) return;
-        const done = document.querySelector<HTMLButtonElement>('section[aria-label="Done"] button');
+        const done = document.querySelector<HTMLButtonElement>('section[aria-label="Use my Chrome for agents"] button');
         if (done !== null && !done.disabled) { finished = true; done.click(); }
       };
       const observer = new MutationObserver(advance);

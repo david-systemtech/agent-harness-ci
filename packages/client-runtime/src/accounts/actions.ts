@@ -38,8 +38,8 @@ export const newAccountLabel = (accounts: readonly Pick<AccountRecord, "label">[
 
 /**
  * The email an account added by Sign in with Claude is renamed to once it is
- * signed in (setup-copy.md §5.1): while it still has the name it was added
- * under, so a name the person gave it stays; undefined otherwise. Claude
+ * signed in (setup-copy.md §5.1): only when its record says the name was
+ * generated and no person has renamed it; undefined otherwise. Claude
  * Code's own sign-in takes its email as it is used, so it is never renamed.
  */
 export const emailLabel = (account: Pick<AccountRecord, "nameByEmail" | "directory" | "identity" | "status">): string | undefined =>

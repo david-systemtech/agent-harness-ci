@@ -115,7 +115,7 @@ export const accountsAdd = defineMethod({
   errors: [],
 });
 
-/** Changes an account's label, unique on the environment ignoring case; the label it has already changes nothing. */
+/** Changes an account's label, unique ignoring case. An explicit rename also ends email naming, even with the same label; an automatic rename changes nothing once a person chose a name. */
 export const accountsRelabel = defineMethod({
   name: "accounts.relabel",
   scope: "admin",

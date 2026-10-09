@@ -102,7 +102,7 @@ export const SaidLine = ({ said }: { readonly said: AccountOutcome }) => (
  * capability's line; the question of how to sign in; another computer's
  * accounts to sign in here too; what a command did in one line; and a card
  * per account. An account Sign in with Claude added as `Claude account` is
- * renamed to its email once it is signed in, unless it was renamed first.
+ * renamed to its email once it is signed in, unless a person chose or renamed its name first.
  */
 export const AccountsList = ({ view, label = "", labelTaken, inlineSignIn = false }: AccountsListProps) => {
   const runtime = useRuntime();
