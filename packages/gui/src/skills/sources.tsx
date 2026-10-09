@@ -171,6 +171,7 @@ export const FoundFolders = ({ environmentId, url, replacing, done, partly }: {
   if (probe === null) return <p role="status" className="text-sm text-ink-muted">Looking for skills…</p>;
   const folders = [...(probe.root === null ? [] : [probe.root]), ...probe.folders];
   if (folders.length === 0) return <p className="text-sm">No skill folders were found there.</p>;
+  const finishing = replacing !== undefined && added.current.length > 0 && !removed.current;
   const add = async () => {
     const remove = async () => {
       if (replacing === undefined || removed.current) return true;
@@ -222,8 +223,8 @@ export const FoundFolders = ({ environmentId, url, replacing, done, partly }: {
         </label>
       ))}
       <span className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="sm" disabled={chosen.length === 0 || sending} onClick={() => void add()}><Plus aria-hidden="true" />Add selected</Button>
-        {chosen.length === 0 && <span className="text-xs text-ink-muted">Choose a skill folder first.</span>}
+        <Button variant="outline" size="sm" disabled={(chosen.length === 0 && !finishing) || sending} onClick={() => void add()}><Plus aria-hidden="true" />Add selected</Button>
+        {chosen.length === 0 && !finishing && <span className="text-xs text-ink-muted">Choose a skill folder first.</span>}
       </span>
       {refusal !== undefined && <RefusedLine environmentId={environmentId} refusal={refusal} />}
     </div>
