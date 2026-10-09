@@ -306,14 +306,13 @@ export const ModelPicker = ({ environmentId, sessionId, accountId, model }: RunP
   const runtime = useRuntime();
   const catalogues = useObservable(useMemo(() => runtime.projections.models(environmentId), [runtime, environmentId]));
   const handedOnto = useHandedOnto(environmentId, sessionId);
-  const current = model;
-  const listed = current === undefined || catalogues.value === null ? undefined : modelsOf(catalogues.value, accountId ?? handedOnto ?? null).find((entry) => entry.id === current.model);
-  const unavailable = current !== undefined && catalogues.value !== null && listed === undefined;
-  const words = current === undefined ? "default model" : modelChoiceWords(current, listed?.label);
+  const listed = model === undefined || catalogues.value === null ? undefined : modelsOf(catalogues.value, accountId ?? handedOnto ?? null).find((entry) => entry.id === model.model);
+  const unavailable = model !== undefined && catalogues.value !== null && listed === undefined;
+  const words = model === undefined ? "default model" : modelChoiceWords(model, listed?.label);
   return <PickerButton name="Model" command="model" value={words} offer={useOffer(environmentId, "models.list")} columns
-    items={(close) => <RunPickerColumns environmentId={environmentId} sessionId={sessionId} accountId={accountId} model={current} initialStage="Models" close={close} />}
+    items={(close) => <RunPickerColumns environmentId={environmentId} sessionId={sessionId} accountId={accountId} model={model} initialStage="Models" close={close} />}
     warning={unavailable ? "This stored model is not listed for this account. Choose an available model for the next run." : undefined}>
-    <span className={unavailable ? "text-amber" : current === undefined ? "text-ink-faint" : "text-ink"}>{words}</span>
+    <span className={unavailable ? "text-amber" : model === undefined ? "text-ink-faint" : "text-ink"}>{words}</span>
   </PickerButton>;
 };
 
