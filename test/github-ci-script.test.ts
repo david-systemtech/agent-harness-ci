@@ -243,6 +243,30 @@ const relay = async (f: Fixture, env: NodeJS.ProcessEnv = {}) => {
   }
 };
 
+it("finishes a non-GUI gallery successfully without a hosted dispatch or a PR comment", async () => {
+  const f = await apiFixture();
+  const git = (...args: string[]) => run("git", ["-C", f.checkout, "-c", "commit.gpgsign=false", "-c", "user.name=Tests", "-c", "user.email=tests@example.invalid", ...args]);
+  const base = (await git("rev-parse", "HEAD")).stdout.trim();
+  writeFileSync(join(f.checkout, "README.md"), "Documentation only\n");
+  await git("add", "README.md");
+  await git("commit", "-qm", "docs");
+  const head = (await git("rev-parse", "HEAD")).stdout.trim();
+  await git("checkout", "-q", base);
+  const event = join(f.checkout, "event.json");
+  writeFileSync(event, JSON.stringify({ pull_request: { labels: [] } }));
+  const summary = join(f.checkout, "summary.md");
+  const result = await relay(f, {
+    GH_CI_EVENT: "gallery", GH_CI_BASE: base, GH_CI_SHA: head,
+    GITHUB_EVENT_PATH: event, GITHUB_STEP_SUMMARY: summary,
+  });
+  expect(result.code).toBe(0);
+  expect(result.stdout).toContain("no GUI change: gallery skipped");
+  expect(readFileSync(summary, "utf8")).toContain("no GUI change: gallery skipped");
+  expect(apiCalls(f)).toEqual([]);
+  expect(readFileSync(f.log, "utf8")).not.toMatch(/gitleaks|git push|forgejo /);
+  expect((await git("rev-parse", "HEAD")).stdout.trim()).toBe(base);
+});
+
 /** The calls the fakes logged since the last read, by tool. */
 const calls = (f: Fixture) => {
   const lines = readFileSync(f.log, "utf8").split("\n").filter(Boolean);
@@ -553,10 +577,20 @@ describe("the advisory gallery relay", () => {
     expect(apiCalls(f).filter(({ stage }) => stage === "archive")).toHaveLength(1);
   });
 
-  it("dispatches its own gallery run and retrieves the small screenshot artifact", async () => {
+  it.each(["GUI change", "gallery label"])("dispatches its own gallery run and retrieves the small screenshot artifact for a %s", async (reason) => {
     const f = await apiFixture();
+    const git = (...args: string[]) => run("git", ["-C", f.checkout, "-c", "commit.gpgsign=false", "-c", "user.name=Tests", "-c", "user.email=tests@example.invalid", ...args]);
+    const base = (await git("rev-parse", "HEAD")).stdout.trim();
+    const path = reason === "GUI change" ? "packages/gui/src/app.tsx" : "README.md";
+    mkdirSync(join(f.checkout, path, ".."), { recursive: true });
+    writeFileSync(join(f.checkout, path), "fixture\n");
+    await git("add", path);
+    await git("commit", "-qm", "change");
     const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
-    const result = await relay(f, { FAKE_PR_SHA: sha, GH_CI_EVENT: "gallery", FORGEJO_PR: "1336", FORGEJO_TOKEN: "token-for-tests", FORGEJO_URL: "https://forge.example.invalid", FORGEJO_REPOSITORY: "example/project" });
+    await git("checkout", "-q", base);
+    const event = join(f.checkout, "event.json");
+    writeFileSync(event, JSON.stringify({ pull_request: { labels: reason === "gallery label" ? [{ name: "gallery" }] : [] } }));
+    const result = await relay(f, { GH_CI_BASE: base, GH_CI_SHA: sha, GITHUB_EVENT_PATH: event, FAKE_PR_SHA: sha, GH_CI_EVENT: "gallery", FORGEJO_PR: "1336", FORGEJO_TOKEN: "token-for-tests", FORGEJO_URL: "https://forge.example.invalid", FORGEJO_REPOSITORY: "example/project" });
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("Gallery posted on pull request 1336");
     expect(readFileSync(`${f.env["FAKE_API_STATE"]}-comment`, "utf8")).toContain("![window-empty.dark.png](https://forge.example.invalid/attachments/screenshot)");
@@ -663,7 +697,9 @@ it("runs gallery independently and preserves geometry failures as blocking check
   expect(relayWorkflow).not.toContain("continue-on-error: true");
   expect(relayWorkflow).toContain("timeout-minutes: 30");
   expect(relayWorkflow).toContain("PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
-  expect(relayWorkflow).toContain("'packages/gui/**'");
+  expect(relayWorkflow).not.toMatch(/^ {4}paths:/m);
+  expect(relayWorkflow).toContain("types: [opened, synchronize, reopened, labeled, unlabeled]");
+  expect(relayWorkflow).toContain("GH_CI_BASE: ${{ github.event.pull_request.base.sha }}");
   expect(ci).not.toContain("GH_CI_EVENT: gallery");
 });
 
@@ -681,12 +717,16 @@ it("relays a PR head as data without executing its credential-stealing script", 
   mkdirSync(scripts, { recursive: true });
   const stolen = join(f.checkout, "stolen");
   writeFileSync(join(scripts, "github-ci.sh"), 'printf "%s" "$PACKAGES_TOKEN" > stolen\nexit 99\n');
+  writeFileSync(join(scripts, "gallery-needed.py"), 'import os\nopen("stolen", "w").write(os.environ["PACKAGES_TOKEN"])\n');
   await git("add", ".forgejo");
   await git("commit", "-qm", "an untrusted change");
   const head = (await git("rev-parse", "HEAD")).stdout.trim();
   await git("checkout", "-q", base);
+  const event = join(f.checkout, "event.json");
+  writeFileSync(event, JSON.stringify({ pull_request: { labels: [] } }));
   const result = await relay(f, {
     GH_CI_EVENT: "gallery", GH_CI_SHA: head, PACKAGES_TOKEN: "package-token-for-tests",
+    GH_CI_BASE: base, GITHUB_EVENT_PATH: event,
     FAKE_PR_SHA: head, FORGEJO_PR: "42", FORGEJO_TOKEN: "token-for-tests",
     FORGEJO_URL: "https://forge.example.invalid", FORGEJO_REPOSITORY: "example/project",
   });
