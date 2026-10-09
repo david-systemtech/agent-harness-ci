@@ -78,9 +78,9 @@ if 'api.github.com/' not in url:
 stage = ('artifacts' if '/artifacts?' in url else 'archive' if url.endswith('/zip') else
          'dispatch' if url.endswith('/dispatches') else
          'contents' if '/contents/' in url else
-         'discovery' if '?' in url else
+         'discovery' if '/actions/runs?' in url else
          'logs' if url.endswith('/logs') else
-         'jobs' if url.endswith('/jobs') else 'status')
+         'jobs' if '/jobs?' in url or url.endswith('/jobs') else 'status')
 state = pathlib.Path(os.environ['FAKE_API_STATE'] + '-' + stage)
 count = int(state.read_text()) + 1 if state.exists() else 1
 state.write_text(str(count))
@@ -109,7 +109,9 @@ if stage == 'dispatch':
         payload['event_type'] + ' ' + payload['client_payload']['sha'] + ' ' + payload['client_payload']['id'])
     print('204', end='')
 elif stage == 'artifacts':
-    out.write_text(json.dumps({'artifacts':[] if os.environ.get('FAKE_NO_ARTIFACT')=='true' else json.loads(os.environ['FAKE_ARTIFACTS']) if os.environ.get('FAKE_ARTIFACTS') else [{'id':99,'name':'window-gallery','size_in_bytes':int(os.environ.get('FAKE_ARTIFACT_SIZE','100')),'expired':False}]}))
+    rows=[] if os.environ.get('FAKE_NO_ARTIFACT')=='true' else json.loads(os.environ['FAKE_ARTIFACTS']) if os.environ.get('FAKE_ARTIFACTS') else [{'id':99,'name':'window-gallery','size_in_bytes':int(os.environ.get('FAKE_ARTIFACT_SIZE','100')),'expired':False}]
+    page=int(url.split('page=')[-1]) if os.environ.get('FAKE_PAGINATION') else 1
+    out.write_text(json.dumps({'total_count':len(rows),'artifacts':rows[(page-1)*100:page*100]}))
 elif stage == 'archive':
     # Advance a held transfer clock, with no wall-clock sleep. curl's request
     # deadline decides whether the complete ZIP becomes available to publish.
@@ -136,8 +138,11 @@ elif stage == 'discovery':
         with open(os.environ['FAKE_LOG'], 'a') as log: log.write('retried reply\\n')
     out.write_text(json.dumps({'workflow_runs':[{'id':42, 'display_title':title}]}))
 elif stage == 'jobs':
-    out.write_text(os.environ.get('FAKE_JOBS') or json.dumps({'jobs':[{'id':7, 'name':'checks', 'conclusion':'failure',
+    reply=json.loads(os.environ.get('FAKE_JOBS') or json.dumps({'jobs':[{'id':7, 'name':'checks', 'conclusion':'failure',
                                       'steps':[{'name':'tests', 'conclusion':'failure'}]}]}))
+    if os.environ.get('FAKE_PAGINATION'):
+        page=int(url.split('page=')[-1]); rows=reply['jobs']; reply={'total_count':len(rows),'jobs':rows[(page-1)*100:page*100]}
+    out.write_text(json.dumps(reply))
 elif stage == 'contents':
     import base64
     out.write_text(json.dumps({'content':base64.b64encode(os.environ['FAKE_WORKFLOW'].encode()).decode()}))
@@ -151,7 +156,7 @@ else:
     if mode == 'reset' and count == 3:
         out.write_text(json.dumps({'status':'in_progress', 'conclusion':None}))
         sys.exit(0)
-    out.write_text(json.dumps({'status':'completed', 'conclusion':os.environ.get('FAKE_API_CONCLUSION', 'success'),
+    out.write_text(json.dumps({'status':'queued' if os.environ.get('FAKE_QUEUED_CLEANUP') and count == 1 else 'completed', 'conclusion':None if os.environ.get('FAKE_QUEUED_CLEANUP') and count == 1 else os.environ.get('FAKE_API_CONCLUSION', 'success'),
                                'head_sha':'0123456789abcdef0123456789abcdef01234567', 'path':'.github/workflows/ci.yml'}))
 `;
 
@@ -1000,7 +1005,7 @@ async function storedGallery(packagesToken = "token-for-tests") {
   const captures = new Map<string, Buffer>();
   const attachments: string[] = [];
   const comments: { id: number; body: string }[] = [];
-  let base = "", failure = "";
+  let base = "", failure = "", prState = "open", prHead = sha;
   const server = createServer(async (request, response) => {
     const path = request.url ?? "";
     const expected = path.startsWith("/api/packages/") || path.startsWith("/api/v1/packages/") ? packagesToken : "token-for-tests";
@@ -1009,7 +1014,7 @@ async function storedGallery(packagesToken = "token-for-tests") {
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const data = Buffer.concat(chunks);
     response.setHeader("content-type", "application/json");
-    if (request.method === "GET" && path.includes("/pulls/")) response.end(JSON.stringify({ state: "open", merged: false, head: { sha, ref: "build/42-gallery" } }));
+    if (request.method === "GET" && path.includes("/pulls/")) response.end(JSON.stringify({ state: prState, merged: prState === "merged", head: { sha: prHead, ref: "build/42-gallery" } }));
     else if (request.method === "GET" && path.includes("/comments")) response.end(JSON.stringify(comments));
     else if (request.method === "POST" && path.endsWith("/comments")) {
       const comment = { id: comments.length + 1, user: { id: -2 }, body: (JSON.parse(data.toString()) as { body: string }).body };
@@ -1040,6 +1045,7 @@ async function storedGallery(packagesToken = "token-for-tests") {
   return {
     f, sha, comments, captures, attachments, env,
     fail: (stage: string) => { failure = stage; },
+    changePR: (state: string, head = sha) => { prState = state; prHead = head; },
     capture: async (pixel: number, count = 1, names = count === 1 ? ["window-empty.dark"] : Array.from({ length: count }, (_, index) => `scene-${index}.dark`), viewport?: { width: number; height: number }, shard?: { run: string; index: number; count: number; total: number } | { id: string; index: number; count: number }) => {
       await run("python3", ["-c", `import json,struct,sys,zipfile,zlib,pathlib
 pixel=int(sys.argv[2])
@@ -1442,6 +1448,16 @@ it("executes the hosted shard guard against bounded, inconsistent and ungated re
 it("plans named report artifacts without launching the renderer", async () => {
   const result = await run(process.execPath, ["--import", "tsx", "gallery/plan.ts"], { cwd: join(root, "packages/gui") });
   const matrix = JSON.parse(result.stdout.trim().replace(/^matrix=/, "")) as { include: { shard: string; count: number; artifact: string }[] };
+  const f = await fixture();
+  const hosted = readFileSync(join(root, ".forgejo/github-workflows/gallery.yml"), "utf8");
+  const plan = /- id: plan\n {8}run: ([\s\S]*?)\n {6}- uses: actions\/upload-artifact/.exec(hosted)?.[1];
+  if (!plan) throw new Error("no hosted planning step");
+  const command = plan.slice(2).split("\n").map(line => line.slice(10)).join("\n");
+  const output = join(f.checkout, "output");
+  await run("bash", ["-e", "-c", command], { cwd: root, env: { ...process.env, RUNNER_TEMP: f.checkout, GITHUB_OUTPUT: output } });
+  expect(JSON.parse(readFileSync(join(f.checkout, "gallery-plan/matrix.json"), "utf8"))).toEqual(matrix);
+  expect(readFileSync(output, "utf8").trim()).toBe(`matrix=${JSON.stringify(matrix)}`);
+  expect(hosted).toContain("name: gallery (${{ matrix.shard }})");
   expect(matrix.include.map(entry => entry.shard)).toEqual(expect.arrayContaining(["desktop-001", "phone-001"]));
   expect(new Set(matrix.include.map(entry => entry.shard)).size).toBe(matrix.include.length);
   for (const entry of matrix.include) {
@@ -1454,12 +1470,13 @@ it("plans named report artifacts without launching the renderer", async () => {
 it("plans and validates a bounded single report on heads predating shard support", async () => {
   const f = await fixture();
   const hosted = readFileSync(join(root, ".forgejo/github-workflows/gallery.yml"), "utf8");
-  const plan = /- id: plan\n {8}run: ([\s\S]*?)\n {2}gallery:/.exec(hosted)?.[1];
+  const plan = /- id: plan\n {8}run: ([\s\S]*?)\n {6}- uses: actions\/upload-artifact/.exec(hosted)?.[1];
   if (plan === undefined) throw new Error("no hosted planning step");
   const output = join(f.checkout, "gallery-output");
   const command = plan.startsWith("|\n") ? plan.slice(2).split("\n").map(line => line.slice(10)).join("\n") : plan;
-  await run("bash", ["-e", "-c", command], { cwd: f.checkout, env: { ...process.env, GITHUB_OUTPUT: output } });
+  await run("bash", ["-e", "-c", command], { cwd: f.checkout, env: { ...process.env, GITHUB_OUTPUT: output, RUNNER_TEMP: f.checkout } });
   expect(readFileSync(output, "utf8").trim()).toBe('matrix={"include":[{"shard":1,"artifact":"window-gallery","legacy":true}]}');
+  expect(JSON.parse(readFileSync(join(f.checkout, "gallery-plan/matrix.json"), "utf8"))).toEqual({ include: [{ shard: 1, artifact: "window-gallery", legacy: true }] });
   const guard = /python3 - <<'PY'\n([\s\S]*?)\n {10}PY/.exec(hosted)?.[1];
   if (guard === undefined) throw new Error("no hosted report guard");
   const code = guard.split("\n").map(line => line.slice(10)).join("\n");
@@ -1735,4 +1752,128 @@ with zipfile.ZipFile(path,'w') as z:
   expect(g.comments).toEqual([]);
   expect(g.attachments).toEqual([]);
   expect(g.captures.size).toBe(0);
+});
+
+
+/** A queued cleanup with the complete planned desktop and phone matrix. */
+async function queuedGallery() {
+  const g = await storedGallery();
+  const shards = ["desktop-001", "desktop-002", "phone-001", "phone-002"];
+  const artifacts = [];
+  const archives: Record<string, string> = {};
+  for (const [index, id] of shards.entries()) {
+    const name = id.startsWith("phone-") ? `phone-scene-${index}-phone-390.dark` : `scene-${index}.dark`;
+    await g.capture(230, 1, [name], undefined, { id, index, count: shards.length });
+    const archive = join(g.f.checkout, `${id}.zip`);
+    // A successful job's report has no geometry or comparison failure.
+    await run("python3", ["-c", `import json,sys,zipfile
+with zipfile.ZipFile(sys.argv[1]) as z: files={n:z.read(n) for n in z.namelist()}
+r=json.loads(files['report.json'])
+for scene in r['scenes']: scene['pixelFailed']=False
+files['report.json']=json.dumps(r).encode()
+with zipfile.ZipFile(sys.argv[2],'w') as z:
+    for n,data in files.items(): z.writestr(n,data)`, g.env.FAKE_GALLERY_ZIP, archive]);
+    artifacts.push({ id: 100 + index, name: `window-gallery-${id}`, size_in_bytes: statSync(archive).size });
+    archives[String(100 + index)] = archive;
+  }
+  const plan = join(g.f.checkout, "plan.zip");
+  const matrix = { include: shards.map(shard => ({ shard, count: shards.length, artifact: `window-gallery-${shard}` })) };
+  await run("python3", ["-c", "import sys,zipfile; z=zipfile.ZipFile(sys.argv[1],'w'); z.writestr('matrix.json',sys.argv[2]); z.close()", plan, JSON.stringify(matrix)]);
+  artifacts.push({ id: 90, name: "gallery-plan", size_in_bytes: statSync(plan).size });
+  archives["90"] = plan;
+  const jobs: { id: number; name: string; status: string; conclusion: string | null; steps: never[] }[] = [{ id: 1, name: "plan", status: "completed", conclusion: "success", steps: [] },
+    ...shards.map((shard, index) => ({ id: index + 2, name: `gallery (${shard})`, status: "completed", conclusion: "success", steps: [] })),
+    { id: 6, name: "cleanup", status: "queued", conclusion: null, steps: [] }];
+  const env = { ...g.env, FAKE_QUEUED_CLEANUP: "true", FAKE_API_CONCLUSION: "failure",
+    FAKE_ARTIFACTS: JSON.stringify(artifacts), FAKE_GALLERY_ZIPS: JSON.stringify(archives), FAKE_JOBS: JSON.stringify({ total_count: jobs.length, jobs }) };
+  return { ...g, shards, jobs, artifacts, archives, plan, env };
+}
+
+it("publishes every planned capture and passes while hosted cleanup stays queued", async () => {
+  const g = await queuedGallery();
+  const result = await relay(g.f, g.env);
+  expect(result.code, result.stderr + result.stdout).toBe(0);
+  expect(g.comments).toHaveLength(4);
+  expect(g.comments.every(({ body }) => body.includes("<!-- window-gallery "))).toBe(true);
+  expect(g.captures.size).toBe(4);
+  expect(apiCalls(g.f).filter(({ stage }) => stage === "status")).toHaveLength(1);
+});
+
+it.each(["missing", "queued", "failed", "skipped"])("fails when a planned capture is %s despite other successful jobs and artifacts", async (mode) => {
+  const g = await queuedGallery();
+  if (mode === "missing") g.jobs.splice(4, 1);
+  else {
+    g.jobs[4]!.status = mode === "queued" ? "queued" : "completed";
+    g.jobs[4]!.conclusion = mode === "queued" ? null : mode === "failed" ? "failure" : "skipped";
+  }
+  const result = await relay(g.f, { ...g.env, FAKE_JOBS: JSON.stringify({ jobs: g.jobs }) });
+  expect(result.code, result.stdout).toBe(1);
+  if (mode === "missing" || mode === "queued") {
+    expect(result.stdout).toContain("missing or unfinished planned captures");
+    expect(g.comments).toHaveLength(0);
+  } else {
+    expect(g.comments).toHaveLength(4);
+    expect(apiCalls(g.f).filter(({ stage }) => stage === "status")).toHaveLength(1);
+  }
+});
+
+it.each(["missing-artifact", "malformed-plan", "wrong-plan-count", "wrong-report-count", "pixel-failure", "geometry-failure", "upload-failure"])("does not pass queued cleanup with %s", async (mode) => {
+  const g = await queuedGallery();
+  if (mode === "missing-artifact") g.artifacts.splice(3, 1);
+  else if (mode === "malformed-plan") writeFileSync(g.plan, "not a ZIP");
+  else if (mode === "wrong-plan-count") {
+    await run("python3", ["-c", "import sys,zipfile; z=zipfile.ZipFile(sys.argv[1],'w'); z.writestr('matrix.json',sys.argv[2]); z.close()", g.plan,
+      JSON.stringify({ include: g.shards.map(shard => ({ shard, count: 1, artifact: `window-gallery-${shard}` })) })]);
+  } else if (mode === "upload-failure") g.fail("package");
+  else await run("python3", ["-c", `import json,sys,zipfile
+with zipfile.ZipFile(sys.argv[1]) as z: files={n:z.read(n) for n in z.namelist()}
+r=json.loads(files['report.json'])
+if sys.argv[2]=='wrong-report-count': r['shard']['count']=1
+if sys.argv[2]=='pixel-failure': r['scenes'][0]['pixelFailed']=True
+if sys.argv[2]=='geometry-failure': r['scenes'][0]['geometryFailures']=['out of bounds']
+files['report.json']=json.dumps(r).encode()
+with zipfile.ZipFile(sys.argv[1],'w') as z:
+    for n,data in files.items(): z.writestr(n,data)`, g.archives["100"]!, mode]);
+  const result = await relay(g.f, { ...g.env, FAKE_ARTIFACTS: JSON.stringify(g.artifacts) });
+  expect(result.code, result.stdout).toBe(1);
+  if (mode === "pixel-failure" || mode === "geometry-failure") {
+    expect(g.comments).toHaveLength(4);
+    expect(result.stderr).toContain("Gallery geometry or pixel comparison failed");
+  } else if (mode !== "upload-failure") expect(g.comments).toHaveLength(0);
+});
+
+it.each(["closed", "merged", "stale"])("refuses publication for a %s PR while cleanup is queued", async (state) => {
+  const g = await queuedGallery();
+  g.changePR(state === "stale" ? "open" : state, state === "stale" ? "0123456789abcdef0123456789abcdef01234567" : g.sha);
+  const result = await relay(g.f, g.env);
+  expect(result.code).toBe(2);
+  expect(result.stderr).toContain("the PR is closed, merged, or its head changed");
+  expect(g.comments).toHaveLength(0);
+  expect(g.captures.size).toBe(0);
+});
+
+it("reads every jobs and artifact page before deciding that planned captures are complete", async () => {
+  const g = await queuedGallery();
+  const jobs = [...Array.from({ length: 98 }, (_, index) => ({ id: index + 20, name: `other-${index}`, status: "completed", conclusion: "success" })), ...g.jobs];
+  const artifacts = [...Array.from({ length: 98 }, (_, index) => ({ id: index + 200, name: `other-${index}`, size_in_bytes: 100 })), ...g.artifacts];
+  const result = await relay(g.f, { ...g.env, FAKE_PAGINATION: "true", FAKE_JOBS: JSON.stringify({ jobs }), FAKE_ARTIFACTS: JSON.stringify(artifacts) });
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.comments).toHaveLength(4);
+  for (const stage of ["jobs", "artifacts"]) expect(apiCalls(g.f).some(call => call.stage === stage && call.args.some(arg => arg.includes("page=2")))).toBe(true);
+});
+
+it("bounds failed gallery job polls even when the run status transport keeps succeeding", async () => {
+  const g = await queuedGallery();
+  const result = await relay(g.f, { ...g.env, FAKE_API_MODE: "exhausted", FAKE_API_STAGE: "jobs" });
+  expect(result.code).toBe(1);
+  expect(result.stdout).toContain("3 consecutive failed or incomplete replies");
+  expect(apiCalls(g.f).filter(({ stage }) => stage === "jobs")).toHaveLength(3);
+  expect(g.comments).toHaveLength(0);
+});
+
+it("does not replace a cancelled hosted run with a successful gallery verdict", async () => {
+  const g = await queuedGallery();
+  const result = await relay(g.f, { ...g.env, FAKE_QUEUED_CLEANUP: "", FAKE_API_CONCLUSION: "cancelled" });
+  expect(result.code).toBe(1);
+  expect(g.comments).toHaveLength(0);
 });

@@ -95,3 +95,14 @@ unfinished retries and mixed runs before writing baselines. Acceptance stages
 capture bytes on disk and validates each report's 48 MiB bound. Acceptance and
 retention read complete comment threads with a 64 MiB bound; individual capture
 and report limits remain unchanged.
+
+The hosted plan uploads its exact matrix as `gallery-plan` (`matrix.json`). The
+trusted relay validates this bounded artifact and waits for `plan` and every
+`gallery (<shard>)` job named by the matrix, including captures not yet present
+in the jobs listing. Once they finish, it downloads the complete planned report
+set, validates each report against the matrix, and publishes before returning
+its capture verdict. Queued or failed hosted cleanup does not delay publication
+or change that verdict. Geometry, pixel differences, incomplete artifacts and
+publication failures still fail. The hosted cleanup job and scheduled ref sweep
+continue removing temporary `ci/*` branches. During workflow rollout, a run
+without the plan artifact retains the whole-run completion path.

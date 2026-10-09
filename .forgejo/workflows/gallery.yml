@@ -17,6 +17,7 @@ on:
       - '.forgejo/github-workflows/gallery.yml'
       - '.forgejo/scripts/gallery-comment.sh'
       - '.forgejo/scripts/github-ci.sh'
+      - '.forgejo/scripts/gallery-ready.py'
 concurrency:
   group: gallery-${{ github.event.pull_request.number }}
   cancel-in-progress: true

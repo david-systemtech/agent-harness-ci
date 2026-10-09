@@ -196,14 +196,64 @@ done
 [ -n "$run_id" ] || { echo "::error::no GitHub run appeared for $title within 150 s"; exit 1; }
 echo "GitHub run: https://github.com/$repo/actions/runs/$run_id"
 
+# A plan plus 100 captures and cleanup can span two job/artifact pages.
+gh_collection() {
+  local path=$1 key=$2 page=1 reply count total out counts
+  out=$(mktemp -p "$gl")
+  while :; do
+    if ! reply=$(gh_get "$api/actions/runs/$run_id/$path?per_page=100&page=$page"); then rm -f "$out"; return 1; fi
+    printf '%s\n' "$reply" >> "$out"
+    if ! counts=$(printf '%s' "$reply" | python3 -c '
+import json,sys
+r=json.load(sys.stdin); rows=r.get(sys.argv[1]); total=r.get("total_count",len(rows) if isinstance(rows,list) else None)
+if not isinstance(rows,list) or len(rows)>100 or type(total) is not int or not len(rows)<=total<=1000: sys.exit(1)
+print(len(rows),total)' "$key"); then rm -f "$out"; return 1; fi
+    read -r count total <<< "$counts"
+    [ "$((page * 100))" -ge "$total" ] && break
+    [ "$count" -eq 100 ] || { rm -f "$out"; return 1; }
+    page=$((page + 1))
+  done
+  python3 -c 'import json,sys; rows=[json.loads(line)[sys.argv[2]] for line in open(sys.argv[1])]; print(json.dumps({sys.argv[2]:[item for page in rows for item in page]}))' "$out" "$key"
+  rm -f "$out"
+}
+gallery_plan=
+
 while :; do
-  if reply=$(gh_get "$api/actions/runs/$run_id"); then transport_failures=0
+  if reply=$(gh_get "$api/actions/runs/$run_id"); then :
   else transport_failure "$api/actions/runs/$run_id"; sleep 15; continue; fi
   read -r status conclusion < <(printf '%s' "$reply" | python3 -c '
 import json,sys
 try: r=json.load(sys.stdin)
 except ValueError: r={}
 print(r.get("status") or "unknown", r.get("conclusion") or "-")')
+  if [ "$status" = completed ] && [[ "$conclusion" != success && "$conclusion" != failure ]]; then break; fi
+  if [ "$event" = gallery ]; then
+    if ! jobs=$(gh_collection jobs jobs); then transport_failure "$api/actions/runs/$run_id/jobs"; sleep 15; continue; fi
+    printf '%s' "$jobs" > "$gl/gallery-jobs.json"
+    if [ -z "$gallery_plan" ] && printf '%s' "$jobs" | python3 -c 'import json,sys; sys.exit(not any(j.get("name")=="plan" and j.get("status")=="completed" and j.get("conclusion")=="success" for j in json.load(sys.stdin)["jobs"]))'; then
+      if ! listing=$(gh_collection artifacts artifacts); then transport_failure "$api/actions/runs/$run_id/artifacts"; sleep 15; continue; fi
+      plan_id=$(printf '%s' "$listing" | python3 -c '
+import json,sys
+plans=[a for a in json.load(sys.stdin)["artifacts"] if a["name"]=="gallery-plan"]
+if len(plans)>1 or any(a.get("expired") or a["size_in_bytes"]>65536 for a in plans): sys.exit("invalid gallery plan artifact")
+print(plans[0]["id"] if plans else "")')
+      if [ -n "$plan_id" ]; then
+        gh_artifact -o "$gl/plan.zip" "$api/actions/artifacts/$plan_id/zip"
+        python3 "$(dirname "${BASH_SOURCE[0]}")/gallery-ready.py" plan "$gl/plan.zip" > "$gl/gallery-plan.json"
+        gallery_plan="$gl/gallery-plan.json"
+      fi
+    fi
+    if [ -n "$gallery_plan" ]; then
+      ready=$(python3 "$(dirname "${BASH_SOURCE[0]}")/gallery-ready.py" jobs "$gallery_plan" "$gl/gallery-jobs.json")
+      if [ "$ready" != pending ]; then
+        conclusion=$ready
+        echo "Gallery plan and every expected capture finished: $conclusion (cleanup is not required)."
+        break
+      fi
+      [ "$status" != completed ] || { echo "::error::hosted gallery finished with missing or unfinished planned captures"; exit 1; }
+    fi
+  fi
+  transport_failures=0
   [ "$status" = completed ] && break
   sleep 15
 done
@@ -211,10 +261,12 @@ reply_run=$reply
 echo "GitHub run finished: $conclusion"
 # Failed comparisons still publish the captures, baseline and difference for review.
 if [ "$event" = gallery ] && [[ "$conclusion" == success || "$conclusion" == failure ]]; then
-  reply=$(gh_get "$api/actions/runs/$run_id/artifacts?per_page=100")
+  reply=$(gh_collection artifacts artifacts)
   artifacts=$(printf '%s' "$reply" | python3 -c '
 import json,re,sys
 items=[a for a in json.load(sys.stdin).get("artifacts",[]) if a["name"].startswith("window-gallery") and not a.get("expired")]
+plan=json.load(open(sys.argv[1])) if sys.argv[1] else None
+if plan and {a["name"] for a in items}!={r["artifact"] for r in plan}: sys.exit("incomplete planned gallery artifact set")
 if not items: sys.exit(0)
 names=[a["name"] for a in items]
 if len(items)>100 or len(set(names))!=len(items) or ("window-gallery" in names and len(items)!=1) or any(a["size_in_bytes"]>64*1024*1024 for a in items): sys.exit("oversized or duplicate gallery artifact")
@@ -222,7 +274,7 @@ for a in items:
     match=re.fullmatch(r"window-gallery-shard-([1-9][0-9]*)",a["name"])
     named=re.fullmatch(r"window-gallery-(desktop|phone)-[0-9]{3}",a["name"])
     if a["name"]!="window-gallery" and not named and (match is None or int(match[1])>16): sys.exit("invalid gallery artifact name")
-    print(int(a["id"]),a["name"].removeprefix("window-"))')
+    print(int(a["id"]),a["name"].removeprefix("window-"))' "$gallery_plan")
   if [ -z "$artifacts" ]; then
     echo "No gallery artifact was uploaded; reading the failed job logs."
     [ "$conclusion" != success ] || { echo "::error::successful gallery run has no artifact"; exit 1; }
@@ -249,7 +301,7 @@ PYFORMAT
       bash "$(dirname "${BASH_SOURCE[0]}")/gallery-comment.sh" "$gl/gallery.zip" "$sha"
     else
       run_attempt=$(printf '%s' "$reply_run" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("run_attempt",1))')
-      GALLERY_PUBLICATION_RUN="run-$run_id-$run_attempt" python3 "$(dirname "${BASH_SOURCE[0]}")/../../scripts/gallery-publish.py" "$sha" "${archives[@]}"
+      GALLERY_PLAN="$gallery_plan" GALLERY_PUBLICATION_RUN="run-$run_id-$run_attempt" python3 "$(dirname "${BASH_SOURCE[0]}")/../../scripts/gallery-publish.py" "$sha" "${archives[@]}"
       # Cleanup failure must not invalidate a completed, downloadable report.
       python3 "$(dirname "${BASH_SOURCE[0]}")/../../scripts/gallery-retention.py" || \
         echo "::warning::Gallery retention failed; rerun the gallery-retention workflow."
