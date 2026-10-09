@@ -33,6 +33,8 @@ const execute = async (exitCode: number, blockedSource = "", grantFails = false)
     join(scratch, "scripts/check-packaged-update-disk.mjs"));
   copyFileSync(join(import.meta.dirname, "../scripts/check-packaged-provider-sign-in.mjs"),
     join(scratch, "scripts/check-packaged-provider-sign-in.mjs"));
+  copyFileSync(join(import.meta.dirname, "../scripts/check-packaged-terminal-state.mjs"),
+    join(scratch, "scripts/check-packaged-terminal-state.mjs"));
   writeFileSync(join(scratch, "scripts/install.ps1"), "fixture installer");
   // The real script calls the local security policy; record the boundary instead.
   writeFileSync(join(scratch, "scripts/windows-logon-right.ps1"), `
@@ -81,6 +83,7 @@ function Start-Process {
   if ((Get-Content -Raw (Join-Path $WorkingDirectory 'install.ps1')) -ne 'fixture installer') { throw 'The public installer was not staged for the ordinary user' }
   if (!(Test-Path (Join-Path $WorkingDirectory 'scripts/check-packaged-update-disk.mjs'))) { throw 'The disk smoke was not staged for the ordinary user' }
   if (!(Test-Path (Join-Path $WorkingDirectory 'scripts/check-packaged-provider-sign-in.mjs'))) { throw 'The provider smoke was not staged for the ordinary user' }
+  if (!(Test-Path (Join-Path $WorkingDirectory 'scripts/check-packaged-terminal-state.mjs'))) { throw 'The terminal smoke was not staged for the ordinary user' }
   $child = Join-Path $WorkingDirectory 'smoke.ps1'
   Copy-Item $child $env:CHILD_COPY
   Set-Content $RedirectStandardOutput ('ordinary-user child output password=' + $Credential.GetNetworkCredential().Password)
