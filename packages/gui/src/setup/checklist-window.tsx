@@ -65,9 +65,6 @@ export const ChecklistProvider = ({ children }: { readonly children: ReactNode }
   const [marked, mark] = usePresentation("firstLaunchDone");
   const runtime = useRuntime();
   const home = homeEnvironment(useObservable(runtime.projections.environments));
-  // Leaving without an account asks about the home computer's, whichever computer Set up has picked (setup-copy.md §4.3).
-  const accounts = useObservable(useMemo(() => runtime.projections.accounts(home?.environmentId ?? LOCAL_PLACEHOLDER_ID), [runtime, home?.environmentId])).value;
-  const signedIn = accounts?.some((account) => account.status.state === "signed-in") ?? false;
   const [shown, setShown] = useState(!marked);
   const [introduction, setIntroduction] = useState(!marked);
   const [confirmClose, setConfirmClose] = useState(false);
@@ -76,6 +73,10 @@ export const ChecklistProvider = ({ children }: { readonly children: ReactNode }
   const [part, setPart] = useState<StepPart | undefined>(undefined);
   const [checkedEnvironmentId, setCheckedEnvironmentId] = useState<string | undefined>(undefined);
   const picked = usePickedEnvironment();
+  // The introduction has no picker; the checklist closes against the computer its header shows (setup-copy.md §4.3).
+  const accountEnvironmentId = (introduction ? home : picked)?.environmentId ?? LOCAL_PLACEHOLDER_ID;
+  const accounts = useObservable(useMemo(() => runtime.projections.accounts(accountEnvironmentId), [runtime, accountEnvironmentId])).value;
+  const signedIn = accounts?.some((account) => account.status.state === "signed-in") ?? false;
   useEffect(() => setCheckedEnvironmentId(undefined), [picked?.environmentId]);
 
   const open = useCallback((at?: StepId, to?: StepPart) => {

@@ -183,7 +183,7 @@ Field `Pairing link` (no example value as placeholder), button **Pair**; **Scan 
 | `{name} is this machine's local environment: it connects through its grant, with no code.` | `That link is for this computer. This app is already connected to it.` |
 
 ### 4.3 Close dialog (gui/src/setup/checklist-window.tsx)
-Words stay: `Leave set up without an account?` / `You can look around, but you will need to sign in before starting a session. Set up will be waiting in Settings.` / **Keep setting up** / **Leave for now**. It asks about the HOME computer's accounts, not the one picked.
+Words stay: `Leave set up without an account?` / `You can look around, but you will need to sign in before starting a session. Set up will be waiting in Settings.` / **Keep setting up** / **Leave for now**. In the full checklist, it asks about the accounts on the computer shown in the header, matching the Account gate and Continue (#2018). On the introduction, which has no computer picker, it asks about the home computer's accounts.
 
 ### 4.4 Checklist frame (checklist-view.tsx, step-card.tsx)
 - Header: `Set up` · `Setting up:` {picker} (replaces the label "Environment") · **Close**.
