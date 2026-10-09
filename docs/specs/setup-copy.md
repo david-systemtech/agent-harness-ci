@@ -74,7 +74,11 @@ the list is at the end).
   now, Continue (Finish set up on step 11). Cross-step fixes move inside Set up ("Go to Forges") rather than to Settings.
 - **Status line.** A state word with its icon (Done, Needs a fix, Not set up, Checking, Not checked yet), then the line. A line
   that needs a fix is a notice (§1.14) with the fix buttons in place and Details. "Open in Settings" (ExternalLink icon, with the
-  visible hint "Leaves Set up") replaces "Open {row}".
+  visible hint "Leaves Set up") replaces "Open {row}". Any other button that leaves Set up for Settings says so in its label:
+  `{its words} (leaves Set up)`. One **Check again**, whether or not the result offers it. A needs-a-fix notice takes the warning
+  tone (the state's amber); a check or a start that did not run takes the error tone. An action's outcome is a notice too:
+  information when it went ahead, the error tone with the refusal mapper's line when refused; a refused tool's own command sits
+  inside its Details under `Or run this yourself on {computer}:`, in mono with Copy.
 - **Details and Copy details.** Details shows the check ids, the environment's raw words (`details` on the result), and when it
   was checked. Copy details copies:
   `agent-harness {app version} on {platform}` / `Computer: {name} (agent-harness {version})` / `Step: {label} ({step id}): {state}` /

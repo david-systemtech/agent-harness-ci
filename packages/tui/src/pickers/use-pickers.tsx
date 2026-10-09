@@ -273,7 +273,7 @@ export const usePickers = (host: PickersHost): Pickers => {
 
   const cancelSignIn = (card: Extract<Panel, { kind: "signin" }>) => {
     if (card.accountId === null) return;
-    void cancelSignInOn(runtime, card.environmentId, { id: card.accountId, label: card.label }, host.newCommandId()).then(host.say);
+    void cancelSignInOn(runtime, card.environmentId, { id: card.accountId, label: card.label }, host.newCommandId()).then(({ line }) => host.say(line));
   };
 
   // Hand-off and the session's own settings.

@@ -2071,6 +2071,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     decideReviewRun: permissions.decideReviewRun,
     seeReview: permissions.seeReview,
     holdSetupChecks: setup.holdSetupChecks,
+    refuseSetupChecks: setup.refuseSetupChecks,
     passSetup: setup.passSetup,
     terminals: () => [...terminals.values()],
     terminal(id) {

@@ -1,4 +1,4 @@
-import { LOCAL_PLACEHOLDER_ID, addAccount, cancelSignIn, fallbackOf, followedSignIn, labelProblem, sendSignInCode, signInEnd, signInLeftWords, startSignIn, uuidv4, type SignInEnding } from "@agent-harness/client-runtime";
+import { LOCAL_PLACEHOLDER_ID, addAccount, cancelSignIn, fallbackOf, followedSignIn, labelProblem, sendSignInCode, signInEnd, signInFailed, signInLeftWords, startSignIn, uuidv4, type SignInEnding } from "@agent-harness/client-runtime";
 import { Check, ClipboardPaste, Copy, ExternalLink, KeyRound, LoaderCircle, LogIn, Plus, RotateCcw, X } from "lucide-react";
 import { SIGN_IN_ENDED_STATES, SignInCode, type AccountRecord, type SignInState } from "@agent-harness/contracts";
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
@@ -27,8 +27,8 @@ export interface SignInCardProps {
   readonly close: () => void;
   /** Told, inline, as the sign-in succeeds, with the line Done will say: the card waits only on Done from then on. */
   readonly succeeded?: (line: string) => void;
-  /** Says one line where the card was opened from: how the sign-in ended, or why it could not go on. */
-  readonly say: (line: string) => void;
+  /** Says one line where the card was opened from: how the sign-in ended, or why it could not go on; `ok` false for a failure. */
+  readonly say: (line: string, ok: boolean) => void;
 }
 
 /** The command on its way, whose answer the card waits for: the new account, the sign-in's start, or the code. */
@@ -146,7 +146,7 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
   // An account given is signed in as the card opens; a refusal of that first start is said by the opener.
   useEffect(() => {
     if (account === null) return;
-    begin(account, (line) => { close(); say(line); });
+    begin(account, (line) => { close(); say(line, false); });
   }, []);
 
   // A stop keeps the card open with Start again; inline success stays visible until Done; other ends are said by the opener.
@@ -155,7 +155,7 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
     ended.current = true;
     if (end.kind === "stopped") setStopped(end);
     else if (inline && end.kind === "done") { setCompleted(end.line); succeeded?.(end.line); }
-    else { close(); say(end.line); }
+    else { close(); say(end.line, followed === undefined || !signInFailed(followed)); }
   }, [end?.line]);
 
   // The local provider opens its loopback flow itself. Paired flows open the manual URL once.
@@ -204,7 +204,7 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
       if (added.kind === "added") {
         ended.current = true;
         close();
-        return say(added.line);
+        return say(added.line, added.ok);
       }
       attend(added.account);
       if (departed.current) return;
@@ -262,7 +262,7 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
     close();
     if (accountId === null || ended.current || (inline && attended.current === null)) return;
     ended.current = true;
-    void cancelSignIn(runtime, environmentId, { id: accountId, label }, uuidv4()).then(say);
+    void cancelSignIn(runtime, environmentId, { id: accountId, label }, uuidv4()).then(({ ok, line }) => say(line, ok));
   };
 
   const directory = accounts.value?.find((candidate) => candidate.id === accountId)?.directory.path;
@@ -321,7 +321,7 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
   );
   const content = completed !== null ? <div className="flex flex-col gap-3">
     <p role="status" className="flex items-center gap-2 text-sm text-mint"><Check aria-hidden="true" className="size-4" />{completed}</p>
-    <AccountAction icon={Check} variant="default" className="self-end" onClick={() => { say(completed); close(); }}>Done</AccountAction>
+    <AccountAction icon={Check} variant="default" className="self-end" onClick={() => { say(completed, true); close(); }}>Done</AccountAction>
   </div> : (
     <>
         {labelling ? (

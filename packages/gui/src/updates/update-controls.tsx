@@ -159,7 +159,7 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
           </Button></Tooltip>
         )}
       </div>
-      {shown !== undefined && <Outcome outcome={shown} role="status" className={shown.ok ? "text-ink-muted" : "text-signal"} />}
+      {shown !== undefined && <Outcome outcome={shown} className="text-ink-muted" />}
       <Dialog open={asking !== undefined && asking === drainableId} onOpenChange={(open) => !open && setAsking(undefined)}>
         {drainable !== null && (
           <DialogContent showClose={false} title={drainAndUpdateQuestion(name, drainable.toVersion)} description={drainAndUpdateDescription(name, drainable.toVersion)}>

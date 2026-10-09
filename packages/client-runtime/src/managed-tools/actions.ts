@@ -2,6 +2,7 @@ import { ToolNotRunnableError, type CommandReceipt, type ManagedToolName, type R
 import { uuidv4, uuidv7 } from "../ids.js";
 import type { Runtime } from "../runtime.js";
 import type { ActionOutcome } from "../setup/actions.js";
+import type { RefusedAnswer } from "../words/refusal.js";
 import { verificationWords } from "./words.js";
 
 /**
@@ -12,10 +13,15 @@ import { verificationWords } from "./words.js";
  * watched as it happens, and a verification read at once.
  */
 
-/** What a run asked for came to: the tool terminal it opened and the command it runs, or why it did not, with the vendor's command when the refusal answered one. */
+/**
+ * What a run asked for came to: the tool terminal it opened and the command
+ * it runs, or why it did not, with the refusal itself for a surface that
+ * words it plainly (`plainRefusal`) and the vendor's command when the
+ * refusal answered one.
+ */
 export type ToolRunOutcome =
   | { readonly ok: true; readonly run: ResultOf<"tools.run"> }
-  | { readonly ok: false; readonly line: string; readonly command: string | null };
+  | { readonly ok: false; readonly line: string; readonly refusal: RefusedAnswer; readonly command: string | null };
 
 /**
  * Installs or updates `tool` (`tools.run`): a tool terminal under an id
@@ -27,13 +33,13 @@ export type ToolRunOutcome =
  */
 export const runTool = async (runtime: Runtime, environmentId: string, tool: ManagedToolName, action: RunnableToolAction, now: Date): Promise<ToolRunOutcome> => {
   const answer = await runtime.requests.call(environmentId, "tools.run", { commandId: uuidv7(now), tool, action, id: uuidv4() });
-  if (!answer.ok) return { ok: false, line: `Not run: ${answer.error.message}`, command: null };
+  if (!answer.ok) return { ok: false, line: `Not run: ${answer.error.message}`, refusal: answer.error, command: null };
   const { receipt, result } = answer.result as { readonly receipt: CommandReceipt; readonly result?: ResultOf<"tools.run"> };
   if (receipt.status === "rejected") {
     const refused = ToolNotRunnableError.safeParse(receipt.error);
-    return { ok: false, line: `Not run: ${receipt.error.message}`, command: refused.success ? refused.data.data.command : null };
+    return { ok: false, line: `Not run: ${receipt.error.message}`, refusal: receipt.error, command: refused.success ? refused.data.data.command : null };
   }
-  if (result === undefined) return { ok: false, line: "Not run: the environment answered no terminal.", command: null };
+  if (result === undefined) return { ok: false, line: "Not run: the environment answered no terminal.", refusal: { code: "internal", message: "The environment answered no terminal." }, command: null };
   return { ok: true, run: result };
 };
 

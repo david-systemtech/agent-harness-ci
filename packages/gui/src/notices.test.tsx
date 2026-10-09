@@ -140,7 +140,7 @@ describe("a notice", () => {
     await act(async () => app.clock.advance(500));
     await bannerSaying("Waiting for macOS Keychain access");
     await app.user.click(screen.getByRole("button", { name: "Settings" }));
-    await app.user.click(screen.getByRole("button", { name: "Open the full checklist" }));
+    await app.user.click(screen.getByRole("button", { name: "Open Set up" }));
     const setup = await screen.findByRole("region", { name: "Set up" });
     // No new access event or clock advance: changing views must keep the pending explanation.
     expect(within(setup).getByText("Waiting for macOS Keychain access")).toBeDefined();
@@ -171,7 +171,7 @@ describe("a notice", () => {
     const denied = await bannerSaying("Keychain access did not complete");
     await app.user.click(within(denied).getByRole("button", { name: "Dismiss" }));
     await app.user.click(screen.getByRole("button", { name: "Set up" }));
-    await app.user.click(screen.getByRole("button", { name: "Open the full checklist" }));
+    await app.user.click(screen.getByRole("button", { name: "Open Set up" }));
     await act(async () => shell.changeSecretAccess("waiting"));
     await act(async () => app.clock.advance(500));
     await act(async () => shell.changeSecretAccess("denied"));
