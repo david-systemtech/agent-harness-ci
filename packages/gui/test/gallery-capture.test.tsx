@@ -133,6 +133,19 @@ it("fails a row of a list that grows taller than the first row, so rows with lon
   expect(measureSceneGeometry()).toEqual([]);
 });
 
+it("fails a bar that starts left or right of the first, so a column of bars stays one column (ticket 1952)", () => {
+  const root = document.createElement("div");
+  root.id = "root";
+  root.dataset["galleryGeometry"] = JSON.stringify([{ selector: "li", sameLeft: true }]);
+  root.innerHTML = "<ul><li>first</li><li>second</li><li>third</li></ul>";
+  document.body.append(root);
+  const lefts = [884, 884, 852];
+  root.querySelectorAll("li").forEach((bar, index) => vi.spyOn(bar, "getBoundingClientRect").mockImplementation(() => new DOMRect(lefts[index]!, 0, 40, 4)));
+  expect(measureSceneGeometry()).toEqual(["li[2].left: got 852, expected 884 like li[0] ±0.5"]);
+  lefts[2] = 884.3;
+  expect(measureSceneGeometry()).toEqual([]);
+});
+
 
 it("serves the built gallery at the same origin on every run, so a scene that shows the page's origin captures the same pixels (ticket 1763)", async () => {
   const directory = await mkdtemp(join(tmpdir(), "gallery-dist-"));

@@ -164,7 +164,7 @@ describe("the status line", () => {
 });
 
 describe("the plan gauge", () => {
-  it("keeps an unknown provider window out of rings and lists it once as Other limit with its share and reset", async () => {
+  it("keeps an unknown provider window out of rings and lists it once as Other limit with its share and reset, its bar after a slot the size of a ring (ticket 1952)", async () => {
     const { app, env } = await opened();
     env.setUsage([reading("account-1", WORK, [
       window("five_hour", 0.42, "2026-09-25T09:00:00.000Z"),
@@ -183,6 +183,8 @@ describe("the plan gauge", () => {
     expect(within(row).getByText(resetWords("2026-09-25T14:30:00.000Z", app.clock.now())!.slice("resets ".length))).toBeTruthy();
     expect(details.outerHTML).not.toMatch(/iguana[_ ]necktie/);
     expect(within(details).queryByRole("img", { name: /Other limit/ })).toBeNull();
+    const bars = Array.from(details.querySelectorAll("[data-usage-bar]"));
+    expect(bars.map((bar) => bar.previousElementSibling?.getAttribute("class"))).toEqual([expect.stringMatching(/^size-6 shrink-0\b/), "size-6 shrink-0"]);
   });
 
   // #1951: the popover listed one identical "Other limit —" row per silent limit.
