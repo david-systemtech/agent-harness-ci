@@ -18,14 +18,26 @@ describe("projections.stateImportFailures", () => {
     const { runtime, environments } = await scriptedEnvironments({ onCleanup: onTestFinished, environments: [{ name: "desk" }, { name: "other" }] });
     const desk = environments[0]!;
     const view = runtime.projections.stateImportFailures(desk.wire.environmentId);
+    const completion = runtime.projections.stateImportFinished(desk.wire.environmentId);
     expect(view.read()).toEqual([]);
+    expect(completion.read()).toBeNull();
     desk.notices.snapshot(1, { status, stateImportFailures: finished().failed });
     await flush();
     expect(view.read()).toEqual(finished().failed);
+    expect(completion.read()).toBeNull();
     expect(runtime.projections.stateImportFailures(environments[1]!.wire.environmentId).read()).toEqual([]);
     desk.notices.event(noticeEvent(2, desk.wire.environmentId, "state-import.finished", finished([])));
     await flush();
     expect(view.read()).toEqual([]);
+    expect(completion.read()).toEqual(finished([]));
+    expect(runtime.projections.stateImportFinished(environments[1]!.wire.environmentId).read()).toBeNull();
+    const heard = completion.read();
+    desk.notices.snapshot(3, { status, stateImportFailures: [] });
+    await flush();
+    expect(completion.read()).toBe(heard);
+    desk.notices.event(noticeEvent(4, desk.wire.environmentId, "state-import.finished", finished()));
+    await flush();
+    expect(completion.read()).toEqual(finished());
   });
 
   it("keeps replayed failures for a restarted client resuming from its cached cursor", async () => {

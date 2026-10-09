@@ -14,9 +14,14 @@ import { StateImportFailures, StateImportResult, useEarlierWorkDetails } from ".
 export const StateImportSection = ({ environmentId }: { readonly environmentId: string }) => {
   const runtime = useRuntime();
   useObservable(runtime.projections.environments);
-  return runtime.capability(environmentId, "stateImport").status === "present"
-    ? <DetectedStateImport key={environmentId} environmentId={environmentId} />
-    : null;
+  const availability = runtime.capability(environmentId, "stateImport");
+  const [offeredEnvironment, setOfferedEnvironment] = useState<string | null>(null);
+  useEffect(() => {
+    if (availability.status === "present") setOfferedEnvironment(environmentId);
+  }, [availability.status, environmentId]);
+  // Keep this window's Preview while a known environment reconnects; its actions become unavailable.
+  const offered = availability.status === "present" || (offeredEnvironment === environmentId && (availability.reason === "unreachable" || availability.reason === "not-ready"));
+  return offered ? <DetectedStateImport key={environmentId} environmentId={environmentId} /> : null;
 };
 
 /** The buttons' names, which a refusal's line asks the person to choose again (setup-copy.md §5.3). */
@@ -51,13 +56,18 @@ const DetectedStateImport = ({ environmentId }: { readonly environmentId: string
   const runtime = useRuntime();
   const found = useObservable(useMemo(() => runtime.requests.cached(environmentId, "stateImport.detect", {}), [runtime, environmentId]));
   const failures = useObservable(useMemo(() => runtime.projections.stateImportFailures(environmentId), [runtime, environmentId]));
+  const finished = useObservable(useMemo(() => runtime.projections.stateImportFinished(environmentId), [runtime, environmentId]));
   const clock = useClock();
   const detailsOf = useEarlierWorkDetails(environmentId);
   const [report, setReport] = useState<StateImportReport | undefined>(undefined);
-  // A later import, including one in another window, replaces the report's failed items.
+  // Snapshots refresh retained results without discarding failures found only by Preview.
   useEffect(() => {
-    setReport((current) => current === undefined ? current : { ...current, failed: [...failures] });
+    setReport((current) => current === undefined || current.dryRun ? current : { ...current, failed: [...failures] });
   }, [failures]);
+  // An actual completion, including one in another window, replaces Preview's failed items too.
+  useEffect(() => {
+    if (finished !== null) setReport((current) => current === undefined ? current : { ...current, failed: [...finished.failed] });
+  }, [finished]);
   const [refusal, setRefusal] = useState<PlainRefusal | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [clientLocalApplied, setClientLocalApplied] = useState(false);

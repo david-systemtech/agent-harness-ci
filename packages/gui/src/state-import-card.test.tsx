@@ -114,6 +114,34 @@ describe("State import on Carry over", () => {
     expect(section().getAllByText("Instruction \"Team\": Its text is longer than an instruction's body may be, 20000 characters.")).toHaveLength(shownCount);
   });
 
+  it.each([false, true])("keeps new Preview failures when reconnect receives a fresh snapshot (retained failures: %s)", async (retained) => {
+    const failure = { label: "Team skills", message: "Connect a forge for forge.test.", step: "forges" as const };
+    const app = await opened({ stateImportFailures: retained ? [failure] : [] });
+    const preview = report(true);
+    preview.failed = [{ label: "Desktop routines", message: "This list could not be read." }];
+    preview.reEnter = [];
+    const environment = app.environment("desk");
+    environment.wire.answer("stateImport.run", () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: false }, result: preview } }));
+    await app.user.click(section().getByRole("button", { name: "Preview" }));
+    await section().findByText(/^This would bring over:/);
+    const before = app.runtime.projections.stateImportFailures(environment.environmentId).read();
+    environment.wire.answer("environment.subscribe", (_params, request) => {
+      const subscription = "reconnected-import";
+      environment.server.send({ type: "subscribed", id: request.id, subscription });
+      environment.server.send({ type: "snapshot", subscription, sequence: 100, payload: {
+        status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false },
+        stateImportFailures: retained ? [failure] : [],
+      } });
+      environment.server.send({ type: "synchronized", subscription, sequence: 100 });
+      return undefined;
+    });
+    await act(async () => { environment.discovery("nothing"); environment.server.drop(); });
+    await act(async () => { environment.discovery("ready"); app.clock.advance(5_000); });
+    await waitFor(() => expect(app.runtime.projections.stateImportFailures(environment.environmentId).read()).not.toBe(before));
+    expect(section().getByText("Desktop routines: This list could not be read.")).toBeDefined();
+    if (retained) expect(section().getByRole("button", { name: "Go to Forges" })).toBeDefined();
+  });
+
   it.each([false, true])("replaces Preview failures when another window completes an import (retained failures: %s)", async (retained) => {
     const failure = { label: "Desktop routines", message: "This list could not be read." };
     const app = await opened({ stateImportFailures: retained ? [failure] : [] });
