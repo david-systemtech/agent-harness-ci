@@ -26,7 +26,7 @@ import type { CommandContext, CommandRejection, MethodHandlers, PreparedCommand 
 import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { listStoredEndpoints, storedEndpoint, type EndpointResult, type StoredEndpoint } from "./endpoint-store.js";
-import type { DeliveryEndpoint } from "./webhook-delivery.js";
+import { hasPendingWebhookDelivery, type DeliveryEndpoint } from "./webhook-delivery.js";
 import { attentionStore } from "../attention/store.js";
 import { listStoredRoutines } from "./routine-store.js";
 import { postWebhook } from "./webhook-post.js";
@@ -239,7 +239,7 @@ export const createRoutineEndpoints = (options: RoutineEndpointsOptions): Routin
       if (endpoint === null) return { name, state: "missing" };
       const routineUses = listStoredRoutines(reader).some(({ definition }) => definition.delivery.some(target => target.kind === "webhook" && target.target === name));
       const routeUses = attentionStore(log).targets().some(({ target }) => target.id !== removingRoute && target.transport === "webhook" && target.configuration["endpoint"] === name);
-      if (routineUses || routeUses) return { name, state: "retained" };
+      if (routineUses || routeUses || hasPendingWebhookDelivery(reader, name)) return { name, state: "retained" };
       log.append(stream, [{ type: "routine.endpoint-removed", payload: { name } }], { tx: context.tx, actor: context.actor, commandId: context.commandId });
       context.tx.afterCommit(() => forget(name));
       return { name, state: "removed", secretKind: endpoint.secretKind };

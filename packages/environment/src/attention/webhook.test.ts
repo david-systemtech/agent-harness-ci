@@ -2,12 +2,12 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
-import { ask, fakeAdapter } from "../../test/fake-adapter.js";
+import { ask, end, fakeAdapter } from "../../test/fake-adapter.js";
 import { create } from "../../test/sessions.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
 import { fileVault, VAULT_FILE, type Vault } from "../serve/vault.js";
-import { created, written, untilEvent } from "../../test/routines.js";
+import { created, ranNow, routineCommand, written, untilEvent, untilRoutineEvent, untilStarted } from "../../test/routines.js";
 import { verifyStandardWebhook, webhookReceiver, type WebhookReceiver } from "../../test/webhook-receiver.js";
 import { attentionStore, attentionStream } from "./store.js";
 
@@ -253,6 +253,34 @@ it.each([true, false])("keeps the endpoint and secret of a routine that is enabl
   expect((await client.request("attention.targets.list", {})).targets).toEqual([]);
   expect((await client.request("routines.endpoints.list", {})).endpoints).toMatchObject([{ name: "attention" }]);
   expect(readFileSync(join(t.dataDir, VAULT_FILE), "utf8")).toContain(SECRET);
+});
+
+it.each(["running", "retrying"] as const)("keeps an endpoint captured by a %s firing after its routine's delivery is edited", async stage => {
+  const { t, client, receiver } = await start();
+  const routine = await created(client, written({ schedule: { kind: "manual" }, delivery: [{ kind: "webhook", target: "attention", on: "both" }] }));
+  let release = () => {};
+  const held = new Promise<void>(resolve => { release = resolve; });
+  onCleanup(release);
+  t.adapter.nextScripts.push(async function* () {
+    if (stage === "running") await held;
+    yield end("completed", { resultText: "Digest filed." });
+  });
+  receiver.answer({ status: stage === "retrying" ? 503 : 204 });
+  const entryId = await ranNow(client, routine.state.id);
+  await untilStarted(t, routine.state.id, entryId);
+  if (stage === "retrying") await untilRoutineEvent(t, routine.state.id, event => event.type === "routine.delivery-attempted" && event.payload["entryId"] === entryId && event.payload["result"] === "retrying");
+  expect(await routineCommand(client, "routines.update", { routineId: routine.state.id, fields: { delivery: [] } })).toMatchObject({ receipt: { status: "accepted" } });
+  expect(await client.apply("attention.routes.remove", { commandId: randomUUID(), id: target.id })).toEqual({ id: target.id, endpoint: { name: "attention", state: "retained" } });
+  expect((await client.request("routines.endpoints.list", {})).endpoints).toMatchObject([{ name: "attention" }]);
+  expect(readFileSync(join(t.dataDir, VAULT_FILE), "utf8")).toContain(SECRET);
+  receiver.answer({ status: 204 });
+  if (stage === "running") release();
+  else t.clock.advance(60_000);
+  await untilRoutineEvent(t, routine.state.id, event => event.type === "routine.delivery-attempted" && event.payload["entryId"] === entryId && event.payload["result"] === "delivered");
+  expect(verifyStandardWebhook(SECRET, receiver.received.at(-1)!, t.clock.now())).toBe(true);
+  await client.apply("attention.routes.set", { commandId: randomUUID(), target });
+  expect(await client.apply("attention.routes.remove", { commandId: randomUUID(), id: target.id })).toEqual({ id: target.id, endpoint: { name: "attention", state: "removed", secretKind: "pasted" } });
+  expect((await client.request("routines.endpoints.list", {})).endpoints).toEqual([]);
 });
 
 it.each(["global", "other-client"])("keeps an endpoint used by a disabled %s route, then deletes it after the last global route", async owner => {
