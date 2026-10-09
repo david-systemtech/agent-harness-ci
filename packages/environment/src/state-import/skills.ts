@@ -35,6 +35,9 @@ const forgeFix = (origin: string, connected: boolean, refusal: ContractError): I
   });
 };
 
+/** What git says when the repository itself is missing or hidden, as against a branch or commit inside it. */
+const REPOSITORY_NOT_FOUND = /repository not found|repository '[^']*' not found|returned error: 404\b|does not appear to be a git repository|does not exist/i;
+
 /**
  * Any other refusal of a tracked source: one plain line by what kept it, the owner's words and git's under Details.
  * Git's not found cannot tell a missing repository or branch from a private one, so the line says both and names
@@ -106,6 +109,11 @@ export const planSkills = async (records: SourceSkills, options: PlanSkillsOptio
           handler = await sources.add.prepare(params, context);
         } catch (error) {
           if (!(error instanceof ContractError)) throw error;
+          const line = error.data["line"];
+          // The probe's not found also covers a branch or pin the opened repository no longer holds: no forge fixes that.
+          if (error.data["problem"] === "not_found" && !(typeof line === "string" && REPOSITORY_NOT_FOUND.test(line))) {
+            throw new ItemFailure({ message: "Its branch or pinned version is no longer there.", details: [error.message] });
+          }
           const problem = error.data["problem"];
           const remote = problem === "authentication" || problem === "not_found" ? normaliseRemote(parsed.data.url) : null;
           if (remote !== null) {

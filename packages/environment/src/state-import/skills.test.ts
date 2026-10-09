@@ -406,6 +406,43 @@ it("sends a repository a connected forge cannot see to that forge's token", asyn
     details: expect.arrayContaining([expect.stringContaining("team/hidden/' not found")]) }]);
 });
 
+it("says a branch or pin the forge no longer holds is gone, with no forge to fix", async () => {
+  const forge = await startFakeForge();
+  onCleanup(() => forge.close());
+  forge.user(TOKEN, { login: "fixture", id: 42 });
+  forge.repositories(TOKEN, []);
+  const canonical = "https://forge.skills.test:5526";
+  const repositories = skillRepositories(tempDir);
+  const pin = repositories.commit("team/pinned", { "SKILL.md": skill("write") });
+  const source = tempDir();
+  const clones = join(source, "skill-sources");
+  mkdirSync(clones);
+  testGit(clones, "clone", "--quiet", join(repositories.root, "team/pinned.git"), "forge-skills-test-5526-team-pinned-758ba96a");
+  testGit(join(clones, "forge-skills-test-5526-team-pinned-758ba96a"), "checkout", "--quiet", "--detach", pin);
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1, sources: [
+    { url: `${canonical}/team/pinned`, subdir: "." },
+    { url: `${canonical}/team/moved`, subdir: "." },
+  ], alwaysOn: [] }));
+  const said = (repository: string) => repository.endsWith("pinned") ? `fatal: remote error: upload-pack: not our ref ${pin}` : "fatal: Remote branch work not found in upstream origin";
+  const t = await startTestEnvironment({ adapter: fakeAdapter(), setupSteps: NO_SETUP_STEPS,
+    forgeFetch: (url, init) => fetch(String(url).replace(canonical, forge.origin), init),
+    skillsGit: async (request) => ({ outcome: "ran", git: { ok: false, code: 128, stdout: Buffer.alloc(0), stderr: said(request.repository), truncated: false, timedOut: false, missing: false } }),
+    stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }),
+  });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  await added(client, { url: canonical, kind: "forgejo" });
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  onCleanup(() => logged.mockRestore());
+  const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  // The forge opened the repository, so its token is not the fix.
+  expect(imported.result?.failed).toEqual(expect.arrayContaining([
+    { label: "Skill collection pinned", message: "Its branch or pinned version is no longer there.", details: expect.arrayContaining([expect.stringContaining("not our ref")]) },
+    { label: "Skill collection moved", message: "Its branch or pinned version is no longer there.", details: expect.arrayContaining([expect.stringContaining("Remote branch work not found")]) },
+  ]));
+  expect(imported.result?.failed).toHaveLength(2);
+});
+
 it("words a missing, unanswering or failed clone plainly and keeps git's words under Details", async () => {
   const said: Record<string, string> = {
     gone: "fatal: repository 'https://skills.test/team/gone/' not found",
