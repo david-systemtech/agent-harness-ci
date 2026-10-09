@@ -1,6 +1,9 @@
+import { useToastTimers } from "../../test/toast-timers.js";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { renderApp, type ScriptedEnvironment } from "../../test/harness.js";
+
+useToastTimers();
 
 const openMode = async (extra: Partial<ScriptedEnvironment> = {}) => {
   const width = window.innerWidth;

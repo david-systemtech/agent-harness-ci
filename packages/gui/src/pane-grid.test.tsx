@@ -1,8 +1,11 @@
+import { useToastTimers } from "../test/toast-timers.js";
 import { chooseHeaderAction, openHeaderMenu } from "../test/header-actions.js";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp } from "../test/harness.js";
 import { LAPTOP_ID, TRAIN, inUtc, row, settled, sidebar, two } from "../test/sidebar-fixtures.js";
+
+useToastTimers();
 
 /**
  * The pane grid (docs/specs/gui.md, "The seven panes and the grid" and "A

@@ -1,9 +1,12 @@
+import { useToastTimers } from "../test/toast-timers.js";
 import { chooseHeaderAction, openHeaderMenu } from "../test/header-actions.js";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { RenderedApp, ScriptedEnvironment } from "../test/harness.js";
 import { renderApp } from "../test/harness.js";
 import { dataTransfer, heading, inUtc, region, row, sidebar } from "../test/sidebar-fixtures.js";
+
+useToastTimers();
 
 /**
  * A new session in the window (docs/specs/gui.md, "A new session" and "The
@@ -537,17 +540,14 @@ describe("a new session in a new pane", () => {
 
   it("shows a fresh refusal while the previous toast is leaving", async () => {
     await twoPanes();
-    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
-    try {
-      expect(dropControl(headingControl("laptop"), () => heading("desk"))).toBe(false);
-      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
-      expect(gridLine()).toBe("A new session opens in a pane.");
-      await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
-      expect(gridLine()).toBeUndefined();
-      expect(dropControl(headingControl("laptop"), () => heading("desk"))).toBe(false);
-      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
-      expect(gridLine()).toBe("A new session opens in a pane.");
-    } finally { vi.useRealTimers(); }
+    expect(dropControl(headingControl("laptop"), () => heading("desk"))).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(gridLine()).toBe("A new session opens in a pane.");
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    expect(gridLine()).toBeUndefined();
+    expect(dropControl(headingControl("laptop"), () => heading("desk"))).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(gridLine()).toBe("A new session opens in a pane.");
   });
 
   it("is refused off the grid, and with every other way of adding a pane at eight panes, each with its reason in a toast", async () => {
