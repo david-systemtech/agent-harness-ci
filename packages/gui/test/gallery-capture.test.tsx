@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, onTestFinished, vi } from "vitest";
-import { captureCases, sceneFiles } from "../gallery/capture-plan.js";
+import { capturePlan, captureCases, sceneFiles } from "../gallery/capture-plan.js";
 import { accessSettingsDetails, detailGeometry } from "../gallery/access-settings-details.js";
 import { measureSceneGeometry } from "../gallery/geometry.js";
 import { galleryOrigin, serveGallery } from "../gallery/serve.js";
@@ -261,4 +261,10 @@ it("rejects a visible decision that an overlay intercepts", () => {
   expect(measureSceneGeometry()).toEqual([]);
   hit.mockReturnValue(null);
   expect(measureSceneGeometry()).toHaveLength(1);
+});
+
+it("captures the Appearance reset question at both desktop sizes in light and dark", () => {
+  expect(capturePlan(["setup-appearance-default"]).captures.map(({ viewport, ladder }) => [viewport.width, viewport.height, ladder])).toEqual([
+    [1400, 900, "light"], [1400, 900, "dark"], [1024, 768, "light"], [1024, 768, "dark"],
+  ]);
 });

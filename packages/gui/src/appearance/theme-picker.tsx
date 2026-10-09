@@ -1,7 +1,7 @@
 import { ReadOnlyAccess } from "../connections/limited-access.js";
 import { LOCAL_PLACEHOLDER_ID, type EnvironmentView } from "@agent-harness/client-runtime";
-import { MAX_SEED_CHROMA, THEME_SEED_NAMES, Theme, ThemeName, type ThemeSeedName } from "@agent-harness/contracts";
-import { LADDERS, SEED_TOKENS, SHIPPED_THEMES, clampWords, cssVariables, derive, readThemeFile, themeFile, type DerivedTheme, type LadderName } from "@agent-harness/theme";
+import { DEFAULT_THEME, MAX_SEED_CHROMA, THEME_SEED_NAMES, Theme, ThemeName, type ThemeSeedName } from "@agent-harness/contracts";
+import { COLOUR_NAMES, LADDERS, SEED_TOKENS, SHIPPED_THEMES, clampWords, cssVariables, derive, readThemeFile, themeFile, type DerivedTheme, type LadderName } from "@agent-harness/theme";
 import { Download, Palette, Save, SlidersHorizontal, Upload, X } from "lucide-react";
 import { useId, useMemo, useRef, useState, type CSSProperties, type ChangeEvent } from "react";
 import { THIS_MACHINE } from "../connections/words.js";
@@ -9,7 +9,9 @@ import { CopyLine } from "../settings/copy-line.js";
 import { lackingLines, readOnlyLine, writersOf } from "../settings/generic-editor.js";
 import { useSettingsValues } from "../settings/settings-values.js";
 import { sameTheme, usePreviewTheme } from "../theme/window-theme.js";
+import { MoreOptions } from "../setup/more-options.js";
 import { SettingsGroup } from "../settings/part.js";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter } from "../ui/dialog.js";
 import { Button, Input, Tooltip } from "../ui/index.js";
 import { useRuntime, useShell } from "../window-context.js";
 
@@ -47,13 +49,14 @@ interface Said {
 /** A theme's file name: its name, with what a file name cannot hold made a dash. */
 const fileNameOf = (theme: Theme): string => `${theme.name.replace(/[\\/:*?"<>|]/g, "-")}.json`;
 
-export const ThemePicker = ({ view }: { readonly view: EnvironmentView }) => {
+export const ThemePicker = ({ view, onSaved, showStatus = true }: { readonly view: EnvironmentView; readonly onSaved?: () => void; readonly showStatus?: boolean }) => {
   const runtime = useRuntime();
   const shell = useShell();
   const settings = useSettingsValues(view.environmentId);
   const saved = Theme.safeParse(settings.values?.["appearance.theme"]).data;
   const [candidate, setCandidate] = useState<Theme | undefined>(undefined);
   const [said, setSaid] = useState<Said | undefined>(undefined);
+  const [resetting, setResetting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const filePicker = useRef<HTMLInputElement>(null);
@@ -64,7 +67,7 @@ export const ThemePicker = ({ view }: { readonly view: EnvironmentView }) => {
   const on = view.name ?? THIS_MACHINE;
   const ready = view.phase === "ready";
   const lacking = ready ? lackingLines(runtime, view.environmentId, writersOf(THEME_KEYS)) : [];
-  const writable = ready && lacking.length === 0;
+  const writable = ready && lacking.length === 0 && !saving;
   const shown = changed ? candidate : saved;
 
   const edit = (next: Theme) => {
@@ -105,6 +108,20 @@ export const ThemePicker = ({ view }: { readonly view: EnvironmentView }) => {
       if (!outcome.ok) return setSaid({ refused: true, line: `Not saved: ${outcome.line}` });
       setCandidate((now) => (now === writing ? undefined : now));
       setSaid({ refused: false, line: `Saved ${writing.name} on ${on}.` });
+      onSaved?.();
+    });
+  };
+
+  const useDefault = () => {
+    if (!writable) return;
+    setSaving(true);
+    setSaid(undefined);
+    void settings.save("appearance.theme", DEFAULT_THEME).then((outcome) => {
+      setSaving(false);
+      if (!outcome.ok) return setSaid({ refused: true, line: `Not saved: ${outcome.line}` });
+      setCandidate(undefined);
+      setSaid({ refused: false, line: `Saved Default on ${on}.` });
+      onSaved?.();
     });
   };
 
@@ -132,19 +149,30 @@ export const ThemePicker = ({ view }: { readonly view: EnvironmentView }) => {
               Previewing {shown.name} in this window: not saved on {on}.
             </p>
           )}
-          <SettingsGroup title="Theme choices">
+          {showStatus && <p className="text-sm text-ink-muted">{derive(shown).clamps.length === 0 ? "Your theme is easy to read." : `Some colours in ${shown.name} were adjusted so text stays readable.`}</p>}
           <ShippedThemes shown={shown} disabled={!writable} choose={edit} />
-          <div className="flex flex-wrap items-center gap-2">
-            <label htmlFor={nameField} className="text-sm text-ink">
-              Name
-            </label>
-            <Palette aria-hidden="true" className="size-4 shrink-0 text-ink-muted" />
-            <Tooltip content="Theme name · Type to edit"><Input id={nameField} value={shown.name} disabled={!writable} onChange={(event) => edit({ ...shown, name: event.target.value })} className="min-w-0 flex-1" /></Tooltip>
-          </div>
-          {!named && <p className="text-xs text-signal">A theme&apos;s name is 1 to 40 characters on one line, with no white space at either end.</p>}
-          </SettingsGroup>
-          <SettingsGroup title="Theme seeds"><Seeds theme={shown} disabled={!writable} change={(seed, value) => edit({ ...shown, seeds: { ...shown.seeds, [seed]: value } })} /></SettingsGroup>
-          <SettingsGroup title="Preview and contrast"><Derived theme={shown} /></SettingsGroup>
+          <MoreOptions step="appearance">
+            <SettingsGroup title="Customise colours">
+              <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor={nameField} className="text-sm text-ink">
+                  Name
+                </label>
+                <Palette aria-hidden="true" className="size-4 shrink-0 text-ink-muted" />
+                <Tooltip content="Theme name · Type to edit"><Input id={nameField} value={shown.name} disabled={!writable} onChange={(event) => edit({ ...shown, name: event.target.value })} className="min-w-0 flex-1" /></Tooltip>
+              </div>
+              {!named && <p role="alert" className="text-xs text-signal"><span className="sr-only">Error: </span>A theme&apos;s name is 1 to 40 characters on one line, with no white space at either end.</p>}
+              <Seeds theme={shown} disabled={!writable} change={(seed, value) => edit({ ...shown, seeds: { ...shown.seeds, [seed]: value } })} />
+              <div className="flex flex-wrap gap-2">
+                <Tooltip content="Import theme" keys="Enter / Space"><Button disabled={!writable} onClick={importFile}>
+                  <Upload aria-hidden="true" />Import
+                </Button></Tooltip>
+                <Tooltip content="Export theme" keys="Enter / Space"><Button disabled={!named} onClick={() => setExporting(true)}>
+                  <Download aria-hidden="true" />Export
+                </Button></Tooltip>
+              </div>
+            </SettingsGroup>
+            <SettingsGroup title="Colour preview"><Derived theme={shown} /></SettingsGroup>
+          </MoreOptions>
           <div className="flex flex-wrap gap-2">
             <Tooltip content="Save theme" keys="Enter / Space"><Button variant="default" disabled={!writable || !changed || !named || saving} onClick={save}>
               <Save aria-hidden="true" />Save
@@ -152,15 +180,20 @@ export const ThemePicker = ({ view }: { readonly view: EnvironmentView }) => {
             <Tooltip content="Cancel theme" keys="Enter / Space"><Button disabled={!changed} onClick={cancel}>
               <X aria-hidden="true" />Cancel
             </Button></Tooltip>
-            <Tooltip content="Import theme" keys="Enter / Space"><Button disabled={!writable} onClick={importFile}>
-              <Upload aria-hidden="true" />Import
-            </Button></Tooltip>
-            <Tooltip content="Export theme" keys="Enter / Space"><Button disabled={!named} onClick={() => setExporting(true)}>
-              <Download aria-hidden="true" />Export
-            </Button></Tooltip>
           </div>
+          {writable && !changed && <p className="text-xs text-ink-muted">Choose a theme or customise colours before saving.</p>}
+          {saving && <p role="status" className="text-sm text-ink-muted">Saving your theme…</p>}
           <input ref={filePicker} type="file" accept=".json,application/json" hidden aria-label="Theme file to import" onChange={picked} />
-          {said !== undefined && <p className={said.refused ? "text-sm text-signal" : "text-sm text-ink-muted"}>{said.line}</p>}
+          {!sameTheme(shown, DEFAULT_THEME) && <Button className="self-start" disabled={!writable} onClick={() => setResetting(true)}>Use the Default theme</Button>}
+          <AlertDialog open={resetting} onOpenChange={setResetting}>
+            <AlertDialogContent title="Use the Default theme?" description={`Your colour changes to ${shown.name} will be lost.`}>
+              <AlertDialogFooter>
+                <AlertDialogCancel asChild><Button>Keep {shown.name}</Button></AlertDialogCancel>
+                <AlertDialogAction asChild><Button variant="default" disabled={!writable} onClick={useDefault}>Use Default</Button></AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+          {said !== undefined && <p role={said.refused ? "alert" : "status"} className={said.refused ? "text-sm text-signal" : "text-sm text-ink-muted"}>{said.refused && <span className="sr-only">Error: </span>}{said.line}</p>}
           {exporting && named && <Exported theme={shown} />}
         </>
       )}
@@ -175,13 +208,15 @@ const ShippedThemes = ({ shown, disabled, choose }: { readonly shown: Theme; rea
   return (
     <div className="flex flex-col gap-2">
       <span id={label} className="text-sm text-ink">
-        Shipped themes
+        Theme
       </span>
       <div role="radiogroup" aria-labelledby={label} className="flex flex-wrap gap-2 text-xs text-ink">
         {SHIPPED_THEMES.map((theme) => (
           <Tooltip key={theme.name} content={theme.name} keys="Arrow keys"><label className="flex items-center gap-1.5 rounded-md border border-hairline px-2.5 py-2 has-checked:bg-wash-strong">
-            <input type="radio" name={group} checked={sameTheme(theme, shown)} disabled={disabled} onChange={() => choose(theme)} className="accent-beam" />
-            <Palette aria-hidden="true" className="size-3.5" />{theme.name}
+            <input type="radio" aria-label={theme.name} name={group} checked={sameTheme(theme, shown)} disabled={disabled} onChange={() => choose(theme)} className="accent-beam" />
+            <span role="img" aria-label={`${theme.name} colours`} style={cssVariables(derive(theme).dark) as CSSProperties} className="flex overflow-hidden rounded-sm border border-line">
+              <span className="size-3 bg-abyss" /><span className="size-3 bg-beam" /><span className="size-3 bg-cyan" />
+            </span>{theme.name}
           </label></Tooltip>
         ))}
       </div>
@@ -198,34 +233,34 @@ const thousandths = (value: string): number => Math.round(Number(value) * 1000) 
 
 /** Each seed: its hue and chroma in words, and a slider for each, named by the seed. */
 const Seeds = ({ theme, disabled, change }: { readonly theme: Theme; readonly disabled: boolean; readonly change: (seed: ThemeSeedName, value: Theme["seeds"][ThemeSeedName]) => void }) => (
-  <ul aria-label="Seeds" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+  <ul aria-label="Colours" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
     {THEME_SEED_NAMES.map((seed) => {
       const { hue, chroma } = theme.seeds[seed];
       return (
         <li key={seed} className="flex flex-col gap-1 rounded-lg border border-hairline p-3">
           <span className="flex items-center gap-1.5 text-xs text-ink-muted">
             <SlidersHorizontal aria-hidden="true" className="size-3.5" />
-            {seed}: hue {hue}, chroma {chroma}
+            {COLOUR_NAMES[seed]}
           </span>
           <div className="flex gap-3">
-            <Tooltip content={`${seed} hue`} keys="Arrow keys"><input
+            <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-ink-muted">Colour {hue}<input
               type="range"
-              aria-label={`${seed} hue`}
+              aria-label={`${COLOUR_NAMES[seed]} Colour`}
               {...HUE}
               value={hue}
               disabled={disabled}
               onChange={(event) => change(seed, { hue: Math.round(Number(event.target.value)), chroma })}
               className="min-w-0 flex-1 accent-beam"
-            /></Tooltip>
-            <Tooltip content={`${seed} chroma`} keys="Arrow keys"><input
+            /></label>
+            <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-ink-muted">Strength {chroma}<input
               type="range"
-              aria-label={`${seed} chroma`}
+              aria-label={`${COLOUR_NAMES[seed]} Strength`}
               {...CHROMA}
               value={chroma}
               disabled={disabled}
               onChange={(event) => change(seed, { hue, chroma: thousandths(event.target.value) })}
               className="min-w-0 flex-1 accent-beam"
-            /></Tooltip>
+            /></label>
           </div>
         </li>
       );
@@ -234,14 +269,14 @@ const Seeds = ({ theme, disabled, change }: { readonly theme: Theme; readonly di
 );
 
 /** How a swatch group is named, by its ladder. */
-const LADDER_WORDS: Readonly<Record<LadderName, string>> = { light: "Light ladder", dark: "Dark ladder" };
+const LADDER_WORDS: Readonly<Record<LadderName, string>> = { light: "Light colours", dark: "Dark colours" };
 
 /** What the theme package derives of a theme: a swatch of each seed in both ladders, and each seed it clamped, in the Appearance check's words. */
 const Derived = ({ theme }: { readonly theme: Theme }) => {
   const derived = useMemo(() => derive(theme), [theme]);
   const clamped = THEME_SEED_NAMES.flatMap((seed) => {
     const own = derived.clamps.filter((clamp) => clamp.seed === seed);
-    return own.length === 0 ? [] : [`${seed}: ${clampWords(own)}`];
+    return own.length === 0 ? [] : [`${COLOUR_NAMES[seed]}: ${clampWords(own)}`];
   });
   return (
     <>
@@ -250,10 +285,8 @@ const Derived = ({ theme }: { readonly theme: Theme }) => {
           <Swatches key={ladder} derived={derived} ladder={ladder} />
         ))}
       </div>
-      {clamped.length === 0 ? (
-        <p className="text-sm text-ink-muted">No seed is clamped: both ladders meet the contrast, gamut and hue-separation rules.</p>
-      ) : (
-        <ul aria-label="Clamped seeds" className="flex flex-col gap-1 text-sm text-amber">
+      {clamped.length > 0 && (
+        <ul aria-label="Adjusted colours" className="flex flex-col gap-1 text-sm text-amber">
           {clamped.map((line) => (
             <li key={line}>{line}</li>
           ))}
@@ -279,7 +312,7 @@ const Swatches = ({ derived, ladder }: { readonly derived: DerivedTheme; readonl
     <span className="text-xs text-ink-muted">{LADDER_WORDS[ladder]}</span>
     <div className="flex flex-wrap gap-2">
       {THEME_SEED_NAMES.map((seed) => (
-        <span key={seed} role="img" aria-label={seed} title={seed} style={{ backgroundColor: `var(--${SEED_TOKENS[seed]})` }} className="size-6 rounded-sm border border-line" />
+        <span key={seed} role="img" aria-label={COLOUR_NAMES[seed]} title={COLOUR_NAMES[seed]} style={{ backgroundColor: `var(--${SEED_TOKENS[seed]})` }} className="size-6 rounded-sm border border-line" />
       ))}
     </div>
   </div>
@@ -295,7 +328,7 @@ const Exported = ({ theme }: { readonly theme: Theme }) => {
       <h4 id={heading} className="text-sm font-medium text-ink">
         {fileName}
       </h4>
-      <CopyLine label="The theme file: the name and the seven seeds" text={text} />
+      <CopyLine label="The theme file" text={text} />
       <Tooltip content="Download theme" keys="Enter"><a href={`data:application/json;charset=utf-8,${encodeURIComponent(text)}`} download={fileName} className="flex items-center gap-1.5 text-sm text-beam-text underline">
         <Download aria-hidden="true" className="size-4" />
         Download {fileName}
