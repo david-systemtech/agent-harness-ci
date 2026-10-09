@@ -24,7 +24,6 @@ export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
     step.result?.actions.includes("import-again") === true &&
     (retryTargets.length === 0 || retryTargets.some((target) => target.kind === "account" && target.id === accountId));
   if (step.result?.state === "skipped") return <StepStatus environmentId={environmentId} step={step} />;
-  const stateImportNeedsRepair = retryTargets.some((target) => target.kind === "environment");
   return (
     <>
       <StepStatus environmentId={environmentId} step={step} handledActions={["import-again"]} />
@@ -40,7 +39,7 @@ export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
             retry={mayRetry(account.id)}
           />
         ))}
-      <StateImportSection environmentId={environmentId} needsRepair={stateImportNeedsRepair} />
+      <StateImportSection environmentId={environmentId} />
       <p className="text-sm text-ink-muted">
         Not carried from your Claude Code directory: hooks, personal MCP servers, permission rules and the approvals you gave the CLI, your
         settings (model, theme, status line, key bindings), plugins and marketplaces, subagents, prompt history and trust decisions. Your

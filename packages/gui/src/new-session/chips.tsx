@@ -43,7 +43,6 @@ export interface ChipProps {
   readonly view: NewSessionView;
   /** The id the session is created under: a new worktree branch's preset name shows it. */
   readonly sessionId: string;
-  readonly effort?: string | null;
   /** Sets the chips chosen, the presets after them following. */
   choose(chips: NewSessionChips): void;
   /** Says a line on the surface: what could not be done. */
@@ -95,6 +94,8 @@ const Option = (props: { readonly onSelect: () => void; readonly absent?: string
 const Nothing = ({ children }: { readonly children: string }) => <p className="px-2 py-1.5 text-xs text-ink-faint">{children}</p>;
 
 const HELD = "the chip's now";
+/** The effort row the environment's default ticks until an effort is chosen (#1950). */
+const DEFAULT_EFFORT = "the default effort";
 
 /** The environment the session starts on: every environment this client knows, one no session can start on greyed with why. */
 const EnvironmentChip = ({ view, choose }: ChipProps) => {
@@ -140,7 +141,7 @@ const ModelOptions = ({ environmentId, accountId, current, narrow, choose, close
 };
 
 /** A new session chooses through its projection; no session or hand-off exists yet. */
-const AccountModelOptions = ({ view, choose, effort, initialStage, close }: ChipProps & { readonly initialStage: RunStage; readonly close: () => void }) => {
+const AccountModelOptions = ({ view, choose, initialStage, close }: ChipProps & { readonly initialStage: RunStage; readonly close: () => void }) => {
   const settings = useSettings();
   const phone = usePhoneOverlay();
   const narrow = useNarrowRunPicker() || phone;
@@ -177,7 +178,7 @@ const AccountModelOptions = ({ view, choose, effort, initialStage, close }: Chip
             }} />}
       </>)}
       {model !== null && hasEffort && column("Effort", <>
-        {[null, ...model.efforts].map(value => <Option key={value ?? "own"} selected={(effort ?? null) === value} onSelect={() => choose({ model: model.id, effort: value })}>
+        {[null, ...model.efforts].map(value => <Option key={value ?? "own"} selected={view.effort.value === value} note={view.effort.reason === "default" && view.effort.value === value ? DEFAULT_EFFORT : undefined} onSelect={() => choose({ model: model.id, effort: value })}>
           <SlidersHorizontal aria-hidden="true" className="size-3" />{value === null ? "its own effort" : effortName(value)}
         </Option>)}
       </>)}
@@ -193,8 +194,8 @@ const AccountChip = (props: ChipProps) => {
 
 const ModelChip = (props: ChipProps) => {
   const value = props.view.model.value;
-  // As the status line names it (#1824): the provider's name, with the first run's effort.
-  const words = value === null ? "none" : modelChoiceWords({ model: value.id, effort: props.effort ?? null }, value.label);
+  // As the status line names it (#1824): the provider's name, with the first run's effort, the environment's default until one is chosen (#1950).
+  const words = value === null ? "none" : modelChoiceWords({ model: value.id, effort: props.view.effort.value }, value.label);
   return <ChipMenu name="Model" value={words} columns items={(close) => <AccountModelOptions {...props} initialStage="Models" close={close} />}><Cpu aria-hidden="true" /><span className="truncate">{words}</span></ChipMenu>;
 };
 

@@ -49,6 +49,10 @@ export function measureSceneGeometry(): string[] {
         const first = elements[0]!.getBoundingClientRect().height;
         if (Math.abs(rect.height - first) > (check.tolerance ?? 0.5)) visibility.push(`${check.selector}[${index}].height: got ${rect.height}, expected ${first} like ${check.selector}[0] ±${check.tolerance ?? 0.5}`);
       }
+      if (check.sameLeft === true && index > 0) {
+        const first = elements[0]!.getBoundingClientRect().left;
+        if (Math.abs(rect.left - first) > (check.tolerance ?? 0.5)) visibility.push(`${check.selector}[${index}].left: got ${rect.left}, expected ${first} like ${check.selector}[0] ±${check.tolerance ?? 0.5}`);
+      }
       if (check.unscrollable === true && [style.overflowX, style.overflowY].some(overflow => overflow !== "visible" && overflow !== "clip")) {
         visibility.push(`${check.selector}[${index}]: scrolls (overflow ${style.overflowX} ${style.overflowY}); a revealed control can move it off its origin`);
       }
