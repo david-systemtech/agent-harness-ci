@@ -1541,9 +1541,9 @@ describe("the process across turns", () => {
     const fresh = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
     const third = await oneTurn(adapter, fresh);
     expect(third.query).not.toBe(first.query);
-    third.query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_3", [fresh.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION, { modelUsage: spentSoFar(500, 10, 80000, 0.5) }));
+    third.query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_3", [fresh.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION, { modelUsage: spentSoFar(500, 3000, 80000, 0.5) }));
     // A new process counts from nothing: its first reading is its first turn's whole.
-    expect(usageOf(await third.events.done)).toEqual([turnSpend(500, 10, 80000, 40, 0.5), turnSpend(500, 10, 80000, 40, 0.5)]);
+    expect(usageOf(await third.events.done)).toEqual([turnSpend(500, 3000, 80000, 40, 0.5), turnSpend(500, 3000, 80000, 40, 0.5)]);
   });
 
   it("reports none for a turn stopped before it spent anything, never the turn before's figures", async () => {
