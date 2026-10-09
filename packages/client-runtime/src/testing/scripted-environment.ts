@@ -476,6 +476,7 @@ const summaryOf = (clock: ManualClock, partial: Partial<SessionSummary>, index: 
     parkedPromptCount: 0,
     accountId: null,
     model: null,
+    runChoice: null,
     mode: null,
     browser: null,
     pullRequests: [],
@@ -736,8 +737,6 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   // the account `sessions.create` named, `scripted-list.ts`).
   const sessionAccounts = new Map<string, string>();
   const ceiling = (): Mode => (hello.ceiling as Mode | undefined) ?? "bypassPermissions";
-  // The model and effort of each session's latest run: a run of the queue reads it on those, as the environment's does (ADR 0022).
-  const lastChoice = new Map<string, { readonly model?: string; readonly effort?: string }>();
   /** Starts a run with a prompt, or (`text` null) a run of the queue carrying `queued`, as the environment starts one after a read-now. */
   const beginRun = (
     sessionId: string,
@@ -750,7 +749,9 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const messageId = text === null ? null : minted("0199a200");
     const summary = summaryNow(sessionId);
     const accountId = sessionAccounts.get(sessionId) ?? summary.accountId ?? "account-1";
-    const model = choice.model ?? summary.model ?? "claude-fake";
+    // As the environment's run does (#1961): the model asked for, else the session's; the session's effort while on its model.
+    const model = choice.model ?? summary.runChoice?.model ?? summary.model ?? "claude-fake";
+    const effort = choice.effort ?? (summary.runChoice?.model === model ? summary.runChoice.effort : null);
     // As the environment's run does: the session's mode asked for, clamped to the ceiling; acceptEdits when the session has none.
     const requested = summary.mode;
     const effective = lowerMode(requested ?? "acceptEdits", ceiling());
@@ -764,7 +765,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
         accountId,
         identity: null,
         model,
-        effort: choice.effort ?? null,
+        effort,
         mode: { requested, effective, clamped },
         workspace: summary.workspace,
         origin: "client",
@@ -773,12 +774,11 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
         resumedFrom: null,
         forkedFrom: null,
       },
-      // As the environment's run.started does, the summary takes the run's account and model.
-      { fields: { activity: { state: "running", since: clock.now().toISOString() }, accountId, model } },
+      // As the environment's run.started does, the summary takes the run's account and model, and its model and effort for the next run.
+      { fields: { activity: { state: "running", since: clock.now().toISOString() }, accountId, model, runChoice: { model, effort } } },
     );
     for (const id of queued) emit(sessionId, "message.delivered", { runId, messageId: id, delivery: "prompt" });
     live.set(sessionId, runId);
-    lastChoice.set(sessionId, { model, ...(choice.effort !== undefined && { effort: choice.effort }) });
     return { runId, messageId };
   };
   const startRun: EnvironmentHandle["startRun"] = (sessionId, text, attachments, choice = {}) => {
@@ -818,7 +818,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   /** Starts the run of the environment's queue, when it holds anything; the run's id, else undefined. */
   const startFromQueue = (sessionId: string): string | undefined => {
     const queued = environmentHeld(sessionId);
-    return queued.length === 0 ? undefined : beginRun(sessionId, null, undefined, queued, lastChoice.get(sessionId)).runId;
+    return queued.length === 0 ? undefined : beginRun(sessionId, null, undefined, queued).runId;
   };
 
   // A run's file tools, as Claude's name them: the call, then the file as the environment reads it.
@@ -957,6 +957,18 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     return acceptedWith({ messageId, sessionId, heldBy });
   });
   wire.answer("runs.stopTask", (params) => rejection("runs.stopTask") ?? acceptedWith({ runId: params["runId"], taskId: params["taskId"], ended: false }));
+  // The session's next-run model and effort (#1961), as the environment decides them: refused while a run is live.
+  wire.answer("sessions.setModel", (params) => {
+    const refused = rejection("sessions.setModel");
+    if (refused) return refused;
+    const sessionId = String(params["sessionId"]);
+    if (live.has(sessionId)) {
+      return { result: { receipt: { status: "rejected", sequence: ++sequence, changed: false, reason: "conflict", error: { code: "conflict", message: "A run is live.", data: { reason: "run_active" } } } } };
+    }
+    const runChoice = { model: String(params["model"]), effort: (params["effort"] as string | null | undefined) ?? null };
+    emit(sessionId, "session.model-set", runChoice, { fields: { runChoice } });
+    return acceptedWith({ summary: summaryNow(sessionId) });
+  });
   wire.answer("sessions.setDraft", (params) => {
     const refused = rejection("sessions.setDraft");
     if (refused) return refused;

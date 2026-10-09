@@ -51,6 +51,39 @@ it("captures Your machines' never-polled container line with the host updater's 
   } finally { view.unmount(); }
 });
 
+// setup-copy.md §5.7: the Key manager card's states the gallery captures, none chosen, OpenBao's form, connected and not answering (#1851).
+it("captures the Key manager card asking which one you use, OpenBao's form, a key manager connected and one that does not answer", async () => {
+  const scene = async (kind: Parameters<typeof setupRegionScene>[0], check: (card: HTMLElement) => Promise<void>) => {
+    const Scene = setupRegionScene(kind);
+    const view = render(<Scene ladder="dark" />);
+    try {
+      const card = await screen.findByRole("region", { name: "Key manager" });
+      await check(card);
+    } finally { view.unmount(); }
+  };
+  await scene("key-manager", async (card) => {
+    const asked = await within(card).findByRole("radiogroup", { name: "Which one do you use?" });
+    expect(within(asked).getByRole("radio", { name: "I do not use one" }).getAttribute("aria-checked")).toBe("true");
+    expect(within(card).queryByRole("form")).toBeNull();
+  });
+  await scene("key-manager-openbao", async (card) => {
+    const form = await within(card).findByRole("form", { name: "Connect OpenBao" });
+    expect(within(form).getByText("The address you open it at, like https://vault.example.com")).toBeDefined();
+    expect(within(form).getByRole("radio", { name: "With a token" }).getAttribute("aria-checked")).toBe("true");
+  });
+  await scene("key-manager-connected", async (card) => {
+    const home = await within(card).findByRole("region", { name: "Home OpenBao" });
+    expect(within(home).getByText(/^Connected since /)).toBeDefined();
+    expect(within(home).getByRole("switch", { name: "Let every run use Home OpenBao's keys" })).toBeDefined();
+    expect(await within(card).findByText("agent-harness keeps 2 tokens itself. Move them into Home OpenBao?")).toBeDefined();
+  });
+  await scene("key-manager-unreachable", async (card) => {
+    const home = await within(card).findByRole("region", { name: "Home OpenBao" });
+    expect(within(home).getByText(/^Not answering since .+\. Check the address and the connection, then choose Check again\.$/)).toBeDefined();
+    expect(within(home).getByRole("button", { name: "Check again" })).toBeDefined();
+  });
+});
+
 // setup-copy.md §5.11: the Browser card before anything is done, at step 5 with its code, and with its Chrome closed (#1857).
 it("captures the Browser card's steps 1 to 4 with no code, step 5 with its code, and a closed Chrome with no Unpair beside its line", async () => {
   for (const [kind, check] of [
@@ -101,6 +134,28 @@ it("captures the Instructions card with Your note, Suggestions and Write your ow
     expect((await within(card).findAllByRole("button", { name: /^Go to / })).map((button) => button.textContent)).toEqual(["Go to Forges", "Go to Memory bank"]);
     expect(card.querySelector("[data-go-to-steps]")).not.toBeNull();
   } finally { unread.unmount(); }
+});
+
+// setup-copy.md §5.12: the Permissions card's four choices, and its line for a sandbox that does not work here with How to fix it open (#1858).
+it("captures the Permissions card's four choices, and a sandbox that does not work here with Turn the sandbox off and How to fix it open", async () => {
+  const Choices = setupRegionScene("permissions");
+  const choices = render(<Choices ladder="dark" />);
+  try {
+    const card = await screen.findByRole("region", { name: "Permissions" });
+    const ceiling = await within(card).findByRole("radiogroup", { name: "How much agents may do without asking" });
+    expect(within(ceiling).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Ask before any change", "Edit files, ask for the rest", "Let Claude decide", "Never ask"]);
+    expect(within(card).getByRole("button", { name: "More safety settings" })).toBeDefined();
+  } finally { choices.unmount(); }
+  const Sandbox = setupRegionScene("permissions-sandbox");
+  const sandbox = render(<Sandbox ladder="dark" />);
+  try {
+    const card = await screen.findByRole("region", { name: "Permissions" });
+    expect(await within(card).findByText("The sandbox you chose does not work on this computer yet.")).toBeDefined();
+    expect(within(card).getByRole("button", { name: "Turn the sandbox off" })).toBeDefined();
+    await waitFor(() => expect(within(card).getByRole("button", { name: "How to fix it" }).getAttribute("aria-expanded")).toBe("true"));
+    expect(within(card).getByText("sudo apt-get install bubblewrap socat")).toBeDefined();
+    expect(card.querySelector("[data-step-status] [data-notice-tone] h5")).not.toBeNull();
+  } finally { sandbox.unmount(); }
 });
 
 it.each<[StepId, string]>([["your-machines", "Your machines"], ["forges", "Forges"], ["key-manager", "Key manager"], ["instructions", "Instructions"], ["permissions", "Permissions"], ["appearance", "Appearance"]])("captures the real %s card and its persistent footer", async (step, label) => {

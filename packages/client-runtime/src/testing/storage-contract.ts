@@ -80,6 +80,7 @@ const summary = (id: string, title: string, at: string): SessionSummary => ({
   parkedPromptCount: 0,
   accountId: null,
   model: null,
+  runChoice: null,
   mode: null,
   browser: null,
   pullRequests: [],

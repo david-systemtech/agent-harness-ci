@@ -387,6 +387,41 @@
       ],
       "description": "The model the latest run used; null before any run."
     },
+    "runChoice": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The model, by id."
+            },
+            "effort": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The effort; null for the model's own."
+            }
+          },
+          "required": [
+            "model",
+            "effort"
+          ],
+          "description": "A model and effort for a session's next run: effort null for the model's own."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The model and effort the session's next run goes out on when its command names none: as sessions.setModel last chose them, else as the latest run used them; null before either, so a run takes the model the session was created with, else the account's default. The status line names it, so it says what the next run uses."
+    },
     "mode": {
       "anyOf": [
         {
@@ -599,6 +634,7 @@
     "parkedPromptCount",
     "accountId",
     "model",
+    "runChoice",
     "mode",
     "browser",
     "pullRequests",

@@ -391,7 +391,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   const checks = createChecks({ clock: platform.clock, requests, records: registry.list, capability,
     terminal: (environmentId, terminalId, listener) => terminals.open(environmentId, terminalId, listener),
     session: (environmentId, sessionId) => sessionProjections(`${environmentId} ${sessionId.toLowerCase()}`),
-    send: (environmentId, sessionId, message, choice) => sendMessage(runtime, environmentId, sessionId, message, isLive(runsProjection.session(environmentId, sessionId).read().state), choice),
+    send: (environmentId, sessionId, message) => sendMessage(runtime, environmentId, sessionId, message, isLive(runsProjection.session(environmentId, sessionId).read().state)),
   });
   const runtime: Runtime = {
     // A start that failed is not kept: the next call starts again.

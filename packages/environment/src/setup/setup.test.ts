@@ -141,7 +141,7 @@ describe("the Permissions step's check", () => {
     expect(await check(client, "permissions")).toMatchObject({ state: "done", reason: "Set. Agents are not sandboxed.", details: ["permissions.containment.default: off"] });
   });
 
-  it("needs attention when the default is workspace and the probe finds no mechanism, naming containment with the Linux package hint", async () => {
+  it("needs attention when the default is workspace and the probe finds no mechanism, in one plain line with Turn the sandbox off and the probe's words in details", async () => {
     const dataDir = `${tempDir()}/data`;
     const first = await startTestEnvironment({ dataDir, containment: bubblewrapProbe() });
     const admin = await first.client();
@@ -153,28 +153,27 @@ describe("the Permissions step's check", () => {
     const second = await start({ dataDir });
     const client = await second.client();
     const result = await check(client, "permissions");
-    expect(result).toMatchObject({ state: "needs-attention", failing: ["permissions.containment"], actions: [] });
-    expect(result.reason).toContain("The containment default workspace cannot be enforced here: ");
-    expect(result.reason).toContain("bubblewrap is not installed");
-    expect(result.reason).toContain("install the bubblewrap and socat packages (sudo apt-get install bubblewrap socat)");
-    expect(result.reason).toContain("on Ubuntu 24.04 and later");
-    expect(result.reason).toContain("/etc/apparmor.d/bwrap");
-    expect(result.reason).not.toMatch(/\n/);
+    expect(result).toMatchObject({
+      state: "needs-attention", failing: ["permissions.containment"], actions: ["turn-sandbox-off"],
+      reason: "The sandbox you chose does not work on this computer yet.",
+    });
+    expect(result.details?.slice(0, 1)).toEqual(["permissions.containment.default: workspace"]);
+    expect(result.details?.find((detail) => detail.startsWith("Probe: "))).toContain("bubblewrap is not installed");
+    expect(result.details).toContain("Cause: binary_missing");
     // The Your machines step's not-root line is not what fails.
     expect((await check(client, "your-machines")).failing).not.toContain("your-machines.not-root");
   });
 
-  it("names the container's seccomp profile beside the package hint when that is what refused bubblewrap", async () => {
+  it("names the probe's seccomp cause in details when that is what refused bubblewrap", async () => {
     const dataDir = `${tempDir()}/data`;
     const first = await startTestEnvironment({ dataDir, containment: bubblewrapProbe() });
     await send(await first.client(), "permissions.settings.set", { values: { "permissions.containment.default": "workspace-no-network" } });
     await first.close();
     const second = await start({ dataDir, containment: brokenProbe() });
     const result = await check(await second.client(), "permissions");
-    expect(result).toMatchObject({ state: "needs-attention", failing: ["permissions.containment"] });
-    expect(result.reason).toContain("The containment default workspace-no-network cannot be enforced here: ");
-    expect(result.reason).toContain("bubblewrap and socat");
-    expect(result.reason).toContain("a seccomp profile that allows unshare(CLONE_NEWUSER)");
+    expect(result).toMatchObject({ state: "needs-attention", failing: ["permissions.containment"], reason: "The sandbox you chose does not work on this computer yet." });
+    expect(result.details?.[0]).toBe("permissions.containment.default: workspace-no-network");
+    expect(result.details).toContain("Cause: seccomp");
   });
 
   it("needs attention when a section is missing presets, naming them, with Restore; restoring the presets makes it done", async () => {
@@ -185,7 +184,7 @@ describe("the Permissions step's check", () => {
     await send(admin, "permissions.denylist.set", { sections: { paths } });
     const result = await check(admin, "permissions");
     expect(result).toMatchObject({ state: "needs-attention", failing: ["permissions.denylist"], actions: ["restore"] });
-    expect(result.reason).toBe("The paths section of the denylist is missing 2 of its presets (~/.aws, ~/.kube); Restore puts them back.");
+    expect(result).toMatchObject({ reason: "Some built-in entries are missing from the paths always-ask list.", details: ["paths: 2 built-in entries are missing: ~/.aws, ~/.kube."] });
 
     await send(admin, "permissions.denylist.restorePresets", {});
     expect((await check(admin, "permissions")).state).toBe("done");

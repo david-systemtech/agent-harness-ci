@@ -446,7 +446,7 @@ describe("the activity fields and auto-settle", () => {
     expect(patchOf(started)).toEqual({
       op: "set",
       sessionId: id,
-      fields: { activity: { state: "running", since: at(0) }, lastActivityAt: at(0), accountId: "claude-max", model: "opus" },
+      fields: { activity: { state: "running", since: at(0) }, lastActivityAt: at(0), accountId: "claude-max", model: "opus", runChoice: { model: "opus", effort: null } },
     });
     expect((await list.next()).type).toBe("session.title-generated");
     t.clock.advance(MINUTE);
