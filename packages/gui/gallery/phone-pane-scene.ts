@@ -39,7 +39,7 @@ export const phonePaneScene = (kind: PhonePaneScene): SceneModule => {
       let reopened = false, clicked = false;
       const observer = new MutationObserver(() => click());
       const click = () => {
-        // A phone opens the session with the sheet it left open hidden (#1903): the scene opens it again from its edge handle.
+        // A phone opens the session with the sheet it left open hidden (#1903): the scene opens it again from the header's control.
         const handle = document.querySelector<HTMLButtonElement>("[data-dock-reopen]");
         if (!reopened && handle) { reopened = true; handle.click(); }
         if (clicked) return;

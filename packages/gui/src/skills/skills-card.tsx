@@ -15,7 +15,7 @@ import { AddFromLink, FoundFolders, RefusedLine, useCollectionVerb } from "./sou
 const LIMIT_SHOWN_FROM = 15;
 
 /** What the card last said an action did: its line, and its raw words for Details. */
-type Said = Pick<ActionOutcome, "line" | "details">;
+type Said = Pick<ActionOutcome, "ok" | "line" | "details">;
 
 /**
  * The Skills step (setup-copy.md §5.9; Set up specification, "7. Skills";
@@ -55,7 +55,7 @@ export const SkillsCard = ({ environmentId, step }: StepCardProps) => {
                 setPulling(true);
                 try {
                   const outcome = await pullSetupSources(runtime, environmentId, following.map((source) => ({ id: source.id, label: skillCollectionName(source, CATALOGUE.skills) })), () => clock.now());
-                  setSaid(following.length === 0 ? { line: "There is no collection to update." } : outcome);
+                  setSaid(following.length === 0 ? { ok: true, line: "There is no collection to update." } : outcome);
                 } finally {
                   setPulling(false);
                 }
@@ -69,11 +69,11 @@ export const SkillsCard = ({ environmentId, step }: StepCardProps) => {
         }}
       />
       {!namedPull && pull.status === "absent" && step.result?.actions.includes("pull-now") && <p className="text-sm text-ink-faint">{pull.message}</p>}
-      {read.error !== null && <Outcome outcome={plainRefusal(read.error, "Check again")} className="text-sm text-amber" />}
-      {said !== undefined && <Outcome outcome={said} role="status" className="text-sm text-ink-muted" />}
+      {read.error !== null && <Outcome outcome={{ ok: false, ...plainRefusal(read.error, "Check again") }} className="text-sm text-amber" />}
+      {said !== undefined && <Outcome outcome={said} className="text-sm text-ink-muted" />}
       {choosing !== undefined && (
         <section aria-label={`Choose folders for ${skillCollectionName(choosing, CATALOGUE.skills)}`} className="flex flex-col gap-3 rounded-md border border-line p-4">
-          <FoundFolders key={choosing.id} environmentId={environmentId} url={choosing.url} replacing={{ source: choosing, followed: sources.length }} done={(line) => { setSaid({ line }); setChoosing(undefined); }} partly={(line) => setSaid({ line })} />
+          <FoundFolders key={choosing.id} environmentId={environmentId} url={choosing.url} replacing={{ source: choosing, followed: sources.length }} done={(line) => { setSaid({ ok: true, line }); setChoosing(undefined); }} partly={(line) => setSaid({ ok: true, line })} />
           <Button variant="outline" className="self-start" onClick={() => setChoosing(undefined)}>Cancel</Button>
         </section>
       )}
@@ -84,7 +84,7 @@ export const SkillsCard = ({ environmentId, step }: StepCardProps) => {
         ))}
       </section>
       <MoreOptions step="skills">
-        <AddFromLink environmentId={environmentId} say={(line) => setSaid({ line })} />
+        <AddFromLink environmentId={environmentId} say={(line) => setSaid({ ok: true, line })} />
       </MoreOptions>
       <span className="flex flex-wrap items-center gap-2">
         <Tooltip content="All skill settings" keys="Tab, Enter"><Button variant="outline" onClick={() => leave("knowledge.skills", environmentId)}><ExternalLink aria-hidden="true" />All skill settings</Button></Tooltip>

@@ -290,7 +290,7 @@ describe("the Skills card's lines and actions", () => {
     expect(within(card()).queryByText(/Trust also admits/)).toBeNull();
     expect(within(card()).queryByText(source.commit)).toBeNull();
     expect(desk.requests("trust.list")).toHaveLength(0);
-    expect(within(card()).getByText("Leaves Set up")).toBeDefined();
+    expect(within(card()).getAllByText("Leaves Set up")).not.toHaveLength(0);
     await app.user.click(within(card()).getByRole("button", { name: "All skill settings" }));
     expect(within(screen.getByRole("region", { name: "Settings" })).getByRole("region", { name: "Skills" })).toBeDefined();
   });

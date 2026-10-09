@@ -6,7 +6,7 @@ import type { BankRecords } from "../banks/records.js";
 import { memoryBankStateChecks } from "../banks/step-checks.js";
 import type { BrowserService } from "../browser/service.js";
 import { carryOverDoneLine, carryOverStateChecks, type CarryOverStateChecksOptions } from "../carry-over/step-checks.js";
-import { instructionsStateChecks } from "../instructions/step-checks.js";
+import { instructionsDoneLine, instructionsStateChecks } from "../instructions/step-checks.js";
 import type { OrientationAnswer } from "../instructions/composer.js";
 import type { EventLog } from "../event-log/event-log.js";
 import type { ForgeService } from "../forge/forge-service.js";
@@ -209,6 +209,7 @@ export const environmentDoneLines = (options: StateChecksOptions): DoneLines => 
     "key-manager": () => keyManagersLine(options.keyManagerConnections.list()),
     "memory-bank": () => notebooksLine(options.banks.list()),
     skills: skillsDoneLine(options.skills),
+    instructions: instructionsDoneLine(options.accounts),
     permissions: () =>
       permissionsLine(
         readPermissionsReport(reader, options.containment, options.isRoot).values["permissions.containment.default"],
