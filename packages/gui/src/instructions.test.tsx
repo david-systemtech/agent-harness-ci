@@ -11,11 +11,11 @@ const openInstructions = async (app: RenderedApp) => {
 };
 
 describe("Instructions", () => {
-  it("opens on its registered settings row with the read-only Orientation first, owned text and channel-less accounts visible", async () => {
+  it("opens on its registered settings row with what agents are told about this computer first, read-only, owned text and channel-less accounts visible", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
     scriptInstructions(app.environment("desk"), [ownedInstruction()]);
     const pane = await openInstructions(app);
-    const orientation = await within(pane).findByRole("region", { name: "Orientation" });
+    const orientation = await within(pane).findByRole("region", { name: "What agents are told about this computer" });
     expect(within(orientation).getByText(/Forge: verified/)).toBeDefined();
     expect(within(orientation).queryByRole("button", { name: /Edit|Remove/ })).toBeNull();
     expect(await within(pane).findByRole("region", { name: "Review habits" })).toBeDefined();
@@ -25,7 +25,7 @@ describe("Instructions", () => {
         .getAllByRole("heading", { level: 3 })
         .slice(0, 2)
         .map((heading) => heading.textContent),
-    ).toEqual(["Orientation", "Owned instructions"]);
+    ).toEqual(["What agents are told about this computer", "Owned instructions"]);
   });
   it("creates a custom instruction and edits its title and Markdown through the environment", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
@@ -162,14 +162,14 @@ describe("Instructions", () => {
     await waitFor(() => expect(within(row).queryByText("Newer version 2")).toBeNull());
     expect(within(row).getByText(choice === "keep" ? "Read every comment." : "Updated source.")).toBeDefined();
   });
-  it("switches Orientation through settings with its warning, updates from other clients and marks cached instructions stale on disconnect", async () => {
+  it("switches telling agents about this computer through settings with its warning, updates from other clients and marks cached instructions stale on disconnect", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
     const peer = scriptInstructions(app.environment("desk"), [ownedInstruction()]);
     const pane = await openInstructions(app);
-    const orientation = await within(pane).findByRole("region", { name: "Orientation" });
-    expect(within(orientation).getByText("Turning Orientation off means the model will not know where its forges, keys and banks are.")).toBeDefined();
-    await app.user.click(within(orientation).getByRole("switch", { name: "Orientation enabled" }));
-    await waitFor(() => expect(within(orientation).getByRole("switch", { name: "Orientation enabled" }).getAttribute("aria-checked")).toBe("false"));
+    const orientation = await within(pane).findByRole("region", { name: "What agents are told about this computer" });
+    expect(within(orientation).getByText("If you turn this off, agents will not know where your forges, keys and notebooks are.")).toBeDefined();
+    await app.user.click(within(orientation).getByRole("switch", { name: "Tell agents about this computer" }));
+    await waitFor(() => expect(within(orientation).getByRole("switch", { name: "Tell agents about this computer" }).getAttribute("aria-checked")).toBe("false"));
     await act(async () => peer.change([ownedInstruction({ title: "Changed elsewhere", body: "A live update." })]));
     expect(await within(pane).findByRole("region", { name: "Changed elsewhere" })).toBeDefined();
     await act(async () => {
@@ -180,6 +180,34 @@ describe("Instructions", () => {
     expect(within(pane).getByRole("region", { name: "Changed elsewhere" })).toBeDefined();
     expect(within(pane).getByRole("button", { name: "New instruction" }).hasAttribute("disabled")).toBe(true);
   });
+  it("names the steps of the parts it could not read, without their raw names, and Go to opens that step in Set up on this computer", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
+    const desk = app.environment("desk");
+    scriptInstructions(desk);
+    desk.wire.answer("instructions.list", () => ({ result: {
+      orientation: { enabled: true, text: "# Orientation", unreadRegistries: ["key-managers", "environment", "accounts"], accounts: [INSTRUCTION_ACCOUNT] },
+      instructions: [],
+      dismissed: [],
+    } }));
+    const pane = await openInstructions(app);
+    const orientation = await within(pane).findByRole("region", { name: "What agents are told about this computer" });
+    expect(within(orientation).getByText("agent-harness could not read part of this computer's setup: Account, Your machines, Key manager.")).toBeDefined();
+    expect(within(orientation).queryByText(/key-managers/)).toBeNull();
+    expect(within(orientation).getAllByRole("button", { name: /^Go to / }).map((button) => button.textContent)).toEqual(["Go to Account", "Go to Your machines", "Go to Key manager"]);
+    await app.user.click(within(orientation).getByRole("button", { name: "Go to Key manager" }));
+    const rail = await screen.findByRole("navigation", { name: "Set up steps" });
+    await waitFor(() => expect(within(rail).getByRole("button", { name: "Key manager" }).getAttribute("aria-current")).toBe("step"));
+  });
+
+  it("says to sign in on the Account step first while the environment holds no account", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
+    const desk = app.environment("desk");
+    scriptInstructions(desk);
+    desk.wire.answer("instructions.list", () => ({ result: { orientation: { enabled: true, text: null, unreadRegistries: [], accounts: [] }, instructions: [], dismissed: [] } }));
+    const orientation = await within(await openInstructions(app)).findByRole("region", { name: "What agents are told about this computer" });
+    expect(within(orientation).getByText("Sign in on the Account step first. Agents are told about your accounts.")).toBeDefined();
+  });
+
   it("keeps absent controls dim with their scope reason and displays a runtime refusal in one line", async () => {
     const app = await renderApp({
       environments: [
@@ -264,7 +292,7 @@ describe("Instructions", () => {
     await app.user.click(within(editor).getByRole("textbox", { name: "Markdown body" }));
     await app.user.paste("The typed text.");
     await app.user.click(within(editor).getByRole("button", { name: "Save instruction" }));
-    expect(await within(editor).findByRole("status")).toHaveProperty("textContent", "Not saved: This instruction id is already used.");
+    expect(await within(editor).findByRole("alert")).toHaveProperty("textContent", "Error: Not saved: This instruction id is already used.");
     expect(within(editor).getByRole("textbox", { name: "Markdown body" }).textContent).toBe("The typed text.");
   });
   it("preserves typed session instructions while reconnecting and catching up", async () => {
