@@ -99,14 +99,14 @@ const needsImport = (reason: string, accounts: readonly (readonly [string, strin
   targets: accounts.map(([id, label]) => ({ action: "import-again" as const, kind: "account" as const, id, label })),
 });
 /** Carry over for Personal and Work, earlier work found in a data folder, each account's inventory as `listed` gives it. */
-const withEarlierWork = async (setup: ScriptedEnvironment["setup"], listed: (accountId: string) => CarryOverInventory) => {
+const withEarlierWork = async (setup: NonNullable<ScriptedEnvironment["setup"]>, listed: (accountId: string) => CarryOverInventory) => {
   const found: StateImportDetection = { dataFolder: { path: "/data/source", holds: { profiles: 1, banks: 0, routines: 0, instructions: 0, skillSources: 0, connections: 0 } }, terminalFolder: null };
   const app = await opened({ capabilities: ["stateImport"], accounts: [{ label: "Personal" }, { label: "Work" }], setup }, inventory(), [], undefined, (desk) => {
     desk.wire.answer("carryOver.inventory", (params) => ({ result: listed(String(params["accountId"])) }));
     desk.wire.answer("stateImport.detect", () => ({ result: found }));
     desk.wire.answer("stateImport.run", () => ({ result: { receipt: { status: "accepted", sequence: 3, changed: true } } }));
   });
-  await screen.findByRole("region", { name: "State import" });
+  await screen.findByRole("region", { name: "Earlier work" });
   return app;
 };
 const fold = async (app: Awaited<ReturnType<typeof opened>>, name: string) => {
@@ -396,7 +396,7 @@ describe("Carry over in Set up", () => {
       desk.wire.answer("stateImport.run", () => ({ result: { receipt: { status: "accepted", sequence: 3, changed: true } } }));
     });
     const desk = app.environment("desk");
-    await screen.findByRole("region", { name: "State import" });
+    await screen.findByRole("region", { name: "Earlier work" });
     await app.user.click(screen.getByRole("button", { name: "Bring them over" }));
     await waitFor(() => expect(desk.requests("stateImport.run")).toHaveLength(1));
     expect(desk.requests("carryOver.run")).toHaveLength(1);
@@ -409,7 +409,7 @@ describe("Carry over in Set up", () => {
       desk.wire.answer("stateImport.run", () => ({ result: { receipt: { status: "accepted", sequence: 3, changed: true } } }));
     });
     const desk = app.environment("desk");
-    await screen.findByRole("region", { name: "State import" });
+    await screen.findByRole("region", { name: "Earlier work" });
     await app.user.click(screen.getByRole("button", { name: "Bring them over" }));
     await waitFor(() => expect(desk.requests("stateImport.run")).toHaveLength(1));
     expect(desk.requests("stateImport.run")[0]?.params).toMatchObject({ dryRun: false });
@@ -439,7 +439,7 @@ describe("Carry over in Set up", () => {
     }));
     await app.user.click(screen.getByRole("button", { name: "Bring them over" }));
     const alert = within(await screen.findByRole("alert"));
-    expect(alert.getByText(/This cannot be done right now\. Wait a moment, then choose Bring them over\./)).toBeDefined();
+    expect(alert.getByText("Bringing over is under way already. Wait for it to finish.")).toBeDefined();
     await app.user.click(alert.getByRole("button", { name: "Details" }));
     expect(alert.getByText(/conflict \(import_in_progress\): Bringing over past work is under way already/)).toBeDefined();
     expect(screen.getByRole("button", { name: "Bring them over" }).hasAttribute("disabled")).toBe(false);

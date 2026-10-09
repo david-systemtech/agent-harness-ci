@@ -1,7 +1,7 @@
 import type { EventEnvelope, ParamsOf } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import type { Requests } from "../requests.js";
-import { readAccessLog } from "./actions.js";
+import type { RequestAnswer, Requests } from "../requests.js";
+import { readAccessLog, revokeSession } from "./actions.js";
 
 /**
  * Reading the whole access log (#417): `access.log.list` answers at most a
@@ -61,5 +61,45 @@ describe("reading the access log", () => {
   it("says why when a page cannot be read", async () => {
     const { runtime } = logOf(1500, 1);
     expect(await readAccessLog(runtime, "desk")).toEqual({ ok: false, line: "The access log could not be read: The socket closed." });
+  });
+});
+
+/** A `requests` that answers `access.sessions.revoke` with `answer`. */
+const revokeAnswering = (answer: RequestAnswer<"access.sessions.revoke">) => ({ requests: { call: async () => answer } as unknown as Requests });
+
+const ACCEPTED: RequestAnswer<"access.sessions.revoke"> = {
+  ok: true,
+  result: { receipt: { status: "accepted", sequence: 7, changed: true }, result: { revokedAt: "2026-10-08T21:34:37.000Z" } },
+};
+const LAPTOP = { id: "0199cc00-0000-7000-8000-000000000002", label: "laptop window" };
+const MINE = { id: "0199cc00-0000-7000-8000-000000000001", label: "Chrome on Android (tab)" };
+const COMMAND = "0199aa00-0000-7000-8000-0000000000aa";
+
+/** The socket closing before the environment answered, with the `bye` it said if any (`requests.call`'s failure). */
+const closedBefore = (bye?: "revoked" | "draining"): RequestAnswer<"access.sessions.revoke"> => ({
+  ok: false,
+  error: { code: "unreachable", message: `The socket closed (${bye ?? 1006}) before the environment answered.`, ...(bye && { bye }) },
+});
+
+describe("revoking a client session", () => {
+  it("says another client session's revocation as before", async () => {
+    expect(await revokeSession(revokeAnswering(ACCEPTED), "desk", LAPTOP, COMMAND)).toEqual({ ok: true, line: "Revoked laptop window: its token is refused from now on." });
+  });
+
+  it("counts this client's own socket closing with bye revoked before the answer as revoked (#1962)", async () => {
+    expect(await revokeSession(revokeAnswering(closedBefore("revoked")), "phone", MINE, COMMAND, "paired")).toEqual({ ok: true, line: "Revoked this client. Pair again to reconnect." });
+    expect(await revokeSession(revokeAnswering(ACCEPTED), "phone", MINE, COMMAND, "paired")).toEqual({ ok: true, line: "Revoked this client. Pair again to reconnect." });
+    expect(await revokeSession(revokeAnswering(closedBefore("revoked")), "desk", MINE, COMMAND, "local")).toEqual({ ok: true, line: "Revoked this client. Try again to reconnect." });
+  });
+
+  it("still says Not revoked when the socket closes for another reason, or for another client's session", async () => {
+    expect(await revokeSession(revokeAnswering(closedBefore()), "phone", MINE, COMMAND, "paired")).toEqual({ ok: false, line: "Not revoked: The socket closed (1006) before the environment answered." });
+    expect(await revokeSession(revokeAnswering(closedBefore("draining")), "phone", MINE, COMMAND, "paired")).toEqual({ ok: false, line: "Not revoked: The socket closed (draining) before the environment answered." });
+    expect(await revokeSession(revokeAnswering(closedBefore("revoked")), "phone", LAPTOP, COMMAND)).toEqual({ ok: false, line: "Not revoked: The socket closed (revoked) before the environment answered." });
+  });
+
+  it("still says Not revoked when the environment refuses", async () => {
+    const refused: RequestAnswer<"access.sessions.revoke"> = { ok: false, error: { code: "forbidden", message: "The admin scope is needed." } };
+    expect(await revokeSession(revokeAnswering(refused), "phone", MINE, COMMAND, "paired")).toEqual({ ok: false, line: "Not revoked: The admin scope is needed." });
   });
 });

@@ -80,7 +80,8 @@ export const accountsRefresh = defineMethod({
  * accounts, never of it): unless that read found it present and signed in
  * the command is rejected `conflict` (reason `ambient_unavailable`); an
  * account holding the directory already, or the identity it is signed in as,
- * is `conflict` (reason `already_added`, "already added as <label>").
+ * is `conflict` (reason `already_added`, "already added as <label>"); with no
+ * `label` and no email to name it by, `conflict` (reason `no_email`).
  */
 export const accountsAdopt = defineMethod({
   name: "accounts.adopt",
@@ -109,17 +110,17 @@ export const accountsAdd = defineMethod({
   name: "accounts.add",
   scope: "admin",
   kind: "command",
-  params: commandParams({ provider, label: AccountLabel }),
+  params: commandParams({ provider, label: AccountLabel, nameByEmail: z.boolean().optional().meta({ description: "Set only for an automatically supplied name, to become the email after sign-in." }) }),
   result: z.object({ account: AccountRecord, signIn: SignInStart }),
   errors: [],
 });
 
-/** Changes an account's label, unique on the environment ignoring case; the label it has already changes nothing. */
+/** Changes an account's label, unique ignoring case. An explicit rename also ends email naming, even with the same label; an automatic rename changes nothing once a person chose a name. */
 export const accountsRelabel = defineMethod({
   name: "accounts.relabel",
   scope: "admin",
   kind: "command",
-  params: commandParams({ accountId: AccountId, label: AccountLabel }),
+  params: commandParams({ accountId: AccountId, label: AccountLabel, onlyIfNameByEmail: z.boolean().optional().meta({ description: "An automatic rename changes nothing after a person has chosen a name." }) }),
   result: z.object({ account: AccountRecord }),
   errors: [],
 });

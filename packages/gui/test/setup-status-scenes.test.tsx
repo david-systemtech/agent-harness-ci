@@ -48,3 +48,14 @@ it("draws the reach line of a computer this app cannot reach, with Try again", a
   const line = screen.getByText(/^This app cannot reach desk/).closest<HTMLElement>("[data-reach-line]") as HTMLElement;
   expect(within(line).getByRole("button", { name: "Try again" })).toBeDefined();
 });
+
+it("draws the card opened by Check everything again with Checked just now above its notice", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, "setup-checked-just-now", "dark");
+  close = gallery.close;
+  expect(await gallery.ready).toBe(true);
+  const card = screen.getByRole("region", { name: "Permissions" });
+  const checked = within(card).getByText("Checked just now.");
+  expect(checked.compareDocumentPosition(within(card).getByRole("alert")) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+});

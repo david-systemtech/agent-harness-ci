@@ -1,87 +1,137 @@
-import { STEP_LABELS, type StateImportCarried, type StateImportReport } from "@agent-harness/contracts";
+import { LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
+import { SETTINGS_ROWS, STEP_LABELS, type StateImportFailure, type StateImportReport, type StepId } from "@agent-harness/contracts";
 import { ArrowRight } from "lucide-react";
-import { useState } from "react";
-import { CountGrid } from "./count-grid.js";
+import { useId, type ReactNode } from "react";
+import { nameOf } from "../connections/words.js";
 import { TEXT_SIZE_LEAST, TEXT_SIZE_MOST } from "../presentation.js";
 import { useChecklist } from "../setup/checklist-window.js";
-import { Button, Fact, Fold } from "../ui/index.js";
+import { TechnicalDetails, type TechnicalDetailsProps } from "../setup/details.js";
+import { Button } from "../ui/index.js";
+import { useClientVersion, useObservable, useRuntime, useShell } from "../window-context.js";
+import { carriedInWords, previewLine } from "./earlier-work-words.js";
 
-const CARRIED_ROWS: readonly (readonly [keyof StateImportCarried, string])[] = [
-  ["accounts", "Accounts"],
-  ["archived", "Archived sessions"],
-  ["pins", "Pins"],
-  ["groups", "Groups"],
-  ["forgeAccounts", "Forge accounts"],
-  ["keyManagerConnections", "Key-manager connections"],
-  ["banks", "Banks"],
-  ["routines", "Routines"],
-  ["instructions", "Instructions"],
-  ["skillSources", "Skill sources"],
-  ["alwaysOnSkills", "Always-on skills"],
-  ["drafts", "Drafts"],
-  ["devSites", "Dev sites"],
-];
+/**
+ * Details for the earlier-work section (setup-copy.md §3): this app, the
+ * computer, the plain line and the facts behind it, with Copy details
+ * through the shell's clipboard where it has one.
+ */
+export const useEarlierWorkDetails = (environmentId: string): ((line: string, details: readonly string[]) => TechnicalDetailsProps) => {
+  const runtime = useRuntime();
+  const shell = useShell();
+  const version = useClientVersion();
+  const environment = useObservable(runtime.projections.environments).find((view) => view.environmentId === environmentId);
+  const clipboard = runtime.capability(LOCAL_PLACEHOLDER_ID, "shell.clipboard").status === "present" ? shell?.clipboard : undefined;
+  return (line, details) => ({
+    report: { app: { version, platform: shell === undefined ? "web" : "desktop" }, ...(environment !== undefined && { computer: { name: nameOf(environment) } }), line, details },
+    copy: async (text) => {
+      if (clipboard === undefined) throw new Error("This app has no clipboard here.");
+      await clipboard.writeText(text);
+    },
+  });
+};
 
-/** Two source profiles sharing a projects folder, each by its label (#1726); their source ids wait under Details, which keyboard and touch reach (#1800). */
-const SharedProjects = ({ source }: { readonly source: NonNullable<StateImportReport["sharedProjects"]>[number] }) => {
-  const [details, showDetails] = useState(false);
+/** A cross-step fix inside Set up (setup-copy.md §3): Go to {step}, described by the line it fixes. */
+const GoTo = ({ step, describedBy }: { readonly step: StepId; readonly describedBy: string }) => {
+  const { choose } = useChecklist();
+  return (
+    <Button variant="outline" size="xs" title={`Go to ${STEP_LABELS[step]} · Tab, Enter or Space`} aria-describedby={describedBy} onClick={() => choose(step)}>
+      <ArrowRight aria-hidden="true" />Go to {STEP_LABELS[step]}
+    </Button>
+  );
+};
+
+/** One line of the report with what it offers beside it. */
+const Item = ({ line, step, children }: { readonly line: ReactNode; readonly step?: StepId | null | undefined; readonly children?: ReactNode }) => {
+  const id = useId();
+  return (
+    <li className="flex min-w-0 flex-col items-start gap-1">
+      <span id={id}>{line}</span>
+      {step != null && <GoTo step={step} describedBy={id} />}
+      {children}
+    </li>
+  );
+};
+
+/** A failed item: its plain line in words and colour, its own fix (Go to Forges, Go to Skills) or its facts under Details (setup-copy.md §5.3). */
+const Failure = ({ environmentId, failure }: { readonly environmentId: string; readonly failure: StateImportFailure }) => {
+  const detailsOf = useEarlierWorkDetails(environmentId);
+  const line = `${failure.label}: ${failure.message}`;
+  return (
+    <Item line={<span className="text-amber"><span className="sr-only">Error: </span><span>{line}</span></span>} step={failure.step}>
+      {failure.details !== undefined && failure.details.length > 0 && <TechnicalDetails {...detailsOf(line, failure.details)} />}
+    </Item>
+  );
+};
+
+/** The last import's failed items use the same fixes as the report of a run in this window. */
+export const StateImportFailures = ({ environmentId, failures }: { readonly environmentId: string; readonly failures: readonly StateImportFailure[] }) => failures.length === 0 ? null : (
+  <div role="alert" data-earlier-work-failures>
+    <List label="Did not come over">{failures.map((failure, index) => <Failure key={index} environmentId={environmentId} failure={failure} />)}</List>
+  </div>
+);
+
+/** Two source profiles sharing a projects folder, each by its label (#1726); their source ids wait under Details (#1800). */
+const SharedProjects = ({ environmentId, source }: { readonly environmentId: string; readonly source: NonNullable<StateImportReport["sharedProjects"]>[number] }) => {
+  const detailsOf = useEarlierWorkDetails(environmentId);
+  const line = `${source.label} and ${source.ownerLabel} share one projects folder, so their chats and notes come over once, with ${source.ownerLabel}.`;
   return (
     <div className="flex flex-col gap-1">
-      <p>{source.label} shares a projects folder with {source.ownerLabel}: its sessions and memory carry once, with {source.ownerLabel}, and not again with {source.label}.</p>
-      <Fold summary="Details" open={details} onOpenChange={showDetails}>
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1">
-          <Fact name={`${source.label} source id`}>{source.sourceId}</Fact>
-          <Fact name={`${source.ownerLabel} source id`}>{source.ownerSourceId}</Fact>
-        </dl>
-      </Fold>
+      <p>{line}</p>
+      <TechnicalDetails {...detailsOf(line, [`${source.label} source id: ${source.sourceId}`, `${source.ownerLabel} source id: ${source.ownerSourceId}`])} />
     </div>
   );
 };
 
-/** ADR 0036's four groups, including the steps where encrypted credentials must be entered again. */
-export const StateImportResult = ({ report, clientLocalApplied }: { readonly report: StateImportReport; readonly clientLocalApplied: boolean }) => {
-  const { choose } = useChecklist();
-  const fontSize = report.clientLocal.fontSize;
-  const appliedFontSize = fontSize === undefined ? undefined : Math.min(TEXT_SIZE_MOST, Math.max(TEXT_SIZE_LEAST, fontSize));
+const List = ({ label, children }: { readonly label: string; readonly children: ReactNode }) => <ul aria-label={label} className="flex flex-col gap-2">{children}</ul>;
+
+const Group = ({ heading, children }: { readonly heading: string; readonly children: ReactNode }) => (
+  <>
+    <h4 className="text-xs font-medium">{heading}</h4>
+    <List label={heading}>{children}</List>
+  </>
+);
+
+const settingsRowLabel = (id: string): string => SETTINGS_ROWS.find((row) => row.id === id)?.label ?? id;
+
+/**
+ * What bringing the earlier work over did, or a preview would do
+ * (setup-copy.md §5.3; ADR 0036's four groups): Brought over, Needs you
+ * (what must be entered again, and each failed item with its own fix),
+ * Not supported yet, Not brought over, and the window preferences.
+ */
+export const StateImportResult = ({ environmentId, report, clientLocalApplied }: { readonly environmentId: string; readonly report: StateImportReport; readonly clientLocalApplied: boolean }) => {
+  const runtime = useRuntime();
+  const environment = useObservable(runtime.projections.environments).find((view) => view.environmentId === environmentId);
+  const { clientLocal } = report;
+  const appliedFontSize = clientLocal.fontSize === undefined ? undefined : Math.min(TEXT_SIZE_MOST, Math.max(TEXT_SIZE_LEAST, clientLocal.fontSize));
+  const shownFontSize = clientLocalApplied ? appliedFontSize : clientLocal.fontSize;
   return (
-    <section aria-label="State import result" className="flex flex-col gap-3 rounded-lg border border-hairline bg-inset p-3 text-xs text-ink">
-      <h4 className="text-xs font-medium">{report.dryRun ? "Dry run report" : "Import report"}</h4>
-      {(report.sharedProjects ?? []).map((source) => <SharedProjects key={source.sourceId} source={source} />)}
-      <h5 className="text-xs font-medium">Carried</h5>
-      {report.dryRun && <p className="text-ink-muted">These counts show what an import would carry. Nothing was written. A dry run does not test repository access or clear a failed import.</p>}
-      <CountGrid label="Carried counts" rows={CARRIED_ROWS.map(([kind, label]) => [label, report.carried[kind]])} />
-      <h5 className="text-xs font-medium">Re-enter</h5>
-      {report.reEnter.length === 0 && <p>None.</p>}
-      {report.reEnter.map((item, index) => (
-        <Button variant="outline" title={`${STEP_LABELS[item.step]} · Tab, Enter or Space`} key={index} onClick={() => choose(item.step)}><ArrowRight aria-hidden="true" />{STEP_LABELS[item.step]}: {item.label}</Button>
-      ))}
-      <h5 className="text-xs font-medium">Arriving in milestone 2</h5>
-      {report.later.length === 0 && <p>None.</p>}
-      {report.later.map((item, index) => <p key={index}>{item.label} ({item.provider})</p>)}
-      <h5 className="text-xs font-medium">Not carried</h5>
-      {report.notCarried.length === 0 && <p>None.</p>}
-      {report.notCarried.map((item, index) => (
-        <div key={index}>
-          <p>{item.label}: {item.count}</p>
-          {item.step !== null && <Button variant="outline" title={`Open ${STEP_LABELS[item.step]} · Tab, Enter or Space`} onClick={() => item.step !== null && choose(item.step)}><ArrowRight aria-hidden="true" />Open {STEP_LABELS[item.step]}</Button>}
-        </div>
-      ))}
-      {Object.keys(report.clientLocal).length > 0 && (
+    <section aria-label="Earlier work result" data-earlier-work-result className="flex flex-col gap-3 rounded-lg border border-hairline bg-inset p-3 text-xs text-ink">
+      {report.dryRun
+        ? <p>{previewLine(report.carried)}</p>
+        : <>
+            <h4 className="text-xs font-medium">Brought over</h4>
+            <p>{carriedInWords(report.carried) ?? "Everything is already here."}</p>
+          </>}
+      {(report.sharedProjects ?? []).map((source) => <SharedProjects key={source.sourceId} environmentId={environmentId} source={source} />)}
+      {(report.reEnter.length > 0 || report.failed.length > 0) && <h4 className="text-xs font-medium">Needs you</h4>}
+      {report.reEnter.length > 0 && <List label="Needs you">{report.reEnter.map((item, index) => <Item key={index} line={item.label} step={item.step} />)}</List>}
+      <StateImportFailures environmentId={environmentId} failures={report.failed} />
+      {report.later.length > 0 && <Group heading="Not supported yet">{report.later.map((item, index) => <Item key={index} line={item.label} />)}</Group>}
+      {report.notCarried.length > 0 && <Group heading="Not brought over">{report.notCarried.map((item, index) => <Item key={index} line={`${item.label}: ${item.count}`} step={item.step} />)}</Group>}
+      {Object.keys(clientLocal).length > 0 && (
         <>
-          <h5 className="text-xs font-medium">Client-local values {clientLocalApplied ? "applied" : "not applied"}</h5>
-          {!clientLocalApplied && !report.dryRun && (
-            <p className="text-ink-muted">These values belong to the environment's machine. Connect through its local grant to apply them on this client.</p>
-          )}
-          {report.clientLocal.mode !== undefined && <p>Theme mode: {report.clientLocal.mode}</p>}
-          {fontSize !== undefined && (
-            <p>Font size: {clientLocalApplied ? appliedFontSize : fontSize}{clientLocalApplied && appliedFontSize !== fontSize ? ` (source: ${fontSize})` : ""}</p>
-          )}
-          {report.clientLocal.conversationWidth !== undefined && <p>Conversation width: {report.clientLocal.conversationWidth}</p>}
-          {report.clientLocal.showThinking !== undefined && <p>Show thinking: {report.clientLocal.showThinking ? "on" : "off"}</p>}
-          {report.clientLocal.settingsRow !== undefined && <p>Last settings row: {report.clientLocal.settingsRow}</p>}
+          <h4 className="text-xs font-medium">Window preferences</h4>
+          {clientLocalApplied
+            ? <p className="text-ink-muted">Applied to this window.</p>
+            : !report.dryRun && <p className="text-ink-muted">These apply only on {environment === undefined ? "that computer" : `${nameOf(environment)}'s own computer`}.</p>}
+          {clientLocal.mode !== undefined && <p>Theme: {clientLocal.mode}</p>}
+          {shownFontSize !== undefined && <p>Text size: {shownFontSize}{shownFontSize !== clientLocal.fontSize ? ` (was ${clientLocal.fontSize})` : ""}</p>}
+          {clientLocal.conversationWidth !== undefined && <p>Reading width: {clientLocal.conversationWidth}</p>}
+          {clientLocal.showThinking !== undefined && <p>Show thinking: {clientLocal.showThinking ? "on" : "off"}</p>}
+          {clientLocal.settingsRow !== undefined && <p>Last open in Settings: {settingsRowLabel(clientLocal.settingsRow)}</p>}
         </>
       )}
-      {report.failed.map((item, index) => <p key={index} className="text-amber">{item.label}: {item.message}</p>)}
     </section>
   );
 };

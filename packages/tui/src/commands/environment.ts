@@ -1,4 +1,4 @@
-import { clientOfferAskWords, type EnvironmentView, type RequestAnswer, type Runtime } from "@agent-harness/client-runtime";
+import { clientOfferAskWords, type ConnectionKind, type EnvironmentView, type RequestAnswer, type Runtime } from "@agent-harness/client-runtime";
 import {
   ENVIRONMENT_COLOURS,
   ENVIRONMENT_ICONS,
@@ -109,12 +109,14 @@ export const listClientSessions = async (runtime: Runtime, view: EnvironmentView
   return { ok: true, rows: answer.result.sessions };
 };
 
-/** Revokes one client session; answers the line to show. */
-export const revokeClientSession = async (runtime: Runtime, view: EnvironmentView, row: ClientSessionRow, commandId: string): Promise<string> => {
+/** Revokes one client session; an own-session revoked close is the revoke committed before the reply (#1979). */
+export const revokeClientSession = async (runtime: Runtime, view: EnvironmentView, row: ClientSessionRow, commandId: string, own?: ConnectionKind): Promise<string> => {
+  const revoked = own === undefined ? `Revoked ${row.label} on ${nameOf(view)}.` : `Revoked this client. ${own === "local" ? "Try again" : "Pair again"} to reconnect.`;
   const answer = await runtime.requests.call(view.environmentId, "access.sessions.revoke", { commandId, clientSessionId: row.id });
+  if (own !== undefined && !answer.ok && answer.error.bye === "revoked") return revoked;
   if (!answer.ok) return `Cannot revoke ${row.label} on ${nameOf(view)}: ${answer.error.message}`;
   const { receipt } = answer.result;
-  return receipt.status === "accepted" ? `Revoked ${row.label} on ${nameOf(view)}.` : `Revoking ${row.label} on ${nameOf(view)} was rejected: ${receipt.error.message}`;
+  return receipt.status === "accepted" ? revoked : `Revoking ${row.label} on ${nameOf(view)} was rejected: ${receipt.error.message}`;
 };
 
 /**

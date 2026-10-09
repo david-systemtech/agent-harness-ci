@@ -80,11 +80,13 @@ export const runGit = (cwd: string, args: readonly string[], options: GitOptions
     let truncated = false;
     let timedOut = false;
     let settled = false;
+    const group = process.platform !== "win32";
     const child = spawn("git", ["--no-optional-locks", ...HARDENING, ...args], {
       cwd,
       env: gitEnvironment(options.env),
       stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       windowsHide: true,
+      detached: group,
     });
     if (options.input !== undefined) {
       // A git that stops reading early (or never ran) closes the pipe: its answer is the process's, not the write's.
@@ -92,8 +94,15 @@ export const runGit = (cwd: string, args: readonly string[], options: GitOptions
       child.stdin?.end(options.input);
     }
     const stop = (): void => {
-      child.kill("SIGKILL");
-      // A process git started (a filter, a helper) can hold the pipes open past git's own end: the answer does not wait for it.
+      // A clone's pack helper can still write into its checkout after git
+      // dies. Stop the group before answering, so teardown cannot race it.
+      try {
+        if (group && child.pid !== undefined) process.kill(-child.pid, "SIGKILL");
+        else child.kill("SIGKILL");
+      } catch {
+        // The process group may already be gone.
+      }
+      // On platforms without groups, a helper can still hold the pipes open.
       for (const stream of [child.stdin, child.stdout, child.stderr]) stream?.destroy();
     };
     const finish = (answer: GitAnswer): void => {
@@ -124,7 +133,7 @@ export const runGit = (cwd: string, args: readonly string[], options: GitOptions
         chunks.push(chunk.subarray(0, room));
         kept += room;
         truncated = true;
-        child.kill("SIGKILL");
+        stop();
         return;
       }
       chunks.push(chunk);

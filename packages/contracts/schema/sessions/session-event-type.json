@@ -15,6 +15,7 @@
     "session.tagged",
     "session.untagged",
     "session.draft-set",
+    "session.model-set",
     "session.group-set",
     "session.settled",
     "session.unsettled",

@@ -187,7 +187,7 @@ describe("the registered checks on the Environment clock", () => {
     await t.close();
     let restartAnswered!: (answer: { text: string; unreadRegistries: string[] }) => void;
     const restartPending = new Promise<{ text: string; unreadRegistries: string[] }>((resolve) => { restartAnswered = resolve; });
-    const restarted = await startTestEnvironment({ dataDir, clock: t.clock, orientation: () => restartPending });
+    const restarted = await startTestEnvironment({ dataDir, clock: t.clock, orientation: () => restartPending, awaitSetupStartPass: false });
     onCleanup(() => restarted.close());
     expect(restarted.env.id).toBe(t.env.id);
     const reader = await restarted.client();

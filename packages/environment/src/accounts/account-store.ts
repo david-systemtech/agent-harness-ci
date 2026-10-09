@@ -39,6 +39,7 @@ export const ACCOUNTS_TABLES = {
     provider TEXT NOT NULL,
     label TEXT NOT NULL,
     label_key TEXT NOT NULL,
+    name_by_email INTEGER NOT NULL DEFAULT 0 CHECK (name_by_email IN (0, 1)),
     directory_kind TEXT NOT NULL CHECK (directory_kind IN ('adopted', 'owned')),
     directory TEXT NOT NULL,
     identity TEXT,
@@ -81,8 +82,8 @@ export const sameLogin = (reported: AccountIdentity, held: AccountIdentity): boo
 
 const created = (db: ProjectionDb, event: EventEnvelope, kind: AccountDirectoryKind, payload: AccountAdoptedPayload | AccountAddedPayload): void => {
   db.run(
-    `INSERT INTO accounts (id, position, provider, label, label_key, directory_kind, directory, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'signed-out', ?)`,
+    `INSERT INTO accounts (id, position, provider, label, label_key, directory_kind, directory, status, created_at, name_by_email)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'signed-out', ?, ?)`,
     payload.accountId,
     event.sequence,
     payload.provider,
@@ -91,6 +92,7 @@ const created = (db: ProjectionDb, event: EventEnvelope, kind: AccountDirectoryK
     kind,
     payload.directory,
     event.occurredAt,
+    "nameByEmail" in payload && payload.nameByEmail === true ? 1 : 0,
   );
 };
 
@@ -123,7 +125,7 @@ export const accountsProjector: Projector = {
       }
       case "account.relabelled": {
         const { accountId, label } = event.payload as AccountRelabelledPayload;
-        db.run("UPDATE accounts SET label = ?, label_key = ? WHERE id = ?", label, labelKey(label), accountId);
+        db.run("UPDATE accounts SET label = ?, label_key = ?, name_by_email = 0 WHERE id = ?", label, labelKey(label), accountId);
         return;
       }
       case "account.removed":
@@ -141,6 +143,7 @@ interface AccountRow {
   id: string;
   provider: string;
   label: string;
+  name_by_email: number;
   directory_kind: AccountDirectoryKind;
   directory: string;
   identity: string | null;
@@ -163,13 +166,14 @@ export interface StoredAccount {
 }
 
 const COLUMNS =
-  "id, provider, label, directory_kind, directory, identity, status, status_detail, status_at, signed_in_ever, created_at, removed_at, directory_deleted_at";
+  "id, provider, label, name_by_email, directory_kind, directory, identity, status, status_detail, status_at, signed_in_ever, created_at, removed_at, directory_deleted_at";
 
 const stored = (row: AccountRow): StoredAccount => ({
   record: {
     id: row.id,
     provider: row.provider,
     label: row.label,
+    ...(row.name_by_email === 1 ? { nameByEmail: true } : {}),
     directory: { kind: row.directory_kind, path: row.directory },
     identity: row.identity === null ? null : (JSON.parse(row.identity) as AccountIdentity),
     status: { state: row.status, checkedAt: row.status_at, detail: row.status_detail },

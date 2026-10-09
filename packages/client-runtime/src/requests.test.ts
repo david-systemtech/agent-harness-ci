@@ -202,7 +202,16 @@ describe("requests.call", () => {
     const answer = runtime.requests.call(id, "access.sessions.list", {});
     await flush();
     wire.server.drop();
-    expect(await answer).toMatchObject({ ok: false, error: { code: "unreachable" } });
+    expect(await answer).toEqual({ ok: false, error: { code: "unreachable", message: "The socket closed (1006) before the environment answered." } });
+  });
+
+  it("names the environment's bye when the socket closed with one before the answer", async () => {
+    const { runtime, wire, id } = await paired();
+    wire.answer("access.sessions.list", () => undefined);
+    const answer = runtime.requests.call(id, "access.sessions.list", {});
+    await flush();
+    wire.server.bye("revoked");
+    expect(await answer).toEqual({ ok: false, error: { code: "unreachable", message: "The socket closed (revoked) before the environment answered.", bye: "revoked" } });
   });
 });
 

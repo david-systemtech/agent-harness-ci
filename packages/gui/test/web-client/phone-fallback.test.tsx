@@ -22,7 +22,19 @@ it("the hosted receiver regression waits for a real parked prompt and accepts it
   await untilEvent(environment, { kind: "session", id: sessionId }, event => event.type === "prompt.opened");
   await receiver.verify(sessionId, "https://example.test:8443", "fixture");
   expect((await client.request("attention.targets.list", {})).targets).toEqual([]);
+  expect((await client.request("routines.endpoints.list", {})).endpoints).toEqual([]);
   await client.apply("permissions.prompts.answer", { commandId: randomUUID(), promptId: "phone-fallback-prompt", decision: "allow" });
   await untilEvent(environment, { kind: "session", id: sessionId }, event => event.type === "run.ended");
   expect(adapter.runs[0]?.answers).toHaveLength(1);
+});
+
+it("closing an unverified phone fallback removes its route and endpoint", async () => {
+  const environment = await startTestEnvironment();
+  close.push(() => environment.close());
+  const receiver = await phoneFallback(environment);
+  const client = await environment.client();
+  expect((await client.request("routines.endpoints.list", {})).endpoints).toHaveLength(1);
+  await receiver.close();
+  expect((await client.request("attention.targets.list", {})).targets).toEqual([]);
+  expect((await client.request("routines.endpoints.list", {})).endpoints).toEqual([]);
 });

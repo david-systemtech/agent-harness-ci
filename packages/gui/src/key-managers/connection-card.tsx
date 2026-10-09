@@ -15,6 +15,7 @@ import {
   tokenWords,
   updateConnection,
   verifyConnection,
+  type KeyManagerOutcome,
 } from "@agent-harness/client-runtime";
 import type { KeyManagerStatusKind, ListedKeyManagerConnection } from "@agent-harness/contracts";
 import { useId, useState } from "react";
@@ -24,6 +25,7 @@ import { CertificateCheck } from "./certificate-check.js";
 import { ConfirmRemove, ConfirmSignOut, EditConnection, SignInAgain } from "./connection-dialogs.js";
 import { CopyConnection } from "./copy-connection.js";
 import { PolicyTicks } from "./policy-ticks.js";
+import { RefusalLine } from "./refusal-line.js";
 
 /** The dialog a card has open: none, or one of its verbs'. */
 type Open = "certificate" | "sign-in" | "edit" | "sign-out" | "remove" | "copy" | null;
@@ -58,19 +60,38 @@ export const ConnectionCard = ({ environmentId, connection, writable, say }: Con
   const now = clock.now();
   const [open, setOpen] = useState<Open>(null);
   const [sending, setSending] = useState(false);
+  // A refusal is said on the card while the connection stands as it did when it was refused, and until another verb answers;
+  // once the connection stands otherwise it is dropped, so a standing that comes back later does not bring it back.
+  const standing = `${connection.status.kind} ${connection.status.since} ${connection.injects}`;
+  const [refusal, setRefusal] = useState<{ readonly outcome: KeyManagerOutcome & { readonly ok: false }; readonly standing: string }>();
+  if (refusal !== undefined && refusal.standing !== standing) setRefusal(undefined);
+  const refused = refusal?.standing === standing ? refusal.outcome : undefined;
+  const setRefused = (outcome: (KeyManagerOutcome & { readonly ok: false }) | undefined) => setRefusal(outcome === undefined ? undefined : { outcome, standing });
+  /** Says what a verb did in the pane, or its refusal on the card in plain words, its raw words under Details. */
+  const answer = (done: KeyManagerOutcome) => (done.ok ? say(done.line) : setRefused(done));
   /** Sends a verb answered in one line, taking no second press while it is on its way. */
-  const send = (verb: () => Promise<{ readonly line: string }>) => {
+  const send = (verb: () => Promise<KeyManagerOutcome>) => {
     setSending(true);
+    setRefused(undefined);
     void verb().then((done) => {
       setSending(false);
-      say(done.line);
+      answer(done);
     });
   };
   const sender = { runtime, clock };
   const kind = connection.status.kind;
   const awaiting = kind === "awaiting-sign-in";
   const close = () => setOpen(null);
-  const dialog = { environmentId, connection, close, say };
+  // What a dialog's verb did goes to the pane, and a refusal said before it is no longer the card's news.
+  const dialog = {
+    environmentId,
+    connection,
+    close,
+    say: (line: string) => {
+      setRefused(undefined);
+      say(line);
+    },
+  };
   const advice = KEY_MANAGER_STATUS_ADVICE[kind];
   return (
     <section data-access-card aria-labelledby={heading} className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-3">
@@ -108,11 +129,11 @@ export const ConnectionCard = ({ environmentId, connection, writable, say }: Con
         <Button icon={LogIn} label={awaiting ? "Sign in" : "Sign in again"} variant={SIGN_IN_FIXES.has(kind) ? "default" : "ghost"} disabled={!writable} onClick={() => setOpen("sign-in")}>
           {awaiting ? "Sign in" : "Sign in again"}
         </Button>
-        <Button icon={RefreshCw} label="Verify now" disabled={!writable || awaiting || sending} onClick={() => send(() => verifyConnection(runtime, environmentId, connection))}>
+        <Button icon={RefreshCw} label="Verify now" disabled={!writable || awaiting || sending} onClick={() => send(() => verifyConnection(runtime, environmentId, connection, "Verify now"))}>
           Verify now
         </Button>
         {!connection.injects && (
-          <Button icon={Plus} label="Inject its variables" disabled={!writable || sending} onClick={() => send(() => setInjected(sender, environmentId, connection))}>
+          <Button icon={Plus} label="Inject its variables" disabled={!writable || sending} onClick={() => send(() => setInjected(sender, environmentId, connection, "Inject its variables"))}>
             Inject its variables
           </Button>
         )}
@@ -132,7 +153,10 @@ export const ConnectionCard = ({ environmentId, connection, writable, say }: Con
           environmentId={environmentId}
           address={connection.address}
           close={close}
-          trust={(ca) => void updateConnection(sender, environmentId, connection, { ca }).then((updated) => say(updated.line))}
+          trust={(ca) => {
+            setRefused(undefined);
+            void updateConnection(sender, environmentId, connection, { ca }, "Trust this certificate").then(answer);
+          }}
         />
       )}
       {open === "sign-in" && <SignInAgain {...dialog} again={!awaiting} />}
@@ -140,6 +164,7 @@ export const ConnectionCard = ({ environmentId, connection, writable, say }: Con
       {open === "sign-out" && <ConfirmSignOut {...dialog} />}
       {open === "remove" && <ConfirmRemove {...dialog} />}
       {open === "copy" && <CopyConnection environmentId={environmentId} connection={connection} close={close} />}
+      {refused !== undefined && <RefusalLine line={refused.line} details={refused.details} />}
     </section>
   );
 };

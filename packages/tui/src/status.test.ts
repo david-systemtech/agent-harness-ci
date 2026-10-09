@@ -64,6 +64,19 @@ const statusLines = (app: RenderedApp): readonly [string, string] => {
 };
 
 describe("status line one", () => {
+  it.each([
+    { runChoice: { model: "retired-model", effort: null }, warning: "This stored model is not listed for this account." },
+    { runChoice: { model: "claude-opus-4", effort: "low" }, warning: "This stored effort is not listed for this model." },
+  ])("warns before a run about an unavailable stored choice $runChoice.model", async ({ runChoice, warning }) => {
+    const { app } = await opened([desk({
+      models: [{ accountId: "account-1", live: true, models: [{ id: "claude-opus-4", family: "opus", tier: 3, efforts: ["high"], label: "Opus 4" }] }],
+      sessions: [{ title: "Receipts", accountId: "account-1", runChoice }],
+    })]);
+    await app.waitFor("⚠ unavailable");
+    await app.waitFor(warning);
+    expect(statusLines(app)[0]).toContain("⚠ unavailable");
+  });
+
   it("names the environment, the session's account, model and effort, mode and containment, and the plan windows of its identity pooled across environments at the right", async () => {
     const { app, env } = await opened([desk(), { name: "laptop", reach: "paired", accounts: [{ id: "account-9", label: "work", identity: MILO }] }]);
     const { runId } = env.startRun(SESSION, "Fix the receipts", [], { model: "fable", effort: "high" });

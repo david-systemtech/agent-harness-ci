@@ -240,7 +240,7 @@ export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
       {found.flatMap(({ inventory }) =>
         inventory.memory.unmappable.map((folder) => <MemoryAssignment key={`${inventory.accountId}/${folder.folder}`} environmentId={environmentId} accountId={inventory.accountId} folder={folder} details={noticeDetails} />),
       )}
-      <StateImportSection environmentId={environmentId} needsRepair={false} />
+      <StateImportSection environmentId={environmentId} />
     </>
   );
 };

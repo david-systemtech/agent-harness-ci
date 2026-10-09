@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionModelSetPayload",
+  "type": "object",
+  "properties": {
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The model, by id."
+    },
+    "effort": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The effort; null for the model's own."
+    }
+  },
+  "required": [
+    "model",
+    "effort"
+  ],
+  "description": "session.model-set: a person chose the model and effort the session's next runs go out on (sessions.setModel)."
+}

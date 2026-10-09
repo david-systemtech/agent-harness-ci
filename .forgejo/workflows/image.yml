@@ -6,29 +6,51 @@
 # From david/ci's image template (templates/image.yml), narrowed: a push to
 # main builds nothing here, and only a `v` tag publishes, in release.yml. The
 # work is .forgejo/scripts/image.sh, tested by test/image-script.test.ts.
+#
+# Compare the complete PR head with its merge base against origin/main.
+# CLI/environment dependencies, the staged GUI, container/build/release inputs
+# and manifests require a build. GUI tests and gallery text are Tailwind CSS
+# inputs too; other tests, PNG gallery captures, desktop code and docs skip it.
+# The PR label `image` forces a build (including when added later).
+# Only the build step is conditional: a skip still succeeds as `image / image`
+# and prints "no image input changed: build skipped". Releases and main's smoke
+# builds are unconditional. See docs/agents/gallery.md beside the gallery rule.
 
 name: image
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, labeled]
 
 # A push to a pull request cancels the build of the head it replaces.
 concurrency:
-  group: image-${{ github.event.pull_request.number }}
+  group: image-${{ github.event.pull_request.number }}-${{ (github.event.label && github.event.label.name != 'image') && 'other-label' || 'build' }}
   cancel-in-progress: true
 
 jobs:
   image:
+    # Forgejo publishes skipped jobs too. Keep unrelated label events out of
+    # the canonical check so they cannot overwrite a pending or failed build.
+    name: ${{ (github.event.label && github.event.label.name != 'image') && 'other-label' || 'image' }}
+    # Other labels must neither start a build nor cancel one already running.
+    if: ${{ !github.event.label || github.event.label.name == 'image' }}
     runs-on: build
     timeout-minutes: 30
     steps:
       # Pinned to a commit, not a tag, as ci.yml's.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Decide whether image inputs changed
+        id: inputs
+        run: node .forgejo/scripts/image-inputs.mjs
 
       # The Dockerfile fetches dependencies through scripts/image-deps.sh,
       # which is kept in the public snapshot too.
       - name: Build the image and throw it away
+        if: steps.inputs.outputs.build == 'true'
         env:
           # Reads the SDK package linked to this repository. The token stays
           # outside Docker; the lockfile checks the supplied archive.

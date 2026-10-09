@@ -18,7 +18,7 @@ import { Button, Dialog, DialogTrigger, Tooltip } from "../ui/index.js";
 import { useFollowed, useObservable, useRuntime, useShell } from "../window-context.js";
 import { useHandoffPicker } from "./pane-dialogs.js";
 import { AccountPicker, ContainmentPicker, ModePicker, ModelPicker, RunPickerRequest, modeLabel, type RunPickerCommand } from "./pickers.js";
-import { useHandedOnto, useModelChoice } from "./run-choices.js";
+import { useHandedOnto } from "./run-choices.js";
 import { SessionBrowserPicker } from "../browser/session-picker.js";
 import { UsageMeter } from "./usage-meter.js";
 import { SessionContextMeter } from "./context-meter.js";
@@ -60,7 +60,6 @@ export const StatusLine = ({ environmentId, sessionId, compact = false }: Status
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const runs = useObservable(useMemo(() => runtime.projections.runs.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const permissions = useFollowed(useMemo(() => runtime.requests.cached(environmentId, "permissions.settings.get", {}), [runtime, environmentId]));
-  const [choice] = useModelChoice(environmentId, sessionId);
   const handedOnto = useHandedOnto(environmentId, sessionId);
   const accountId = projection.summary?.accountId ?? handedOnto ?? null;
   const recommendation = useFollowed(
@@ -72,7 +71,6 @@ export const StatusLine = ({ environmentId, sessionId, compact = false }: Status
     runState: runs.state,
     liveRunId: liveRunIdOf(projection, runs),
     ceiling,
-    choice,
     forkedOnto: handedOnto,
     containmentDefault: permissions?.result?.values["permissions.containment.default"],
     recommendation: recommendation?.result,
