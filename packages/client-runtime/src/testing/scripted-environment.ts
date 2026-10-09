@@ -871,6 +871,15 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     };
   };
   const attachmentsOf = (params: Record<string, unknown>) => (params["attachments"] as readonly AttachmentInput[] | undefined) ?? [];
+  /** The run's effort as the environment's decider takes it (#1950): the command's, its null the model's own; else `accounts.defaultEffort` where the model takes it. */
+  const effortOf = (sessionId: string, params: Record<string, unknown>): string | undefined => {
+    const asked = params["effort"];
+    if (asked !== undefined) return typeof asked === "string" ? asked : undefined;
+    const model = typeof params["model"] === "string" ? params["model"] : summaryNow(sessionId).model;
+    const preset = values["accounts.defaultEffort"];
+    if (preset === null) return undefined;
+    return (spec.models ?? []).some((catalogue) => catalogue.models?.some((entry) => entry.id === model && entry.efforts.includes(preset))) ? preset : undefined;
+  };
   wire.answer("runs.start", (params) => {
     const refused = rejection("runs.start");
     if (refused) return refused;
@@ -878,7 +887,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     if (live.has(sessionId)) {
       return { result: { receipt: { status: "rejected", sequence: ++sequence, changed: false, reason: "conflict", error: { code: "conflict", message: "A run is live.", data: { reason: "run_active" } } } } };
     }
-    const choice = { ...(typeof params["model"] === "string" && { model: params["model"] }), ...(typeof params["effort"] === "string" && { effort: params["effort"] }) };
+    const effort = effortOf(sessionId, params);
+    const choice = { ...(typeof params["model"] === "string" && { model: params["model"] }), ...(effort !== undefined && { effort }) };
     return acceptedWith(startRun(sessionId, String(params["text"]), attachmentsOf(params), choice));
   });
   wire.answer("runs.send", (params) => {

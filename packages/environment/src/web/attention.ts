@@ -43,5 +43,5 @@ export const webAttention = async (context: WebAttentionContext): Promise<{ read
     } catch { console.error(`Attention transport ${name} is unavailable.`); }
   }
   const dispatcher = createAttentionDispatcher({ ...context, transports });
-  return { handlers: { ...attentionMethods(dispatcher.store, transports, () => context.webOrigin() !== undefined), ...leafHandlers }, close: dispatcher.close };
+  return { handlers: { ...attentionMethods(dispatcher.store, transports, () => context.webOrigin() !== undefined, context.endpoints), ...leafHandlers }, close: dispatcher.close };
 };

@@ -144,8 +144,9 @@ it showed, so a waiting card is not covered (#1903); a pane a gesture asks for
 as it opens the session, as Set up's "Write it myself" Files, stays shown. In
 the phone layout that header control, a 44px target drawn while a hidden sheet
 has a pane to bring back, is the only way back besides More: no handle floats
-over the transcript (#1960). Outside the phone layout a column is restored as it
-was left, and a narrow pane's hidden sheet comes back from a handle at its edge.
+over the transcript (#1960). An authoring conversation uses its own header
+for that control and returns focus there when its sheet closes (#1977). Outside
+the phone layout a column is restored as it was left, and a narrow pane's hidden sheet comes back from a handle at its edge.
 Drawers/sheets trap and restore focus
 and close predictably. Long titles and labels wrap without page overflow.
 
@@ -156,7 +157,8 @@ in a bounded inner scroller with contained overscroll; Close, New session and
 footer actions stay reachable above the keyboard. At 390×480 visual bounds with
 offsetTop 120 in a tall layout, search/results and dismissal never scroll the
 document. Dismissal restores focus without a page jump. Selecting a result
-closes the drawer and preserves each session's draft and running work. New
+closes the drawer, returns focus to Show sessions without a page jump, and
+preserves each session's draft and running work. New
 session, the drawer's or an environment heading's, closes the drawer and leaves
 the focus in the new session's message box, not on the drawer's trigger. Selected,
 running and waiting rows and explicit touch actions remain readable at text 20.

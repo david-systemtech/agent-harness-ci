@@ -68,7 +68,8 @@ export interface RunStart {
   readonly text: string;
   readonly attachments?: readonly AttachmentInput[] | undefined;
   readonly model?: string | undefined;
-  readonly effort?: string | undefined;
+  /** Null for the model's own, whatever the default; the default's when absent. */
+  readonly effort?: string | null | undefined;
   readonly mode?: Mode | undefined;
   /** What the run's instructions carry after the composed ones: a completions request's own (#138). */
   readonly appendedInstructions?: string | undefined;
