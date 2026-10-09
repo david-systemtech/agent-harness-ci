@@ -23,7 +23,7 @@ export const planBanks = async (records: SourceBanks, options: PlanBanksOptions)
   const failed: StateImportFailure[] = [...records.failed];
   const previewRepairs = new Map<string, StateImportReEnter>();
   const keyOf = (sourceId: string) => ({ sourceKey, store: BANKS_STORE, sourceId });
-  const repair = (sourceId: string) => ({ label: `Bank "${sourceId}": BANK.md needs migration or repair`, step: "memory-bank" as const });
+  const repair = (sourceId: string) => ({ label: `Memory bank "${sourceId}" needs a repair`, step: "memory-bank" as const });
   const scopeOf = (bank: SourceBank, preview: boolean): "all" | string[] | null => {
     if (bank.reach === null || bank.reach === "all") return bank.reach;
     const ids = bank.reach.map((sourceId) => preview ? options.accountIds?.get(sourceId) : mappedTarget(log, { sourceKey, store: PROFILES_STORE, sourceId }));
@@ -85,7 +85,7 @@ export const planBanks = async (records: SourceBanks, options: PlanBanksOptions)
       const entry = banks.entries().find(({ entry }) => entry.id === id)?.entry;
       if (entry !== undefined) {
         if (entry.enabled && entry.status.manifest.state !== "valid") lines.push(repair(bank.sourceId));
-        else if (entry.enabled && (entry.status.reachable.state !== "reachable" || entry.status.orientation.missing.length > 0 || entry.status.owners.unresolved.length > 0)) lines.push({ label: `Bank "${bank.sourceId}": verification needs repair`, step: "memory-bank" });
+        else if (entry.enabled && (entry.status.reachable.state !== "reachable" || entry.status.orientation.missing.length > 0 || entry.status.owners.unresolved.length > 0)) lines.push({ label: `Memory bank "${bank.sourceId}" did not pass its check`, step: "memory-bank" });
       } else if (preview && id === undefined && previewRepairs.has(bank.sourceId)) lines.push(previewRepairs.get(bank.sourceId)!);
     }
     return lines;
