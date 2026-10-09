@@ -58,7 +58,7 @@ const Preference = ({ name, detail, icon: Icon, control }: { readonly name: stri
 
 /** Light or dark's choices, in the order drawn, and their words. */
 const LIGHT_OR_DARK_CHOICES: readonly (readonly [LightOrDark, string])[] = [
-  ["system", "The OS's"],
+  ["system", "Match my computer"],
   ["light", "Light"],
   ["dark", "Dark"],
 ];
@@ -80,7 +80,7 @@ export const LightOrDarkPreference = () => {
     <Preference
       name="Light or dark"
       icon={Monitor}
-      detail="This client's own: the theme's light or dark ladder, or the one the OS prefers, followed as it switches."
+      detail="This applies to this device only."
       control={(label) => (
         <div role="radiogroup" aria-labelledby={label} className="flex flex-wrap gap-0.5 rounded-md border border-hairline bg-inset p-0.5 text-xs text-ink">
           {LIGHT_OR_DARK_CHOICES.map(([value, words]) => {
