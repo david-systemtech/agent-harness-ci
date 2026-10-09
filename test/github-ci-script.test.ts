@@ -703,7 +703,7 @@ it("runs gallery independently and preserves geometry failures as blocking check
   expect(relayWorkflow).toContain("timeout-minutes: 55");
   expect(relayWorkflow).toContain("PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
   expect(relayWorkflow).not.toMatch(/^ {4}paths:/m);
-  expect(relayWorkflow).toContain("types: [opened, synchronize, reopened, labeled, unlabeled]");
+  expect(relayWorkflow).toContain("types: [opened, synchronize, reopened, labeled]");
   expect(relayWorkflow).toContain("GH_CI_BASE: ${{ github.event.pull_request.base.sha }}");
   expect(ci).not.toContain("GH_CI_EVENT: gallery");
 });
