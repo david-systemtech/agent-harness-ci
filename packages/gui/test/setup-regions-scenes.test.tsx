@@ -34,6 +34,8 @@ it.each(["light", "dark"] as const)("shows six bounded setup regions in %s", asy
       expect(screen.getByText("Agents now use your Chrome.")).toBeDefined();
     }
     if (name === "setup-carry-over") {
+      expect(screen.getByText("Project has past chats to bring over. Choose Bring them over.")).toBeDefined();
+      expect(screen.queryByText("Everything is already here.")).toBeNull();
       expect(screen.getByText("Project: 24 past chats, 7 notes folders, 7 skills.")).toBeDefined();
       expect(screen.getByRole("button", { name: "Bring them over" })).toBeDefined();
       expect(screen.getByRole("button", { name: "What will come over" })).toBeDefined();
@@ -44,6 +46,8 @@ it.each(["light", "dark"] as const)("shows six bounded setup regions in %s", asy
       expect(screen.getByText("You can continue.")).toBeDefined();
     }
     if (name === "setup-carry-over-after") {
+      expect(screen.getByText("1 item from Project did not come over. Choose Try again.")).toBeDefined();
+      expect(screen.queryByText("Everything is already here.")).toBeNull();
       const after = within(screen.getByRole("region", { name: "What came over" }));
       expect(after.getByText("Brought over 23 chats and 1 notes folder.")).toBeDefined();
       expect(after.getByText("1 item from Project did not come over.")).toBeDefined();

@@ -196,6 +196,17 @@ async function prepareRegion(kind: SetupRegion) {
     ...(isBrowserRegion(kind) && { setup: { browser: BROWSER_RESULTS[kind] } }),
   }] }, { firstLaunch: true });
   const desk = prepared.world.environment("desk");
+  const carryOverStatus = (leftBehind: boolean) => {
+    const account = desk.accounts()[0]!;
+    desk.setSetup({ "carry-over": {
+      state: "needs-attention",
+      reason: leftBehind ? `1 item from ${account.label} did not come over. Choose Try again.` : `${account.label} has past chats to bring over. Choose Bring them over.`,
+      failing: ["carry-over.last-import"], actions: ["import-again"],
+      targets: [{ action: "import-again", kind: "account", id: account.id, label: account.label }],
+    } });
+    desk.passSetup(["carry-over"]);
+  };
+  if (kind === "carry-over" || kind === "carry-over-after") carryOverStatus(false);
   if (target === "instructions") scriptInstructions(desk, kind === "instructions-unread" ? ["forges", "banks"] : []);
   desk.wire.answer("browser.status", () => ({ result: {
     listener: { state: "listening", port: 47615 }, folder: { path: "/extension/current", problem: null }, shippedVersion: "0.1.0", unpairedConnected: kind === "browser-code",
@@ -217,6 +228,7 @@ async function prepareRegion(kind: SetupRegion) {
   });
   desk.wire.answer("carryOver.run", (params) => {
     brought = true;
+    if (kind === "carry-over-after") carryOverStatus(true);
     return { result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: broughtOver(String(params["accountId"])) } };
   });
   const holders = await startWorld(prepared, prepared.paired);
