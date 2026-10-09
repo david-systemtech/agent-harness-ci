@@ -47,7 +47,7 @@ export const useStartNewSession = (): StartNewSession => {
   const shown = (id: string | undefined) => {
     if (id === undefined) return;
     settings.close();
-    if (phone.narrow) phone.showDrawer(false);
+    if (phone.narrow) phone.showDrawer(false, { restoreFocus: false });
     askFocus(id);
   };
   return {
