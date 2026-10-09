@@ -233,6 +233,8 @@ export type {
   AccountPresetReason,
   BrowserChip,
   BrowserPresetReason,
+  EffortChip,
+  EffortPresetReason,
   EnvironmentChip,
   EnvironmentOption,
   EnvironmentPresetReason,

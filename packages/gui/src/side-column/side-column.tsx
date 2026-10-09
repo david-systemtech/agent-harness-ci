@@ -56,8 +56,8 @@ export interface SideColumnViewProps {
  * terminal, keeping the one it draws, and its close button closes that
  * terminal too (#409).
  *
- * A narrow pane brings back its hidden sheet from a handle at its edge; a phone frame's pane
- * (`restoreInHeader`) leaves that to the header's control, so nothing covers its transcript (#1960).
+ * A narrow pane brings back its hidden sheet from a handle at its edge; a phone pane
+ * (`restoreInHeader`) leaves that to its authoring or window header, so nothing covers its transcript (#1960, #1977).
  */
 export const SideColumnView = ({ environmentId, sessionId, restoreInHeader = false }: SideColumnViewProps & { readonly restoreInHeader?: boolean }) => {
   const runtime = useRuntime();
@@ -162,8 +162,11 @@ export const SideColumnView = ({ environmentId, sessionId, restoreInHeader = fal
         sheet.current?.querySelector<HTMLButtonElement>('[aria-label="Close side sheet"]')?.focus();
       }
     } else if (wasVisible.current) {
-      if (narrow && column.hidden && shown !== null) (restoreInHeader ? document.querySelector<HTMLElement>("[data-window-header] [data-dock-reopen]") : reopen.current)?.focus();
-      else if (opener.current?.isConnected) opener.current.focus();
+      if (narrow && column.hidden && shown !== null) {
+        const headerControl = host.current?.parentElement?.querySelector<HTMLElement>("[data-authoring-header] [data-dock-reopen]")
+          ?? document.querySelector<HTMLElement>("[data-window-header] [data-dock-reopen]");
+        (restoreInHeader ? headerControl : reopen.current)?.focus();
+      } else if (opener.current?.isConnected) opener.current.focus();
       else host.current?.parentElement?.querySelector<HTMLElement>('[aria-label="Message"]')?.focus();
     }
     wasVisible.current = visibleSheet;

@@ -29,7 +29,7 @@ const REASONS: readonly (readonly [code: string, reasons: readonly string[]])[] 
   ["forbidden", FORBIDDEN_REASONS],
   ["unavailable", ["starting", "draining"]],
   ["verification_failed", KEY_MANAGER_VERIFICATION_FAILURES],
-  ["conflict", [...UPDATE_CONFLICT_REASONS, ...BANK_CONFLICT_REASONS, ...ROUTINE_CONFLICT_REASONS, ...TOOL_RUN_CONFLICT_REASONS, ...FILE_UNDO_CONFLICT_REASONS, "target_exists"]],
+  ["conflict", [...UPDATE_CONFLICT_REASONS, ...BANK_CONFLICT_REASONS, ...ROUTINE_CONFLICT_REASONS, ...TOOL_RUN_CONFLICT_REASONS, ...FILE_UNDO_CONFLICT_REASONS, "target_exists", "no_source", "import_in_progress"]],
 ];
 
 /** A line of its own that says nothing raw: no code in snake case, no braces, no member names, no "params". */

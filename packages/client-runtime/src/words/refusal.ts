@@ -122,6 +122,9 @@ const REASONS: Readonly<Record<string, Readonly<Record<string, Words>>>> = {
     no_launcher: said(`${PRODUCT_NAME} cannot update itself here. Update it the way it was installed.`),
     not_outside: said("This computer's updates are not run by an outside updater."),
     not_ready: (verb) => `That update is not ready yet. Wait for it, then choose ${verb}.`,
+    // Bringing over earlier work or past chats (stateImport.run, carryOver.run).
+    no_source: said("No earlier work is on this computer any more."),
+    import_in_progress: said("Bringing over is under way already. Wait for it to finish."),
     // A memory bank's.
     exists: EXISTS,
     name_taken: said("That name is taken. Choose another name."),

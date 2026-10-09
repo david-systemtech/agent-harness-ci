@@ -159,8 +159,8 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
       }
       pending.update(held => ({ ...held, environmentId }));
     }
-    const effort = model !== null && chips.model === model.id && chips.effort != null && model.efforts.includes(chips.effort) ? chips.effort : null;
-    const sent = await sendMessage(runtime, environmentId, id, input, false, chips.effort !== undefined && model !== null ? { model: model.id, effort } : undefined);
+    // An effort chosen on the chips goes with the first message, its own effort as null; the default's is the environment's to apply (#1950).
+    const sent = await sendMessage(runtime, environmentId, id, input, false, view.effort.reason === "chosen" && model !== null ? { model: model.id, effort: view.effort.value } : undefined);
     if (!sent.ok) {
       runtime.drafts.set(environmentId, id, pending.read().text);
       setStarting(false);
@@ -227,7 +227,7 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
         </KeyContext>
         <div role="group" aria-label="Where it starts" className="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-1">
           <fieldset disabled={starting || creationAccepted} className="contents">
-            {CHIPS.map((Chip, at) => <Chip key={at} view={view} sessionId={id} effort={view.model.value !== null && chips.model === view.model.value.id && chips.effort != null && view.model.value.efforts.includes(chips.effort) ? chips.effort : null} choose={choose} say={say} />)}
+            {CHIPS.map((Chip, at) => <Chip key={at} view={view} sessionId={id} choose={choose} say={say} />)}
           </fieldset>
           {creationAccepted && !starting && <p className="w-full text-xs text-ink-muted">The session was created with these choices. Send again to retry its first message.</p>}
         </div>

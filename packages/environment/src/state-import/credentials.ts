@@ -5,6 +5,7 @@ import type { EventLog } from "../event-log/event-log.js";
 import { derivedUuid, mappedTarget, type ImportItem, type ItemKey } from "./items.js";
 import { bankRemote, readCredentialStores, type SourceCredential } from "./source/credentials.js";
 import type { StoreSnapshot } from "./source/stores.js";
+import { unreadStore } from "./failures.js";
 
 export interface CredentialsPlan {
   readonly stores: readonly { readonly snapshot: StoreSnapshot; readonly dependencies?: readonly StoreSnapshot[]; readonly label: string; readonly items: readonly ImportItem[] }[];
@@ -24,7 +25,7 @@ export const planCredentials = async (sourceKey: string, log: EventLog, forge: F
   const checkoutSnapshots: StoreSnapshot[] = [];
   const blocked = new Set<string>();
   for (const [label, store] of [["Bank registry", banks], ["Bank credentials", tokens], ["Key-manager connections", connections]] as const) {
-    if (store.status === "failed") failed.push({ label, message: store.diagnostic });
+    if (store.status === "failed") failed.push(unreadStore(label, store.diagnostic));
   }
   if (connections.status === "read") {
     for (const connection of connections.records.entries) {

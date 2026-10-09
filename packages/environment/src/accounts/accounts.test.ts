@@ -122,9 +122,9 @@ const adoptAmbient = async (client: WireClient, label?: string) => {
   return (await applied(client, "accounts.adopt", label === undefined ? {} : { label })).account;
 };
 
-/** Starts a run on the session; throws unless it was accepted. */
-const startRun = async (client: WireClient, sessionId: string): Promise<void> => {
-  const answer = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId, text: "Go" }));
+/** Starts a run on the session, with the model and effort `asked` names; throws unless it was accepted. */
+const startRun = async (client: WireClient, sessionId: string, asked: { readonly model?: string; readonly effort?: string | null } = {}): Promise<void> => {
+  const answer = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId, text: "Go", ...asked }));
   if (answer.result === undefined) throw new Error(`runs.start was not applied: ${JSON.stringify(answer.receipt)}`);
 };
 
@@ -654,6 +654,23 @@ describe("the default account and the Account step's settings keys", () => {
     // The default account removed, the first the environment still holds stands in.
     await applied(client, "accounts.remove", { accountId: "second" });
     expect(await runOnce()).toMatchObject({ account: "first" });
+  });
+
+  it("runs a command asking effort null at the model's own effort, though accounts.defaultEffort is set (#1950)", async () => {
+    const t = await startTestEnvironment({ accounts: [{ id: "first", provider: "fake" }] });
+    onCleanup(() => t.close());
+    const client = await t.client();
+    await client.request("settings.update", { commandId: randomUUID(), values: { "accounts.defaultEffort": "high" } });
+    const runAsking = async (asked: { readonly model?: string; readonly effort?: string | null }): Promise<string | null> => {
+      const { id } = await create(client);
+      const before = t.adapter.runs.length;
+      await startRun(client, id, asked);
+      await vi.waitFor(() => expect(t.adapter.runs.length).toBe(before + 1));
+      return t.adapter.lastRun().input.effort;
+    };
+    expect(await runAsking({ model: "opus" })).toBe("high");
+    expect(await runAsking({ model: "opus", effort: null })).toBeNull();
+    expect(await runAsking({ model: "opus", effort: "low" })).toBe("low");
   });
 
   it("carries over #119's configured accounts only into a store that has never held one", async () => {
