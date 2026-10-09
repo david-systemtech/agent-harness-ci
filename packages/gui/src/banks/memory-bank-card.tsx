@@ -99,6 +99,10 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
   const [removing, setRemoving] = useState<BankRecord>();
   const [updates, setUpdates] = useState<Record<string, MemoryPromoteResult | null>>({});
   const verified = forges.result?.accounts.filter((account) => account.identity !== null && account.problem === null) ?? [];
+  const main = forges.result?.accounts.find((account) => account.primary);
+  /** Why a notebook cannot move to the main forge yet, as the environment would refuse it (setup-copy.md §5.8). */
+  const mainHeld = main === undefined ? "Choose your main forge before you move this notebook to it."
+    : main.identity === null || main.problem !== null ? `Your account on ${hostOf(main.origin)} needs a fix first.` : undefined;
   const command = runtime.capability(environmentId, mode === "join" ? "banks.join" : "banks.create");
   const publication = runtime.capability(environmentId, "banks.publish");
   const validatorUpdate = runtime.capability(environmentId, "banks.validator.update");
@@ -177,8 +181,8 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
         </div>
         {bank.location.kind === "local" && <div className="flex flex-col items-start gap-2">
           <p>{bank.name} is on this computer only. Move it to your forge to use it on other computers too.</p>
-          <BankButton label="Move to your forge" icon={Upload} disabled={busy} reason={publication.status === "absent" ? publication.message : !verified.some((forge) => forge.primary) ? "Choose your main forge before you move this notebook to it." : undefined} onClick={() => void publish(bank.id)} />
-          {publication.status === "present" && !verified.some((forge) => forge.primary) && <GoToForges environmentId={environmentId} />}
+          <BankButton label="Move to your forge" icon={Upload} disabled={busy} reason={publication.status === "absent" ? publication.message : mainHeld} onClick={() => void publish(bank.id)} />
+          {publication.status === "present" && mainHeld !== undefined && <GoToForges environmentId={environmentId} />}
         </div>}
         {bank.validator?.needsUpdate && <div className="flex flex-col items-start gap-2">
           <p>{bank.name} uses an older copy of the notebook rules.</p>

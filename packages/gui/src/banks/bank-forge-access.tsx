@@ -26,9 +26,9 @@ export interface BankCheck {
 /**
  * Why a notebook cannot be reached, in one plain line by its cause, never cut,
  * what the check saw in Details, with Check again beside it (setup-copy.md
- * §5.8): when no forge account here covers its forge, that it needs one here,
- * or that another computer's is connected there, not here, either with Go to
- * Forges. Once an account here covers it, the plain line until the next
+ * §5.8, one cause per notebook): when the check found no forge account and
+ * none here covers its forge, that it needs one here, or that another
+ * computer's is connected there, not here, either with Go to Forges. Once an account here covers it, the plain line until the next
  * check. A bank's forge access belongs to its own environment.
  */
 export const BankForgeAccess = ({ environmentId, bank, accounts, check }: {
@@ -43,7 +43,7 @@ export const BankForgeAccess = ({ environmentId, bank, accounts, check }: {
   const covered = accounts === undefined || location.kind !== "remote" ? undefined : accountFor(location.origin, accounts) !== null;
   const forgeLine = reachable.cause === "no-forge-account" && location.kind === "remote";
   return <>
-    {covered === false && location.kind === "remote"
+    {covered === false && forgeLine && location.kind === "remote"
       ? <MissingBankForge environmentId={environmentId} name={name} origin={location.origin} details={details} />
       : <>
         <BankRefusal refusal={{ line: covered === true && forgeLine ? cannotReach(name) : unreachableLine(bank), details }} />

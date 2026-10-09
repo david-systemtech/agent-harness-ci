@@ -4,9 +4,10 @@ import type { BankRecord } from "@agent-harness/contracts";
 /**
  * The codes whose refusals the environment's notebook methods word in
  * setup-copy.md §5.8 (creating, joining, previewing, moving and describing a
- * notebook): their message is the plain line, their `details` the raw facts.
+ * notebook, a preview keeping the forge's own code on its line): their message
+ * is the plain line, their `details` the raw facts.
  */
-const WORDED: ReadonlySet<string> = new Set(["invalid_params", "not_found", "conflict", "unreachable", "verification_failed", "kind_unsupported", "validation_failed", "bank_read_only", "secret_shaped"]);
+const WORDED: ReadonlySet<string> = new Set(["invalid_params", "not_found", "conflict", "unreachable", "verification_failed", "kind_unsupported", "validation_failed", "bank_read_only", "secret_shaped", "forge_account_missing", "credential_unavailable", "no_primary_forge"]);
 
 /**
  * A notebook refusal in plain words (setup-copy.md §5.8 "Refusals"): the

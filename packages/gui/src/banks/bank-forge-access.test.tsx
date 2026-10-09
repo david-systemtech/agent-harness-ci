@@ -12,7 +12,7 @@ const bank: BankRecord = {
   defaultFor: [], pins: [], mergeOverride: "none", privateCopy: false, credential: "forge", importedFrom: null,
   copiedFrom: null, createdAt: since, memories: 0, folders: 0, line: null, sharedAliases: [],
   status: {
-    reachable: { state: "unreachable", since, reason: `agent-harness needed a forge for forge.example.test:5526 and found none. Add forge.example.test:5526. (${origin}: it refused an anonymous read (HTTP 403))` },
+    reachable: { state: "unreachable", since, reason: `agent-harness needed a forge for forge.example.test:5526 and found none. Add forge.example.test:5526. (${origin}: it refused an anonymous read (HTTP 403))`, cause: "no-forge-account" },
     manifest: { state: "invalid", rule: "manifest_fact_missing", since, message: "BANK.md lacks entities." },
     orientation: { missing: [], since }, owners: { unresolved: [], since }, lastSync: null,
     landing: { state: "ok", since },
@@ -53,23 +53,25 @@ it("explains an account held on another environment and opens Forges on the bank
 });
 
 it.each([
-  "its repository at /banks/project-memory is not there",
-  "The repository owner/project-memory does not exist on the forge.",
-])("preserves the reachability failure alongside another environment's account: %s", async (reason) => {
+  ["folder-missing", "its repository at /banks/project-memory is not there", "project-memory's folder on this computer is missing."],
+  ["repository-missing", "The repository owner/project-memory does not exist on the forge.", "The repository for project-memory is missing on forge.example.test:5526."],
+  [undefined, `${origin} did not answer: connect ECONNREFUSED`, "agent-harness cannot reach project-memory. Choose Check again."],
+] as const)("says the check's own cause (%s), not a forge account, though no account here covers the forge and another computer's does", async (cause, reason, line) => {
   const app = await renderApp({ environments: [
     { name: "desk", reach: "local", capabilities: ["banks", "forge", "setup"], accounts: [{ label: "Project" }], forges: { accounts: [] } },
     { name: "server", reach: "paired", capabilities: ["forge"], forges: { accounts: [{ origin, kind: "forgejo" }] } },
   ] }, {}, (world) => {
-    world.environment("desk").wire.answer("banks.list", () => ({ result: { banks: [{ ...bank, status: { ...bank.status, reachable: { state: "unreachable", since, reason } } }] } }));
+    world.environment("desk").wire.answer("banks.list", () => ({ result: { banks: [{ ...bank, status: { ...bank.status, reachable: { state: "unreachable", since, reason, ...(cause !== undefined && { cause }) } } }] } }));
   });
   await app.user.click(screen.getByRole("button", { name: "Settings" }));
   await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
   const card = await screen.findByRole("region", { name: bank.name });
-  expect(await within(card).findByText(/is connected on server, not here\./)).toBeDefined();
+  await waitFor(() => expect(app.environment("desk").requests("forge.accounts.list").length).toBeGreaterThan(0));
+  expect((await within(card).findByRole("alert")).textContent).toBe(`Error: ${line}`);
   expect(within(card).getByText(`project-memory: ${reason}`)).toBeDefined();
-  expect(within(card).queryByText(/to reach it/)).toBeNull();
+  expect(within(card).queryByText(/is connected on server|needs a forge account/)).toBeNull();
+  expect(within(card).queryByRole("button", { name: "Go to Forges" })).toBeNull();
   expect(within(card).getByText("Description: has a problem")).toBeDefined();
-  expect(within(card).getByRole("button", { name: "Go to Forges" })).toBeDefined();
 });
 
 const cases: readonly [string, Partial<ForgeAccountRecord>, boolean, boolean?][] = [

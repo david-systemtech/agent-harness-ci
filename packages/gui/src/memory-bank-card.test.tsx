@@ -364,6 +364,29 @@ describe("the Memory bank card", () => {
     expect(app.shell.calls).toContainEqual(["openExternal", pullRequest]);
   });
 
+  it.each([
+    ["forge_account_missing", "agent-harness cannot see a notebook at this link. If it is private, add a forge for github.com first."],
+    ["credential_unavailable", "Your account on github.com needs a fix first."],
+  ])("says a preview the forge refused with %s in the environment's §5.8 line, the forge's words in Details", async (code, line) => {
+    const { app, desk, card } = await open();
+    desk.wire.answer("banks.join.preview", () => ({ error: { code, message: line, data: { origin: "https://github.com", step: "forges", details: ["The forge asked for a credential."] } } }));
+    await app.user.click(await within(card).findByRole("radio", { name: "Join my team's notebook" }));
+    await app.user.type(within(card).getByRole("textbox", { name: "Notebook link" }), "https://github.com/platform/team-memory");
+    await app.user.click(within(card).getByRole("button", { name: "Preview" }));
+    expect((await within(card).findByRole("alert")).textContent).toBe(`Error: ${line}`);
+    expect(within(card).getByRole("region", { name: "Details" }).textContent).toContain("The forge asked for a credential.");
+  });
+
+  it("holds Move to your forge with the main forge's needs-a-fix line, not Choose your main forge, when its account has a problem", async () => {
+    const notes = bank({ commandId: "0199aa00-0000-7000-8000-000000000001", bankId: "0199aa00-0000-4000-8000-000000000002", name: "notes", creation: { kind: "personal", localOnly: true, org: "personal", project: "harness" } });
+    const { card } = await open({ forges: { accounts: [{ problem: { kind: "credential-rejected", since, message: "Sign in again." } }] } }, [notes]);
+    const row = await within(card).findByRole("region", { name: "notes" });
+    expect(await within(row).findByText("Your account on github.com needs a fix first.")).toBeDefined();
+    expect(within(row).queryByText("Choose your main forge before you move this notebook to it.")).toBeNull();
+    expect((within(row).getByRole("button", { name: "Move to your forge" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(row).getByRole("button", { name: "Go to Forges" })).toBeDefined();
+  });
+
   it("joins in §5.8's words: a link the forge account cannot read, and the environment's refusal of a bad link", async () => {
     const { app, desk, card } = await open();
     const preview: BankJoinPreview = {
