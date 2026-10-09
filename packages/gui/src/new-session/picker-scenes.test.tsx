@@ -3,13 +3,13 @@ import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 import { mountGallery } from "../../gallery/mount.js";
 import { discoverScenes, type SceneModule } from "../../gallery/scene-registry.js";
 
-/** The new-session picker's gallery scenes (#1894): the model chip open on the desktop, and the model and account chips on a phone. */
+/** The new-session picker's gallery scenes (#1894): the model chip open on the desktop, with the environment's default effort too (#1950), and the model and account chips on a phone. */
 
 let close: (() => Promise<void>) | undefined;
 afterEach(async () => { await close?.(); close = undefined; vi.restoreAllMocks(); document.body.replaceChildren(); });
 
 const scenes = discoverScenes(import.meta.glob<SceneModule>([
-  "../../gallery/scenes/new-session-picker.tsx", "../../gallery/scenes/phone-new-session-picker-models.tsx", "../../gallery/scenes/phone-new-session-picker-accounts.tsx",
+  "../../gallery/scenes/new-session-picker.tsx", "../../gallery/scenes/new-session-picker-default-effort.tsx", "../../gallery/scenes/phone-new-session-picker-models.tsx", "../../gallery/scenes/phone-new-session-picker-accounts.tsx",
 ], { eager: true }));
 const rows = (group: HTMLElement) => within(group).getAllByRole("menuitem").map((item) => item.getAttribute("aria-label"));
 const rings = (row: HTMLElement) => within(row).queryAllByRole("img").map((ring) => ring.getAttribute("aria-label"));
@@ -39,6 +39,13 @@ it("opens the model chip on the desktop with the accounts' rings, the recommende
   const accounts = within(menu).getByRole("group", { name: "Accounts" });
   expect(rings(within(accounts).getByRole("menuitem", { name: /^Work/ }))).toEqual(["5-hour 42%", "Weekly 67%"]);
   expect(rings(within(accounts).getByRole("menuitem", { name: /^Spare/ }))).toEqual([]);
+});
+
+it("opens the model chip on the desktop with the environment's default effort ticked, and the chip reading it (ticket 1950)", async () => {
+  await mount("new-session-picker-default-effort");
+  const efforts = within(screen.getByRole("menu", { name: "Run choices" })).getByRole("group", { name: "Effort" });
+  expect(within(efforts).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["its own effort", "Low", "Medium", "Highthe default effort"]);
+  expect(document.querySelector("[data-new-session-chip][aria-label^='Model:']")?.getAttribute("aria-label")).toBe("Model: Fable 5.1 - High");
 });
 
 it("opens the model chip on a phone as one column of the sheet", async () => {
