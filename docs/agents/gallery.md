@@ -11,6 +11,13 @@ Other changes succeed with `no GUI change: gallery skipped`, without dispatching
 a hosted render or posting a screenshot comment. Add the `gallery` label to
 force a render; adding or removing that label reevaluates the decision.
 
+Events for the same PR head queue in Forgejo instead of cancelling one another.
+Forgejo publishes cancellation statuses outside the relay script; cancelling an
+older run could otherwise overwrite a replacement's success on the same head.
+Each new head has its own queue and hosted capture group, so queued work for an
+older head cannot cancel a newer head's captures. Label changes can wait for the
+active gallery to finish before their result appears.
+
 The hosted gallery workflow remains unchanged and installed byte for byte on
 the relay repository. The decision happens before dispatch. A PR changing this
 rule must render because gallery machinery is an input; `pull_request_target`
