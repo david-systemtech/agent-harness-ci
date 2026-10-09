@@ -1,7 +1,7 @@
 import { createPortal } from "react-dom";
 import { usePickedEnvironment, useSettings } from "../settings/settings-window.js";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { writable } from "@agent-harness/client-runtime";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { writable, type ConnectionRecord } from "@agent-harness/client-runtime";
 import type { AttentionTargetInput, AttentionTargetStatus } from "@agent-harness/contracts";
 import { Button } from "../ui/button.js";
 import { useClock, useObservable, usePresentation, useRuntime } from "../window-context.js";
@@ -19,7 +19,7 @@ export interface PushBrowser {
   unsubscribe(expected?: PushSubscriptionData): Promise<void>;
 }
 export interface PushFeatures { readonly secure: boolean; readonly supported: boolean; readonly ios: boolean; readonly standalone: boolean }
-interface PushActions { key(): Promise<string>; registered(): Promise<boolean>; set(subscription: PushSubscriptionData): Promise<void>; remove(): Promise<void>; test(): Promise<"sent" | "retry" | "retire"> }
+interface PushActions { key(): Promise<string>; registered(): Promise<boolean>; set(subscription: PushSubscriptionData, label?: string): Promise<void>; remove(): Promise<void>; test(): Promise<"sent" | "retry" | "retire"> }
 export type PushState = "disabled" | "ready" | "denied" | "unavailable" | "install";
 
 const ENABLED_AT = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
@@ -61,6 +61,23 @@ export class PushController {
       this.state.update(state => ({ ...state, busy: false, line: "Could not enable push. Check your connection and browser settings; use the fallback below." }));
     }
   }
+  /**
+   * Registers this browser for a client session that replaced the one push was enabled for, under the label it had (#1959):
+   * the subscription the browser holds, else a new one while permission stands. False, push left off, when neither can be had.
+   */
+  async carryOver(label: string | undefined): Promise<boolean> {
+    if (this.read().busy || !["disabled", "ready"].includes(this.read().status)) return false;
+    this.state.update(state => ({ ...state, busy: true, line: undefined }));
+    try {
+      if (this.browser.permission() !== "granted") throw new Error("Permission unavailable.");
+      await this.actions.set(await this.browser.subscription() ?? await this.browser.subscribe(await this.actions.key()), label);
+      this.state.set({ status: "ready", busy: false });
+      return true;
+    } catch {
+      this.state.set({ status: "disabled", busy: false });
+      return false;
+    }
+  }
   async disable(): Promise<void> {
     if (this.read().busy) return;
     this.state.update(state => ({ ...state, busy: true, line: undefined }));
@@ -95,16 +112,24 @@ export class PushController {
   }
 }
 
+/** Why push cannot be enabled here, and what the last action said. */
+const PushStateLines = ({ controller }: { readonly controller: PushController }) => {
+  const state = useSyncExternalStore(controller.subscribe, controller.read);
+  return <>
+    {state.status === "install" && <p role="status">Add this client to your Home Screen and open its icon before enabling push.</p>}
+    {state.status === "unavailable" && <p role="status">Push is unavailable. Use HTTPS and a browser with service workers, Push and Notifications enabled.</p>}
+    {state.status === "denied" && <p role="status">Permission was refused. Change this site's notification permission in browser or OS settings, then reload to try again.</p>}
+    {state.line && <p role="status">{state.line}</p>}
+  </>;
+};
+
 export const PushControls = ({ controller, admin, fallback, onFallback }: { readonly controller: PushController; readonly admin: boolean; readonly fallback: readonly AttentionTargetStatus[]; readonly onFallback?: (id: string) => void }) => {
   const state = useSyncExternalStore(controller.subscribe, controller.read);
   return <section data-phone-push aria-label="Web Push" className="flex min-w-0 flex-col gap-3 break-words rounded-lg border border-hairline bg-panel p-3 text-base">
     <h2 className="font-semibold">Web Push</h2>
     <p>Get a generic “A session needs you” notification while this client is closed. No prompt, transcript or credentials are sent. Turn on your private network connection when opening the session.</p>
     <p className="text-ink-muted">On iOS and iPadOS 16.4 or later, push needs a Home Screen web app. In Safari, tap Share, Add to Home Screen, then open its icon and Enable push. Pairing storage may be separate from this tab.</p>
-    {state.status === "install" && <p role="status">Add this client to your Home Screen and open its icon before enabling push.</p>}
-    {state.status === "unavailable" && <p role="status">Push is unavailable. Use HTTPS and a browser with service workers, Push and Notifications enabled.</p>}
-    {state.status === "denied" && <p role="status">Permission was refused. Change this site's notification permission in browser or OS settings, then reload to try again.</p>}
-    {state.line && <p role="status">{state.line}</p>}
+    <PushStateLines controller={controller} />
     <div className="flex flex-wrap gap-2">
       {(state.status === "disabled" || state.status === "ready") && <Button className="h-11" title="Enable push" disabled={state.busy} onClick={() => { void controller.enable(); }}>Enable push</Button>}
       {state.status === "ready" && <><Button className="h-11" title="Test push" disabled={state.busy} onClick={() => { void controller.test(); }}>Test push</Button><Button className="h-11" title="Disable push" disabled={state.busy} onClick={() => { void controller.disable(); }}>Disable push</Button></>}
@@ -142,10 +167,11 @@ const browserPush = (): PushBrowser => {
     },
   };
 };
-const ConnectedPush = ({ environmentId, sessionId }: { readonly environmentId: string; readonly sessionId: string | undefined }) => {
+const pushFeatures = (): PushFeatures => ({ secure: window.isSecureContext, supported: "serviceWorker" in navigator && "PushManager" in window && "Notification" in window, ios: /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1), standalone: window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true });
+/** This client session's own push registration in `environmentId`, by its id, and the controller that manages it. */
+const usePushController = (environmentId: string, sessionId: string | undefined) => {
   const runtime = useRuntime();
   const clock = useClock();
-  const answer = useObservable(useMemo(() => runtime.requests.cached(environmentId, "attention.targets.list", {}), [runtime, environmentId]));
   const clientId = useObservable(runtime.connections.list).find(record => record.environmentId === environmentId)?.clientSessionId;
   const id = `push-${clientId ?? "unpaired"}`;
   const controller = useMemo(() => {
@@ -156,18 +182,24 @@ const ConnectedPush = ({ environmentId, sessionId }: { readonly environmentId: s
       if (!result.ok || result.result.receipt.status !== "accepted") throw new Error("Registration failed.");
       runtime.requests.refresh(environmentId, "attention.targets.list", {});
     };
-    return new PushController({ secure: window.isSecureContext, supported: "serviceWorker" in navigator && "PushManager" in window && "Notification" in window, ios: /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1), standalone: window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true }, browser, {
+    return new PushController(pushFeatures(), browser, {
       key: async () => { const result = await runtime.requests.call(environmentId, "attention.push.key", {}); if (!result.ok) throw new Error("Key unavailable."); return result.result.publicKey; },
       registered: async () => {
         const result = await runtime.requests.call(environmentId, "attention.targets.list", {});
         if (!result.ok) throw new Error("Registration unavailable.");
         return result.result.targets.some(target => target.id === id && !target.global && target.transport === "push" && target.enabled);
       },
-      set: subscription => accepted({ id, label: pushTargetLabel(navigator.userAgent, clock.now(), navigator.maxTouchPoints), transport: "push", enabled: true, completion: false, configuration: { endpoint: subscription.endpoint, ...subscription.keys } }),
+      set: (subscription, label = pushTargetLabel(navigator.userAgent, clock.now(), navigator.maxTouchPoints)) => accepted({ id, label, transport: "push", enabled: true, completion: false, configuration: { endpoint: subscription.endpoint, ...subscription.keys } }),
       remove: () => accepted(),
       test: async () => { if (!sessionId) throw new Error("Open a session first."); const result = await runtime.requests.call(environmentId, "attention.push.test", { id, sessionId }); if (!result.ok) throw new Error("Test failed."); return result.result.status; },
     });
   }, [runtime, clock, environmentId, sessionId, id]);
+  return { controller, id };
+};
+const ConnectedPush = ({ environmentId, sessionId }: { readonly environmentId: string; readonly sessionId: string | undefined }) => {
+  const runtime = useRuntime();
+  const answer = useObservable(useMemo(() => runtime.requests.cached(environmentId, "attention.targets.list", {}), [runtime, environmentId]));
+  const { controller, id } = usePushController(environmentId, sessionId);
   useEffect(() => { void controller.restore(answer.result?.targets.some(target => target.id === id && target.enabled) ?? false).catch(() => undefined); }, [controller, answer.result, id]);
   const fallback = answer.result?.targets.filter(target => target.transport === "webhook") ?? [];
   return <PushControls controller={controller} admin={runtime.capability(environmentId, "attention.routes.set").status === "present"} fallback={answer.result?.targets.filter(target => target.transport === "webhook") ?? []} onFallback={fallbackId => {
@@ -177,6 +209,46 @@ const ConnectedPush = ({ environmentId, sessionId }: { readonly environmentId: s
       runtime.requests.refresh(environmentId, "attention.targets.list", {});
     });
   }} />;
+};
+/**
+ * Pairing this browser again in place (Give this phone full access) replaces its client session, and the environment
+ * removes the revoked one's push registration with it (#1959). The registration last seen for the client session is
+ * carried over to the new one under its label; where the browser cannot register again unasked, the window says push
+ * is off, with Enable push right there.
+ */
+const PushAfterRePair = ({ home }: { readonly home: ConnectionRecord }) => {
+  const runtime = useRuntime();
+  const answer = useObservable(useMemo(() => runtime.requests.cached(home.environmentId, "attention.targets.list", {}), [runtime, home.environmentId]));
+  const { controller } = usePushController(home.environmentId, undefined);
+  const seen = useRef<{ readonly clientSessionId: string; readonly label: string | undefined } | undefined>(undefined);
+  const before = useRef(home.clientSessionId);
+  const [carrying, carry] = useState<{ readonly label: string | undefined } | undefined>(undefined);
+  const [off, setOff] = useState(false);
+  const state = useSyncExternalStore(controller.subscribe, controller.read);
+  useEffect(() => {
+    const own = home.clientSessionId;
+    if (before.current !== own) {
+      if (seen.current && seen.current.clientSessionId === before.current && own !== null) carry({ label: seen.current.label });
+      before.current = own;
+      return;
+    }
+    if (own === null || !answer.result) return;
+    // Registrations are keyed by their client session, so a list fetched before the re-pair names only the old one's.
+    const target = answer.result.targets.find(candidate => candidate.id === `push-${own}` && candidate.transport === "push" && candidate.enabled);
+    if (target) seen.current = { clientSessionId: own, label: target.label };
+    else if (seen.current?.clientSessionId === own) seen.current = undefined;
+  }, [home.clientSessionId, answer.result]);
+  useEffect(() => {
+    if (!carrying || home.phase !== "ready") return;
+    carry(undefined);
+    void controller.carryOver(carrying.label).then(carried => setOff(!carried));
+  }, [carrying, home.phase, controller]);
+  if (!off || state.status === "ready") return null;
+  return <div role="status" aria-label="Push is off" data-push-off className="flex shrink-0 flex-col gap-2 border-b border-hairline bg-panel px-3 py-2 text-sm">
+    <p>Pairing this client again turned off its push notifications. Enable push to be notified while it is closed.</p>
+    <PushStateLines controller={controller} />
+    {state.status === "disabled" && <Button className="h-11 self-start" title="Enable push" disabled={state.busy} onClick={() => { void controller.enable(); }}>Enable push</Button>}
+  </div>;
 };
 const PushSurface = () => {
   const settings = useSettings();
@@ -194,9 +266,14 @@ const PushSurface = () => {
     find();
     return () => observer.disconnect();
   }, [settings.shown]);
-  if (!settings.shown || !anchor) return null;
-  return createPortal(home && picked?.environmentId === home.environmentId
-    ? <ConnectedPush environmentId={home.environmentId} sessionId={session?.environmentId === home.environmentId ? session.sessionId : undefined} />
-    : <p>Manage push from this web origin's environment in Attention settings. Notification links stay on this origin.</p>, anchor);
+  // Only a browser that allowed notifications can hold a push registration to carry over.
+  const features = pushFeatures();
+  const carries = home !== undefined && features.secure && features.supported && Notification.permission === "granted";
+  return <>
+    {carries && <PushAfterRePair key={home.environmentId} home={home} />}
+    {settings.shown && anchor && createPortal(home && picked?.environmentId === home.environmentId
+      ? <ConnectedPush environmentId={home.environmentId} sessionId={session?.environmentId === home.environmentId ? session.sessionId : undefined} />
+      : <p>Manage push from this web origin's environment in Attention settings. Notification links stay on this origin.</p>, anchor)}
+  </>;
 };
 export const webModule: WebModule = { slot: "push", registration: { Surface: PushSurface } };
