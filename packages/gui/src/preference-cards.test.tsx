@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { SETTINGS, type SettingsKey, DEFAULT_THEME, denylistPresets, type ContainmentReport, type Theme } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -201,6 +201,60 @@ describe("the Permissions step's Restore", () => {
 });
 
 describe("the Permissions card's sandbox", () => {
+  it("restarts this computer from How to fix it and checks the sandbox again once ready", async () => {
+    const app = await firstLaunch({
+      containment: NO_BUBBLEWRAP,
+      settings: { "permissions.containment.default": "workspace" },
+      setup: { permissions: { state: "needs-attention", reason: "The sandbox you chose does not work on this computer yet.", failing: ["permissions.containment"], actions: ["turn-sandbox-off"] } },
+    });
+    const desk = app.environment("desk");
+    const permissions = await cardOf(app, "Permissions");
+    const notice = within(permissions).getAllByRole("alert").find((alert) => alert.textContent?.includes("The sandbox you chose does not work on this computer yet."))!;
+    await app.user.click(within(notice).getByRole("button", { name: "How to fix it" }));
+    expect(within(notice).queryByText("agent-harness service stop && agent-harness service start")).toBeNull();
+    const before = app.runtime.requests.cached(desk.environmentId, "permissions.settings.get", {}).read().result!;
+    app.shell.answer("service.start", async () => {
+      desk.wire.answer("permissions.settings.get", () => ({ result: { ...before, containment: { ...before.containment, levels: before.containment.levels.map((level) => ({ ...level, available: true, reason: null, cause: null })) } } }));
+      desk.setSetup({ permissions: { reason: "Set. Agents stay inside the project folder." } });
+      desk.discovery("ready");
+    });
+    await app.user.click(within(notice).getByRole("button", { name: "Restart agent-harness" }));
+    await waitFor(() => expect(desk.requests("environment.drain")).toHaveLength(1));
+    expect(within(notice).getByRole("button", { name: "Restarting…" }).hasAttribute("disabled")).toBe(true);
+    desk.discovery("nothing");
+    desk.server.drop();
+    await waitFor(() => expect(app.runtime.projections.environments.read().find((view) => view.environmentId === desk.environmentId)?.phase).not.toBe("ready"));
+    act(() => app.clock.advance(5_000));
+    await waitFor(() => expect(app.shell.calls.filter(([member]) => member === "service.start")).toHaveLength(1));
+    await waitFor(() => expect(app.runtime.projections.environments.read().find((view) => view.environmentId === desk.environmentId)?.phase).toBe("ready"), { timeout: 10_000 });
+    await waitFor(() => expect(desk.requests("setup.check").some((request) => request.params["step"] === "permissions")).toBe(true));
+    expect(await within(screen.getByRole("navigation", { name: "Set up steps" })).findByRole("button", { name: "Permissions", description: / Done / })).toBeDefined();
+    await moreSafety(app, permissions);
+    expect(await within(field(permissions, "permissions.containment.default")).findByRole("radio", { name: "Project folder", description: "Works here" })).toBeDefined();
+  });
+
+  it("keeps both restart commands to copy on a paired computer", async () => {
+    const app = await renderApp({ environments: [
+      { name: "desk", reach: "local" },
+      { name: "laptop", reach: "paired", containment: NO_BUBBLEWRAP, settings: { "permissions.containment.default": "workspace" }, setup: { permissions: { state: "needs-attention", reason: "The sandbox you chose does not work on this computer yet.", failing: ["permissions.containment"], actions: ["turn-sandbox-off"] } } },
+    ] }, { firstLaunch: true });
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
+    await app.user.selectOptions(within(checklist()).getByRole("combobox", { name: "Setting up" }), "laptop");
+    const permissions = await cardOf(app, "Permissions");
+    const notice = within(permissions).getAllByRole("alert").find((alert) => alert.textContent?.includes("The sandbox you chose does not work on this computer yet."))!;
+    await app.user.click(within(notice).getByRole("button", { name: "How to fix it" }));
+    expect(within(notice).getByText("agent-harness service stop && agent-harness service start")).toBeDefined();
+    expect(within(notice).queryByRole("button", { name: "Restart agent-harness" })).toBeNull();
+    await app.user.click(within(within(notice).getByRole("region", { name: /Then restart agent-harness/ })).getByRole("button", { name: "Copy" }));
+    expect(app.shell.calls.find(([member]) => member === "clipboard.writeText")?.[1]).toBe("agent-harness service stop && agent-harness service start");
+    await moreSafety(app, permissions);
+    const group = field(permissions, "permissions.containment.default");
+    await app.user.click(within(group).getByRole("button", { name: "How to set it up" }));
+    expect(within(group).getByText("agent-harness service stop && agent-harness service start")).toBeDefined();
+    expect(within(group).queryByRole("button", { name: "Restart agent-harness" })).toBeNull();
+    expect(app.environment("laptop").requests("environment.drain")).toEqual([]);
+  });
+
   it("offers How to fix it and a restart when the report omits the chosen sandbox level", async () => {
     const app = await firstLaunch({
       containment: { levels: [{ level: "off", available: true, reason: null, cause: null }] },
@@ -211,7 +265,7 @@ describe("the Permissions card's sandbox", () => {
     const notice = within(permissions).getAllByRole("alert").find((alert) => alert.textContent?.includes("The sandbox you chose does not work on this computer yet."))!;
     await app.user.click(await within(notice).findByRole("button", { name: "How to fix it" }));
     expect(within(notice).getByText("agent-harness has not checked the sandbox here yet.")).toBeDefined();
-    expect(within(notice).getByText("agent-harness service stop && agent-harness service start")).toBeDefined();
+    expect(within(notice).getByRole("button", { name: "Restart agent-harness" })).toBeDefined();
     expect(notice.textContent).not.toContain("apt-get");
   });
 
@@ -251,7 +305,7 @@ describe("the Permissions card's sandbox", () => {
     await app.user.click(within(notice).getByRole("button", { name: "How to fix it" }));
     expect(within(notice).getByText("Install bubblewrap and socat, the two programs the sandbox uses on Linux.")).toBeDefined();
     expect(within(notice).getByText("sudo apt-get install bubblewrap socat")).toBeDefined();
-    expect(within(notice).getByText("agent-harness service stop && agent-harness service start")).toBeDefined();
+    expect(within(notice).getByRole("button", { name: "Restart agent-harness" })).toBeDefined();
     await app.user.click(within(notice).getByRole("button", { name: "Details" }));
     expect(within(notice).getByText(/Probe: bubblewrap is not installed/)).toBeDefined();
 
@@ -275,7 +329,7 @@ describe("the Permissions card's sandbox", () => {
 
     await app.user.click(within(group).getByRole("button", { name: "How to set it up" }));
     expect(within(group).getByText("sudo dnf install bubblewrap socat")).toBeDefined();
-    expect(within(group).getByText("agent-harness service stop && agent-harness service start")).toBeDefined();
+    expect(within(group).getByRole("button", { name: "Restart agent-harness" })).toBeDefined();
 
     await app.user.click(within(sandbox).getByRole("radio", { name: "Project folder" }));
     const refused = await within(group).findByRole("alert");

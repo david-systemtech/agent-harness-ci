@@ -1,3 +1,4 @@
+import type { ServiceRestart } from "../connections/service-restart.js";
 import { AccessUnavailable } from "../connections/limited-access.js";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
 import { settingsRow } from "@agent-harness/contracts";
@@ -55,7 +56,7 @@ const PermissionsOn = ({ view }: { readonly view: EnvironmentView }) => {
  * said once; while the environment cannot be reached it shows what this
  * window last read, read-only.
  */
-export const PermissionsForm = ({ view, denylist, safety: Safety }: { readonly view: EnvironmentView; readonly denylist: DenylistValues; readonly safety: SafetySettings }) => {
+export const PermissionsForm = ({ view, denylist, safety: Safety, restart }: { readonly view: EnvironmentView; readonly denylist: DenylistValues; readonly safety: SafetySettings; readonly restart?: ServiceRestart | undefined }) => {
   const runtime = useRuntime();
   const { environmentId } = view;
   const { values } = useSettingsValues(environmentId);
@@ -70,7 +71,7 @@ export const PermissionsForm = ({ view, denylist, safety: Safety }: { readonly v
       <Safety>
         <ModeChoices view={view} name="permissions.unattended.mode" writable={writable} />
         <PromptTimeout view={view} writable={writable} />
-        <ContainmentDefault view={view} writable={writable} />
+        <ContainmentDefault view={view} writable={writable} restart={restart} />
         <DenylistPart view={view} values={denylist} writable={writable} />
       </Safety>
     </>

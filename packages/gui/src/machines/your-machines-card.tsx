@@ -1,25 +1,22 @@
-import { drainEnvironment, uuidv7, type EnvironmentView } from "@agent-harness/client-runtime";
+import type { EnvironmentView } from "@agent-harness/client-runtime";
 import { RELEASE_CHANNELS, type MethodName, type SettingsKey } from "@agent-harness/contracts";
 import { ExternalLink, Radio, RefreshCw } from "lucide-react";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { LimitedGrant } from "../connections/connection-grant.js";
-import { useLocalService } from "../connections/local-service.js";
-import { nameOf } from "../connections/words.js";
-import { useWindowFrame } from "../frame/window-controls.js";
+import { useServiceRestart } from "../connections/service-restart.js";
 import { useSettingsValues } from "../settings/settings-values.js";
 import type { StepCardProps } from "../setup/cards.js";
 import { useChecklist } from "../setup/checklist-window.js";
 import { MoreOptions } from "../setup/more-options.js";
-import { SetupNotice } from "../setup/notice.js";
 import { StepStatus } from "../setup/step-status.js";
 import { Button, RadioGroup, RadioGroupItem, Select, Tooltip } from "../ui/index.js";
 import { CHANNEL_WORDS } from "../updates/update-controls.js";
-import { useClientVersion, useClock, useFollowed, useObservable, useRuntime, useShell } from "../window-context.js";
+import { useFollowed, useObservable, useRuntime } from "../window-context.js";
 import { AddAMachine } from "./add-a-machine.js";
 import { LOOK_COMMANDS, LookEditor } from "./look-editor.js";
 import { Part } from "./machine-card.js";
 import { PresetPairing } from "./preset-pairing.js";
-import { ReachVerdictLine, SetupNetworkSwitches, SwitchRow, type Restart } from "./reachability.js";
+import { ReachVerdictLine, SetupNetworkSwitches, SwitchRow } from "./reachability.js";
 import { SetUpOffer } from "./set-up-offer.js";
 
 /**
@@ -72,7 +69,7 @@ const ThisComputer = ({ view }: { readonly view: EnvironmentView }) => {
   const pairedElsewhere = usePairedElsewhere(view);
   const [chosen, choose] = useState<Answer | undefined>(undefined);
   const [added, setAdded] = useState<readonly string[]>([]);
-  const restart = useRestart(view);
+  const restart = useServiceRestart(view);
   const environments = useObservable(runtime.projections.environments);
   const answer = chosen ?? (pairedElsewhere ? "also" : "only");
   const admits = (method: MethodName) => view.phase === "ready" && runtime.capability(view.environmentId, method).status === "present";
@@ -148,83 +145,4 @@ const AllSettings = ({ view }: { readonly view: EnvironmentView }) => {
       <span className="text-xs text-ink-muted">Leaves Set up</span>
     </div>
   );
-};
-
-/** Where a restart from this app stands: the drain asked, then the start once the service stopped. */
-type RestartProgress = "idle" | "draining" | "starting";
-
-/** What stopped a restart: the drain, refused while the computer still runs, or the start once it had stopped. */
-interface RestartRefusal {
-  readonly step: "drain" | "start";
-  readonly text: string;
-}
-
-/**
- * Restart agent-harness (setup-copy.md §5.4), where the computer's service
- * can restart from this app: this computer's own, with a shell that starts
- * its service, and `environment.drain` admitted. It drains the environment,
- * which stops once its running work finishes, then starts the service as
- * Start does once nothing answers, and reads how it is reached again at its
- * start. Undefined for any other computer, whose next start uses what it found.
- */
-const useRestart = (view: EnvironmentView): Restart | undefined => {
-  const runtime = useRuntime();
-  const clock = useClock();
-  const service = useLocalService();
-  const shell = useShell();
-  const version = useClientVersion();
-  const frame = useWindowFrame();
-  const [progress, setProgress] = useState<RestartProgress>("idle");
-  const [refusal, setRefusal] = useState<RestartRefusal | undefined>(undefined);
-  const { environmentId, phase } = view;
-  const name = nameOf(view);
-  useEffect(() => {
-    if (progress === "draining" && phase === "service-down") {
-      setProgress("starting");
-      service.start(environmentId);
-    }
-    if (progress === "starting" && phase === "ready") {
-      setProgress("idle");
-      runtime.requests.refresh(environmentId, "environment.status", {});
-    }
-  }, [progress, phase, environmentId, service, runtime]);
-  // The start clears the last failure as it sets starting, in the render that sets starting here, so a failure
-  // once it is no longer starting is this start's, however soon it fails.
-  useEffect(() => {
-    if (progress === "starting" && !service.starting && service.failure !== undefined) {
-      setProgress("idle");
-      setRefusal({ step: "start", text: service.failure.text });
-    }
-  }, [progress, service.starting, service.failure]);
-  // A failed start is over once the computer runs again, however it was started.
-  useEffect(() => {
-    if (phase === "ready") setRefusal((last) => (last?.step === "start" ? undefined : last));
-  }, [phase]);
-  const can = view.kind === "local" && service.available.status === "present" && runtime.capability(environmentId, "environment.drain").status === "present";
-  // A restart under way, or its refusal, outlasts the drain that makes the computer stop answering.
-  if (!can && progress === "idle" && refusal === undefined) return undefined;
-  const start = () => {
-    setRefusal(undefined);
-    setProgress("draining");
-    void drainEnvironment(runtime, environmentId, name, uuidv7(clock.now())).then((outcome) => {
-      if (outcome.ok) return;
-      setProgress("idle");
-      setRefusal({ step: "drain", text: outcome.line });
-    });
-  };
-  const title = `agent-harness did not restart on ${name}.`;
-  // Stopped and not started again, nothing answers to drain: Start, which the checklist offers then, starts it.
-  const retry = refusal?.step === "start" ? "Choose Start to try again." : "Choose Restart agent-harness to try again.";
-  const failure = refusal === undefined ? undefined : (
-    <SetupNotice
-      tone="error"
-      title={title}
-      description={retry}
-      details={{
-        report: { app: { version, platform: frame?.platform ?? "unknown" }, computer: { name }, line: `${title} ${retry}`, details: [refusal.text] },
-        copy: (text) => (shell?.clipboard === undefined ? Promise.reject(new Error("This app has no clipboard.")) : shell.clipboard.writeText(text)),
-      }}
-    />
-  );
-  return { restarting: progress !== "idle", start, failure };
 };
