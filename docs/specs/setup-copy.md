@@ -74,7 +74,11 @@ the list is at the end).
   now, Continue (Finish set up on step 11). Cross-step fixes move inside Set up ("Go to Forges") rather than to Settings.
 - **Status line.** A state word with its icon (Done, Needs a fix, Not set up, Checking, Not checked yet), then the line. A line
   that needs a fix is a notice (§1.14) with the fix buttons in place and Details. "Open in Settings" (ExternalLink icon, with the
-  visible hint "Leaves Set up") replaces "Open {row}".
+  visible hint "Leaves Set up") replaces "Open {row}". Any other button that leaves Set up for Settings says so in its label:
+  `{its words} (leaves Set up)`. One **Check again**, whether or not the result offers it. A needs-a-fix notice takes the warning
+  tone (the state's amber); a check or a start that did not run takes the error tone. An action's outcome is a notice too:
+  information when it went ahead, the error tone with the refusal mapper's line when refused; a refused tool's own command sits
+  inside its Details under `Or run this yourself on {computer}:`, in mono with Copy.
 - **Details and Copy details.** Details shows the check ids, the environment's raw words (`details` on the result), and when it
   was checked. Copy details copies:
   `agent-harness {app version} on {platform}` / `Computer: {name} (agent-harness {version})` / `Step: {label} ({step id}): {state}` /
@@ -519,12 +523,16 @@ quoted from the files named; a builder greps for them.
 ### 5.10 Instructions (gui/src/instructions/*; environment/src/instructions/*)
 - Title `Tell every agent how you work`. Why `Instructions are notes every agent reads before it starts.`
 - What is this? `agent-harness already tells agents about this computer: your accounts, forges and notebooks. You can add your own notes too.`
-- Controls: `Your note` (About my setup) with **Edit**; `Suggestions` as ticks with one line each; **Write your own**; fold
+- Controls: `Your note` (About my setup, then each note written with Write your own) with **Edit**; `Suggestions` as ticks with
+  one line each, a ticked one with `Added. Change or remove it in Settings › Instructions.`; **Write your own**; fold
   `What agents are told about this computer` holding the preview and the switch `Tell agents about this computer` with
   `If you turn this off, agents will not know where your forges, keys and notebooks are.`
-- Owned instruction lists, move up/down and account reach stay in Settings › Instructions.
+- Owned instruction lists, move up/down and account reach stay in Settings › Instructions. Its part for the block is titled
+  `What agents are told about this computer` with the same switch, warning and unread line, and no account reads the no-account line.
 - Lines: done `Agents get your notes and a summary of this computer.`; unread `agent-harness could not read part of this computer's setup: {step names}.`
-  with **Go to {Step}** per name (environment→Your machines, accounts→Account, key-managers→Key manager, forges→Forges, banks→Memory bank, other-environments→Your machines);
+  with **Go to {Step}** per name (environment→Your machines, accounts→Account, key-managers→Key manager, forges→Forges, banks→Memory bank, other-environments→Your machines),
+  each step once in Set up's order; a part this version does not know names no step, and with none named the line ends at `setup.`;
+  Details: `Unread sections of the orientation block: {section ids}`;
   no account `Sign in on the Account step first. Agents are told about your accounts.`
 
 ### 5.11 Browser (gui/src/browser/*; environment/src/browser/*)

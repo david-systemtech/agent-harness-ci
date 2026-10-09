@@ -441,7 +441,7 @@ describe("Your machines' update controls", () => {
 
     await app.user.click(drain()!);
     await app.user.click(within(await screen.findByRole("dialog", { name: "Drain laptop and update it to 0.6.0 now?" })).getByRole("button", { name: "Drain and update" }));
-    expect(await within(laptop()).findByRole("status")).toHaveProperty("textContent", "An update is under way already. Wait for it to finish.");
+    expect(await within(laptop()).findByRole("alert")).toHaveProperty("textContent", "Error: An update is under way already. Wait for it to finish.");
     expect(within(within(laptop()).getByRole("region", { name: "Details" })).getByText("conflict (in_progress): laptop's update to 0.6.0 is draining already.")).toBeDefined();
     expect(scripted.requests("updates.apply").map((request) => request.params["when"])).toEqual(["now"]);
 
@@ -647,7 +647,7 @@ describe("Your machines' update controls", () => {
     expect(within(laptop).getByRole("button", { name: "Drain and update now…" }).hasAttribute("disabled")).toBe(true);
 
     await app.user.click(within(card(pane, "desk")).getByRole("button", { name: "Update now" }));
-    expect(await within(card(pane, "desk")).findByRole("status")).toHaveProperty("textContent", "This version is running already, or there is nothing newer.");
+    expect(await within(card(pane, "desk")).findByRole("alert")).toHaveProperty("textContent", "Error: This version is running already, or there is nothing newer.");
     expect(within(within(card(pane, "desk")).getByRole("region", { name: "Details" })).getByText("conflict (current): desk runs 0.0.0-fake already.")).toBeDefined();
   });
 });

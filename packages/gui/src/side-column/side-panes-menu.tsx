@@ -2,7 +2,7 @@ import { useOpenPairing } from "../connections/pairing.js";
 import { BookOpen, PanelRightClose, PanelRightOpen, PanelsTopLeft, FileDiff, Files, ListTodo } from "lucide-react";
 import { focusedPane } from "../grid/layout.js";
 import type { PaneSession } from "../presentation.js";
-import { MenuItem, Tooltip } from "../ui/index.js";
+import { IconButton, MenuItem, Tooltip } from "../ui/index.js";
 import { useObservable, usePresentation, useRuntime, useShell } from "../window-context.js";
 import { hideColumn, showPane, useSideColumn } from "./column.js";
 import { PANES, paneCapability } from "./panes.js";
@@ -20,7 +20,17 @@ export const SidePaneMenuItems = () => {
   return session === null ? ITEMS.map(({ pane, Icon }) => <Tooltip key={pane} content={`${PANES[pane].label} · Open a session first.`}><MenuItem aria-label={PANES[pane].label} disabled><Icon aria-hidden="true" /><span>{PANES[pane].label}<span className="block text-xs text-ink-faint">Open a session first.</span></span></MenuItem></Tooltip>) : <ItemsFor session={session} />;
 };
 
-const ItemsFor = ({ session }: { readonly session: PaneSession }) => {
+/**
+ * A phone header's one-tap way back to the focused session's hidden sheet (#1960): it sits in the header's row
+ * of controls, so it never covers the transcript as the pane's edge handle did. Drawn only while there is a pane to bring back.
+ */
+export const ShowSideColumn = ({ session }: { readonly session: PaneSession }) => {
+  const [column, change] = useSideColumn(session);
+  if (!column.hidden || column.shown === null) return null;
+  return <IconButton data-dock-reopen label="Show the side column" keys="Enter / Space" onClick={() => change((held) => hideColumn(held, false))}><PanelRightOpen aria-hidden="true" /></IconButton>;
+};
+
+const ItemsFor =({ session }: { readonly session: PaneSession }) => {
   const runtime = useRuntime();
   const shell = useShell();
   const openPairing = useOpenPairing();

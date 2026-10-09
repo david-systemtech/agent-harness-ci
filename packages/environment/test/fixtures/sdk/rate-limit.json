@@ -1,7 +1,7 @@
 {
-  "source": "Shaped after the pinned 0.3.281 declarations (SDKRateLimitEvent, SDKRateLimitInfo: resetsAt in epoch seconds, utilization a percentage read as a fraction here).",
+  "source": "Shaped after the pinned 0.3.281 declarations (SDKRateLimitEvent, SDKRateLimitInfo: resetsAt in epoch seconds) and the bundled 0.3.289 CLI, which sends utilization as a fraction (#1953).",
   "messages": [
-    { "type": "rate_limit_event", "rate_limit_info": { "status": "allowed_warning", "rateLimitType": "five_hour", "utilization": 91, "resetsAt": 1790301600 }, "session_id": "5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a", "uuid": "00000000-0000-4000-8000-000000000401" },
+    { "type": "rate_limit_event", "rate_limit_info": { "status": "allowed_warning", "rateLimitType": "five_hour", "utilization": 0.91, "resetsAt": 1790301600 }, "session_id": "5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a", "uuid": "00000000-0000-4000-8000-000000000401" },
     { "type": "rate_limit_event", "rate_limit_info": { "status": "rejected", "rateLimitType": "seven_day" }, "session_id": "5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a", "uuid": "00000000-0000-4000-8000-000000000402" },
     { "type": "rate_limit_event", "rate_limit_info": { "status": "allowed" }, "session_id": "5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a", "uuid": "00000000-0000-4000-8000-000000000403" },
     { "type": "rate_limit_event", "rate_limit_info": {}, "session_id": "5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a", "uuid": "00000000-0000-4000-8000-000000000404" }
