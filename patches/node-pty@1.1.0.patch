@@ -1,0 +1,96 @@
+diff --git a/lib/conpty_console_list_agent.js b/lib/conpty_console_list_agent.js
+index 8c4fca9022a6d6f015bca87f61625cde2278f428..476b049894640c2bc2c36b98bdf6779751ef7d9d 100644
+--- a/lib/conpty_console_list_agent.js
++++ b/lib/conpty_console_list_agent.js
+@@ -10,7 +10,18 @@ Object.defineProperty(exports, "__esModule", { value: true });
+ var utils_1 = require("./utils");
+ var getConsoleProcessList = utils_1.loadNativeModule('conpty_console_list').module.getConsoleProcessList;
+ var shellPid = parseInt(process.argv[2], 10);
+-var consoleProcessList = getConsoleProcessList(shellPid);
+-process.send({ consoleProcessList: consoleProcessList });
+-process.exit(0);
++var reply;
++try {
++    reply = { consoleProcessList: getConsoleProcessList(shellPid) };
++} catch (error) {
++    // AttachConsole cannot attach to a shell which has already exited (#2029).
++    var gone = false;
++    if (error.message === 'AttachConsole failed') {
++        try { process.kill(shellPid, 0); }
++        catch (probeError) { gone = probeError.code === 'ESRCH'; }
++    }
++    reply = gone ? { consoleProcessList: [] } : { consoleProcessList: [shellPid], error: error.message };
++}
++// Flush the result before exit; a genuine failure is reported by the parent.
++process.send(reply, function () { process.exit(0); });
+ //# sourceMappingURL=conpty_console_list_agent.js.map
+diff --git a/lib/windowsPtyAgent.js b/lib/windowsPtyAgent.js
+index a358ffb177357e177661033c1b092f9c9d0e5f5a..bd88c0694e7dfc84b590676ded69df4ee2bac9d3 100644
+--- a/lib/windowsPtyAgent.js
++++ b/lib/windowsPtyAgent.js
+@@ -135,6 +135,8 @@ var WindowsPtyAgent = /** @class */ (function () {
+         // Tell the agent to kill the pty, this releases handles to the process
+         if (this._useConpty) {
+             if (!this._useConptyDll) {
++                if (this._killStarted) return;
++                this._killStarted = true;
+                 this._inSocket.readable = false;
+                 this._outSocket.readable = false;
+                 this._getConsoleProcessList().then(function (consoleProcessList) {
+@@ -143,12 +145,14 @@ var WindowsPtyAgent = /** @class */ (function () {
+                             process.kill(pid);
+                         }
+                         catch (e) {
+-                            // Ignore if process cannot be found (kill ESRCH error)
++                            if (e.code !== 'ESRCH') console.error('node-pty: could not kill console process ' + pid + ': ' + e.message);
+                         }
+                     });
++                    // Capture the process list while its console still exists (#2029).
++                    try { _this._ptyNative.kill(_this._pty, _this._useConptyDll); }
++                    catch (error) { console.error('node-pty: could not close console: ' + error.message); }
++                    _this._conoutSocketWorker.dispose();
+                 });
+-                this._ptyNative.kill(this._pty, this._useConptyDll);
+-                this._conoutSocketWorker.dispose();
+             }
+             else {
+                 // Close the input write handle to signal the end of session.
+@@ -181,15 +185,32 @@ var WindowsPtyAgent = /** @class */ (function () {
+     WindowsPtyAgent.prototype._getConsoleProcessList = function () {
+         var _this = this;
+         return new Promise(function (resolve) {
+-            var agent = child_process_1.fork(path.join(__dirname, 'conpty_console_list_agent'), [_this._innerPid.toString()]);
+-            agent.on('message', function (message) {
++            var agent;
++            var timeout;
++            var settled = false;
++            function finish(processList, error) {
++                if (settled) return;
++                settled = true;
+                 clearTimeout(timeout);
+-                resolve(message.consoleProcessList);
++                if (error) console.error('node-pty: console process cleanup for shell ' + _this._innerPid + ': ' + error);
++                resolve(processList);
++            }
++            try {
++                agent = child_process_1.fork(path.join(__dirname, 'conpty_console_list_agent'), [_this._innerPid.toString()]);
++            } catch (error) {
++                finish([_this._innerPid], error.message);
++                return;
++            }
++            agent.on('message', function (message) {
++                finish(message.consoleProcessList, message.error);
++            });
++            agent.on('error', function (error) { finish([_this._innerPid], error.message); });
++            agent.on('exit', function (code, signal) {
++                finish([_this._innerPid], 'console list helper exited without a result (' + code + ', ' + signal + ')');
+             });
+-            var timeout = setTimeout(function () {
+-                // Something went wrong, just send back the shell PID
++            timeout = setTimeout(function () {
++                finish([_this._innerPid], 'console list helper timed out after 5000ms');
+                 agent.kill();
+-                resolve([_this._innerPid]);
+             }, 5000);
+         });
+     };

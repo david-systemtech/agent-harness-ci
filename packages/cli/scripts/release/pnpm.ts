@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { InstallDependencies } from "./stage.js";
@@ -70,6 +70,8 @@ export const stagedSettings = (target: ArtefactTarget, runScripts: boolean): str
 export const pnpmInstall: InstallDependencies = async ({ repoRoot, workspace, packages, target, runScripts }) => {
   mkdirSync(workspace, { recursive: true });
   copyFileSync(join(repoRoot, "package.json"), join(workspace, "package.json"));
+  // Frozen installs resolve patchedDependencies relative to the staged workspace.
+  if (existsSync(join(repoRoot, "patches"))) cpSync(join(repoRoot, "patches"), join(workspace, "patches"), { recursive: true });
   writeFileSync(join(workspace, "pnpm-workspace.yaml"), readFileSync(join(repoRoot, "pnpm-workspace.yaml"), "utf8") + stagedSettings(target, runScripts));
   const lockfile = readFileSync(join(repoRoot, "pnpm-lock.yaml"), "utf8");
   writeFileSync(join(workspace, "pnpm-lock.yaml"), trimLockfile(lockfile, [".", ...packages.map((each) => each.directory)]));
