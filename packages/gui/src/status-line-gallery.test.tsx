@@ -44,6 +44,9 @@ it("phone-composer-details-usage shows the Context and model rings in the Run se
 
 // #1951: the gallery scene of the popover, opened by its own activate.
 it("status-line-usage-details opens the popover with one silent-limits line and the times in words", async () => {
+  // The hosted scene uses UTC fixtures; restore the caller's zone after this test.
+  vi.stubEnv("TZ", "UTC");
+  onTestFinished(() => { vi.unstubAllEnvs(); });
   const root = document.createElement("div"); root.id = "root"; document.body.append(root);
   const gallery = await mountGallery(root, "status-line-usage-details", "dark", { "status-line-usage-details": usageDetailsScene });
   onTestFinished(async () => { await gallery.close(); root.remove(); });

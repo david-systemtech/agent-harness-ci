@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { resetWords } from "@agent-harness/client-runtime";
 import { ENVIRONMENT_ICONS, whenWords, type AccountUsage, type EnvironmentIcon } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { renderApp, type ScriptedEnvironment } from "../test/harness.js";
 import { glyphOf } from "./connections/environment-glyphs.js";
 
@@ -202,6 +202,9 @@ describe("the plan gauge", () => {
 
   // #1951: the popover printed raw ISO reset and read times.
   it("says reset and read times in the client's time words, the ISO value only in each time's attribute", async () => {
+    // The harness starts at midnight UTC; keep these fixed calendar assertions in that zone.
+    vi.stubEnv("TZ", "UTC");
+    onTestFinished(() => { vi.unstubAllEnvs(); });
     const { app, env } = await opened();
     const now = app.clock.now();
     const at = (ms: number) => new Date(now.getTime() + ms).toISOString();
