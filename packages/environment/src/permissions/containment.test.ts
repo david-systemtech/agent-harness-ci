@@ -91,6 +91,13 @@ const calling =
     yield end();
   };
 
+it("reports the probed computer's operating system even when its sandbox is missing", async () => {
+  const t = await start({ containment: { ...(await absentProbe()), platform: "darwin" } });
+  const client = await t.client();
+  const answer = registry["permissions.settings.get"].result.parse(await client.request("permissions.settings.get", {}));
+  expect(answer.containment.platform).toBe("darwin");
+});
+
 const write = (...paths: string[]) => ({ tool: "Write", access: { kind: "write", paths } }) as const;
 const fetchUrl = (url: string) => ({ tool: "WebFetch", access: { kind: "fetch", urls: [url] } }) as const;
 const search = (query: string) => ({ tool: "WebSearch", access: { kind: "search", query } }) as const;
@@ -126,6 +133,7 @@ describe("what this environment can enforce", () => {
   it("is answered by permissions.settings.get: each level with its reason and cause, the mechanism, and the container as the outer boundary", async () => {
     const present = await start({ containment: bubblewrapProbe() });
     expect((await (await present.client()).request("permissions.settings.get", {})).containment).toEqual({
+      platform: "linux",
       levels: [
         { level: "off", available: true, reason: null, cause: null },
         { level: "workspace", available: true, reason: null, cause: null },

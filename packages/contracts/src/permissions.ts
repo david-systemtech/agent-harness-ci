@@ -155,6 +155,7 @@ export type ContainmentContainer = z.infer<typeof ContainmentContainer>;
  */
 export const ContainmentReport = z
   .object({
+    platform: z.string().min(1).optional().meta({ description: "The probed computer's operating system (such as linux or darwin), so repair guidance addresses that computer even when its sandbox is unavailable. Absent on older environments." }),
     levels: z.array(ContainmentAvailability).meta({ description: "Each containment level, off first, and whether this environment can enforce it." }),
     mechanism: ContainmentMechanism.nullable().meta({ description: "What enforces the workspace levels here; null when neither can be enforced." }),
     container: ContainmentContainer,
