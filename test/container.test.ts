@@ -94,6 +94,13 @@ const imageUser = (): { name: string; uid: string; gid: string } => {
 };
 
 describe("the container image", () => {
+  it("builds the bank creation runtime asset before pruning the build dependencies", () => {
+    const build = instructions(dockerfile).find((line) => line.startsWith("RUN --mount=type=cache")) ?? "";
+    const validator = "pnpm --filter @agent-harness/contracts build-validator";
+    expect(build).toContain(validator);
+    expect(build.indexOf(validator)).toBeLessThan(build.indexOf("--prod"));
+  });
+
   it("stamps the CLI and environment manifests used by --version and discovery with the build's version", () => {
     expect(instructions(dockerfile)).toContain("ARG HARNESS_VERSION=0.0.0");
     const build = instructions(dockerfile).find((line) => line.startsWith("RUN --mount=type=cache")) ?? "";
