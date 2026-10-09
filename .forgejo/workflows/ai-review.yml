@@ -1,22 +1,24 @@
-# A cheap model reads the pull request before we do.
+# Codex reads the pull request before we do.
 #
 # Copied from david/ci templates/ai-review.yml. Change only REVIEW_PROJECT,
 # REVIEW_SKIP and, if the rules are not in AGENTS.md, REVIEW_RULES; the rest is
 # the same in every repository, so a fix in the template can be copied over.
 #
-# A completed review ends in a JSON block: the prose is for whoever
+# It leaves one comment, ending in a JSON block: the prose is for whoever
 # reviews the pull request, the JSON for an agent that re-checks the findings
 # before anyone acts on them. A finding is a lead, never a verdict. It
 # approves nothing, is not a required check, and never fails: a rate-limited
 # provider or a model that runs out of time ends in a comment that says there
 # is no review, and a green check.
 #
-# The work is david/ci's scripts/ai_review.py, checked out at run time from
-# the pinned revision below; GitHub repositories carry the same script in
-# .github/scripts. This repository's BASE commit is checked out for
-# the rules the model is told; the pull request's changes arrive as text
-# through the API, so nothing in a pull request runs here or rewrites the
-# rules it is judged by.
+# The work is david/ci's scripts/codex_review.py, checked out at run time
+# from david/ci's main: one `codex exec` run on the diff, under David's Codex
+# plan, answering in the same comment shape as the OpenRouter review it
+# replaced on 2026-10-09 (david/ci issue 41: the credits ran out). This
+# repository's BASE commit is checked out for the rules the model is told and
+# for the code around the diff, which Codex may read but not write (sandbox
+# read-only); the pull request's changes arrive as text through the API, so
+# nothing in a pull request runs here or rewrites the rules it is judged by.
 #
 # When it runs: when a pull request opens, reopens or leaves draft (on Forgejo,
 # a title edit that drops the "WIP:" prefix), and after that only when someone
@@ -26,9 +28,10 @@
 # first and add the label after. `no-ai-review` suppresses it. Create both
 # labels on the repository.
 #
-# Where it runs: the self-hosted runner's `review` label, separate from `ci`. A
-# large review generates for twenty minutes or more while only waiting on
-# HTTP, and `ci` must not queue behind it.
+# Where it runs: the `codex` runner, a host runner on the SYSTEM-SERVER agent
+# container - the only machine with the Codex login, which the runner's config
+# hands the job as CODEX_HOME - never `ci` or `review`. A review can take
+# twenty minutes, and `ci` must not queue behind it.
 
 name: AI review
 
@@ -85,7 +88,7 @@ jobs:
       github.actor != 'renovate' &&
       !contains(github.event.pull_request.labels.*.name, 'no-ai-review') &&
       (!github.event.label || github.event.label.name == 'ai-review')
-    runs-on: review
+    runs-on: codex
     # A backstop only. The script abandons a review at REVIEW_DEADLINE_S and
     # exits green, and the step has its own timeout under continue-on-error.
     timeout-minutes: 55
@@ -100,8 +103,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: david/ci
-          # Bounded provider attempts and preservation of earlier review evidence.
-          ref: 5a95c70df9edc75cbcb276ad799b64f263e80e2b
           token: ${{ secrets.CI_READ_TOKEN }}
           path: .ci
           persist-credentials: false
@@ -111,19 +112,16 @@ jobs:
         # Longer than the script's own deadline, shorter than the job's.
         timeout-minutes: 50
         env:
-          # Configure the OPENROUTER_API_KEY repository secret for reviews.
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           # The job's own token: it may comment on this repository's pull
           # requests, and its comments are by `forgejo-actions`.
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          REVIEW_MODEL: z-ai/glm-5.3-flash
-          # max, high or low - the only three this model accepts. max found 6
-          # of 8 planted bugs against 1 of 6 at high (David's call, 2026-09-18).
-          REVIEW_EFFORT: max
-          # The ceiling on the script's own deadline, which it sizes to the
-          # diff: about twelve minutes for an ordinary pull request.
-          REVIEW_DEADLINE_S: 2700
+          # The Codex model and its reasoning effort (low, medium, high, xhigh).
+          REVIEW_MODEL: gpt-6.1-sol
+          REVIEW_EFFORT: high
+          # How long one Codex run may take before the comment says there is
+          # no review.
+          REVIEW_DEADLINE_S: 2400
           # What the model is told the project is.
           REVIEW_PROJECT: >-
             A server-first coding-agent harness under a working name: an
@@ -153,13 +151,9 @@ jobs:
           # Noise on top of the lockfiles, images and fonts the script always
           # leaves out. Put every generated file here: the script sizes its
           # reasoning to the diff, and a large generated file can take a
-          # review to its token ceiling with nothing to show. A skipped path
-          # whose absence the model could take for an omission needs a
-          # sentence in REVIEW_PROJECT too: told nothing, it reported the
-          # schema export as never committed on pull requests that had
-          # committed it (#906).
+          # review to its token ceiling with nothing to show.
           REVIEW_SKIP: docs/research/* packages/contracts/schema/*
-        run: python3 .ci/scripts/ai_review.py
+        run: python3 .ci/scripts/codex_review.py
 
   # The label is a button, not a state: `labeled` fires only when a label goes
   # on, so one left on cannot be pressed again. It comes off after every run
@@ -171,7 +165,7 @@ jobs:
       always() &&
       contains(github.event.pull_request.labels.*.name, 'ai-review') &&
       (!github.event.label || github.event.label.name == 'ai-review')
-    runs-on: review
+    runs-on: codex
     timeout-minutes: 5
     steps:
       # Green even when it fails, with a warning that says what to do.
