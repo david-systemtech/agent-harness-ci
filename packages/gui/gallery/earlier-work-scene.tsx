@@ -7,7 +7,7 @@ import { useChecklist } from "../src/setup/checklist-window.js";
 import type { SceneGeometry } from "./scene-registry.js";
 import { prepareWorld, startWorld } from "./world.js";
 
-/** setup-copy.md §5.3's earlier work: as found, after Preview, and after Bring it over with some items failed. */
+/** setup-copy.md §5.3's earlier work: as found, after Preview, and reopened with some items from the last import failed. */
 export type EarlierWorkState = "found" | "preview" | "failed";
 
 /** What the section finds: a data folder holding a little of everything, and the terminal client's folder. Every value is invented. */
@@ -38,7 +38,7 @@ const OpenCarryOver = () => {
 const cards = { ...STEP_CARDS, account: OpenCarryOver };
 
 /** The button each state presses once the section is drawn. */
-const PRESS: { readonly [State in EarlierWorkState]: string | null } = { found: null, preview: "Preview", failed: "Bring it over" };
+const PRESS: { readonly [State in EarlierWorkState]: string | null } = { found: null, preview: "Preview", failed: null };
 
 /** Set up open on Carry over, its earlier-work section drawn with a scripted environment; look.md §12 and §13. */
 export const earlierWorkScene = (state: EarlierWorkState) => function EarlierWork({ ladder }: { readonly ladder: LadderName }) {
@@ -50,6 +50,11 @@ export const earlierWorkScene = (state: EarlierWorkState) => function EarlierWor
       const prepared = await prepareWorld({ environments: [{
         name: "desk", reach: "local", capabilities: ["setup", "stateImport"],
         accounts: [{ label: "Work", directory: { kind: "owned", path: "/accounts/work" } }],
+        stateImportFailures: state === "failed" ? report(false).failed : [],
+        ...(state === "failed" && { setup: { "carry-over": {
+          state: "needs-attention", reason: "3 items from your earlier work did not come over. See what to do below each one.",
+          actions: ["import-again"], failing: ["carry-over.last-import"],
+        } } }),
       }] }, { firstLaunch: true, presentation: { lightOrDark: ladder } });
       const desk = prepared.world.environment("desk");
       desk.wire.answer("stateImport.detect", () => ({ result: FOUND }));
@@ -85,7 +90,7 @@ export const earlierWorkScene = (state: EarlierWorkState) => function EarlierWor
 };
 
 /** What a state's capture waits for: the section, or its report. */
-export const earlierWorkReady = (state: EarlierWorkState): string => state === "found" ? "[data-earlier-work]" : "[data-earlier-work-result]";
+export const earlierWorkReady = (state: EarlierWorkState): string => state === "found" ? "[data-earlier-work]" : state === "failed" ? "[data-earlier-work-failures]" : "[data-earlier-work-result]";
 
 /** look.md §13.2: the rail and the footer around the Carry over card. */
 export const earlierWorkGeometry: readonly SceneGeometry[] = [
