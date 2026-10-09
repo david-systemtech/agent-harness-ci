@@ -26,12 +26,12 @@ it.each(["light", "dark"] as const)("shows four bounded setup regions in %s", as
       { selector: '[data-setup-scroll] > div', maxWidth: 620 },
     ]));
     if (name === "setup-browser") {
-      for (const heading of ["Load the extension", "Pair", "Sites you are developing", "Done"]) {
+      for (const heading of ["Copy this folder location.", "Choose the agent-harness extension's icon, then Options, and type this code:", "Sites you are building"]) {
         expect(screen.getByRole("heading", { name: heading })).toBeDefined();
       }
       expect(within(screen.getByRole("region", { name: "Browser" })).queryAllByRole("checkbox")).toHaveLength(0);
-      expect(screen.getByRole("img", { name: "4. Done: complete" })).toBeDefined();
-      expect(screen.getByRole("region", { name: "Using your browser" })).toBeDefined();
+      expect(screen.getByRole("img", { name: "Step 5: done" })).toBeDefined();
+      expect(screen.getByText("Agents now use your Chrome.")).toBeDefined();
     }
     if (name === "setup-carry-over") {
       expect(within(screen.getByLabelText("Sessions")).getByText("Sessions").nextElementSibling?.textContent).toBe("24");

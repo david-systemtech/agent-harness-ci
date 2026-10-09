@@ -116,6 +116,24 @@ if any(shard is not None for shard in shards):
     if len(ordered) != len(reports): sys.exit('Incomplete gallery shard set')
 elif len(reports) != 1: sys.exit('Duplicate gallery artifact')
 
+# The hosted matrix is the expected set, independent of artifact/job discovery.
+plan_path = os.environ.get('GALLERY_PLAN')
+if plan_path:
+    with open(plan_path) as source: plan = json.load(source)
+    by_artifact = {row['artifact'].removeprefix('window-') + '.zip': (index, row) for index, row in enumerate(plan)}
+    if {os.path.basename(path) for path in sys.argv[2:]} != set(by_artifact): sys.exit('Incomplete planned gallery reports')
+    for path, (report, _, _) in zip(sys.argv[2:], reports):
+        index, row = by_artifact[os.path.basename(path)]
+        if not row['legacy']:
+            shard = report.get('shard', {})
+            if isinstance(row['shard'], str):
+                matches = shard.get('id') == row['shard'] and shard.get('index') == index
+            else:
+                matches = 'id' not in shard and shard.get('index') == row['shard']
+            if not matches or shard.get('count') != len(plan):
+                sys.exit('Gallery report differs from hosted plan')
+        if report.get('pixelBlocking') is not True: sys.exit('Every planned capture remains gated')
+
 package_token = os.environ.get('PACKAGES_TOKEN')
 if not package_token: sys.exit('PACKAGES_TOKEN is required to publish gallery captures.')
 # Allow one second per bounded API operation, including verification of reused
@@ -194,3 +212,5 @@ for report, images, scenes in reports:
         except Exception: print('::error::Could not finalize the gallery comment; check tracker connectivity and rerun the gallery job.', file=sys.stderr)
         sys.exit(f'Gallery upload failed during {stage} ({reason}); rerun the gallery job.')
 print(f'Gallery posted on pull request {pr}')
+if plan_path and any(scene['pixelFailed'] or scene['geometryFailures'] for _, _, scenes in reports for scene in scenes):
+    sys.exit('Gallery geometry or pixel comparison failed')
