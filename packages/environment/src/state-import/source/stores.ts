@@ -74,7 +74,7 @@ export interface SourcePreferences {
   readonly clientLocal: StateImportClientLocal;
   /** Model choices kept per session. */
   readonly modelChoices: number;
-  /** The models chosen: the composer's first, then each per-session choice by how many sessions made it, the first made first among equals. */
+  /** The model ids chosen, without the account the source names with each: the composer's first, then each per-session choice by how many sessions made it, the first made first among equals. */
   readonly models: readonly string[];
   /** Dock layouts: the window's and each session's. */
   readonly layouts: number;
@@ -273,8 +273,16 @@ const parsePreferences = (value: unknown): SourcePreferences | Refusal => {
   return { ...(typeof value["activeProfileId"] === "string" && { activeProfileId: value["activeProfileId"] }), clientLocal, modelChoices: entries(value["modelBySession"]), models: chosenModels(value), layouts: (value["dockLayout"] === undefined ? 0 : 1) + entries(value["dockLayouts"]), composerSeeds };
 };
 
-/** A model a choice names: a non-empty string; null, the provider's default, names none. */
-const modelOf = (value: unknown): string | undefined => (typeof value === "string" && value.trim() !== "" ? value.trim() : undefined);
+/**
+ * The model id a choice names: a non-empty string; null, the provider's
+ * default, names none. The source stores a choice made on one of its
+ * accounts as `<account>/<model>`, so the id is the part after the last `/`
+ * (#1954): no catalogue lists the composite form.
+ */
+const modelOf = (value: unknown): string | undefined => {
+  const model = typeof value === "string" ? value.slice(value.lastIndexOf("/") + 1).trim() : "";
+  return model === "" ? undefined : model;
+};
 
 /** The models the preferences chose: the composer's, then each session's choice by how many sessions made it, each once. */
 const chosenModels = (value: Record<string, unknown>): readonly string[] => {
