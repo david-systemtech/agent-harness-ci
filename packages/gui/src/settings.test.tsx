@@ -312,7 +312,7 @@ describe("built and unbuilt row controls", () => {
     scriptInstructions(app.environment("desk"));
     const instructions = await openRow(app, "Instructions");
     expect(within(instructions).getByText("The standing instructions runs receive, beside the orientation block.")).toBeDefined();
-    expect((await within(instructions).findByRole("switch", { name: "Orientation enabled" })).getAttribute("aria-checked")).toBe("true");
+    expect((await within(instructions).findByRole("switch", { name: "Tell agents about this computer" })).getAttribute("aria-checked")).toBe("true");
 
     // A step's link opens the full checklist on its card; closing it comes back to Settings.
     await app.user.click(within(instructions).getByRole("button", { name: "Open the Instructions step in Set up" }));
@@ -321,7 +321,7 @@ describe("built and unbuilt row controls", () => {
     await app.user.click(within(checklist).getByRole("button", { name: "Close Set up" }));
     await app.user.click(screen.getByRole("button", { name: "Leave for now" }));
     const again = pane("Instructions");
-    expect(within(again).getByRole("switch", { name: "Orientation enabled" }).getAttribute("aria-checked")).toBe("true");
+    expect(within(again).getByRole("switch", { name: "Tell agents about this computer" }).getAttribute("aria-checked")).toBe("true");
     const permissions = await openRow(app, "Permissions");
     const ceiling = within(field(permissions, "permissions.defaultCeiling")).getByRole("radiogroup");
     expect(within(ceiling).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Plan only", "Accept file edits", "Automatic review", "Bypass permissions"]);
