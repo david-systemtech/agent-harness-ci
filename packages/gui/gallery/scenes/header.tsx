@@ -8,6 +8,7 @@ import { KeyDispatch } from "../../src/keys/key-dispatch.js";
 import { DEFAULT_KEY_MAP } from "../../src/keys/key-map.js";
 import { NewSessionSurfaces } from "../../src/new-session/surfaces.js";
 import { SettingsProvider } from "../../src/settings/settings-window.js";
+import { ChecklistProvider } from "../../src/setup/checklist-window.js";
 import { TerminalPanesProvider } from "../../src/terminal/terminal-panes.js";
 import { TooltipProvider } from "../../src/ui/tooltip.js";
 import { WindowProvider } from "../../src/window-context.js";
@@ -70,7 +71,7 @@ const HeaderWidth = ({ width }: { readonly width: number }) => {
   }, []);
   return <div ref={container} data-header-width={width} style={{ width, maxWidth: "100%" }}>
     <KeyDispatch macOS={false} keyMap={DEFAULT_KEY_MAP}>
-      <SettingsProvider><TerminalPanesProvider><PaneGridProvider><NewSessionSurfaces><Header /></NewSessionSurfaces></PaneGridProvider></TerminalPanesProvider></SettingsProvider>
+      <SettingsProvider><ChecklistProvider><TerminalPanesProvider><PaneGridProvider><NewSessionSurfaces><Header /></NewSessionSurfaces></PaneGridProvider></TerminalPanesProvider></ChecklistProvider></SettingsProvider>
     </KeyDispatch>
   </div>;
 };
@@ -101,7 +102,7 @@ export const geometry = [1400, 1024].flatMap((width) => [
   { selector: `[data-header-width="${width}"] button[aria-label="Settings"]`, width: 28, height: 28 },
   { selector: `[data-header-width="${width}"] button[aria-label="Search sessions and commands"]`, height: 24 },
   { selector: `[data-header-width="${width}"] [role="radiogroup"]`, height: 30 },
-  { selector: `[data-header-width="${width}"] button[aria-label="Set up: 4 need attention"]`, height: 22 },
+  { selector: `[data-header-width="${width}"] button[aria-label="Set up: 4 to fix"]`, height: 22 },
   { selector: `[data-header-width="${width}"] button[aria-label="Parked asks, 1 waiting"]`, height: 22 },
   { selector: `[data-header-width="${width}"] button[aria-label="Restart to update"]`, height: 22 },
   { selector: `[data-header-width="${width}"] button[aria-label="Restart to update"] > span`, contentFits: true, fontSize: 11 },

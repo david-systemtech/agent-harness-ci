@@ -136,14 +136,18 @@ const MountedPane = ({ pane, targets, parked, parking, ...contents }: { readonly
   return createPortal(<Activity mode={parked ? "hidden" : "visible"}><GridPaneView pane={pane} {...contents} /></Activity>, host);
 };
 
-/** One pane of the grid: focused by a press or the focus inside it, answering the window's keys while it is. */
+/**
+ * One pane of the grid: focused by a press or the focus inside it, answering the window's keys while it is.
+ * Its card clips what overflows it: a hidden-overflow box still scrolls when a browser reveals a focused
+ * control or runs a scrollIntoView, and no reader can scroll it back (#1948).
+ */
 const GridPaneView = ({ pane, focused, several }: { readonly pane: GridPane; readonly focused: boolean; readonly several: boolean }) => {
   const grid = usePaneGrid();
   const contents = { focused, marked: focused && several, close: several ? () => grid.close(pane.id) : undefined };
   return (
     <InGridPane id={pane.id}>
       <KeysAnswered answered={focused}>
-        <div data-grid-card={pane.id} className={classes("relative flex h-full min-w-0 flex-col overflow-hidden rounded-lg border bg-panel", focused && several ? "border-beam/55" : "border-hairline")} onPointerDown={() => grid.focus(pane.id)} onFocus={() => grid.focus(pane.id)}>
+        <div data-grid-card={pane.id} className={classes("relative flex h-full min-w-0 flex-col overflow-clip rounded-lg border bg-panel", focused && several ? "border-beam/55" : "border-hairline")} onPointerDown={() => grid.focus(pane.id)} onFocus={() => grid.focus(pane.id)}>
           {pane.session !== null ? (
             <SessionPane session={pane.session} {...contents} />
           ) : pane.newSession !== undefined ? (

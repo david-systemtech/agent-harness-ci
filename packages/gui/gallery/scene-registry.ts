@@ -30,6 +30,8 @@ export interface SceneGeometry {
   readonly sameHeight?: boolean;
   /** Every matching element starts at the first one's left edge: a column of bars or values stays one column. */
   readonly sameLeft?: boolean;
+  /** The element is no scroll container on either axis (overflow visible or clip), so no reveal of a focused control can scroll it. */
+  readonly unscrollable?: boolean;
   readonly width?: number;
   readonly height?: number;
   readonly paddingLeft?: number;
