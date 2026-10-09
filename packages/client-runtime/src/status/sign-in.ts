@@ -89,8 +89,8 @@ export type AccountAdded =
  * no account, and an environment whose sign-in did not start says why: each
  * is added with nothing to follow.
  */
-export const addAccount = async (runtime: Runtime, environmentId: string, label: string, commandId: string, environment: string): Promise<AccountAdded> => {
-  const answer = await adminCall(() => runtime.requests.call(environmentId, "accounts.add", { commandId, label }));
+export const addAccount = async (runtime: Runtime, environmentId: string, label: string, commandId: string, environment: string, nameByEmail = false): Promise<AccountAdded> => {
+  const answer = await adminCall(() => runtime.requests.call(environmentId, "accounts.add", { commandId, label, ...(nameByEmail ? { nameByEmail: true } : {}) }));
   if (!answer.ok) return { kind: "refused", line: `Not added: ${answer.line}` };
   const result = answer.result;
   if (!result) return { kind: "added", ok: true, line: `${label} was added on ${environment}.` };

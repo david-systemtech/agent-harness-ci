@@ -24,7 +24,7 @@ import {
  */
 
 describe("the Set up result vocabulary", () => {
-  it("adds start-service, import-again, try-again, write-it-myself, start-over, revise, check-certificate, how-to-set-up and choose-folders to ADR 0031's eleven actions, and describes each", () => {
+  it("adds start-service, import-again, try-again, write-it-myself, start-over, revise, check-certificate, how-to-set-up choose-folders and turn-sandbox-off to ADR 0031's eleven actions, and describes each", () => {
     expect(SETUP_ACTIONS).toEqual([
       "sign-in-again",
       "pull-now",
@@ -46,6 +46,7 @@ describe("the Set up result vocabulary", () => {
       "check-certificate",
       "how-to-set-up",
       "choose-folders",
+      "turn-sandbox-off",
     ]);
     for (const action of SETUP_ACTIONS) expect(SetupAction.description, action).toMatch(new RegExp(`(: |; )${action} \\([^)]+\\)`));
   });

@@ -1,5 +1,6 @@
-import { CATALOGUE, CATALOGUE_SEED_INSTRUCTION_ID, type BankJoinPreview, type CarryOverInventory, type ResultOf, type SkillsView, type StepId, type StepResult } from "@agent-harness/contracts";
-import type { EnvironmentHandle, ScriptedSetup } from "@agent-harness/client-runtime/testing/scripted-environment";
+import { DEFAULT_THEME, CATALOGUE, CATALOGUE_SEED_INSTRUCTION_ID, type BankJoinPreview, type CarryOverInventory, type ContainmentReport, type ResultOf, type SkillsView, type StepId, type StepResult } from "@agent-harness/contracts";
+import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
+import type { EnvironmentHandle, ScriptedEnvironment, ScriptedSetup } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { LadderName } from "@agent-harness/theme";
 import { useEffect, useState } from "react";
 import { App } from "../src/app.js";
@@ -25,9 +26,61 @@ export const joinPreview: BankJoinPreview = {
 /** A step's status at the head of its card (setup-copy.md §3; #1840): done, needing a fix with Details open, a check that could not run, and the environment out of reach. */
 type StatusRegion = "status-done" | "status-fix" | "status-could-not-check" | "status-unreachable";
 
-type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | "instructions-unread" | "skills-link-refusal" | StatusRegion;
+type SetupRegion = StepId | "appearance-default" | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | "instructions-unread" | "skills-link-refusal" | "permissions-sandbox" | StatusRegion | AccountRegion | KeyManagerRegion | BrowserRegion;
 
 const isStatus = (kind: SetupRegion): kind is StatusRegion => kind.startsWith("status-");
+
+/** setup-copy.md §5.1's Account states beyond the empty one (#1842): Claude Code found and signed in, an account signed in, one signed out. */
+type AccountRegion = "account-claude-code" | "account-signed-in" | "account-signed-out";
+const ACCOUNT_REGIONS: ReadonlySet<SetupRegion> = new Set<SetupRegion>(["account-claude-code", "account-signed-in", "account-signed-out"]);
+
+/** Who the gallery's Claude Code signs in as; an invented address. */
+const READER = { provider: "claude" as const, email: "reader@example.test", organisation: null };
+
+/** The accounts and this computer's Claude Code sign-in each Account state starts from. */
+const ACCOUNT_STATES = {
+  "account-claude-code": { accounts: [], ambient: { present: true, signedIn: true, identity: READER } },
+  "account-signed-in": { accounts: [{ label: READER.email, identity: READER, directory: { kind: "owned", path: "/accounts/reader" } }], ambient: {} },
+  "account-signed-out": {
+    accounts: [{ label: "Project", directory: { kind: "owned", path: "/accounts/project" }, status: { state: "signed-out", checkedAt: null, detail: null } }],
+    ambient: { present: true, signedIn: false },
+  },
+} as const;
+
+/** setup-copy.md §5.7's Key manager states beyond none chosen (#1851): OpenBao's form chosen, a key manager connected, and one that does not answer. */
+type KeyManagerRegion = "key-manager-openbao" | "key-manager-connected" | "key-manager-unreachable";
+
+type ScriptedKeyManagers = NonNullable<ScriptedEnvironment["keyManagers"]>;
+
+/** Whether a region draws the Key manager card on a computer holding key managers. */
+const showsKeyManagers = (kind: SetupRegion): kind is "key-manager" | KeyManagerRegion => kind === "key-manager" || kind.startsWith("key-manager-");
+
+/** The key managers a Key manager region's computer holds, with the step's result for them; every value is invented. */
+const keyManagersOf = (kind: SetupRegion): { readonly keyManagers?: ScriptedKeyManagers; readonly setup?: ScriptedSetup } => {
+  const items = [{ name: "https://github.com", slug: "github" }, { name: "https://git.example.test", slug: "git-example" }];
+  if (kind === "key-manager-connected") return {
+    keyManagers: { connections: [{ label: "Home OpenBao", address: "https://bao.home.test:8200" }], items },
+    setup: { "key-manager": { state: "done", reason: "Connected to Home OpenBao." } },
+  };
+  if (kind === "key-manager-unreachable") return {
+    keyManagers: {
+      connections: [{ label: "Home OpenBao", address: "https://bao.home.test:8200", injects: false, status: { kind: "unreachable", since: MANUAL_CLOCK_START, message: "OpenBao at https://bao.home.test:8200 did not answer." } }],
+    },
+    setup: { "key-manager": { state: "needs-attention", reason: "Home OpenBao did not answer. Check the address and the connection, then choose Check again.", failing: ["key-manager.reachable"], actions: ["check-again"] } },
+  };
+  return { keyManagers: {} };
+};
+
+/** setup-copy.md §5.11's Browser states beside the connected one (`browser`): nothing done yet, step 5 with its code, and Chrome closed (#1857). */
+type BrowserRegion = "browser-step-1" | "browser-code" | "browser-closed";
+const isBrowserRegion = (kind: SetupRegion): kind is BrowserRegion => kind === "browser-step-1" || kind === "browser-code" || kind === "browser-closed";
+
+/** The Browser step's lines for those states (setup-copy.md §5.11). */
+const BROWSER_RESULTS: { readonly [Kind in BrowserRegion]: Partial<StepResult> } = {
+  "browser-step-1": { state: "skipped", reason: "Chrome is not connected. Optional." },
+  "browser-code": { state: "skipped", reason: "Chrome is not connected. Optional." },
+  "browser-closed": { state: "needs-attention", reason: "Chrome is closed, so agents cannot use it. Open Chrome. This updates by itself.", failing: ["browser.chrome-connected"], actions: ["check-again"] },
+};
 
 /** setup-copy.md §5.4: a container no host updater has polled, its line offering How to set it up (#1883). */
 const NEVER_POLLED: Partial<StepResult> = {
@@ -39,6 +92,22 @@ const NEVER_POLLED: Partial<StepResult> = {
 const UNREAD_PARTS: Partial<StepResult> = {
   state: "needs-attention", reason: "agent-harness could not read part of this computer's setup: Forges, Memory bank.",
   failing: ["instructions.orientation-renders"], actions: ["check-again"], details: ["Unread sections of the orientation block: forges, banks"],
+};
+
+/** setup-copy.md §5.12: the sandbox chosen does not work here, so the line offers Turn the sandbox off and How to fix it (#1858). */
+const SANDBOX_UNAVAILABLE: Partial<StepResult> = {
+  state: "needs-attention", reason: "The sandbox you chose does not work on this computer yet.", failing: ["permissions.containment"], actions: ["turn-sandbox-off"],
+  details: ["permissions.containment.default: workspace", "Probe: bubblewrap is not installed: bwrap is not on the PATH. Install the bubblewrap package.", "Cause: binary_missing"],
+};
+
+/** What the probe found for that scene: bubblewrap missing, so neither project-folder level works. */
+const NO_BUBBLEWRAP: Partial<ContainmentReport> = {
+  levels: [
+    { level: "off", available: true, reason: null, cause: null },
+    { level: "workspace", available: false, reason: "bubblewrap is not installed: bwrap is not on the PATH. Install the bubblewrap package.", cause: "binary_missing" },
+    { level: "workspace-no-network", available: false, reason: "bubblewrap is not installed: bwrap is not on the PATH. Install the bubblewrap package.", cause: "binary_missing" },
+  ],
+  mechanism: null,
 };
 
 /** The Instructions card's world: About my setup seeded and one suggestion ticked, and the block a new run is handed (#1856). */
@@ -103,29 +172,40 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
-  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" ? "key-manager" : kind === "instructions-unread" ? "instructions" : kind === "skills-link-refusal" || isStatus(kind) ? "skills" : kind;
+  const target: StepId = kind === "appearance-default" ? "appearance" : kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" || ACCOUNT_REGIONS.has(kind) ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" || showsKeyManagers(kind) ? "key-manager" : kind === "instructions-unread" ? "instructions" : kind === "permissions-sandbox" ? "permissions" : kind === "skills-link-refusal" || isStatus(kind) ? "skills" : isBrowserRegion(kind) ? "browser" : kind as StepId;
+  const keyManagerRegion = showsKeyManagers(kind);
   const status = isStatus(kind) ? STATUS_RESULTS[kind] : undefined;
+  const accountState = kind in ACCOUNT_STATES ? ACCOUNT_STATES[kind as AccountRegion] : undefined;
   const prepared = await prepareWorld({ environments: [{
-    name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks"],
-    accounts: kind === "account" || kind === "close-confirmation" ? [] : kind === "sign-in"
+    name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks", ...(keyManagerRegion ? ["keyManagers", "managedTools"] as const : [])],
+    ...(accountState !== undefined && { ambient: accountState.ambient }),
+    accounts: accountState !== undefined ? accountState.accounts : kind === "account" || kind === "close-confirmation" ? [] : kind === "sign-in"
       ? [{ label: "Project", directory: { kind: "owned", path: "/accounts/project" }, status: { state: "expired", checkedAt: null, detail: null } }]
       : [{ label: "Project", directory: { kind: "adopted", path: "/accounts/project" } }],
     sessions: kind === "authoring" ? [{ title: "Set up: Memory bank", tags: ["setup", "memory-bank"] }] : [],
+    ...(kind === "appearance-default" && {
+      settings: { "appearance.theme": { name: "Loud", seeds: { ...DEFAULT_THEME.seeds, accent: { hue: 264, chroma: 0.4 } } } },
+      setup: { appearance: { state: "needs-attention" as const, reason: "Some colours in Loud were adjusted so text stays readable.", failing: ["appearance.contrast"], actions: ["restore" as const] } },
+    }),
     ...(kind === "host-updater" && { setup: { "your-machines": NEVER_POLLED } }),
     ...(kind === "rail-states" && { setup: RAIL_STATES }),
     ...(kind === "instructions-unread" && { setup: { instructions: UNREAD_PARTS } }),
+    ...(kind === "permissions-sandbox" && { setup: { permissions: SANDBOX_UNAVAILABLE }, containment: NO_BUBBLEWRAP, settings: { "permissions.containment.default": "workspace" } }),
     ...(status !== undefined && { setup: { skills: status } }),
+    ...(keyManagerRegion && keyManagersOf(kind)),
+    ...(isBrowserRegion(kind) && { setup: { browser: BROWSER_RESULTS[kind] } }),
   }] }, { firstLaunch: true });
   const desk = prepared.world.environment("desk");
   if (target === "instructions") scriptInstructions(desk, kind === "instructions-unread" ? ["forges", "banks"] : []);
   desk.wire.answer("browser.status", () => ({ result: {
-    listener: { state: "listening", port: 47615 }, folder: { path: "/extension/current", problem: null }, shippedVersion: "0.1.0", unpairedConnected: false,
+    listener: { state: "listening", port: 47615 }, folder: { path: "/extension/current", problem: null }, shippedVersion: "0.1.0", unpairedConnected: kind === "browser-code",
     headless: { allowRuns: true, availability: { available: false, reason: "No browser installed." }, liveContexts: 0 },
   } }));
   if (target === "skills") desk.wire.answer("skills.get", () => ({ result: SKILLS_ADDED }));
   if (kind === "skills-link-refusal") desk.wire.answer("skills.probe", () => NO_GIT);
   const since = prepared.clock.now().toISOString();
-  desk.wire.answer("browser.chromes.list", () => ({ result: { chromes: [{ id: "0199aa00-0000-4000-8000-000000000041", name: "Project Chrome", pairedAt: since, lastConnectedAt: since, lastReportedVersion: "0.1.0", connected: true, outdated: false }] } }));
+  const chromes = kind === "browser-step-1" || kind === "browser-code" ? [] : [{ id: "0199aa00-0000-4000-8000-000000000041", name: "Project Chrome", pairedAt: since, lastConnectedAt: since, lastReportedVersion: "0.1.0", connected: kind !== "browser-closed", outdated: false }];
+  desk.wire.answer("browser.chromes.list", () => ({ result: { chromes } }));
   desk.wire.answer("browser.pairing.code", () => ({ result: { code: "TEST2345", expiresAt: new Date(prepared.clock.now().getTime() + 300_000).toISOString() } }));
   desk.wire.answer("carryOver.inventory", (params) => {
     const inventory: CarryOverInventory = {
@@ -219,13 +299,24 @@ export function setupRegionScene(kind: SetupRegion) {
           scene.prepared.world.environment("desk").server.drop();
           return;
         }
-        if (kind === "host-updater") {
-          const how = [...document.querySelectorAll<HTMLButtonElement>("[data-setup-scroll] button")].find((button) => button.textContent === "How to set it up");
+        if (kind === "key-manager-openbao") {
+          const openBao = document.querySelector<HTMLButtonElement>('[data-setup-scroll] button[role="radio"][aria-label="OpenBao or Vault"]');
+          if (!finished && openBao !== null && !openBao.disabled) { finished = true; openBao.click(); }
+          return;
+        }
+        if (kind === "appearance-default") {
+          const reset = [...document.querySelectorAll<HTMLButtonElement>("[data-setup-scroll] button")].find((button) => button.textContent === "Use the Default theme");
+          if (!finished && reset !== undefined && !reset.disabled) { finished = true; reset.click(); }
+          return;
+        }
+        if (kind === "host-updater" || kind === "permissions-sandbox") {
+          const label = kind === "host-updater" ? "How to set it up" : "How to fix it";
+          const how = [...document.querySelectorAll<HTMLButtonElement>("[data-setup-scroll] button")].find((button) => button.textContent === label);
           if (!finished && how !== undefined) { finished = true; how.click(); }
           return;
         }
         if (kind !== "browser" || finished) return;
-        const done = document.querySelector<HTMLButtonElement>('section[aria-label="Done"] button');
+        const done = document.querySelector<HTMLButtonElement>('section[aria-label="Use my Chrome for agents"] button');
         if (done !== null && !done.disabled) { finished = true; done.click(); }
       };
       const observer = new MutationObserver(advance);

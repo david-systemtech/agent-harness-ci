@@ -112,13 +112,23 @@ export const StateImportNotCarried = z
   .meta({ description: "Something a state import never carries: what, how many, and the step to set it up on again, if any." });
 export type StateImportNotCarried = z.infer<typeof StateImportNotCarried>;
 
-/** One thing an import could not do, which a re-run tries again. */
+/**
+ * One thing an import could not do, which a re-run tries again: its plain
+ * line, the step whose card fixes it where one does (a forge's token,
+ * a missing skill), and the technical facts behind it for Details
+ * (setup-copy.md §5.3): a repository, a store's own diagnostic, a source id.
+ */
 export const StateImportFailure = z
   .object({
     label,
-    message: z.string().min(1).meta({ description: "What went wrong, for a person." }),
+    message: z.string().min(1).meta({ description: "What went wrong, for a person, in plain words: no path, id or raw diagnostic." }),
+    step: StepId.optional().meta({ description: "The step whose card fixes it: Forges for a forge's token, Skills for a missing skill; absent when no card does." }),
+    details: z
+      .array(z.string().min(1))
+      .optional()
+      .meta({ description: "The technical facts behind it, one line each, for Details: a repository, a folder, a store's diagnostic, the raw refusal." }),
   })
-  .meta({ description: "What a state import could not carry: the item, and why." });
+  .meta({ description: "What a state import could not carry: the item, why in plain words, the step that fixes it, and the facts for Details." });
 export type StateImportFailure = z.infer<typeof StateImportFailure>;
 
 /**

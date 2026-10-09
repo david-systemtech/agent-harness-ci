@@ -72,7 +72,7 @@ it("applies exact known names only to mapped Accounts and reports unknown and de
   for (const name of ["check", "write"]) await client.request("skills.own.create", { commandId: randomUUID(), name, description: "A fixture Skill." });
   const preview = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: true });
   expect(preview).toMatchObject({ result: { carried: { accounts: 2, alwaysOnSkills: 3 }, failed: expect.arrayContaining([
-    { label: expect.stringContaining("check-more"), message: expect.stringContaining("unknown") },
+    { label: expect.stringContaining("check-more"), message: "Skill check-more is missing.", step: "skills" },
     { label: 'Always-on Skill "missing" (profile "Later")', message: expect.stringContaining("mapped Account") },
     { label: 'Always-on Skill "missing" (an unnamed source profile)', message: expect.stringContaining("mapped Account") },
     { label: 'Always-on Skill "write" (Claude profile "Refused")', message: expect.stringContaining("mapped Account") },
@@ -109,8 +109,9 @@ it("keeps earlier successes, retries repaired sources and names, and preserves e
   const client = await t.client();
   const first = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
   expect(first).toMatchObject({ result: { carried: { skillSources: 1, alwaysOnSkills: 1 }, failed: expect.arrayContaining([
-    { label: expect.stringContaining("broken"), message: "There are no skills in the folder skills." },
-    { label: expect.stringContaining("repair"), message: expect.stringContaining("unknown") },
+    // The repository and folder wait under Details; the label names the collection alone (#1845).
+    { label: "Skill collection broken", message: "It holds no skills agent-harness can use.", details: ["Repository: https://skills.test/team/broken", "Folder: skills", "There are no skills in the folder skills."] },
+    { label: expect.stringContaining("repair"), message: "Skill repair is missing.", step: "skills" },
   ]) } });
   expect(JSON.stringify(first)).not.toContain("token-for-tests");
   const view = await client.request("skills.get", {});
@@ -236,8 +237,8 @@ it("identifies each mapped Account when an always-on name is unknown or invalid"
     expect(answer.result?.failed).toEqual([
       { label: 'Always-on Skill "Invalid!" (Claude profile "Personal")', message: expect.stringContaining("validation") },
       { label: 'Always-on Skill "Invalid!" (Claude profile "Work")', message: expect.stringContaining("validation") },
-      { label: 'Always-on Skill "missing" (Claude profile "Personal")', message: expect.stringContaining("unknown") },
-      { label: 'Always-on Skill "missing" (Claude profile "Work")', message: expect.stringContaining("unknown") },
+      { label: 'Always-on Skill "missing" (Claude profile "Personal")', message: "Skill missing is missing.", step: "skills" },
+      { label: 'Always-on Skill "missing" (Claude profile "Work")', message: "Skill missing is missing.", step: "skills" },
     ]);
     expect(answer.result?.carried.alwaysOnSkills).toBe(0);
   }
@@ -261,7 +262,7 @@ it.each(["sources", "alwaysOn"])("reports malformed %s fields without blocking A
   for (const dryRun of [true, false]) {
     expect(await client.request("stateImport.run", { commandId: randomUUID(), dryRun })).toMatchObject({ result: {
       carried: { accounts: 1, skillSources: 0, alwaysOnSkills: 0 },
-      failed: [{ label: "Skills", message: expect.stringContaining(field) }],
+      failed: [{ label: "Skills", message: "agent-harness could not read this part of your earlier work.", details: [expect.stringContaining(field)] }],
     } });
   }
   expect(snapshotOf(source)).toEqual(bytes);
@@ -306,10 +307,13 @@ it("keeps signed-in accounts and sessions while naming the forge and skill repai
   const run = (dryRun: boolean) => client.request("stateImport.run", { commandId: randomUUID(), dryRun });
   const sourceBytes = snapshotOf(source);
   const first = await run(false);
-  expect(first).toMatchObject({ result: { carried: { accounts: 1 }, reEnter: expect.arrayContaining([
-    { label: expect.stringContaining("https://skills.test"), step: "forges" },
-    { label: expect.stringContaining("missing"), step: "skills" },
+  // Each failed item says its own fix (#1845): the forge's token on the skill collection, the missing name on the always-on choice.
+  expect(first).toMatchObject({ result: { carried: { accounts: 1 }, failed: expect.arrayContaining([
+    { label: "Skill collection private", message: "Connect a forge for skills.test.", step: "forges", details: expect.arrayContaining([expect.stringContaining("team/private"), expect.stringContaining("Authentication failed")]) },
+    { label: expect.stringContaining('"missing"'), message: "Skill missing is missing.", step: "skills" },
   ]) } });
+  expect(first.result?.reEnter.filter((item) => item.step === "forges" || item.step === "skills")).toEqual([]);
+  expect(first.result?.failed.map((failure) => `${failure.label} ${failure.message}`).join(" ")).not.toMatch(/https:|team\/private/);
   const accounts = (await client.request("accounts.refresh", {})).accounts;
   expect(accounts).toHaveLength(1);
   expect(accounts[0]?.status.state).toBe("signed-in");
@@ -327,7 +331,7 @@ it("keeps signed-in accounts and sessions while naming the forge and skill repai
   await run(true);
   expect((await client.request("setup.check", { step: "carry-over" })).results[0]?.state).toBe("needs-attention");
   expect(await run(false)).toMatchObject({ result: { carried: { accounts: 0 }, failed: expect.arrayContaining([
-    { label: expect.stringContaining("private"), message: "This repository is private. Add a forge for skills.test first." },
+    { label: "Skill collection private", message: "Connect a forge for skills.test.", step: "forges", details: expect.any(Array) },
   ]) } });
   expect((await client.request("accounts.list", {})).accounts.map((account) => account.id).sort()).toEqual(accountIds);
   expect(CarryOverInventory.parse(await client.request("carryOver.inventory", { accountId })).sessions).toEqual(before.sessions);
@@ -369,13 +373,121 @@ it("names the serving forge account's canonical origin for SSH and verified alia
   const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
   onCleanup(() => logged.mockRestore());
   const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
-  expect(imported.result?.failed).toEqual([
-    { label: expect.any(String), message: "This repository is private. Add a forge for forge.skills.test first." },
-    { label: expect.any(String), message: "This repository is private. Add a forge for alias.skills.test first." },
-  ]);
-  expect(imported.result?.reEnter).toEqual([{ label: `Forge credential for ${canonical}, then import again`, step: "forges" }]);
+  // A forge is connected for both, so the fix is its token; the git refusal waits under Details.
+  const fix = { message: "Your forge forge.skills.test could not open this skill collection. Check its token in Forges.", step: "forges", details: expect.arrayContaining([expect.stringContaining("Authentication failed")]) };
+  expect(imported.result?.failed).toEqual([{ label: expect.any(String), ...fix }, { label: expect.any(String), ...fix }]);
+  expect(imported.result?.reEnter).toEqual([]);
 });
 
+
+it("sends a repository a connected forge cannot see to that forge's token", async () => {
+  const forge = await startFakeForge();
+  onCleanup(() => forge.close());
+  forge.user(TOKEN, { login: "fixture", id: 42 });
+  forge.repositories(TOKEN, []);
+  const canonical = "https://forge.skills.test:5526";
+  const source = tempDir();
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1, sources: [{ url: `${canonical}/team/hidden`, subdir: "." }], alwaysOn: [] }));
+  const stderr = `remote: Repository not found.\nfatal: repository '${canonical}/team/hidden/' not found`;
+  const t = await startTestEnvironment({ adapter: fakeAdapter(), setupSteps: NO_SETUP_STEPS,
+    forgeFetch: (url, init) => fetch(String(url).replace(canonical, forge.origin), init),
+    skillsGit: async () => ({ outcome: "ran", git: { ok: false, code: 128, stdout: Buffer.alloc(0), stderr, truncated: false, timedOut: false, missing: false } }),
+    stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }),
+  });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  await added(client, { url: canonical, kind: "forgejo" });
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  onCleanup(() => logged.mockRestore());
+  const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  // A forge answers not found for a private repository its token cannot see: the fix is that token.
+  expect(imported.result?.failed).toEqual([{ label: "Skill collection hidden",
+    message: "Your forge forge.skills.test could not open this skill collection. Check its token in Forges.", step: "forges",
+    details: expect.arrayContaining([expect.stringContaining("team/hidden/' not found")]) }]);
+});
+
+it("keeps the forge access fix when an SSH repository refusal retains only an ambiguous fatal line", async () => {
+  const source = tempDir();
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1,
+    sources: [{ url: "git@ssh.skills.test:team/private.git", subdir: "." }], alwaysOn: [] }));
+  const t = await startTestEnvironment({ adapter: fakeAdapter(), setupSteps: NO_SETUP_STEPS,
+    skillsGit: async () => ({ outcome: "ran", git: { ok: false, code: 128, stdout: Buffer.alloc(0),
+      stderr: "ERROR: Repository does not exist.\nfatal: Could not read from remote repository.", truncated: false, timedOut: false, missing: false } }),
+    stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }),
+  });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  expect(imported.result?.failed).toEqual([{ label: "Skill collection private",
+    message: "agent-harness found no such repository or branch. If it is private, connect a forge for ssh.skills.test.", step: "forges",
+    details: expect.arrayContaining([expect.stringContaining("fatal: Could not read from remote repository.")]) }]);
+});
+
+it("says a branch or pin the forge no longer holds is gone, with no forge to fix", async () => {
+  const forge = await startFakeForge();
+  onCleanup(() => forge.close());
+  forge.user(TOKEN, { login: "fixture", id: 42 });
+  forge.repositories(TOKEN, []);
+  const canonical = "https://forge.skills.test:5526";
+  const repositories = skillRepositories(tempDir);
+  const pin = repositories.commit("team/pinned", { "SKILL.md": skill("write") });
+  const source = tempDir();
+  const clones = join(source, "skill-sources");
+  mkdirSync(clones);
+  testGit(clones, "clone", "--quiet", join(repositories.root, "team/pinned.git"), "forge-skills-test-5526-team-pinned-758ba96a");
+  testGit(join(clones, "forge-skills-test-5526-team-pinned-758ba96a"), "checkout", "--quiet", "--detach", pin);
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1, sources: [
+    { url: `${canonical}/team/pinned`, subdir: "." },
+    { url: `${canonical}/team/moved`, subdir: "." },
+  ], alwaysOn: [] }));
+  const said = (repository: string) => repository.endsWith("pinned") ? `fatal: remote error: upload-pack: not our ref ${pin}` : "fatal: Remote branch work not found in upstream origin";
+  const t = await startTestEnvironment({ adapter: fakeAdapter(), setupSteps: NO_SETUP_STEPS,
+    forgeFetch: (url, init) => fetch(String(url).replace(canonical, forge.origin), init),
+    skillsGit: async (request) => ({ outcome: "ran", git: { ok: false, code: 128, stdout: Buffer.alloc(0), stderr: said(request.repository), truncated: false, timedOut: false, missing: false } }),
+    stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }),
+  });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  await added(client, { url: canonical, kind: "forgejo" });
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  onCleanup(() => logged.mockRestore());
+  const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  // The forge opened the repository, so its token is not the fix.
+  expect(imported.result?.failed).toEqual(expect.arrayContaining([
+    { label: "Skill collection pinned", message: "Its branch or pinned version is no longer there.", details: expect.arrayContaining([expect.stringContaining("not our ref")]) },
+    { label: "Skill collection moved", message: "Its branch or pinned version is no longer there.", details: expect.arrayContaining([expect.stringContaining("Remote branch work not found")]) },
+  ]));
+  expect(imported.result?.failed).toHaveLength(2);
+});
+
+it("words a missing, unanswering or failed clone plainly and keeps git's words under Details", async () => {
+  const said: Record<string, string> = {
+    gone: "fatal: repository 'https://skills.test/team/gone/' not found",
+    slow: "fatal: unable to access 'https://skills.test/team/slow/': Could not resolve host: skills.test",
+    odd: "fatal: the remote end hung up unexpectedly",
+  };
+  const source = tempDir();
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1,
+    sources: Object.keys(said).map((name) => ({ url: `https://skills.test/team/${name}`, subdir: "." })), alwaysOn: [] }));
+  const t = await startTestEnvironment({ adapter: fakeAdapter(), setupSteps: NO_SETUP_STEPS,
+    skillsGit: async (request) => ({ outcome: "ran", git: { ok: false, code: 128, stdout: Buffer.alloc(0),
+      stderr: said[request.repository.split("/").pop()!]!, truncated: false, timedOut: false, missing: false } }),
+    stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }),
+  });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  onCleanup(() => logged.mockRestore());
+  const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  const failed = imported.result?.failed ?? [];
+  expect(failed).toEqual(expect.arrayContaining([
+    // No forge is connected for the host, so the line names both readings git's answer allows, and the fix for a private one.
+    { label: "Skill collection gone", message: "agent-harness found no such repository or branch. If it is private, connect a forge for skills.test.", step: "forges", details: expect.arrayContaining([expect.stringContaining(said["gone"]!)]) },
+    { label: "Skill collection slow", message: "Its host did not answer in time. Choose Bring it over to try again.", details: expect.arrayContaining([expect.stringContaining(said["slow"]!)]) },
+    { label: "Skill collection odd", message: "agent-harness could not add this skill collection.", details: expect.arrayContaining([expect.stringContaining(said["odd"]!)]) },
+  ]));
+  expect(failed.map((failure) => failure.message).join(" ")).not.toMatch(/https:|team\/|fatal/);
+});
 
 it.each([
   ["git@ssh.skills.test:team/private.git", "Permission denied (publickey).", "ssh.skills.test"],
@@ -393,6 +505,8 @@ it.each([
   const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
   onCleanup(() => logged.mockRestore());
   const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
-  expect(imported.result?.failed).toEqual([{ label: expect.any(String), message: expect.stringContaining(`SSH keys and known-hosts entry for ${host}, using the source's SSH port`) }]);
+  expect(imported.result?.failed).toEqual([{ label: "Skill collection private",
+    message: `${host} did not let this computer in over SSH. Check this computer's SSH key and its known-hosts entry for ${host}.`,
+    details: expect.arrayContaining([expect.stringContaining("team/private"), expect.stringContaining(stderr)]) }]);
   expect(imported.result?.reEnter).toEqual([]);
 });

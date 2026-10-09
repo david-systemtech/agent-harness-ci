@@ -1,4 +1,5 @@
 import {
+  PRODUCT_NAME,
   type InjectionAnswer,
   type KeyManagerCertificate,
   type KeyManagerAuthMethod,
@@ -28,6 +29,14 @@ import { whenWords } from "../transcript/format.js";
 /** What each provider is called on a card and in a form. */
 export const KEY_MANAGER_PROVIDER_WORDS: Readonly<Record<KeyManagerProvider, string>> = {
   openbao: "OpenBao or Vault",
+  doppler: "Doppler",
+  onepassword: "1Password",
+  bitwarden: "Bitwarden Secrets Manager",
+};
+
+/** What each provider is called in a line or on a button: `Connect OpenBao`, `Doppler did not accept these details.` (setup-copy.md §5.7). */
+export const KEY_MANAGER_PROVIDER_NAMES: Readonly<Record<KeyManagerProvider, string>> = {
+  openbao: "OpenBao",
   doppler: "Doppler",
   onepassword: "1Password",
   bitwarden: "Bitwarden Secrets Manager",
@@ -65,6 +74,57 @@ export const KEY_MANAGER_STATUS_ADVICE: Readonly<Record<KeyManagerStatusKind, st
   unreachable: "Check the address and that the key manager is up and reachable from this environment, then Verify now.",
   sealed: "Unseal it, then Verify now.",
   "certificate-rejected": "Check its certificate: trust it if it is your key manager's, and it signs in again.",
+};
+
+/** The one button a connection's health line offers (setup-copy.md §5.7): a sign-in, a sign-in again, a check now, or a look at its certificate. */
+export type ConnectionFix = "sign-in" | "sign-in-again" | "check-again" | "check-certificate";
+
+/** What each fix's button says. */
+export const CONNECTION_FIX_WORDS: Readonly<Record<ConnectionFix, string>> = { "sign-in": "Sign in", "sign-in-again": "Sign in again", "check-again": "Check again", "check-certificate": "Check certificate" };
+
+/** Each status as a connection's health line says it: its state word, the one thing to do, and the button that does it; none for a status that asks nothing. */
+const HEALTH: Readonly<Record<KeyManagerStatusKind, { readonly state: string; readonly next: string | null; readonly fix: ConnectionFix | null }>> = {
+  "signed-in": { state: "Connected", next: null, fix: null },
+  "signing-in": { state: "Signing in", next: null, fix: null },
+  "awaiting-sign-in": { state: "Not signed in", next: "Sign in to use it.", fix: "sign-in" },
+  "credential-rejected": { state: "Not accepted", next: "Sign in again with a working token.", fix: "sign-in-again" },
+  expired: { state: "Expired", next: "Sign in with a new token.", fix: "sign-in-again" },
+  unreachable: { state: "Not answering", next: "Check the address and the connection, then choose Check again.", fix: "check-again" },
+  sealed: { state: "Locked (sealed)", next: "Unlock it, then choose Check again.", fix: "check-again" },
+  "certificate-rejected": { state: "Certificate not trusted", next: "Choose Check certificate to review it.", fix: "check-certificate" },
+  "provider-unavailable": { state: "Not ready", next: "Choose Check again.", fix: "check-again" },
+};
+
+/**
+ * A connection's health as the Key manager step says it (setup-copy.md
+ * §5.7): one line, `{state} since {time}. {what to do}`, and the one button
+ * that does it, null when it asks nothing. The environment's own words for
+ * the status are the step's Details, never a second sentence here.
+ */
+export const connectionHealth = (status: KeyManagerStatus, now: Date): { readonly line: string; readonly fix: ConnectionFix | null } => {
+  const { state, next, fix } = HEALTH[status.kind];
+  return { line: `${state} since ${whenWords(status.since, now)}.${next === null ? "" : ` ${next}`}`, fix };
+};
+
+/**
+ * What a Connect says of the connection it saved (setup-copy.md §5.7):
+ * connected; saved but not reached, naming the address; saved and waiting
+ * for its sign-in; or saved but not connected, with the one thing to do.
+ * Never "Added" followed by what failed.
+ */
+export const savedWords = (connection: Pick<KeyManagerConnectionRecord, "label" | "address" | "status">): string => {
+  const { label, address, status } = connection;
+  switch (status.kind) {
+    case "signed-in":
+    case "signing-in":
+      return `Connected to ${label}.`;
+    case "unreachable":
+      return `Saved, but ${PRODUCT_NAME} could not reach ${address}. Check the address, then choose Check again.`;
+    case "awaiting-sign-in":
+      return `Saved. ${label} is not signed in yet.`;
+    default:
+      return `Saved, but ${label} is not connected yet. ${HEALTH[status.kind].next ?? ""}`.trimEnd();
+  }
 };
 
 /** A connection's status with its since-time, where the client is: `Signed in since 09:14`. */
@@ -169,8 +229,22 @@ export const cliHealthWords = (connection: Pick<ListedKeyManagerConnection, "inj
   return `${cli.label}${version} is below its minimum${minimum}: runs may not read this key manager from their shell until it is updated. ${keeps}`;
 };
 
-/** The sentence beside the injection switch on the Key manager card (ADR 0028; the Set up specification, "5. Key manager"). */
-export const INJECTION_SWITCH_WORDS = "Every run on this environment receives this key manager's variables unless an account, routine or bot turns it off.";
+/** A connection's switch on the Key manager card (setup-copy.md §5.7; ADR 0028): whether every run gets its keys. */
+export const injectionSwitchWords = (label: string): string => `Let every run use ${label}'s keys`;
+
+/** The line under a connection's switch, saying where one run's answer is changed. */
+export const INJECTION_SWITCH_HINT = "You can turn this off for one account, routine or bot in Settings.";
+
+/**
+ * What turning a connection's switch off does beyond that connection, said while it is on: it denies
+ * `credentials.injection`, the one answer every supplier reads, so runs lose the forges' credentials too
+ * (the environment's injection setting, #315, #368).
+ */
+export const INJECTION_SWITCH_OFF_WORDS = "Turning it off stops every key manager's keys and the forges' credentials for runs here.";
+
+/** What Move saved tokens asks (setup-copy.md §5.7): how many tokens agent-harness keeps itself, and whether to move them into `label`. */
+export const moveOfferWords = (count: number, label: string): string =>
+  count === 1 ? `${PRODUCT_NAME} keeps 1 token itself. Move it into ${label}?` : `${PRODUCT_NAME} keeps ${count} tokens itself. Move them into ${label}?`;
 
 /** What a policy's write flag says beside its name. */
 export const POLICY_WRITES_WORDS: Readonly<Record<KeyManagerPolicyWrites, string>> = { yes: "writes", no: "reads only", possibly: "may write" };

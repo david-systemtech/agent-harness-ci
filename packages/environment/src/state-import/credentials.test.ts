@@ -187,7 +187,7 @@ describe("state import's Forge credentials and Key-manager records", () => {
     const applied = (await run(client)).result;
     expect(applied?.carried).toMatchObject({ forgeAccounts: 1, keyManagerConnections: 0 });
     expect(applied?.failed).toContainEqual({ label: 'Bank "gone" Forge', message: "Its credential has no declared Bank; no credential was copied." });
-    expect(applied?.failed).toContainEqual({ label: "Key-manager connections", message: "The Key-manager registry is not JSON." });
+    expect(applied?.failed).toContainEqual({ label: "Key-manager connections", message: "agent-harness could not read this part of your earlier work.", details: ["The Key-manager registry is not JSON."] });
     expect(JSON.stringify(applied)).not.toMatch(/password-for-tests|discarded-for-tests|encrypted-for-tests/);
     store(folder, "secret-managers.json", { connections: [{ id: randomUUID(), label: "Fixed keys", provider: "doppler", address: "https://api.doppler.com", authMethod: "token", token: "password-for-tests" }] });
     const retried = (await run(client)).result;

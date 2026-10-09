@@ -12,6 +12,7 @@ import {
   type SessionDeletedPayload,
   type SessionDraftSetPayload,
   type SessionGroupSetPayload,
+  type SessionModelSetPayload,
   type SessionModeSetPayload,
   type SessionPinReorderedPayload,
   type SessionPinnedPayload,
@@ -30,7 +31,7 @@ import { tagKey } from "./decider.js";
 import { projectGroupEvent } from "./group-list.js";
 import { readGroup } from "./group-reads.js";
 import { readSummary } from "./session-reads.js";
-import { SESSION_LIST_TABLES, titleOf, type SessionRow } from "./session-tables.js";
+import { SESSION_LIST_TABLES, runChoiceColumn, titleOf, type SessionRow } from "./session-tables.js";
 import { shelfProjections } from "./shelf-list.js";
 import { systemProjections } from "./system-list.js";
 
@@ -140,6 +141,8 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
     const { browser } = event.payload as SessionBrowserSetPayload;
     setColumns(event, db, { browser: browser === null ? null : JSON.stringify(browser) });
   },
+  // The model and effort the session's next run goes out on (#1961): like the browser, what its runs do, so `updatedAt` stays.
+  "session.model-set": (event, db) => setColumns(event, db, { run_choice: runChoiceColumn(event.payload as SessionModelSetPayload) }),
   "session.title-set": (event, db) => {
     const payload = event.payload as SessionTitleSetPayload;
     const [row] = db.all<Pick<SessionRow, "generated_title">>("SELECT generated_title FROM sessions WHERE id = ?", event.streamId);

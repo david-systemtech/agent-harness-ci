@@ -3,6 +3,11 @@
   "title": "ContainmentReport",
   "type": "object",
   "properties": {
+    "platform": {
+      "description": "The probed computer's operating system (such as linux or darwin), so repair guidance addresses that computer even when its sandbox is unavailable. Absent on older environments.",
+      "type": "string",
+      "minLength": 1
+    },
     "levels": {
       "type": "array",
       "items": {

@@ -85,6 +85,6 @@ export const planRoutines = async (records: SourceRoutines, store: string, optio
       } });
     } catch { refuse("The Routine owner could not prepare this entry; repair it and retry the import."); }
   }
-  if (records.upstreamWatches > 0) notCarried.push({ label: "Upstream watch: use docs/routines/upstream-watch.md; live cut-over #988", count: records.upstreamWatches, step: null });
+  if (records.upstreamWatches > 0) notCarried.push({ label: "Upstream watches", count: records.upstreamWatches, step: null });
   return { items, failed, notCarried };
 };

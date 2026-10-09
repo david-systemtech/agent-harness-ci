@@ -46,6 +46,7 @@ export const SETUP_ACTIONS = [
   "check-certificate",
   "how-to-set-up",
   "choose-folders",
+  "turn-sandbox-off",
 ] as const;
 
 /** What a client does for each action (the Set up specification, "Actions"), the items it applies to being the result's targets that name it. */
@@ -71,6 +72,7 @@ const SETUP_ACTION_MEANINGS: { readonly [Action in (typeof SETUP_ACTIONS)[number
   "check-certificate": "opens the certificate check of each key-manager connection it targets, where a person reviews the certificate it presents and trusts it",
   "how-to-set-up": "shows how to set up what the step needs outside the environment: on Your machines, the host-side updater on the Docker host",
   "choose-folders": "looks for the skill folders of the skill source it targets again, so the person chooses the folders it now holds in place of the ones that moved",
+  "turn-sandbox-off": "writes the containment default off through permissions.settings.set, on the Permissions step whose chosen sandbox cannot be enforced here",
 };
 
 export const SetupAction = z.enum(SETUP_ACTIONS).meta({

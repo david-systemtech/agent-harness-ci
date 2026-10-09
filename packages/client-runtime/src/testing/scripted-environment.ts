@@ -1,4 +1,6 @@
 import {
+  StateImportFinishedPayload,
+  type StateImportFailure,
   AdapterCapabilities,
   DISCOVERY_PATH,
   LIST_PATCH_KEY,
@@ -229,6 +231,8 @@ export interface ScriptedEnvironment {
    * `setup` flag, `environment.subscribe`'s snapshot carries the results last checked and a check that changed one is noticed.
    */
   readonly setup?: ScriptedSetup;
+  /** The last completed import's failures, sent in a new window's environment snapshot. */
+  readonly stateImportFailures?: readonly StateImportFailure[];
   /**
    * The key-manager connections, the key manager behind them, the items Move lists and the managed tools' rows
    * (`scripted-key-managers.ts`): preset none held, over a key manager that takes every credential. The `keyManagers` and
@@ -472,6 +476,7 @@ const summaryOf = (clock: ManualClock, partial: Partial<SessionSummary>, index: 
     parkedPromptCount: 0,
     accountId: null,
     model: null,
+    runChoice: null,
     mode: null,
     browser: null,
     pullRequests: [],
@@ -606,11 +611,12 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   });
   const held: (() => void)[] = [];
   let environmentSubscription: string | undefined;
+  let stateImportFailures = [...(spec.stateImportFailures ?? [])];
   wire.answer("environment.subscribe", (_params, request) => {
     environmentSubscription = subscribed(request);
     // With the `setup` flag, a snapshot carrying every step's result as the environment last checked it (#569).
-    if (flagged) {
-      const payload = { status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false }, setup: setup.snapshot() };
+    if (flagged || spec.stateImportFailures !== undefined) {
+      const payload = { status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false }, ...(flagged && { setup: setup.snapshot() }), stateImportFailures };
       wire.server.send({ type: "snapshot", subscription: environmentSubscription, sequence, payload });
     }
     wire.server.send({ type: "synchronized", subscription: environmentSubscription, sequence });
@@ -620,6 +626,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   wire.answer("accounts.usage", () => ({ result: { readings: [...usage] } }));
   /** Says a notice on the environment's own stream, as the environment does. */
   const notice = (type: string, payload: Record<string, unknown>) => {
+    if (type === "state-import.finished") stateImportFailures = StateImportFinishedPayload.parse(payload).failed;
     const at = ++sequence;
     const event: EventEnvelope = {
       sequence: at,
@@ -730,8 +737,6 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   // the account `sessions.create` named, `scripted-list.ts`).
   const sessionAccounts = new Map<string, string>();
   const ceiling = (): Mode => (hello.ceiling as Mode | undefined) ?? "bypassPermissions";
-  // The model and effort of each session's latest run: a run of the queue reads it on those, as the environment's does (ADR 0022).
-  const lastChoice = new Map<string, { readonly model?: string; readonly effort?: string }>();
   /** Starts a run with a prompt, or (`text` null) a run of the queue carrying `queued`, as the environment starts one after a read-now. */
   const beginRun = (
     sessionId: string,
@@ -744,7 +749,9 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const messageId = text === null ? null : minted("0199a200");
     const summary = summaryNow(sessionId);
     const accountId = sessionAccounts.get(sessionId) ?? summary.accountId ?? "account-1";
-    const model = choice.model ?? summary.model ?? "claude-fake";
+    // As the environment's run does (#1961): the model asked for, else the session's; the session's effort while on its model.
+    const model = choice.model ?? summary.runChoice?.model ?? summary.model ?? "claude-fake";
+    const effort = choice.effort ?? (summary.runChoice?.model === model ? summary.runChoice.effort : null);
     // As the environment's run does: the session's mode asked for, clamped to the ceiling; acceptEdits when the session has none.
     const requested = summary.mode;
     const effective = lowerMode(requested ?? "acceptEdits", ceiling());
@@ -758,7 +765,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
         accountId,
         identity: null,
         model,
-        effort: choice.effort ?? null,
+        effort,
         mode: { requested, effective, clamped },
         workspace: summary.workspace,
         origin: "client",
@@ -767,12 +774,11 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
         resumedFrom: null,
         forkedFrom: null,
       },
-      // As the environment's run.started does, the summary takes the run's account and model.
-      { fields: { activity: { state: "running", since: clock.now().toISOString() }, accountId, model } },
+      // As the environment's run.started does, the summary takes the run's account and model, and its model and effort for the next run.
+      { fields: { activity: { state: "running", since: clock.now().toISOString() }, accountId, model, runChoice: { model, effort } } },
     );
     for (const id of queued) emit(sessionId, "message.delivered", { runId, messageId: id, delivery: "prompt" });
     live.set(sessionId, runId);
-    lastChoice.set(sessionId, { model, ...(choice.effort !== undefined && { effort: choice.effort }) });
     return { runId, messageId };
   };
   const startRun: EnvironmentHandle["startRun"] = (sessionId, text, attachments, choice = {}) => {
@@ -812,7 +818,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   /** Starts the run of the environment's queue, when it holds anything; the run's id, else undefined. */
   const startFromQueue = (sessionId: string): string | undefined => {
     const queued = environmentHeld(sessionId);
-    return queued.length === 0 ? undefined : beginRun(sessionId, null, undefined, queued, lastChoice.get(sessionId)).runId;
+    return queued.length === 0 ? undefined : beginRun(sessionId, null, undefined, queued).runId;
   };
 
   // A run's file tools, as Claude's name them: the call, then the file as the environment reads it.
@@ -865,6 +871,15 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     };
   };
   const attachmentsOf = (params: Record<string, unknown>) => (params["attachments"] as readonly AttachmentInput[] | undefined) ?? [];
+  /** The run's effort as the environment's decider takes it (#1950): the command's, its null the model's own; else `accounts.defaultEffort` where the model takes it. */
+  const effortOf = (sessionId: string, params: Record<string, unknown>): string | undefined => {
+    const asked = params["effort"];
+    if (asked !== undefined) return typeof asked === "string" ? asked : undefined;
+    const model = typeof params["model"] === "string" ? params["model"] : summaryNow(sessionId).model;
+    const preset = values["accounts.defaultEffort"];
+    if (preset === null) return undefined;
+    return (spec.models ?? []).some((catalogue) => catalogue.models?.some((entry) => entry.id === model && entry.efforts.includes(preset))) ? preset : undefined;
+  };
   wire.answer("runs.start", (params) => {
     const refused = rejection("runs.start");
     if (refused) return refused;
@@ -872,7 +887,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     if (live.has(sessionId)) {
       return { result: { receipt: { status: "rejected", sequence: ++sequence, changed: false, reason: "conflict", error: { code: "conflict", message: "A run is live.", data: { reason: "run_active" } } } } };
     }
-    const choice = { ...(typeof params["model"] === "string" && { model: params["model"] }), ...(typeof params["effort"] === "string" && { effort: params["effort"] }) };
+    const effort = effortOf(sessionId, params);
+    const choice = { ...(typeof params["model"] === "string" && { model: params["model"] }), ...(effort !== undefined && { effort }) };
     return acceptedWith(startRun(sessionId, String(params["text"]), attachmentsOf(params), choice));
   });
   wire.answer("runs.send", (params) => {
@@ -941,6 +957,18 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     return acceptedWith({ messageId, sessionId, heldBy });
   });
   wire.answer("runs.stopTask", (params) => rejection("runs.stopTask") ?? acceptedWith({ runId: params["runId"], taskId: params["taskId"], ended: false }));
+  // The session's next-run model and effort (#1961), as the environment decides them: refused while a run is live.
+  wire.answer("sessions.setModel", (params) => {
+    const refused = rejection("sessions.setModel");
+    if (refused) return refused;
+    const sessionId = String(params["sessionId"]);
+    if (live.has(sessionId)) {
+      return { result: { receipt: { status: "rejected", sequence: ++sequence, changed: false, reason: "conflict", error: { code: "conflict", message: "A run is live.", data: { reason: "run_active" } } } } };
+    }
+    const runChoice = { model: String(params["model"]), effort: (params["effort"] as string | null | undefined) ?? null };
+    emit(sessionId, "session.model-set", runChoice, { fields: { runChoice } });
+    return acceptedWith({ summary: summaryNow(sessionId) });
+  });
   wire.answer("sessions.setDraft", (params) => {
     const refused = rejection("sessions.setDraft");
     if (refused) return refused;
@@ -1482,7 +1510,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   /** The refusal of `label` for another account than `accountId` holding it, ignoring case. */
   const labelTaken = (label: string, accountId?: string): FakeAnswer | undefined => {
     const holder = accounts.find((a) => a.id !== accountId && a.label.toLowerCase() === label.toLowerCase());
-    return holder ? accountRefusal("label_taken", `The label ${label} is taken by another account on this environment, ignoring case.`, { accountId: holder.id }) : undefined;
+    return holder ? accountRefusal("label_taken", `Another account is already called ${label}. Choose another name.`, { accountId: holder.id }) : undefined;
   };
   /** Removes `held`, releasing the machine's own directory if it held it, as the account store does. */
   const removeAccount = (held: AccountRecord) => {
@@ -1496,11 +1524,13 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const refused = rejection("accounts.adopt");
     if (refused) return refused;
     if (ambient.directory === null || !ambient.present || !ambient.signedIn) {
-      return accountRefusal("ambient_unavailable", `The machine's own Claude directory is not signed in (${ambient.directory ?? "none"}); sign in with Claude's own CLI, then call accounts.probe.`);
+      const line = ambient.directory === null || !ambient.present ? "Claude Code is not on this computer. Sign in with Claude instead." : "Claude Code on this computer is not signed in. Sign in with Claude instead.";
+      return accountRefusal("ambient_unavailable", line, ambient.directory === null ? {} : { directory: ambient.directory });
     }
     const holder = accounts.find((a) => a.id === ambient.accountId);
-    if (holder) return accountRefusal("already_added", `${ambient.directory} is already added as ${holder.label}.`, { accountId: holder.id });
-    const label = (params["label"] as string | undefined) ?? ambient.identity?.email ?? "";
+    if (holder) return accountRefusal("already_added", `This sign-in is already used by ${holder.label}.`, { accountId: holder.id, directory: ambient.directory });
+    const label = (params["label"] as string | undefined) ?? ambient.identity?.email;
+    if (label === undefined) return accountRefusal("no_email", "This sign-in has no email to name the account by. Enter a name.", { directory: ambient.directory });
     const taken = labelTaken(label);
     if (taken) return taken;
     const account = accountOf({ id: `account-${++accountsMinted}`, label, directory: { kind: "adopted", path: ambient.directory }, identity: ambient.identity }, accounts.length);
@@ -1516,10 +1546,10 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const held = accounts[at];
     if (!held) return accountNotHeld(params["accountId"]);
     const label = String(params["label"]);
-    if (held.label === label) return acceptedWith({ account: held });
+    if ((params["onlyIfNameByEmail"] === true && held.nameByEmail !== true) || (held.label === label && held.nameByEmail !== true)) return acceptedWith({ account: held });
     const taken = labelTaken(label, held.id);
     if (taken) return taken;
-    const account = { ...held, label };
+    const account = { ...held, label, nameByEmail: false };
     accounts[at] = account;
     accountUpdated(account.id, "relabelled");
     return acceptedWith({ account });
@@ -1545,7 +1575,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const held = accounts[at];
     if (!held) throw new Error(`${spec.name} holds no account ${accountId}.`);
     if (changes === null) return removeAccount(held);
-    accounts[at] = checked(AccountRecord, { ...held, ...changes });
+    accounts[at] = checked(AccountRecord, { ...held, ...changes, ...(changes.label === undefined ? {} : { nameByEmail: false }) });
     accountUpdated(accountId, changes.label !== undefined ? "relabelled" : changes.identity !== undefined ? "identity-set" : "status-changed");
   };
 
@@ -1591,7 +1621,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const id = ++accountsMinted;
     const label = String(params["label"]);
     const running = runningSignIn();
-    const account = accountOf({ id: `account-${id}`, label, directory: { kind: "owned", path: `/home/milo/.agent-harness/accounts/${id}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
+    const account = accountOf({ id: `account-${id}`, label, ...(params["nameByEmail"] === true ? { nameByEmail: true } : {}), directory: { kind: "owned", path: `/home/milo/.agent-harness/accounts/${id}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
     accounts.push(account);
     const start =
       spec.addSignIn ?? (running === null ? { started: true, message: null } : { started: false, message: `${heldMessage(running)} Sign ${label} in with accounts.signin.start once it has.` });

@@ -77,7 +77,7 @@ export const readingsOf = (gauge: UsageGauge | undefined): readonly Reading[] =>
     resetsAt: window.resetsAt,
   }));
 
-/** Compact meters show only recognised windows; details retain every limit. */
+/** Compact meters show only recognised windows; lists that name each window take `listedReadingsOf`. */
 export const meterReadingsOf = (gauge: UsageGauge | undefined): readonly Reading[] => readingsOf(gauge).filter((reading) => isKnownUsageWindow(reading.window));
 
 /** Whether a reading says something: how full its window is, or that the provider refuses it. */
@@ -87,7 +87,7 @@ const saysSomething = (reading: Reading): boolean => reading.utilisation !== nul
  * A gauge's windows for a list that names each (#1893): every known window,
  * and the unknown limits that say something; the unknown ones that say
  * nothing only counted, as identical `Other limit —` rows tell a person
- * nothing. The status line's details keep every limit.
+ * nothing. Settings > Usage and the status line's details both list these (#1951).
  */
 export const listedReadingsOf = (gauge: UsageGauge | undefined): { readonly readings: readonly Reading[]; readonly silent: number } => {
   const readings = readingsOf(gauge);
@@ -231,6 +231,14 @@ export const effortName = (effort: string): string => EFFORT_NAMES[effort] ?? ef
 export const modelChoiceWords = (choice: { readonly model: string; readonly effort: string | null }, label: string | null = null): string => {
   const name = modelDisplayName(choice.model, label);
   return choice.effort === null ? name : `${name} - ${effortName(choice.effort)}`;
+};
+
+/** A saved choice that a read catalogue cannot take, before the next run. Both renderers show the same warning. */
+export const modelChoiceWarning = (choice: { readonly model: string; readonly effort: string | null } | undefined, listed: ModelEntry | undefined, catalogueLoaded: boolean): string | undefined => {
+  if (choice === undefined || !catalogueLoaded) return undefined;
+  if (listed === undefined) return "This stored model is not listed for this account. Choose an available model for the next run.";
+  if (choice.effort !== null && !listed.efforts.includes(choice.effort)) return "This stored effort is not listed for this model. Choose an available effort for the next run.";
+  return undefined;
 };
 
 /** The line a picker says when a model is chosen for the session's next run. */

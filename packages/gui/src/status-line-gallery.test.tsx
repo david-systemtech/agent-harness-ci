@@ -1,7 +1,9 @@
 import { fireEvent, screen, within } from "@testing-library/react";
+import { whenWords } from "@agent-harness/contracts";
 import { expect, it, onTestFinished, vi } from "vitest";
 import * as phoneUsageScene from "../gallery/scenes/phone-composer-details-usage.js";
 import * as statusScene from "../gallery/scenes/status-line.js";
+import * as usageDetailsScene from "../gallery/scenes/status-line-usage-details.js";
 import { mountGallery } from "../gallery/mount.js";
 
 it("status-line captions the model bucket by the model alone and labels the context ring Context", async () => {
@@ -38,4 +40,23 @@ it("phone-composer-details-usage shows the Context and model rings in the Run se
   // The sheet stacks its rows in a column, where the rings' auto margin would size them to their content: capped at the
   // sheet's width, the captions truncate instead of pushing a ring past the edge at text size 20.
   expect(gauge.parentElement!.className.split(" ")).toContain("max-w-full");
+});
+
+// #1951: the gallery scene of the popover, opened by its own activate.
+it("status-line-usage-details opens the popover with one silent-limits line and the times in words", async () => {
+  // The hosted scene uses UTC fixtures; restore the caller's zone after this test.
+  vi.stubEnv("TZ", "UTC");
+  onTestFinished(() => { vi.unstubAllEnvs(); });
+  const root = document.createElement("div"); root.id = "root"; document.body.append(root);
+  const gallery = await mountGallery(root, "status-line-usage-details", "dark", { "status-line-usage-details": usageDetailsScene });
+  onTestFinished(async () => { await gallery.close(); root.remove(); });
+  await gallery.ready;
+  const details = await screen.findByRole("dialog", { name: "Usage details" });
+  const now = new Date("2026-09-24T00:00:00.000Z");
+  expect(await within(details).findByText("2 other limits give no reading.")).toBeTruthy();
+  expect(within(details).getAllByText("Other limit")).toHaveLength(1);
+  expect(details.textContent).toContain(`Resets ${whenWords("2026-09-24T01:44:00.000Z", now)} · in 1h 44m`);
+  expect(details.textContent).toContain("Resets Mon 00:00 · in 96h 00m");
+  expect(within(details).getByLabelText("Reading age").textContent).toBe(`Read 51s ago · ${whenWords("2026-09-23T23:59:09.000Z", now)}`);
+  expect(details.textContent).not.toMatch(/\d{4}-\d\d-\d\dT/);
 });

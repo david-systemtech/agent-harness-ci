@@ -4,7 +4,7 @@ import { useObservable, useRuntime } from "../../src/window-context.js";
 
 export const script: Script = { environments: [{ name: "desk", reach: "local", sessions: [] }] };
 
-/** The Permissions pane and setup card share this custom containment editor. */
+/** The Permissions pane and setup card share this sandbox control (setup-copy.md §5.12). */
 export default function PermissionsContainmentScene() {
   const views = useObservable(useRuntime().projections.environments);
   const view = views.find((candidate) => candidate.phase === "ready");
@@ -16,9 +16,9 @@ export default function PermissionsContainmentScene() {
   </main>;
 }
 
-/** look.md §12.2: 768px body cap, human label above smaller mono key. */
+/** look.md §12.2: 768px body cap, the human label above its smaller description, each level's own words beneath it. */
 export const geometry = [
   { selector: "section[aria-label='Permissions']", width: 768, tolerance: 0.1 },
-  { selector: "[role=radiogroup] > span[id]", height: 18, tolerance: 0.1 },
-  { selector: "[role=radiogroup] > span.font-mono", height: 16, tolerance: 0.1 },
+  { selector: "[role=group] > span[id]", height: 18, tolerance: 0.1 },
+  { selector: "[role=radiogroup] label span.text-2xs", height: 16, tolerance: 0.1 },
 ] as const;

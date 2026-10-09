@@ -51,6 +51,17 @@ describe("Set up actions on named items", () => {
       { key: "choose-folders skill-source source-house", words: "Choose folders: house-skills", targets: [moved[1]], plan: { kind: "row", row: "knowledge.skills" } },
     ]);
   });
+
+  it("names the Permissions step's Restore Restore them, whatever lists it names, and offers Turn the sandbox off, which the step's card writes (#1858)", () => {
+    const permissions = { id: "permissions", home: "access.permissions" } as const;
+    const targets = [
+      { action: "restore", kind: "denylist-section", id: "paths", label: "paths" },
+      { action: "restore", kind: "denylist-section", id: "hosts", label: "hosts" },
+    ] as const;
+    expect(setupActions(permissions, { actions: ["restore"], targets })).toMatchObject([{ words: "Restore them", plan: { kind: "restore", step: "permissions", sections: ["paths", "hosts"] } }]);
+    expect(setupActions({ id: "appearance", home: "appearance.theme" }, { actions: ["restore"] })).toMatchObject([{ words: "Restore" }]);
+    expect(setupActions(permissions, { actions: ["turn-sandbox-off"] })).toMatchObject([{ words: "Turn the sandbox off", plan: { kind: "row", row: "access.permissions" } }]);
+  });
 });
 
 describe("Set up actions' words (setup-copy.md §3 and the steps)", () => {

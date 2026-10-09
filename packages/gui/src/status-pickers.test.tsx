@@ -1,7 +1,10 @@
+import { useToastTimers } from "../test/toast-timers.js";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { AccountUsage, HandoffRecommendation } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
+
+useToastTimers();
 
 /**
  * The status line's pickers and the dialogs they open (docs/specs/gui.md, "A
@@ -281,7 +284,7 @@ describe("the model picker", () => {
     expect(within(statusLine()).getByRole("button", { name: /^Model: Opus/ })).toBeTruthy();
   });
 
-  it("lists the models of the session's account with their efforts, and the choice goes with the session's next run", async () => {
+  it("lists the models of the session's account with their efforts, and the choice is the session's, which its next run goes out on (ticket 1961)", async () => {
     const { app, env, session } = await opened([desk({ models })]);
     const menu = await openPicker(app, "Model");
     const opus = await within(menu).findByRole("group", { name: "Effort" });
@@ -294,8 +297,41 @@ describe("the model picker", () => {
 
     const box = screen.getByRole("textbox", { name: "Message" });
     act(() => box.focus());
+    expect(sent(env, "sessions.setModel")).toEqual([expect.objectContaining({ sessionId: session, model: "claude-opus-4", effort: "high" })]);
     await app.user.keyboard("Fix the receipts{Enter}");
-    await waitFor(() => expect(sent(env, "runs.start")).toEqual([expect.objectContaining({ sessionId: session, text: "Fix the receipts", model: "claude-opus-4", effort: "high" })]));
+    await waitFor(() => expect(sent(env, "runs.start")).toEqual([expect.objectContaining({ sessionId: session, text: "Fix the receipts" })]));
+    expect(sent(env, "runs.start")[0]).not.toHaveProperty("model");
+    await waitFor(() => expect(env.events(session).filter((event) => event.type === "run.started").at(-1)?.payload).toMatchObject({ model: "claude-opus-4", effort: "high" }));
+    expect(within(statusLine()).getByRole("button", { name: "Model: Opus - High" })).toBeTruthy();
+  });
+
+  it("names the model and effort the session keeps for its next run when the window opens again, before any run of this window, and the run goes out on them (ticket 1961)", async () => {
+    const kept = desk({ models, sessions: [{ title: "Receipts", accountId: "account-1", model: "claude-opus-4", runChoice: { model: "claude-haiku-4", effort: null }, mode: "acceptEdits" }] });
+    const { app, env, session } = await opened([kept]);
+    expect(within(statusLine()).getByRole("button", { name: "Model: claude-haiku-4" })).toBeTruthy();
+    const box = screen.getByRole("textbox", { name: "Message" });
+    act(() => box.focus());
+    await app.user.keyboard("Fix the receipts{Enter}");
+    await waitFor(() => expect(env.events(session).filter((event) => event.type === "run.started").at(-1)?.payload).toMatchObject({ model: "claude-haiku-4", effort: null }));
+    expect(within(statusLine()).getByRole("button", { name: "Model: claude-haiku-4" })).toBeTruthy();
+  });
+
+  it("warns on the chip before any run when the account no longer lists the model the session keeps (ticket 1961)", async () => {
+    const kept = desk({ models, sessions: [{ title: "Receipts", accountId: "account-1", model: "claude-opus-4", runChoice: { model: "claude-fable-5", effort: "high" }, mode: "acceptEdits" }] });
+    const { app } = await opened([kept]);
+    const chip = within(statusLine()).getByRole("button", { name: /^Model: / });
+    await waitFor(() => expect(chip.querySelector(".text-amber")).not.toBeNull());
+    await app.user.hover(chip);
+    expect((await screen.findByRole("tooltip")).textContent).toContain("This stored model is not listed for this account. Choose an available model for the next run.");
+  });
+
+  it("warns before sending when the catalogue no longer offers the stored effort", async () => {
+    const kept = desk({ models, sessions: [{ title: "Receipts", accountId: "account-1", runChoice: { model: "claude-opus-4", effort: "medium" } }] });
+    const { app } = await opened([kept]);
+    const chip = within(statusLine()).getByRole("button", { name: "Model: Opus - Medium" });
+    await waitFor(() => expect(chip.querySelector(".text-amber")).not.toBeNull());
+    await app.user.hover(chip);
+    expect((await screen.findByRole("tooltip")).textContent).toContain("This stored effort is not listed for this model. Choose an available effort for the next run.");
   });
   it("names the model and effort as the provider does, in the trigger, the rows and the line it says", async () => {
     const fable = [{ accountId: "account-1", live: false, models: [{ id: "fable", family: "fable", tier: 3, efforts: ["low", "medium", "high"], label: "Fable" }] }];

@@ -21,6 +21,10 @@
       "pattern": "^\\S(?:.*\\S)?$",
       "description": "An account's label: 1 to 200 characters on one line, with no space at either end; unique on its environment ignoring case, preset to the email the account signed in as."
     },
+    "nameByEmail": {
+      "description": "Whether the supplied label was generated rather than chosen, to be replaced by its email after sign-in.",
+      "type": "boolean"
+    },
     "directory": {
       "type": "string",
       "minLength": 1,

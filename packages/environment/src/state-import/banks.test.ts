@@ -48,7 +48,7 @@ it("previews and registers retained checkouts with mapped Account scopes, attach
   const before = [snapshotOf(writable.path), snapshotOf(attached.path)];
   const { t, client } = await start(source);
   const head = t.env.log.head();
-  expect(await run(client, true)).toMatchObject({ result: { carried: { accounts: 1, banks: 2 }, failed: [], reEnter: [{ label: 'Bank "attach": BANK.md needs migration or repair', step: "memory-bank" }] } });
+  expect(await run(client, true)).toMatchObject({ result: { carried: { accounts: 1, banks: 2 }, failed: [], reEnter: [{ label: 'Memory bank "attach" needs a repair', step: "memory-bank" }] } });
   expect(t.env.log.head()).toBe(head);
   expect(await client.request("banks.list", {})).toEqual({ banks: [] });
   expect(await run(client)).toMatchObject({ result: { carried: { accounts: 1, banks: 2 }, failed: [] } });

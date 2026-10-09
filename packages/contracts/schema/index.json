@@ -423,6 +423,10 @@
       "title": "SessionActivity"
     },
     {
+      "path": "sessions/session-run-choice.json",
+      "title": "SessionRunChoice"
+    },
+    {
       "path": "sessions/pull-request-state.json",
       "title": "PullRequestState"
     },
@@ -513,6 +517,10 @@
     {
       "path": "sessions/events/session.draft-set.json",
       "title": "SessionDraftSetPayload"
+    },
+    {
+      "path": "sessions/events/session.model-set.json",
+      "title": "SessionModelSetPayload"
     },
     {
       "path": "sessions/events/session.group-set.json",
@@ -4579,6 +4587,22 @@
       "title": "sessions.setBrowser error"
     },
     {
+      "path": "methods/sessions.setModel/params.json",
+      "title": "sessions.setModel params"
+    },
+    {
+      "path": "methods/sessions.setModel/result.json",
+      "title": "sessions.setModel result"
+    },
+    {
+      "path": "methods/sessions.setModel/response.json",
+      "title": "sessions.setModel response"
+    },
+    {
+      "path": "methods/sessions.setModel/error.json",
+      "title": "sessions.setModel error"
+    },
+    {
       "path": "methods/sessions.setDraft/params.json",
       "title": "sessions.setDraft params"
     },
@@ -7916,6 +7940,16 @@
       "result": "methods/sessions.setBrowser/result.json",
       "response": "methods/sessions.setBrowser/response.json",
       "error": "methods/sessions.setBrowser/error.json"
+    },
+    {
+      "name": "sessions.setModel",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.setModel/params.json",
+      "result": "methods/sessions.setModel/result.json",
+      "response": "methods/sessions.setModel/response.json",
+      "error": "methods/sessions.setModel/error.json"
     },
     {
       "name": "sessions.setDraft",

@@ -17,7 +17,8 @@ import { isRegisteredStep } from "./checklist.js";
  * to the environment it names; `sign-in-again` the sign-in of the account it
  * names (a forge account's Forges, a key-manager connection's Key managers);
  * `update` on Your machines `updates.apply`, and `how-to-set-up` there the
- * host-side updater's setup (#1883); `install` and `update` of a
+ * host-side updater's setup (#1883); `turn-sandbox-off` on Permissions the
+ * containment default written off, which the step's card does (#1858); `install` and `update` of a
  * tool `tools.run` in a tool terminal; `pull-now` `skills.sources.pull` for
  * each source named (#733); `move` the Key manager step's Move card, on
  * Key managers; `check-certificate` Key managers, where each connection's
@@ -49,6 +50,7 @@ export const SETUP_ACTION_WORDS: { readonly [Action in SetupAction]: string } = 
   "check-certificate": "Check certificate",
   "how-to-set-up": "How to set it up",
   "choose-folders": "Choose folders",
+  "turn-sandbox-off": "Turn the sandbox off",
 };
 
 /** The steps with a restore of their own: the Permissions step's denylist presets and the Appearance step's preset theme. */
@@ -181,12 +183,15 @@ const ALL_AT_ONCE: readonly SetupAction[] = ["restore", "pull-now"];
  * which updates the machine); one acting on each item it names alone (a
  * sign-in, an unpairing, an authoring session), a button an item, named for
  * it ("Sign in again: Work"); Restore and Pull now, one button for every item
- * they name ("Restore: paths, hosts").
+ * they name ("Update now: team-skills, house-skills"), the Permissions step's
+ * Restore "Restore them", since its line names the lists.
  */
 export const setupActions = (step: ActingStep, result: { readonly actions: readonly SetupAction[]; readonly targets?: readonly SetupTarget[] | undefined }): readonly OfferedSetupAction[] =>
   result.actions.flatMap((action): OfferedSetupAction[] => {
     const offer = (key: string, targets: readonly SetupTarget[]): OfferedSetupAction => {
       const plan = planSetupAction(step, action, targets);
+      // The Permissions step's line names the lists it restores (setup-copy.md §5.12), so its button need not.
+      if (plan.kind === "restore" && plan.step === "permissions") return { key, action, targets, words: "Restore them", plan };
       const verb = plan.kind === "update" ? "Update now" : SETUP_ACTION_WORDS[action];
       if (plan.kind === "run-tool") return { key, action, targets, words: `${verb} ${targets[0]!.label} in a tool terminal`, plan };
       return { key, action, targets, words: targets.length === 0 ? verb : `${verb}: ${targets.map((target) => target.label).join(", ")}`, plan };
