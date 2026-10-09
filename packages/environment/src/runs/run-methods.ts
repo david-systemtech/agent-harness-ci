@@ -8,12 +8,12 @@ import type { EventLog, StreamRef, Tx } from "../event-log/event-log.js";
 import type { RunActor } from "../permissions/resolver.js";
 import type { CommandContext, MethodHandler, MethodHandlers, PreparedCommand } from "../serve/methods.js";
 import { appendRunEvents } from "../sessions/activity-companions.js";
-import type { Reader } from "../sessions/session-reads.js";
+import { readSummary, type Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
 import type { AvailabilityWatcher } from "../workspace/availability.js";
 import { sessionWorkspace } from "../workspace/session.js";
 import { queueVerbMethods } from "./queue-verbs.js";
-import { decideInterrupt, decideSend, decideStart, decideStopTask, type RunFacts, type RunRefusal } from "./run-decider.js";
+import { decideInterrupt, decideSend, decideSetModel, decideStart, decideStopTask, type RunFacts, type RunRefusal } from "./run-decider.js";
 import { readRun, readSessionFacts, taskStatus } from "./run-reads.js";
 
 /**
@@ -276,6 +276,18 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
       if (decision.rejected !== undefined) return { aggregate, rejected: decision.rejected };
       if (!decision.ended) afterCommit(context.tx, () => host.stopTask(runId, params.taskId));
       return { aggregate, result: { runId, taskId: params.taskId, ended: decision.ended } };
+    },
+
+    // The model and effort the session's next runs go out on (#1961): the session's own, kept in its stream; at runs:drive.
+    "sessions.setModel": (params, context) => {
+      const sessionId = params.sessionId.toLowerCase();
+      const aggregate = sessionStream(sessionId);
+      const decision = decideSetModel(host.startFacts(sessionId, actorOf(context)), { model: params.model, effort: params.effort });
+      if (decision.rejected !== undefined) return { aggregate, rejected: decision.rejected };
+      if (decision.event !== null) log.append(aggregate, [decision.event], { tx: context.tx, actor: context.actor, commandId: context.commandId });
+      const summary = readSummary(reader, sessionId);
+      if (summary === null) throw new Error(`The session ${sessionId} has no summary after its model was chosen.`);
+      return { aggregate, result: { summary } };
     },
 
     // Read now and withdraw, on the provider's queue and the environment's (#228); read now looks at the workspace first.

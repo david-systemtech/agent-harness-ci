@@ -138,6 +138,7 @@ export const freshSummary = (id: string, overrides: Partial<SessionSummary> = {}
   parkedPromptCount: 0,
   accountId: null,
   model: null,
+  runChoice: null,
   mode: null,
   browser: null,
   pullRequests: [],

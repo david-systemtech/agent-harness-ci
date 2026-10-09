@@ -18,6 +18,8 @@ import {
   type RunPolicyResolvedPayload,
   type RunStartedPayload,
   type SendResponse,
+  type SessionModelSetPayload,
+  type SessionRunChoice,
   type Workspace,
 } from "@agent-harness/contracts";
 import type { SlashScope } from "../adapter/slash-resolution.js";
@@ -341,12 +343,15 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
   }
   const { descriptor } = account;
   const attachments = attachmentsOf(descriptor, command.message?.attachments ?? []);
-  const model = modelOf(account, command.model ?? session.model, facts.defaults.modelFamily);
-  // The command's effort, which the model must take; else the default (`accounts.defaultEffort`) when the model takes it; else the model's own.
+  const chosen = session.runChoice;
+  const model = modelOf(account, command.model ?? chosen?.model ?? session.model, facts.defaults.modelFamily);
+  // The command's effort, which the model must take; else the session's (#1961), the model's own included, while the run is on
+  // the session's model; else the default (`accounts.defaultEffort`) when the model takes it; else the model's own.
   const asked = command.effort ?? null;
   if (asked !== null && !model.efforts.includes(asked)) throw invalid("effort", `The model ${model.id} does not take the effort ${asked}.`);
+  const kept = chosen !== null && chosen.model === model.id && (chosen.effort === null || model.efforts.includes(chosen.effort)) ? chosen : null;
   const fallback = facts.defaults.effort;
-  const effort = asked ?? (fallback !== null && model.efforts.includes(fallback) ? fallback : null);
+  const effort = asked ?? (kept !== null ? kept.effort : fallback !== null && model.efforts.includes(fallback) ? fallback : null);
   const requested = command.mode ?? session.mode;
   // The lowest of the asker's ceiling and each queued sender's (#119), which the policy resolves under (#129).
   const ceiling = [facts.actor.ceiling, ...facts.queued.map((queued) => queued.ceiling)].reduce(lowerMode);
@@ -451,6 +456,35 @@ export const decideSend = (facts: StartFacts, message: SentMessage, origin: RunO
     result: { runId: live.runId, messageId: message.messageId, delivery: "queued", heldBy },
     queued: { runId: live.runId, heldBy, message: { messageId: message.messageId, text: message.text, attachments: attachments.data } },
   };
+};
+
+/** The event choosing a session's next-run model appends, null when the session has that choice already; or the refusal. */
+export type SetModelDecision = { readonly rejected: RunRefusal; readonly event?: undefined } | { readonly rejected?: undefined; readonly event: EventInput | null };
+
+/**
+ * Chooses the model and effort the session's next runs go out on
+ * (`sessions.setModel`, #1961). A session not here is not found; one with a
+ * run live is `run_active`, since the run of its queue goes out on the live
+ * run's model. A model the session's account does not list, or an effort
+ * the model does not take, is `invalid_params`, checked against the
+ * account's catalogue while it has one read (an unread one leaves it to the
+ * run, which checks it at its start).
+ */
+export const decideSetModel = (facts: StartFacts, choice: SessionRunChoice): SetModelDecision => {
+  const { session, sessionId } = facts;
+  if (session === null || session.deleted) return { rejected: sessionNotFound(sessionId) };
+  if (facts.live !== null) {
+    return conflict(sessionId, "run_active", `A run of the session ${sessionId} is live; choose its next run's model once it has ended.`, { runId: facts.live.runId });
+  }
+  const catalogue = facts.account?.models ?? [];
+  const model = catalogue.find((option) => option.id === choice.model);
+  if (catalogue.length > 0 && model === undefined) throw invalid("model", `The account ${facts.account?.id} does not offer the model ${choice.model}.`);
+  if (model !== undefined && choice.effort !== null && !model.efforts.includes(choice.effort)) {
+    throw invalid("effort", `The model ${model.id} does not take the effort ${choice.effort}.`);
+  }
+  if (session.runChoice?.model === choice.model && session.runChoice.effort === choice.effort) return { event: null };
+  const payload: SessionModelSetPayload = { model: choice.model, effort: choice.effort };
+  return { event: { type: "session.model-set", payload } };
 };
 
 /** What interrupting or stopping work on a run depends on: the run, its session, and whether the run is live now. */
