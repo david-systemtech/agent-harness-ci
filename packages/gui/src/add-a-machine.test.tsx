@@ -411,6 +411,11 @@ describe("Add a device, Part 1: connect a phone or computer to this one", () => 
     expect(code.getByText("This code only works on this computer.")).toBeDefined();
     expect(code.queryByText(/^On the new device/)).toBeNull();
     expect(code.queryByRole("img", { name: "QR code of the pairing link" })).toBeNull();
+    expect(code.queryByRole("region", { name: "Pairing link" })).toBeNull();
+    expect(code.queryByRole("button", { name: "Copy pairing link" })).toBeNull();
+    await app.user.click(code.getByRole("button", { name: "Type it instead" }));
+    expect(within(code.getByRole("region", { name: "Address" })).getByText(/./, { selector: "pre" }).textContent).toBe("127.0.0.1:7433");
+    expect(within(code.getByRole("region", { name: "Code" })).getByText(/./, { selector: "pre" }).textContent).toMatch(/^K7Q2M-XH4R.$/);
   });
 
   it("says nothing about reaching this computer while it binds a tailnet address", async () => {

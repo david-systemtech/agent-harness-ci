@@ -138,7 +138,7 @@ export const PairingCode = ({ view, writable, grant, action = "Make a pairing co
           {!local && <PairingQr link={live.pairing.link} />}
           <div className="flex min-w-0 flex-1 flex-col gap-1.5 text-sm text-ink">
             {local ? <p className="text-amber">{ONLY_HERE}</p> : forDevice && <p className="text-ink">{HOW_TO_USE}</p>}
-            <CopyLine label="Pairing link" text={live.pairing.link} copyLabel="Copy pairing link" />
+            {!local && <CopyLine label="Pairing link" text={live.pairing.link} copyLabel="Copy pairing link" />}
             <Fold summary="Type it instead" open={manual} onOpenChange={setManual}>
               <div className="flex flex-col gap-1">
                 {origin !== undefined && <CopyLine label="Address" text={origin.replace(/^http:\/\//, "")} copyLabel="Copy address" />}
