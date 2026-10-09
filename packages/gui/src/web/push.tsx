@@ -244,6 +244,7 @@ const PushAfterRePair = ({ home }: { readonly home: ConnectionRecord }) => {
     // Registrations are keyed by their client session, so a list fetched before the re-pair names only the old one's.
     const target = answer.result.targets.find(candidate => candidate.id === `push-${own}` && candidate.transport === "push");
     seen.current = { clientSessionId: own, label: target?.label, completion: target?.completion ?? false, enabled: target?.enabled ?? false };
+    if (target?.enabled) setOff(undefined);
   }, [home.clientSessionId, answer.result]);
   useEffect(() => {
     if (!carrying || home.phase !== "ready") return;

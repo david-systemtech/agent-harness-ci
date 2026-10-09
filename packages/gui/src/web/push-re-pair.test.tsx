@@ -106,7 +106,7 @@ const phoneOnThisOrigin = async ({ subscribeWithoutTap = true } = {}) => {
     enablePush: async () => {
       await user.click(screen.getByRole("button", { name: "Settings" }));
       await user.click(await screen.findByRole("button", { name: "Attention settings" }));
-      await user.click(await screen.findByRole("button", { name: "Enable push" }));
+      await user.click(within(await screen.findByRole("region", { name: "Web Push" })).getByRole("button", { name: "Enable push" }));
       await screen.findByText("Push enabled for this client.");
     },
     enableCompletions: async () => {
@@ -215,5 +215,20 @@ it.each([false, true])("offers Enable push when the old target list was not obse
   expect(pushOf(phone.targets, phone.own())).toEqual([]);
   await phone.user.click(within(notice).getByRole("button", { name: "Enable push" }));
   await waitFor(() => expect(pushOf(phone.targets, phone.own())).toHaveLength(1));
+  await waitFor(() => expect(screen.queryByRole("status", { name: "Push is off" })).toBeNull());
+});
+
+it("dismisses the failed carry-over notice after push is enabled through Settings", async () => {
+  const phone = await phoneOnThisOrigin({ subscribeWithoutTap: false });
+  await phone.enablePush();
+  await phone.closeSettings();
+  phone.dropSubscription();
+  await phone.giveFullAccess();
+  await screen.findByRole("status", { name: "Push is off" });
+
+  await phone.enablePush();
+  await phone.closeSettings();
+
+  expect(pushOf(phone.targets, phone.own())).toHaveLength(1);
   await waitFor(() => expect(screen.queryByRole("status", { name: "Push is off" })).toBeNull());
 });
