@@ -6,6 +6,7 @@ import { planAccounts, profileLabel, type PlanAccountsOptions } from "./accounts
 import type { ImportCoordinator } from "./coordinator.js";
 import { detectSource, type SourceMachine } from "./source/folders.js";
 import { readSourceProfiles } from "./source/profiles.js";
+import { unreadStore } from "./failures.js";
 
 export const sourceAccountInventories = (options: Omit<PlanAccountsOptions, "sourceKey"> & {
   readonly machine: SourceMachine;
@@ -17,7 +18,7 @@ export const sourceAccountInventories = (options: Omit<PlanAccountsOptions, "sou
     if (dataFolder === null) return { accounts: [], failed: [], later: [] };
     const sourceKey = await realpath(dataFolder.path);
     const profiles = await readSourceProfiles(sourceKey);
-    if (profiles.status === "failed") return { accounts: [], failed: [{ label: "Accounts", message: profiles.diagnostic }], later: [] };
+    if (profiles.status === "failed") return { accounts: [], failed: [unreadStore("Accounts", profiles.diagnostic)], later: [] };
     const plan = await planAccounts(profiles.records, { ...options, sourceKey });
     const shared = await selectSharedSources(plan.listed.filter((entry) => entry.failure === null && plan.accountIds.has(entry.sourceId)).map((entry) => ({ sourceId: entry.sourceId, directory: entry.observation?.directory ?? entry.directory })), options.listSessions);
     const previews: StateImportAccountInventories["accounts"] = [];

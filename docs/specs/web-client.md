@@ -144,8 +144,9 @@ it showed, so a waiting card is not covered (#1903); a pane a gesture asks for
 as it opens the session, as Set up's "Write it myself" Files, stays shown. In
 the phone layout that header control, a 44px target drawn while a hidden sheet
 has a pane to bring back, is the only way back besides More: no handle floats
-over the transcript (#1960). Outside the phone layout a column is restored as it
-was left, and a narrow pane's hidden sheet comes back from a handle at its edge.
+over the transcript (#1960). An authoring conversation uses its own header
+for that control and returns focus there when its sheet closes (#1977). Outside
+the phone layout a column is restored as it was left, and a narrow pane's hidden sheet comes back from a handle at its edge.
 Drawers/sheets trap and restore focus
 and close predictably. Long titles and labels wrap without page overflow.
 
