@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { ask, fakeAdapter } from "../../test/fake-adapter.js";
 import { create } from "../../test/sessions.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
-import { untilEvent } from "../../test/routines.js";
+import { fileVault, VAULT_FILE, type Vault } from "../serve/vault.js";
+import { created, written, untilEvent } from "../../test/routines.js";
 import { verifyStandardWebhook, webhookReceiver, type WebhookReceiver } from "../../test/webhook-receiver.js";
 import { attentionStore, attentionStream } from "./store.js";
 
@@ -13,10 +16,10 @@ const SECRET = "token-for-tests";
 const target = { id: "fallback", transport: "webhook", enabled: true, completion: false, configuration: { endpoint: "attention" } } as const;
 const adapter = () => fakeAdapter({ script: ask("question", { questions: [{ header: "Choice", question: "private-prompt-for-tests", options: [], multiSelect: false }] }, { promptId: "prompt-1" }) });
 
-const start = async () => {
+const start = async (options: { readonly dataDir?: string; readonly vault?: Vault } = {}) => {
   const receiver = await webhookReceiver();
   onCleanup(() => receiver.close());
-  const t = await startTestEnvironment({ dataDir: tempDir(), webOrigin: "https://example.test:8443", adapter: adapter() });
+  const t = await startTestEnvironment({ dataDir: tempDir(), webOrigin: "https://example.test:8443", adapter: adapter(), ...options });
   onCleanup(() => t.close());
   const client = await t.client();
   await client.apply("routines.endpoints.set", { commandId: randomUUID(), name: "attention", url: `${receiver.origin}/attention`, secret: { kind: "pasted", secret: SECRET } });
@@ -220,4 +223,72 @@ it.each(["http://receiver.example.test/attention", "ftp://receiver.example.test/
   expect(fetched).toEqual([]);
   expect(receiver.received).toEqual([]);
   expect(attentionStore(t.env.log).status(() => true)[0]).toMatchObject({ state: "failed", failure: "Delivery failed. Check the configured transport." });
+});
+
+
+it("removing the last webhook route removes its named endpoint and vault secret", async () => {
+  const dataDir = tempDir();
+  const vault = fileVault(join(dataDir, VAULT_FILE));
+  let erased!: () => void;
+  const secretErased = new Promise<void>(resolve => { erased = resolve; });
+  const { t, client } = await start({ dataDir, vault: {
+    ...vault,
+    async delete(key) { await vault.delete(key); if (key === "endpoint:attention") erased(); },
+  } });
+  const commandId = randomUUID();
+  const removed = await client.apply("attention.routes.remove", { commandId, id: target.id });
+  expect((await client.request("attention.targets.list", {})).targets).toEqual([]);
+  expect((await client.request("routines.endpoints.list", {})).endpoints).toEqual([]);
+  await secretErased;
+  expect(readFileSync(join(t.dataDir, VAULT_FILE), "utf8")).not.toContain(SECRET);
+  expect(removed).toEqual({ id: target.id, endpoint: { name: "attention", state: "removed", secretKind: "pasted" } });
+  expect(await client.request("attention.routes.remove", { commandId, id: target.id })).toMatchObject({ receipt: { status: "accepted" } });
+  expect(t.env.log.readStream({ kinds: ["environment"] }).filter(event => event.type === "routine.endpoint-removed")).toHaveLength(1);
+});
+
+it.each([true, false])("keeps the endpoint and secret of a routine that is enabled=%s", async enabled => {
+  const { t, client } = await start();
+  await created(client, written({ enabled, delivery: [{ kind: "webhook", target: "attention", on: "both" }] }));
+  expect(await client.apply("attention.routes.remove", { commandId: randomUUID(), id: target.id })).toEqual({ id: target.id, endpoint: { name: "attention", state: "retained" } });
+  expect((await client.request("attention.targets.list", {})).targets).toEqual([]);
+  expect((await client.request("routines.endpoints.list", {})).endpoints).toMatchObject([{ name: "attention" }]);
+  expect(readFileSync(join(t.dataDir, VAULT_FILE), "utf8")).toContain(SECRET);
+});
+
+it.each(["global", "other-client"])("keeps an endpoint used by a disabled %s route, then deletes it after the last global route", async owner => {
+  const { t, client } = await start();
+  const other = owner === "global" ? client : await t.client({ token: (await t.pair({ kind: "web", scopes: ["read"] })).token });
+  const shared = { ...target, id: "shared-fallback", enabled: false };
+  await other.apply(owner === "global" ? "attention.routes.set" : "attention.targets.set", { commandId: randomUUID(), target: shared });
+  expect(await client.apply("attention.routes.remove", { commandId: randomUUID(), id: target.id })).toEqual({ id: target.id, endpoint: { name: "attention", state: "retained" } });
+  expect((await client.request("routines.endpoints.list", {})).endpoints).toMatchObject([{ name: "attention" }]);
+  expect(readFileSync(join(t.dataDir, VAULT_FILE), "utf8")).toContain(SECRET);
+  if (owner === "global") {
+    expect(await client.apply("attention.routes.remove", { commandId: randomUUID(), id: shared.id })).toEqual({ id: shared.id, endpoint: { name: "attention", state: "removed", secretKind: "pasted" } });
+    expect((await client.request("routines.endpoints.list", {})).endpoints).toEqual([]);
+  }
+});
+
+it("removes a route whose endpoint is already missing without claiming to delete a secret", async () => {
+  const { client } = await start();
+  await client.apply("routines.endpoints.remove", { commandId: randomUUID(), name: "attention" });
+  expect(await client.apply("attention.routes.remove", { commandId: randomUUID(), id: target.id })).toEqual({ id: target.id, endpoint: { name: "attention", state: "missing" } });
+  expect(await client.apply("attention.routes.remove", { commandId: randomUUID(), id: target.id })).toEqual({ id: target.id });
+});
+
+it("a reader cannot remove a global route or its endpoint and secret", async () => {
+  const { t, client } = await start();
+  const reader = await t.client({ token: (await t.pair({ kind: "web", scopes: ["read"] })).token });
+  expect(await reader.call("attention.routes.remove", { commandId: randomUUID(), id: target.id })).toMatchObject({ error: { code: "forbidden" } });
+  expect(await reader.request("attention.targets.remove", { commandId: randomUUID(), id: target.id })).toMatchObject({ receipt: { reason: "forbidden" } });
+  expect((await client.request("routines.endpoints.list", {})).endpoints).toMatchObject([{ name: "attention" }]);
+  expect(readFileSync(join(t.dataDir, VAULT_FILE), "utf8")).toContain(SECRET);
+});
+
+
+it("a route for an endpoint with no credential reports no signing secret removed", async () => {
+  const { client } = await start();
+  await client.apply("routines.endpoints.set", { commandId: randomUUID(), name: "without-secret", url: "https://receiver.example/attention" });
+  await client.apply("attention.routes.set", { commandId: randomUUID(), target: { ...target, id: "without-secret", configuration: { endpoint: "without-secret" } } });
+  expect(await client.apply("attention.routes.remove", { commandId: randomUUID(), id: "without-secret" })).toEqual({ id: "without-secret", endpoint: { name: "without-secret", state: "removed", secretKind: "missing" } });
 });
