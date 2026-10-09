@@ -134,7 +134,8 @@ describe("stateImport.run's scope and stores", () => {
       reEnter: [],
       later: [],
       notCarried: [],
-      failed: [{ label: "Instructions", message: "The instruction list is not JSON." }],
+      // The store's own diagnostic waits under Details, never in the plain line (#1845).
+      failed: [{ label: "Instructions", message: "agent-harness could not read this part of your earlier work.", details: ["The instruction list is not JSON."] }],
       clientLocal: { mode: "light" },
       dryRun: false,
     });
