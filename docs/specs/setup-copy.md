@@ -312,7 +312,10 @@ quoted from the files named; a builder greps for them.
   `Needs you` lists what must be entered again, each with **Go to {step}**, then the failed items (an alert, `Error: ` hidden, each
   `{label}: {line}`). A forge that is connected but refused: `Your forge {host} could not open this skill collection. Check its token in
   Forges.` → **Go to Forges**. An SSH source no forge serves: `{host} did not let this computer in over SSH. Check this computer's SSH
-  key and its known-hosts entry for {host}.` Details: the refusal. An unreadable store: `agent-harness could not read this part of your
+  key and its known-hosts entry for {host}.` Details: the refusal. A skill collection that cannot be added otherwise: no repository
+  `agent-harness found no repository at this address.`; no answer `Its host did not answer in time. Choose Bring it over to try
+  again.`; no usable skill `It holds no skills agent-harness can use.`; anything else `agent-harness could not add this skill
+  collection.`; each with git's or the Skills owner's words in Details. An unreadable store: `agent-harness could not read this part of your
   earlier work.` Details: its diagnostic. A skill collection is labelled by its repository's name (`Skill collection {name}`), the
   repository and folder in Details. Two profiles sharing a projects folder: `{label} and {owner} share one projects folder, so their
   chats and notes come over once, with {owner}.` Details: their source ids. Window preferences read `Theme`, `Text size` (`(was {n})`

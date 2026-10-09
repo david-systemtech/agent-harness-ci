@@ -110,7 +110,7 @@ it("keeps earlier successes, retries repaired sources and names, and preserves e
   const first = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
   expect(first).toMatchObject({ result: { carried: { skillSources: 1, alwaysOnSkills: 1 }, failed: expect.arrayContaining([
     // The repository and folder wait under Details; the label names the collection alone (#1845).
-    { label: "Skill collection broken", message: expect.stringContaining("no valid skill"), details: ["Repository: https://skills.test/team/broken", "Folder: skills"] },
+    { label: "Skill collection broken", message: "It holds no skills agent-harness can use.", details: ["Repository: https://skills.test/team/broken", "Folder: skills", expect.stringContaining("no valid skill")] },
     { label: expect.stringContaining("repair"), message: "Skill repair is missing.", step: "skills" },
   ]) } });
   expect(JSON.stringify(first)).not.toContain("token-for-tests");
@@ -379,6 +379,34 @@ it("names the serving forge account's canonical origin for SSH and verified alia
   expect(imported.result?.reEnter).toEqual([]);
 });
 
+
+it("words a missing, unanswering or failed clone plainly and keeps git's words under Details", async () => {
+  const said: Record<string, string> = {
+    gone: "fatal: repository 'https://skills.test/team/gone/' not found",
+    slow: "fatal: unable to access 'https://skills.test/team/slow/': Could not resolve host: skills.test",
+    odd: "fatal: the remote end hung up unexpectedly",
+  };
+  const source = tempDir();
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1,
+    sources: Object.keys(said).map((name) => ({ url: `https://skills.test/team/${name}`, subdir: "." })), alwaysOn: [] }));
+  const t = await startTestEnvironment({ adapter: fakeAdapter(), setupSteps: NO_SETUP_STEPS,
+    skillsGit: async (request) => ({ outcome: "ran", git: { ok: false, code: 128, stdout: Buffer.alloc(0),
+      stderr: said[request.repository.split("/").pop()!]!, truncated: false, timedOut: false, missing: false } }),
+    stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }),
+  });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  onCleanup(() => logged.mockRestore());
+  const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  const failed = imported.result?.failed ?? [];
+  expect(failed).toEqual(expect.arrayContaining([
+    { label: "Skill collection gone", message: "agent-harness found no repository at this address.", details: expect.arrayContaining([expect.stringContaining(said["gone"]!)]) },
+    { label: "Skill collection slow", message: "Its host did not answer in time. Choose Bring it over to try again.", details: expect.arrayContaining([expect.stringContaining(said["slow"]!)]) },
+    { label: "Skill collection odd", message: "agent-harness could not add this skill collection.", details: expect.arrayContaining([expect.stringContaining(said["odd"]!)]) },
+  ]));
+  expect(failed.map((failure) => failure.message).join(" ")).not.toMatch(/https:|team\/|fatal/);
+});
 
 it.each([
   ["git@ssh.skills.test:team/private.git", "Permission denied (publickey).", "ssh.skills.test"],

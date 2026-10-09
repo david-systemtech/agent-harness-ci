@@ -35,6 +35,17 @@ const forgeFix = (origin: string, connected: boolean, refusal: ContractError): I
   });
 };
 
+/** Any other refusal of a tracked source: one plain line by what kept it, the owner's words and git's under Details. */
+const unaddable = (refusal: ContractError): ItemFailure => {
+  const problem = refusal.data["reason"] === "unreachable" ? refusal.data["problem"] : undefined;
+  return new ItemFailure({
+    message: problem === "not_found" ? "agent-harness found no repository at this address."
+      : problem === "network" ? "Its host did not answer in time. Choose Bring it over to try again."
+      : "agent-harness could not add this skill collection.",
+    details: [refusal.message],
+  });
+};
+
 /**
  * Tracked sources use the Skills owner's preparation and transaction, paired
  * with the durable import mapping. Each failure says its own fix (#1845): a
@@ -91,23 +102,25 @@ export const planSkills = async (records: SourceSkills, options: PlanSkillsOptio
             if (remote !== null) {
               const account = matchForgeAccount(remote, options.forgeAccounts());
               if (account === null && remote.sshDerived) {
-                const line = error.data["line"];
                 // Forge identity can map SSH hosts; machine authentication uses the original transport.
                 const host = /^ssh:\/\//i.test(parsed.data.url) ? new URL(parsed.data.url).hostname : parsed.data.url.replace(/^(?:[^@/]*@)?(\[[^\]]+\]|[^:]+):.*$/s, "$1");
                 throw new ItemFailure({
                   message: `${host} did not let this computer in over SSH. Check this computer's SSH key and its known-hosts entry for ${host}.`,
-                  details: [error.message, ...(typeof line === "string" ? [line] : []), "The source's own SSH port is used."],
+                  // The refusal's message already ends with git's line.
+                  details: [error.message, "The source's own SSH port is used."],
                 });
               }
               throw forgeFix(account?.origin ?? remote.origin, account !== null, error);
             }
           }
-          throw error;
+          throw error instanceof ContractError ? unaddable(error) : error;
         }
         return (command) => {
           // A source added during preparation is reused without resetting its follow choice.
           if (existing() !== undefined) return reuse(command);
           const answer = handler(params, command);
+          // The owner's refusal names the folder and the commit: those wait under Details.
+          if (answer.rejected?.data?.["reason"] === "no_skills") throw new ItemFailure({ message: "It holds no skills agent-harness can use.", details: answer.rejected.message === undefined ? [] : [answer.rejected.message] });
           return answer.rejected !== undefined ? answer : { ...answer, result: { targetId: answer.result.source.id } };
         };
       },
