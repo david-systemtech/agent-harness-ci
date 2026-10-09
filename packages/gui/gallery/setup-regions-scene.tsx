@@ -8,6 +8,7 @@ import { STEP_CARDS } from "../src/setup/cards.js";
 import type { StepCardProps } from "../src/setup/cards.js";
 import { useChecklist } from "../src/setup/checklist-window.js";
 import { MintedSessionCard } from "../src/setup/minted-session-card.js";
+import { StepStatus } from "../src/setup/step-status.js";
 import { authoringQuestions } from "./authoring-scene.js";
 import { prepareWorld, startWorld } from "./world.js";
 
@@ -21,12 +22,27 @@ export const joinPreview: BankJoinPreview = {
   rules: ["No personal facts.", "No secrets."], canRead: true, canPush: false,
 };
 
-type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states";
+/** A step's status at the head of its card (setup-copy.md §3; #1840): done, needing a fix with Details open, a check that could not run, and the environment out of reach. */
+type StatusRegion = "status-done" | "status-fix" | "status-could-not-check" | "status-unreachable";
+
+type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | StatusRegion;
+
+const isStatus = (kind: SetupRegion): kind is StatusRegion => kind.startsWith("status-");
 
 /** setup-copy.md §5.4: a container no host updater has polled, its line offering How to set it up (#1883). */
 const NEVER_POLLED: Partial<StepResult> = {
   state: "needs-attention", reason: "This container is not kept up to date yet. Set up the updater on the host computer.",
   failing: ["your-machines.host-updater"], actions: ["how-to-set-up", "check-again"],
+};
+
+/** The Skills step's result in each status scene, drawn by the step's status alone; the rest check as the environment's start did. */
+const STATUS_RESULTS: { readonly [Kind in StatusRegion]?: Partial<StepResult> } = {
+  "status-done": { reason: "Your skills are ready.", details: ["Collections: team-skills, house-skills"] },
+  "status-fix": {
+    state: "needs-attention", reason: "team-skills could not update. Choose Update now.", failing: ["skills.sources-synced"], actions: ["pull-now", "check-again"],
+    targets: [{ action: "pull-now", kind: "skill-source", id: "0f8fad5b-d9cb-469f-a165-70867728950e", label: "team-skills" }],
+    details: ["team-skills: git fetch exited with 128", "team-skills: could not resolve host git.example.test"],
+  },
 };
 
 /**
@@ -47,7 +63,8 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
-  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" ? "key-manager" : kind;
+  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" ? "key-manager" : isStatus(kind) ? "skills" : kind;
+  const status = isStatus(kind) ? STATUS_RESULTS[kind] : undefined;
   const prepared = await prepareWorld({ environments: [{
     name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks"],
     accounts: kind === "account" || kind === "close-confirmation" ? [] : kind === "sign-in"
@@ -56,6 +73,7 @@ async function prepareRegion(kind: SetupRegion) {
     sessions: kind === "authoring" ? [{ title: "Set up: Memory bank", tags: ["setup", "memory-bank"] }] : [],
     ...(kind === "host-updater" && { setup: { "your-machines": NEVER_POLLED } }),
     ...(kind === "rail-states" && { setup: RAIL_STATES }),
+    ...(status !== undefined && { setup: { skills: status } }),
   }] }, { firstLaunch: true });
   const desk = prepared.world.environment("desk");
   desk.wire.answer("browser.status", () => ({ result: {
@@ -75,6 +93,7 @@ async function prepareRegion(kind: SetupRegion) {
     return { result: inventory };
   });
   const holders = await startWorld(prepared, prepared.paired);
+  if (kind === "status-could-not-check") desk.refuseSetupChecks({ code: "internal", message: "The step registry could not load.", data: {} });
   const sessionId = kind === "authoring" ? desk.sessionId() : undefined;
   if (sessionId !== undefined) {
     const { runId } = desk.startRun(sessionId, "Describe the project memory bank.");
@@ -84,7 +103,7 @@ async function prepareRegion(kind: SetupRegion) {
   const OpenStep = () => { const { choose } = useChecklist(); useEffect(() => choose(target), [choose]); return null; };
   const PreviewCard = () => <JoinPreview preview={joinPreview} />;
   const AuthoringCard = (props: StepCardProps) => <MintedSessionCard {...props} {...(sessionId !== undefined && { sessionId })} artefact={{ kind: "folder", path: "/banks/project-memory" }} />;
-  const cards = { ...STEP_CARDS, ...(target !== "account" && { account: OpenStep }), ...(kind === "bank-preview" ? { "memory-bank": PreviewCard } : kind === "authoring" ? { "memory-bank": AuthoringCard } : {}) };
+  const cards = { ...STEP_CARDS, ...(target !== "account" && { account: OpenStep }), ...(kind === "bank-preview" ? { "memory-bank": PreviewCard } : kind === "authoring" ? { "memory-bank": AuthoringCard } : {}), ...(isStatus(kind) && { skills: StepStatus }) };
   return { holders, prepared, cards };
 }
 
@@ -121,6 +140,16 @@ export function setupRegionScene(kind: SetupRegion) {
             signed = true;
             scene.prepared.world.environment("desk").signIn("awaiting-code", { url: SIGN_IN_URL });
           }
+          return;
+        }
+        if (kind === "status-fix" && !finished) {
+          const details = [...document.querySelectorAll<HTMLButtonElement>("[data-step-status] [data-notice-tone] button")].find((button) => button.textContent === "Details");
+          if (details !== undefined) { finished = true; details.click(); }
+          return;
+        }
+        if (kind === "status-unreachable" && !finished && document.querySelector("[data-step-status]") !== null) {
+          finished = true;
+          scene.prepared.world.environment("desk").server.drop();
           return;
         }
         if (kind === "host-updater") {

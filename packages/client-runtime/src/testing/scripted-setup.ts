@@ -1,4 +1,4 @@
-import { REGISTERED_STEP_IDS, STEP_ORDER, STEP_REGISTRY, StepResult, type StepId, type Step } from "@agent-harness/contracts";
+import { REGISTERED_STEP_IDS, STEP_ORDER, STEP_REGISTRY, StepResult, type StepId, type Step, type WireError } from "@agent-harness/contracts";
 import type { FakeAnswer, FakeWire } from "./fake-wire.js";
 import type { ManualClock } from "./in-memory-platform.js";
 
@@ -12,7 +12,8 @@ import type { ManualClock } from "./in-memory-platform.js";
  * snapshot carries, and a check whose result differs from the one kept is
  * the notice `setup.result-changed`, as the environment's cache publishes
  * it. A test changes what the next check answers (`setSetup`), holds the
- * answers, for a check to read pending (`holdSetupChecks`), and has the
+ * answers, for a check to read pending (`holdSetupChecks`), refuses them
+ * (`refuseSetupChecks`), and has the
  * environment check with nobody asking (`passSetup`).
  */
 
@@ -27,6 +28,8 @@ export interface ScriptedSetupHandle {
   setSetup(changes: ScriptedSetup): void;
   /** Holds every `setup.check` unanswered until the function it returns is called, each then answered as the environment stands at the release. */
   holdSetupChecks(): () => void;
+  /** Refuses every `setup.check` with `error` from now on, as an environment whose check cannot run does; null answers them again. */
+  refuseSetupChecks(error: WireError | null): void;
   /**
    * The environment's own pass over `steps`, else every step it gives a result for, with nobody asking (its start, a
    * step's cadence or trigger, or another client's check): each checked as the script says now, and with the `setup` flag
@@ -75,7 +78,9 @@ export const scriptedSetup = (host: SetupHost): ScriptedSetupHandle & { readonly
     });
 
   let held: (() => void)[] | null = null;
+  let refused: FakeAnswer | null = null;
   wire.answer("setup.check", (params): FakeAnswer | Promise<FakeAnswer> => {
+    if (refused !== null) return refused;
     const step = params["step"] as StepId | undefined;
     const answer = (): FakeAnswer => ({ result: { results: check(step === undefined ? answered() : answered().filter((id) => id === step)) } });
     if (held === null) return answer();
@@ -90,6 +95,9 @@ export const scriptedSetup = (host: SetupHost): ScriptedSetupHandle & { readonly
     },
     passSetup(steps) {
       check(steps === undefined ? answered() : answered().filter((id) => steps.includes(id)));
+    },
+    refuseSetupChecks(error) {
+      refused = error === null ? null : { error };
     },
     holdSetupChecks() {
       held ??= [];
