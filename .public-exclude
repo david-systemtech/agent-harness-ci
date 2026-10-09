@@ -19,6 +19,7 @@ docs/routines/hermes-delivery.md
 test/release-workflow.test.ts
 test/github-ci-script.test.ts
 test/gallery-needed.test.ts
+test/gallery-workflow-order.test.ts
 test/install-ps1-script.test.ts
 test/release-workflow-input.test.ts
 test/container.test.ts
