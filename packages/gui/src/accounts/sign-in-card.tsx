@@ -150,13 +150,13 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
     return () => { window.removeEventListener("focus", resume); document.removeEventListener("visibilitychange", resume); };
   }, [runtime, environmentId, accountId, completed, shell]);
 
-  const addLabel = (trimmed: string) => {
+  const addLabel = (trimmed: string, generatedName = false) => {
     const problem = labelProblem(trimmed);
     if (problem !== undefined) { setSending(null); return setError(problem); }
     setLabel(trimmed);
     setSending("add");
     setError(null);
-    void addAccount(runtime, environmentId, trimmed, uuidv4(), environment, nameByEmail).then((added) => {
+    void addAccount(runtime, environmentId, trimmed, uuidv4(), environment, generatedName).then((added) => {
       if (added.kind === "refused") {
         setSending(null);
         return setError(added.line);
@@ -175,7 +175,7 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
   };
 
   const add = (event: FormEvent) => { event.preventDefault(); addLabel(typed.trim()); };
-  useEffect(() => { if (added !== undefined) addLabel(added); }, []);
+  useEffect(() => { if (added !== undefined) addLabel(added, nameByEmail); }, []);
 
   const submitCode = (text: string) => {
     if (accountId === null) return;

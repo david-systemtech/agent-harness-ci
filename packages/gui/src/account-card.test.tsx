@@ -162,6 +162,26 @@ describe("the Account card in Set up", () => {
     expect(desk.requests("accounts.relabel")).toEqual([]);
   });
 
+  it("keeps an explicitly typed retry name after adding the generated name was refused", async () => {
+    const receipts: Record<string, { rejected: "conflict"; message: string }> = {
+      "accounts.add": { rejected: "conflict", message: "Another account is already called Claude account. Choose another name." },
+    };
+    const app = await opened({ receipts });
+    const desk = app.environment("desk");
+    await app.user.click(await within(question()).findByRole("button", { name: "Sign in with Claude" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add an account on desk" });
+    await within(dialog).findByRole("alert");
+    delete receipts["accounts.add"];
+    await app.user.type(within(dialog).getByRole("textbox", { name: "Label for the new account" }), "Work");
+    await app.user.click(within(dialog).getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(desk.requests("accounts.add").map(request => request.params["nameByEmail"])).toEqual([true, undefined]));
+    await signInWithCode(app, "Sign in: Work on desk");
+    desk.changeAccount("account-1", { identity: MILO });
+    const row = await within(step()).findByRole("region", { name: "Work" });
+    await waitFor(() => expect(facts(row)["Email"]).toBe(MILO.email));
+    expect(desk.requests("accounts.relabel")).toEqual([]);
+  });
+
   it("keeps the generated name when the person explicitly confirms that same name with Rename", async () => {
     const app = await opened({ accounts: [{ label: "Claude account", nameByEmail: true, directory: { kind: "owned", path: "/accounts/new" }, identity: null, status: { state: "signed-out", checkedAt: null, detail: null } }] });
     const desk = app.environment("desk");
