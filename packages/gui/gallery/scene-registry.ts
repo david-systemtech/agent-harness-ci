@@ -28,6 +28,8 @@ export interface SceneGeometry {
   readonly unbroken?: boolean;
   /** Every matching element is as tall as the first: rows of one list keep one shape whatever their text. */
   readonly sameHeight?: boolean;
+  /** The element is no scroll container on either axis (overflow visible or clip), so no reveal of a focused control can scroll it. */
+  readonly unscrollable?: boolean;
   readonly width?: number;
   readonly height?: number;
   readonly paddingLeft?: number;

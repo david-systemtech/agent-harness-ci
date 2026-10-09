@@ -260,6 +260,23 @@ export async function phoneReconnectSmoke(page: Page, environment: TestEnvironme
   await expect(details).toBeVisible();
 }
 
+/** The control that brings back a hidden sheet keeps a 44 px target and never meets the session pane, at any scroll (#1960). */
+const restoreClearOfSession = async (page: Page): Promise<void> => {
+  const restore = page.getByRole("button", { name: "Show the side column", exact: true });
+  for (const height of [844, 480]) {
+    await page.setViewportSize({ width: 390, height });
+    await reachable(page, restore);
+    const overlaps = await page.evaluate<string[]>(`(() => {
+      const control = document.querySelector('[aria-label="Show the side column"]').getBoundingClientRect();
+      return Array.from(document.querySelectorAll("[data-dock-owner]")).map(pane => pane.getBoundingClientRect())
+        .filter(pane => pane.width > 0 && control.left < pane.right && pane.left < control.right && control.top < pane.bottom && pane.top < control.bottom)
+        .map(pane => JSON.stringify({ control, pane }));
+    })()`);
+    assert.deepEqual(overlaps, [], `At 390x${height} the restore control covers the session pane.`);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+};
+
 export async function phonePaneSmoke(page: Page, engine: string, environment: TestEnvironment, sessionId: string, previewRequests: () => readonly string[]): Promise<void> {
   const observer = await environment.client();
   for (const width of [390, 360]) {
@@ -314,6 +331,7 @@ export async function phonePaneSmoke(page: Page, engine: string, environment: Te
     }
     await expect(page.getByRole("button", { name: "Show the side column", exact: true })).toBeFocused();
   }
+  await restoreClearOfSession(page);
   // The web replacement lives in Status; the native Browser dock remains unavailable.
   const browserTrigger = page.getByRole("button", { name: "Environment browser", exact: true });
   await browserTrigger.click();

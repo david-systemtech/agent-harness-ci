@@ -139,10 +139,13 @@ breakpoint, the side column is a sheet sized `min(480px, 85%)`; closing/hiding
 it retains terminal and delegated work. A session opened in the phone layout (a
 reload, a push or session link, the drawer, or a tapped notification for the
 session the window already shows) shows itself, with a sheet left open hidden
-and its edge handle bringing back the pane it showed, so a waiting card is not
-covered (#1903); a pane a gesture asks for as it opens the session, as Set up's
-"Write it myself" Files, stays shown. Outside the phone layout a column is
-restored as it was left.
+and a "Show the side column" control in the phone header bringing back the pane
+it showed, so a waiting card is not covered (#1903); a pane a gesture asks for
+as it opens the session, as Set up's "Write it myself" Files, stays shown. In
+the phone layout that header control, a 44px target drawn while a hidden sheet
+has a pane to bring back, is the only way back besides More: no handle floats
+over the transcript (#1960). Outside the phone layout a column is restored as it
+was left, and a narrow pane's hidden sheet comes back from a handle at its edge.
 Drawers/sheets trap and restore focus
 and close predictably. Long titles and labels wrap without page overflow.
 
