@@ -1,7 +1,10 @@
+import { useToastTimers } from "../test/toast-timers.js";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { AccountUsage, HandoffRecommendation } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
+
+useToastTimers();
 
 /**
  * The status line's pickers and the dialogs they open (docs/specs/gui.md, "A

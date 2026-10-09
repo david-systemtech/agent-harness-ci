@@ -14,6 +14,7 @@ import {
   modelsOf,
   noKeysLine,
   oneLine,
+  onLocalDayChange,
   outcomeWords,
   parseTyped,
   pullSetupSources,
@@ -145,7 +146,7 @@ const isSignIn = (panel: Panel): boolean => panel.kind === "signin";
 const clamp = (cursor: number, rows: number): number => (rows <= 0 ? 0 : Math.min(Math.max(cursor, 0), rows - 1));
 
 export const usePickers = (host: PickersHost): Pickers => {
-  const { runtime, request, panel, opened, projection, views } = host;
+  const { runtime, clock, request, panel, opened, projection, views } = host;
   const [levels, setLevels] = useState<ReadonlyMap<string, ContainmentLevel>>(new Map());
   const [forks, setForks] = useState<ReadonlyMap<string, string>>(new Map());
   // The lines a card of lines drew last: what its scroll is clamped to.
@@ -167,6 +168,11 @@ export const usePickers = (host: PickersHost): Pickers => {
 
   // What the open card shows, followed while it is open.
   const kind = panel?.kind;
+  useEffect(() => {
+    if (kind !== "usage") return;
+    const timer = onLocalDayChange(clock, request);
+    return () => timer.cancel();
+  }, [clock, kind, request]);
   const panelEnvironment = panel !== undefined && "environmentId" in panel ? panel.environmentId : undefined;
   const accounts = useMemo(() => (panelEnvironment !== undefined ? runtime.projections.accounts(panelEnvironment) : undefined), [runtime, panelEnvironment]);
   useFollow(kind === "accounts" || kind === "signin" || kind === "models" ? accounts : undefined, request);

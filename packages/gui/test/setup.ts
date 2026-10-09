@@ -1,5 +1,5 @@
-import { cleanup } from "@testing-library/react";
-import { afterEach } from "vitest";
+import { afterEach, vi } from "vitest";
+import { cleanupGui } from "./cleanup.js";
 
 /**
  * What every GUI test runs with (vitest.config.ts): Testing Library's
@@ -9,11 +9,8 @@ import { afterEach } from "vitest";
  */
 
 afterEach(async () => {
-  cleanup();
-  // What unmounting schedules at once runs before the next test file's window replaces this one: Radix's focus scope
-  // hands the focus back on a zero timeout, whose `CustomEvent`, made from the next file's window, jsdom refuses to
-  // dispatch on this one's element ("parameter 1 is not of type 'Event'"), an unhandled error in whichever file runs next.
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  try { await cleanupGui(); }
+  finally { vi.useRealTimers(); }
 });
 
 /**

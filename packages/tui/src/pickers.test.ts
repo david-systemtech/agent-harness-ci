@@ -381,6 +381,29 @@ describe("/containment", () => {
 });
 
 describe("/usage", () => {
+  it("updates reset day words while left open across local midnights without a usage update", async () => {
+    const { app, env } = await launch([desk()], false);
+    const evening = new Date(2026, 8, 24, 23, 50);
+    await app.jump(evening.getTime() - app.clock.now().getTime());
+    const reset = new Date(2026, 8, 25, 1);
+    env.setUsage([reading("account-1", MILO, [{ ...window("five_hour", 0.42), resetsAt: reset.toISOString() }])]);
+    await command(app, "/usage");
+    await app.waitFor("resets tomorrow 01:00");
+    app.platform.network.setOnline(false);
+    env.server.drop();
+    await app.waitUntil(() => app.host.current.read().projections.environments.read().some(view => view.phase !== "ready"), "the environment is unreachable");
+    await app.tick();
+    const reads = env.requests("accounts.usage").length;
+    const midnight = new Date(2026, 8, 25);
+    await app.jump(midnight.getTime() - app.clock.now().getTime() - 1000);
+    await app.waitFor("resets tomorrow 01:00");
+    await app.jump(midnight.getTime() - app.clock.now().getTime());
+    await app.waitFor(/42%\s+resets 01:00/);
+    await app.jump(new Date(2026, 8, 26).getTime() - app.clock.now().getTime());
+    await app.waitFor("resets 25 Sep 01:00");
+    expect(env.requests("accounts.usage")).toHaveLength(reads);
+  });
+
   it("leaves unknown limits out of the status meter and names them once in usage details", async () => {
     const { app, env } = await launch();
     env.setUsage([reading("account-1", MILO, [window("five_hour", 0.42), window("iguana_necktie", 0.37)])]);
