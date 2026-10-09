@@ -6,8 +6,8 @@ import { App } from "../src/app.js";
 import { prepareWorld, startWorld } from "./world.js";
 
 /** The three Accounts panes over the real Settings dialog, with pooled fake readings; Usage's also has three unknown limits, one with a value (#1893). */
-export async function accountsScene(row: SettingsRowId, openPicker = false) {
-  const identity = { provider: "claude" as const, email: "reader@example.test", organisation: null };
+export async function accountsScene(row: SettingsRowId, picker?: "Model family" | "Default account") {
+  const identity = { provider: "claude" as const, email: picker === "Default account" ? "account.with-a-long-address@example.test" : "reader@example.test", organisation: null };
   const prepared = await prepareWorld({ environments: [
     { name: "desk", reach: "local", accounts: [
       { label: "Personal", identity },
@@ -35,10 +35,12 @@ export async function accountsScene(row: SettingsRowId, openPicker = false) {
         const target = document.querySelector<HTMLElement>(selector);
         if (target === null) return;
         if (row === "accounts.default-model" && !target.textContent?.includes("Claude Sonnet 5")) return;
-        if (openPicker) {
+        if (picker !== undefined) {
           if (!openedPicker) {
+            const trigger = document.querySelector<HTMLElement>(`[data-default-choice="${picker}"]`);
+            if (trigger === null) return;
             openedPicker = true;
-            target.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+            trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
           }
           if (document.querySelector("[data-default-picker]") === null) return;
         }
