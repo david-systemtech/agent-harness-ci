@@ -12,34 +12,44 @@ import { clockTime, whenWords } from "../transcript/format.js";
  * choices of the Account step's defaults, and a pooled gauge's parts. Pure.
  */
 
-/** Whose an account's directory is, after where it is: the machine's own adopted in place, or one the environment made. */
+/** An account's folder, for its Details (setup-copy.md §5.1): where it is, and whose it is. */
 export const directoryWords = (account: Pick<AccountRecord, "directory">): string =>
-  `${account.directory.path}, ${account.directory.kind === "adopted" ? "adopted in place" : "the environment's own"}`;
+  `Folder: ${account.directory.path} (${account.directory.kind === "adopted" ? "Claude Code's own, used in place" : "made by agent-harness"})`;
 
-/** An account's status in words, with why when the read said (an unreadable read's error). */
-export const accountStatusWords = (status: Pick<AccountRecord["status"], "state" | "detail">): string =>
-  status.detail === null ? ACCOUNT_STATUS_WORDS[status.state] : `${ACCOUNT_STATUS_WORDS[status.state]}: ${status.detail}`;
+/** An account's state as its row says it (setup-copy.md §5.1); an unreadable read's error is for Details. */
+const ACCOUNT_STATE_WORDS: Readonly<Record<AccountRecord["status"]["state"], string>> = {
+  "signed-in": "Signed in",
+  "signed-out": "Signed out",
+  expired: "Sign-in ran out",
+  unreadable: "Cannot read the sign-in",
+};
+
+/** An account's state in a word or two, as its row says it. */
+export const accountStatusWords = (status: Pick<AccountRecord["status"], "state">): string => ACCOUNT_STATE_WORDS[status.state];
 
 /** An account's plan reading in one line: its gauge's windows, else why it has none, else that none was read yet. */
 export const planWords = (gauge: UsageGauge | undefined): string => readingWords(gauge) ?? "no reading yet";
 
+/** What the Account step says of the computer's own Claude Code sign-in: the choice to use it, or that it is signed out. */
+export type AmbientSignIn = { readonly kind: "offer"; readonly choice: string } | { readonly kind: "signed-out"; readonly line: string };
+
 /**
- * The offer of the machine's own Claude Code directory, as `accounts.probe`
- * read it (the Set up specification, "Account"): made while it is there,
- * signed in and adopted by no account, naming who it signs in as (its path
- * when the login has no email); undefined otherwise, since `accounts.adopt`
- * refuses it then.
+ * The computer's own Claude Code sign-in, as `accounts.probe` read it
+ * (setup-copy.md §5.1), while no account holds it: the choice to use it while
+ * it is signed in, named by its email (never its folder); the line saying it
+ * is signed out, so Sign in with Claude is the way; undefined while it is not
+ * there or not read. `computer` is "this computer" or the computer's name.
  */
-export const ambientOffer = (probe: AmbientProbe | null | undefined, environment: string): string | undefined => {
-  if (!probe || probe.directory === null || !probe.present || !probe.signedIn || probe.accountId !== null) return undefined;
-  return `Use the Claude Code sign-in on ${environment}'s machine (${probe.identity?.email ?? probe.directory})`;
+export const ambientSignIn = (probe: AmbientProbe | null | undefined, computer: string): AmbientSignIn | undefined => {
+  if (!probe || probe.directory === null || !probe.present || probe.accountId !== null) return undefined;
+  if (!probe.signedIn) return { kind: "signed-out", line: `Claude Code is on ${computer} but not signed in. Sign in below instead.` };
+  const email = probe.identity?.email;
+  return { kind: "offer", choice: `Use the Claude Code sign-in on ${computer}${email === undefined ? "" : ` (${email})`}` };
 };
 
-/** What removing an account does to its directory, as the confirmation says it (ADR 0018: an adopted directory is never touched). */
-export const removalWords = (account: Pick<AccountRecord, "directory">): string =>
-  account.directory.kind === "adopted"
-    ? `Its directory, ${account.directory.path}, is the machine's own Claude Code directory, adopted in place: removing the account leaves it as it is.`
-    : `Its directory, ${account.directory.path}, stays unless you delete it too, with its sign-in and history.`;
+/** What removing an account leaves, as the confirmation says it, with no folder path (ADR 0018: Claude Code's own folder is never touched). */
+export const removalWords = (account: Pick<AccountRecord, "directory">, computer: string): string =>
+  account.directory.kind === "adopted" ? `Claude Code stays signed in on ${computer}.` : `Its sign-in and history stay on ${computer} unless you delete them too.`;
 
 /** An account as the default account's picker lists it: its label, with its status when it is not signed in. */
 export const accountChoiceWords = (account: Pick<AccountRecord, "label" | "status">): string =>
@@ -80,7 +90,7 @@ export const effortChoices = (catalogues: readonly AccountCatalogue[], family: s
 
 /** What each default's picker says of it unset (null), and of a value set that it no longer offers, with what runs take instead. */
 export const DEFAULT_CHOICE_WORDS = {
-  "accounts.defaultAccount": { unset: "The first account adopted or added", missing: (id: string) => `${id} (no longer held: runs take the first account)` },
+  "accounts.defaultAccount": { unset: "Your first account", missing: () => "The account you chose was removed. New sessions use your first account." },
   "accounts.defaultModelFamily": { unset: "The account's strongest model", missing: (family: string) => `${family} (not offered: runs take the strongest model)` },
   "accounts.defaultEffort": { unset: "The model's own", missing: (effort: string) => `${effortName(effort)} (not offered: runs take the model's own)` },
 } as const;

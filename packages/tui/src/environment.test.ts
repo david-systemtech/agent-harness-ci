@@ -188,6 +188,94 @@ describe("/environment", () => {
     expect(app.frame()).not.toMatch(/David's MacBook\s+desktop/);
   });
 
+  it.each([
+    { reach: "paired", index: 1, down: 3, line: "Revoked this client. Pair again to reconnect." },
+    { reach: "local", index: 0, down: 2, line: "Revoked this client. Try again to reconnect." },
+  ] as const)("counts its own revoked close before the reply as success on a $reach connection", async ({ index, down, line }) => {
+    const app = await twoEnvironments({ clientSessions: [] });
+    await app.waitFor("● desk ready");
+    await openActions(app, index);
+    for (let i = 0; i < down; i++) await app.press(KEY.down);
+    await app.press(KEY.enter);
+    await app.waitFor("(this terminal)");
+    await app.press(KEY.enter, "y");
+    await app.waitFor(line);
+    expect(app.frame()).toContain("blocked: revoked");
+    expect(app.frame()).not.toContain("Cannot revoke");
+    expect(app.frame()).not.toContain("Cannot list");
+  });
+
+  it("also gives the own-session reconnect line when the accepted receipt arrives", async () => {
+    const app = await twoEnvironments({ clientSessions: [] });
+    await app.waitFor("● desk ready");
+    app.environment("laptop").wire.answer("access.sessions.revoke", () => ({
+      result: { receipt: { status: "accepted", sequence: 7, changed: true }, result: { revokedAt: "2026-10-09T00:00:00.000Z" } },
+    }));
+    await openActions(app, 1);
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.waitFor("(this terminal)");
+    await app.press(KEY.enter, "y");
+    await app.waitFor("Revoked this client. Pair again to reconnect.");
+    expect(app.frame()).not.toContain("Client sessions on laptop");
+  });
+
+  it.each(["drop", "draining"] as const)("keeps a %s before the own-session reply as a failure", async (close) => {
+    const app = await twoEnvironments({ clientSessions: [] });
+    await app.waitFor("● desk ready");
+    const laptop = app.environment("laptop");
+    laptop.discovery("nothing");
+    laptop.wire.answer("access.sessions.revoke", () => {
+      if (close === "drop") laptop.server.drop();
+      else laptop.server.bye("draining");
+      return undefined;
+    });
+    await openActions(app, 1);
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.waitFor("(this terminal)");
+    await app.press(KEY.enter, "y");
+    await app.waitFor(`Cannot revoke milo@desk:pts/3 on laptop: The socket closed (${close === "drop" ? "1006" : "draining"}) before the environment answered.`);
+    expect(app.frame()).not.toContain("Revoked this client");
+  });
+
+  it("keeps a revoked close during another session's revoke as a failure", async () => {
+    const app = await twoEnvironments({ clientSessions: [{ label: "Other terminal", kind: "tui" }] });
+    await app.waitFor("● desk ready");
+    const laptop = app.environment("laptop");
+    laptop.wire.answer("access.sessions.revoke", () => {
+      laptop.server.bye("revoked");
+      return undefined;
+    });
+    await openActions(app, 1);
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.waitFor("Other terminal");
+    await app.press(KEY.enter, "y");
+    await app.waitFor("Cannot revoke Other terminal on laptop: The socket closed (revoked) before the environment answered.");
+    expect(app.frame()).not.toContain("Revoked this client");
+  });
+
+  it("keeps a refused own-session revoke's current failure line", async () => {
+    const app = await twoEnvironments({ clientSessions: [] });
+    await app.waitFor("● desk ready");
+    app.environment("laptop").wire.answer("access.sessions.revoke", () => ({ error: { code: "unavailable", message: "The access tables are rebuilding.", data: {} } }));
+    await openActions(app, 1);
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.waitFor("(this terminal)");
+    await app.press(KEY.enter, "y");
+    await app.waitFor("Cannot revoke milo@desk:pts/3 on laptop: The access tables are rebuilding.");
+    expect(app.frame()).not.toContain("Revoked this client");
+  });
+
+  it("keeps a rejected own-session revoke's current receipt line", async () => {
+    const app = await twoEnvironments({ clientSessions: [], receipts: { "access.sessions.revoke": { rejected: "not_found", message: "No such client session." } } });
+    await app.waitFor("● desk ready");
+    await openActions(app, 1);
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.waitFor("(this terminal)");
+    await app.press(KEY.enter, "y");
+    await app.waitFor("Revoking milo@desk:pts/3 on laptop was rejected: No such client session.");
+    expect(app.frame()).not.toContain("Revoked this client");
+  });
+
   it("draws only the latest listing when an earlier one answers after it", async () => {
     const app = await twoEnvironments();
     await app.waitFor("● desk ready");

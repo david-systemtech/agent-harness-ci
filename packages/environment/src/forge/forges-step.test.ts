@@ -339,13 +339,24 @@ describe("forges.gh", () => {
       checkedAt: MANUAL_CLOCK_START,
     });
 
+    // Keep any token read in flight through the refresh, without a wall-clock delay (#2001).
+    const tokens = gh.holdTokens();
+    onCleanup(tokens.release);
     gh.set({ version: "2.39.1", accounts: [{ host, login: "david", token: GH_TOKEN }] });
-    // gh's version is the Managed tools registry's row (#373), read again on a refresh fifteen minutes on.
-    t.clock.advance(15 * 60_000);
+    // Age the tool row without starting a scheduled verification against the old row (#2001).
+    // The client check below reads the new fixture only after the version refresh has ended.
+    t.clock.jump(15 * 60_000);
+    await new Promise((resolve) => setImmediate(resolve));
     await client.request("tools.list", { refresh: true });
-    expect(await checkForges(client)).toMatchObject({
+    const checking = checkForges(client);
+    await tokens.started;
+    // A following query confirms the environment has taken the check before the token answers.
+    await client.request("settings.get", { keys: ["appearance.theme"] });
+    tokens.release();
+    expect(await checking).toMatchObject({
       reason: `agent-harness cannot get the token for david on ${host} from the gh tool. The gh tool is out of date.`,
       details: ["The gh tool is out of date.", "gh 2.39.1 is older than 2.40.0, the first that gives a token per account.", "gh 2.39.1 (needs 2.40.0 or later), used by david on " + host],
+      checkedAt: after(15 * 60_000),
       failing: ["forges.identity", "forges.gh"],
       targets: [
         { action: "sign-in-again", ...account },

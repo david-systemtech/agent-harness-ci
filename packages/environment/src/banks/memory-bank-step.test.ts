@@ -204,7 +204,10 @@ describe("the Memory bank step's checks", () => {
     git(path, "add", "BANK.md");
     git(path, "commit", "--quiet", "-m", "Describe the bank.");
     forge.pullRequest(TOKEN, "acme/bank", 7, { head: `setup/describe-${TODAY}`, sha: oldHead, state: "open" });
-    expect(await checkMemoryBank(client)).toMatchObject({ state: "needs-attention", failing: ["memory-bank.manifest"] });
+    expect(await checkMemoryBank(client)).toMatchObject({ state: "needs-attention", failing: ["memory-bank.manifest", "memory-bank.landing"] });
+    expect((await client.request("banks.get", { bankId: bank.id })).bank?.status.landing).toMatchObject({
+      state: "failed", step: "describe", reason: expect.stringContaining("no matching pull request"),
+    });
   });
 
   it("needs attention on an invalid bank, naming the validator's rule it fails, with revise targeting it", async () => {

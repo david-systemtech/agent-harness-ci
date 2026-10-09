@@ -12,7 +12,7 @@ export const Activity = ({ environmentId, sessionId, stopping }: { readonly envi
   const clock = useClock();
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const runs = useObservable(useMemo(() => runtime.projections.runs.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
-  const facts = statusOf({ projection, runState: runs.state, liveRunId: liveRunIdOf(projection, runs), ceiling: null, choice: undefined, forkedOnto: undefined, containmentDefault: undefined, recommendation: undefined, now: () => runtime.environmentNow(environmentId).getTime() });
+  const facts = statusOf({ projection, runState: runs.state, liveRunId: liveRunIdOf(projection, runs), ceiling: null, forkedOnto: undefined, containmentDefault: undefined, recommendation: undefined, now: () => runtime.environmentNow(environmentId).getTime() });
   const latest = projection.runs.at(-1);
   const state = stopping && facts.live ? "stopping" : facts.activity.kind !== "idle" ? facts.activity.kind : latest?.reason === "error" ? "failed" : "settled";
   const active = state === "stopping" || state === "waiting" || state === "starting" || state === "working";

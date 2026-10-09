@@ -48,7 +48,9 @@ it("turns a bank off, refreshes its badges, and confirms removal while keeping t
   });
   app.shell.openDeepLink(settingsDeepLink("knowledge.banks"));
   const row = await screen.findByRole("region", { name: "project-memory" });
-  await app.user.click(within(row).getByRole("button", { name: "Details" }));
+  const details = within(row).getAllByRole("button", { name: "Details" }).find((button) => button.closest("[data-step-status]") === null);
+  expect(details).toBeDefined();
+  await app.user.click(details!);
   expect(within(row).getByText("3 memories in 1 folder")).toBeDefined();
   expect(within(row).getByText("Version 2, up to date")).toBeDefined();
   await app.user.click(within(row).getByRole("button", { name: "Turn off" }));

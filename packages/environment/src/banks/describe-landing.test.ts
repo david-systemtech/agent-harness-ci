@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { beforeAll, expect, it } from "vitest";
-import type { EventFrame } from "@agent-harness/contracts";
+import { SESSION_STREAM_KIND, type EventFrame } from "@agent-harness/contracts";
 import { readBankMarkdown } from "@agent-harness/contracts/bank-validator";
 import { BANK_VALIDATOR_DIST, buildBankValidator } from "../../../contracts/scripts/bank-validator/build.js";
 import { changed, markdown, memory, TEAM_BANK, teamManifest } from "../../../contracts/test/fixture-banks.js";
@@ -29,11 +29,12 @@ const describedLocal = async (script: Script, variant: "first" | "revise" = "fir
   const initial = git(bank.checkout, "rev-parse", "main");
   const sessionId = (await client.request("setup.mint", { commandId: randomUUID(), step: "memory-bank", subject: bank.id, variant })).result!.sessionId;
   const { subscription } = await client.subscribe("sessions.subscribeSession", { sessionId, afterSequence: 0 });
-  await client.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.event.type === "run.ended");
+  const ended = await client.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.event.type === "run.ended");
+  expect(ended.event.payload).toMatchObject({ reason: "completed" });
   return { t, client, bank, initial, sessionId };
 };
 
-it("lands a created local-only bank's describe commit through the run-end check and refreshes its live facts", async () => {
+it.each(["native", "forward-slashes", "dot-segment"] as const)("lands a created local-only bank's describe commit with a %s repository path and refreshes its live facts", async (spelling) => {
   let authored = false;
   const describes: Script = async function* ({ input }) {
     if (authored) { yield end(); return; }
@@ -49,7 +50,15 @@ it("lands a created local-only bank's describe commit through the run-end check 
     git(root, "commit", "--quiet", "-m", "Describe the bank.");
     yield end();
   };
-  const { t, client, bank, initial } = await describedLocal(describes);
+  const { t, client, bank, initial, sessionId } = await describedLocal(describes);
+  const { summary } = await client.request("sessions.get", { sessionId });
+  if (summary.workspace.kind !== "worktree") throw new Error("Describe needs a worktree.");
+  const repository = summary.workspace.repository;
+  const recorded = spelling === "forward-slashes" ? repository.replaceAll("\\", "/")
+    : spelling === "dot-segment" ? `${dirname(repository)}/./${basename(repository)}` : repository;
+  t.env.log.atomically((tx) => t.env.log.append({ kind: SESSION_STREAM_KIND, id: sessionId }, [
+    { type: "session.workspace-set", payload: { workspace: { ...summary.workspace, repository: recorded }, repositoryIdentity: summary.repositoryIdentity } },
+  ], { tx, actor: "system:banks" }));
   const watching = await client.subscribe("environment.subscribe", { afterSequence: t.env.log.head() });
   t.clock.advance(TRIGGER_WINDOW_MS);
   const result = await client.next((f): f is EventFrame => f.type === "event" && f.subscription === watching.subscription && f.event.type === "setup.result-changed" && f.event.payload["step"] === "memory-bank");
@@ -71,11 +80,45 @@ it("lands a created local-only bank's describe commit through the run-end check 
   expect(t.adapter.lastRun().input.prompt[0]?.text).toContain("the bank validator, version 1");
 });
 
+it.each(["other-repository", "missing-branch", "missing-manifest"] as const)("reports a completed describe result's %s without changing main", async (defect) => {
+  const describes: Script = async function* ({ input }) {
+    const path = join(input.workspace.path, "BANK.md");
+    const parsed = readBankMarkdown(readFileSync(path, "utf8"));
+    if (!parsed.ok) throw new Error("The created bank needs a manifest.");
+    writeFileSync(path, markdown({ ...parsed.data, purpose: "The committed description." }));
+    if (defect === "missing-manifest") git(input.workspace.path, "rm", "--force", "BANK.md");
+    else git(input.workspace.path, "add", "BANK.md");
+    git(input.workspace.path, "commit", "--quiet", "-m", "Describe the bank.");
+    yield end();
+  };
+  const { t, client, bank, initial, sessionId } = await describedLocal(describes);
+  const { summary } = await client.request("sessions.get", { sessionId });
+  if (summary.workspace.kind !== "worktree") throw new Error("Describe needs a worktree.");
+  const workspace = { ...summary.workspace };
+  if (defect === "other-repository") {
+    const other = join(tempDir(), "other.git");
+    git(bank.checkout, "clone", "--quiet", "--bare", workspace.repository, other);
+    workspace.repository = other;
+  } else if (defect === "missing-branch") workspace.branch = "setup/describe-missing";
+  t.env.log.atomically((tx) => t.env.log.append({ kind: SESSION_STREAM_KIND, id: sessionId }, [
+    { type: "session.workspace-set", payload: { workspace, repositoryIdentity: summary.repositoryIdentity } },
+  ], { tx, actor: "system:banks" }));
+  expect((await client.request("banks.verify", { bankId: bank.id })).banks[0]?.status.landing).toMatchObject({
+    state: "failed", step: "describe", reason: expect.stringContaining(defect === "other-repository" ? "dedicated describe repository" : defect === "missing-manifest" ? "has no BANK.md" : "could not be read"),
+  });
+  expect(git(bank.checkout, "rev-parse", "main")).toBe(initial);
+  expect((await client.request("setup.check", { step: "memory-bank" })).results[0]).toMatchObject({ state: "needs-attention", failing: ["memory-bank.landing"] });
+  const sequence = t.env.log.head();
+  await client.request("banks.verify", { bankId: bank.id });
+  expect(t.env.log.readStream({ kind: "environment", id: t.env.id }, sequence).filter((event) => event.type === "bank.landing-failed")).toEqual([]);
+});
+
 it.each([
-  { hasManifest: false, alreadyMerged: false },
-  { hasManifest: true, alreadyMerged: false },
-  { hasManifest: false, alreadyMerged: true },
-])("refreshes a describe PR authored with run forge variables (existing manifest: $hasManifest, already merged: $alreadyMerged)", async ({ hasManifest, alreadyMerged }) => {
+  { hasManifest: false, alreadyMerged: false, missingPullRequest: false },
+  { hasManifest: true, alreadyMerged: false, missingPullRequest: false },
+  { hasManifest: false, alreadyMerged: true, missingPullRequest: false },
+  { hasManifest: true, alreadyMerged: false, missingPullRequest: true },
+])("refreshes a describe PR authored with run forge variables (existing manifest: $hasManifest, already merged: $alreadyMerged, missing PR: $missingPullRequest)", async ({ hasManifest, alreadyMerged, missingPullRequest }) => {
   const forge = await startFakeForge();
   onCleanup(() => forge.close());
   forge.user(TOKEN, DAVID);
@@ -129,6 +172,12 @@ if (response.ok) { const answer = await response.json(); process.stdout.write("u
   const sessionId = mint.result!.sessionId;
   const { subscription } = await client.subscribe("sessions.subscribeSession", { sessionId, afterSequence: 0 });
   await client.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.event.type === "run.ended");
+  if (missingPullRequest) {
+    forge.answer(TOKEN, "GET /api/v1/repos/acme/bank/pulls", { status: 200, body: [] });
+    expect((await client.request("banks.verify", { bankId })).banks[0]?.status.landing).toMatchObject({ state: "failed", step: "describe", reason: expect.stringContaining("matching pull request") });
+    expect(git(checkout, "rev-parse", "main").trim()).not.toBe(head);
+    return;
+  }
   if (alreadyMerged) {
     git(remote, "update-ref", "refs/heads/main", head);
     git(remote, "update-ref", "-d", `refs/heads/${branch}`);

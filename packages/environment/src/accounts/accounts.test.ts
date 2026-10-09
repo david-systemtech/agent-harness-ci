@@ -122,9 +122,9 @@ const adoptAmbient = async (client: WireClient, label?: string) => {
   return (await applied(client, "accounts.adopt", label === undefined ? {} : { label })).account;
 };
 
-/** Starts a run on the session; throws unless it was accepted. */
-const startRun = async (client: WireClient, sessionId: string): Promise<void> => {
-  const answer = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId, text: "Go" }));
+/** Starts a run on the session, with the model and effort `asked` names; throws unless it was accepted. */
+const startRun = async (client: WireClient, sessionId: string, asked: { readonly model?: string; readonly effort?: string | null } = {}): Promise<void> => {
+  const answer = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId, text: "Go", ...asked }));
   if (answer.result === undefined) throw new Error(`runs.start was not applied: ${JSON.stringify(answer.receipt)}`);
 };
 
@@ -207,7 +207,8 @@ describe("accounts.adopt", () => {
     expect(account.label).toBe("Personal");
     const again = await command(client, "accounts.adopt", {});
     expect(again.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "already_added", accountId: account.id } } });
-    expect(again.receipt.status === "rejected" && again.receipt.error.message).toMatch(/already added as Personal/);
+    // setup-copy.md §5.1: the holder by its label, with no path or id in the line.
+    expect(again.receipt.status === "rejected" && again.receipt.error.message).toBe("This sign-in is already used by Personal.");
     expect(accountEvents(t)).toHaveLength(3);
   });
 
@@ -219,8 +220,25 @@ describe("accounts.adopt", () => {
     await client.request("accounts.probe", {});
     const signedOut = await command(client, "accounts.adopt", {});
     expect(signedOut.receipt).toMatchObject({ status: "rejected", error: { data: { reason: "ambient_unavailable" } } });
-    expect(signedOut.receipt.status === "rejected" && signedOut.receipt.error.message).toMatch(/not signed in/);
+    // setup-copy.md §5.1: no method to call and no path in the line; the directory is the refusal's data.
+    expect(signedOut.receipt.status === "rejected" && signedOut.receipt.error).toMatchObject({
+      message: "Claude Code on this computer is not signed in. Sign in with Claude instead.",
+      data: { reason: "ambient_unavailable", directory: ambient },
+    });
     expect(accountEvents(t)).toEqual([]);
+  });
+
+  it("refuses a sign-in with no email when no label is given, conflict no_email, its folder in the data", async () => {
+    const ambient = makeAmbient();
+    const t = await start({ fake: { ambientDirectory: ambient, status: statusBy(ambient) } });
+    const client = await t.client();
+    t.adapter.setStatus(() => ({ ...signedInAs(DAVID), email: null }));
+    await client.request("accounts.probe", {});
+    const unnamed = await command(client, "accounts.adopt", {});
+    // setup-copy.md §5.1: an account store refusal like its siblings, so a client says its line rather than a generic one.
+    expect(unnamed.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { message: "This sign-in has no email to name the account by. Enter a name.", data: { reason: "no_email", directory: ambient } } });
+    expect(accountEvents(t)).toEqual([]);
+    expect((await applied(client, "accounts.adopt", { label: "Home" })).account.label).toBe("Home");
   });
 
   it("refuses a label another account holds, ignoring case, conflict label_taken", async () => {
@@ -230,7 +248,7 @@ describe("accounts.adopt", () => {
     const owned = (await applied(client, "accounts.add", { label: "DAVID@example.com" })).account;
     await client.request("accounts.probe", {});
     const taken = await command(client, "accounts.adopt", {});
-    expect(taken.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "label_taken", accountId: owned.id } } });
+    expect(taken.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { message: "Another account is already called david@example.com. Choose another name.", data: { reason: "label_taken", accountId: owned.id } } });
   });
 });
 
@@ -286,7 +304,7 @@ describe("accounts.add", () => {
     // The sign-in went to David's login again.
     t.adapter.setStatus(statusBy(ambient, { [added.directory.path]: DAVID }));
     const outcome = await signIn.finish(added.id);
-    expect(outcome).toEqual({ signedIn: false, reason: "identity_held", message: `${DAVID} is already added as ${DAVID}.` });
+    expect(outcome).toEqual({ signedIn: false, reason: "identity_held", message: `This sign-in is already used by ${DAVID}.` });
     expect(existsSync(added.directory.path)).toBe(false);
     expect((await list(client)).map((account) => account.id)).toEqual([adopted.id]);
     expect(accountEvents(t, added.id)).toEqual([
@@ -343,6 +361,24 @@ describe("accounts.add", () => {
 });
 
 describe("accounts.relabel", () => {
+  it("preserves an explicitly chosen default-looking name, including a rename to the same name", async () => {
+    const t = await start();
+    const client = await t.client();
+    const typed = (await applied(client, "accounts.add", { label: "Claude account 2" })).account;
+    const automatic = (await applied(client, "accounts.add", { label: "Claude account", nameByEmail: true })).account;
+    expect(automatic.nameByEmail).toBe(true);
+    await applied(client, "accounts.relabel", { accountId: typed.id, label: "typed@example.test", onlyIfNameByEmail: true });
+    expect((await list(client)).find(account => account.id === typed.id)?.label).toBe("Claude account 2");
+    await applied(client, "accounts.relabel", { accountId: automatic.id, label: "Claude account" });
+    await applied(client, "accounts.relabel", { accountId: automatic.id, label: "automatic@example.test", onlyIfNameByEmail: true });
+    expect((await list(client)).find(account => account.id === automatic.id)?.label).toBe("Claude account");
+    const fresh = (await applied(client, "accounts.add", { label: "Claude account 3", nameByEmail: true })).account;
+    await applied(client, "accounts.relabel", { accountId: fresh.id, label: "fresh@example.test", onlyIfNameByEmail: true });
+    expect((await list(client)).find(account => account.id === fresh.id)?.label).toBe("fresh@example.test");
+    await client.request("environment.rebuildProjections", { commandId: randomUUID() });
+    expect((await list(client)).find(account => account.id === automatic.id)?.nameByEmail).not.toBe(true);
+  });
+
   it("changes the label, unique on the environment ignoring case, and changes nothing for the label it has", async () => {
     const t = await start();
     const client = await t.client();
@@ -654,6 +690,23 @@ describe("the default account and the Account step's settings keys", () => {
     // The default account removed, the first the environment still holds stands in.
     await applied(client, "accounts.remove", { accountId: "second" });
     expect(await runOnce()).toMatchObject({ account: "first" });
+  });
+
+  it("runs a command asking effort null at the model's own effort, though accounts.defaultEffort is set (#1950)", async () => {
+    const t = await startTestEnvironment({ accounts: [{ id: "first", provider: "fake" }] });
+    onCleanup(() => t.close());
+    const client = await t.client();
+    await client.request("settings.update", { commandId: randomUUID(), values: { "accounts.defaultEffort": "high" } });
+    const runAsking = async (asked: { readonly model?: string; readonly effort?: string | null }): Promise<string | null> => {
+      const { id } = await create(client);
+      const before = t.adapter.runs.length;
+      await startRun(client, id, asked);
+      await vi.waitFor(() => expect(t.adapter.runs.length).toBe(before + 1));
+      return t.adapter.lastRun().input.effort;
+    };
+    expect(await runAsking({ model: "opus" })).toBe("high");
+    expect(await runAsking({ model: "opus", effort: null })).toBeNull();
+    expect(await runAsking({ model: "opus", effort: "low" })).toBe("low");
   });
 
   it("carries over #119's configured accounts only into a store that has never held one", async () => {

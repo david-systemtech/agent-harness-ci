@@ -6,9 +6,10 @@ import { Brain, GitPullRequest, Power, RefreshCw, Trash2, Upload, X } from "luci
 import { useMemo, useState } from "react";
 import type { StepCardProps } from "../setup/cards.js";
 import { MintedSessionCard } from "../setup/minted-session-card.js";
-import { BankForgeAccess } from "./bank-forge-access.js";
+import { BankForgeAccess, bankWithCurrentForge } from "./bank-forge-access.js";
 import { JoinBankForm } from "./join-bank.js";
 import { PersonalBankForm, TeamBankForm } from "./create-bank.js";
+import { bankCheckIncomplete, stepForBank } from "./bank-step.js";
 import { BankInvitation } from "./bank-invitation.js";
 import { ExternalLink } from "../session/external-link.js";
 import { StepStatus } from "../setup/step-status.js";
@@ -16,15 +17,6 @@ import { Badge, Dialog, DialogContent, Fold } from "../ui/index.js";
 import { BankButton, BankChoices, BankRefusal, GoToForges, type BankMode } from "./bank-controls.js";
 import { bankBadges, bankRefusal, descriptionWords, hostOf } from "./bank-words.js";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
-
-/** The environment names actions per bank; each card carries only its own bank targets. */
-const stepForBank = (step: StepCardProps["step"], bankId: string): StepCardProps["step"] => {
-  const result = step.result;
-  if (result === null || result.targets === undefined) return step;
-  const targets = result.targets.filter((target) => target.kind !== "bank" || target.id === bankId);
-  const actions = result.actions.filter((action) => !result.targets?.some((target) => target.action === action) || targets.some((target) => target.action === action));
-  return { ...step, result: { ...result, targets, actions } };
-};
 
 /** What a bank command did: done, or its refusal in plain words. */
 type Sent = { readonly ok: true } | { readonly ok: false; readonly refusal: PlainRefusal };
@@ -143,7 +135,7 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
   });
   const banks = read.result?.banks ?? [];
   return <>
-    {(read.result === null || banks.length === 0) && <StepStatus environmentId={environmentId} step={step} />}
+    {(read.result === null || banks.length === 0 || bankCheckIncomplete(step)) && <StepStatus environmentId={environmentId} step={step} />}
     <div data-bank-content className="flex min-w-0 w-full max-w-[620px] flex-col gap-3.5">
     {banks.length > 0 && <div className="flex flex-wrap items-center justify-end gap-2">
       <BankButton label="Sync all" icon={RefreshCw} disabled={busy} reason={syncCapability.status === "absent" ? syncCapability.message : banks.some((bank) => bank.enabled) ? undefined : "Turn on a notebook to sync it."} onClick={() => void sync()} />
@@ -152,8 +144,9 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
     {read.loading && read.result === null && <p role="status" className="text-xs text-ink-muted">Reading your notebooks…</p>}
     {refused?.at === "card" && removing === undefined && <BankRefusal refusal={refused.refusal} />}
     {read.error !== null && <BankRefusal refusal={plainRefusal(read.error, "Check again")} />}
-    <SettingsCardGrid>{banks.map((bank) => {
-      const subjectStep = stepForBank(step, bank.id);
+    <SettingsCardGrid>{banks.map((record) => {
+      const bank = bankWithCurrentForge(record, forges.result?.accounts);
+      const subjectStep = stepForBank(step, bank);
       const update = updates[`${environmentId}:${bank.id}`];
       const landing = bank.validator?.needsUpdate === false ? bank.status.landing : update ?? bank.status.landing;
       const forgeHost = bank.location.kind === "remote" ? hostOf(bank.location.origin) : null;
@@ -192,7 +185,7 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
         {update === null && <p>The rules were up to date already.</p>}
         {bank.kind === "team" && bank.location.kind === "remote" && <BankInvitation environmentId={environmentId} location={bank.location} forges={forges.result?.accounts ?? []} />}
         {bank.enabled && bank.role === "read-write"
-          ? <MintedSessionCard environmentId={environmentId} step={subjectStep} subject={bank.id} artefact={{ kind: "folder", path: bank.checkout }} words={describeWords(review === undefined ? forgeHost ?? "your forge" : hostOf(review.url))} {...(bank.status.manifest.state === "missing" && { startLine: DESCRIBE_LINE })} {...(review !== undefined && { outcome: "landed and awaiting review" })} />
+          ? <MintedSessionCard environmentId={environmentId} step={subjectStep} subject={bank.id} artefact={{ kind: "folder", path: bank.checkout }} words={describeWords(review === undefined ? forgeHost ?? "your forge" : hostOf(review.url))} {...(bank.status.manifest.state === "missing" && { startLine: DESCRIBE_LINE })} {...(!bankCheckIncomplete(step) && review !== undefined && { outcome: "landed and awaiting review" })} />
           : <p className="text-2xs text-ink-muted">{bank.enabled ? `You can look at ${bank.name} but not change it.` : `Turn on ${bank.name} so agents use it.`}</p>}
         <BankDetails bank={bank} named={named} />
       </section>;

@@ -67,7 +67,7 @@ it.each([
   await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
   const card = await screen.findByRole("region", { name: bank.name });
   await waitFor(() => expect(app.environment("desk").requests("forge.accounts.list").length).toBeGreaterThan(0));
-  expect((await within(card).findByRole("alert")).textContent).toBe(`Error: ${line}`);
+  expect((await within(card).findAllByRole("alert")).map((alert) => alert.textContent)).toContain(`Error: ${line}`);
   expect(within(card).getByText(`project-memory: ${reason}`)).toBeDefined();
   expect(within(card).queryByText(/is connected on server|needs a forge account/)).toBeNull();
   expect(within(card).queryByRole("button", { name: "Go to Forges" })).toBeNull();
@@ -117,7 +117,7 @@ it.each([
   await app.user.click(screen.getByRole("button", { name: "Settings" }));
   await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
   const card = await screen.findByRole("region", { name: bank.name });
-  expect((await within(card).findByRole("alert")).textContent).toBe(`Error: ${line}`);
+  expect((await within(card).findAllByRole("alert")).map((alert) => alert.textContent)).toContain(`Error: ${line}`);
   const details = within(card).getByRole("region", { name: "Details" });
   expect(details.querySelector("pre")?.textContent).toBe(`project-memory: ${reason}`);
   expect(within(card).queryByText((_, element) => element?.tagName === "P" && element.textContent?.includes("HTTP") === true)).toBeNull();
@@ -134,7 +134,7 @@ it("draws Check again beside a turned-off notebook that cannot be reached, which
   await app.user.click(screen.getByRole("button", { name: "Settings" }));
   await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
   const card = await screen.findByRole("region", { name: bank.name });
-  expect((await within(card).findByRole("alert")).textContent).toBe("Error: agent-harness cannot reach project-memory. Choose Check again.");
+  expect((await within(card).findAllByRole("alert")).map((alert) => alert.textContent)).toContain("Error: agent-harness cannot reach project-memory. Choose Check again.");
   await app.user.click(within(card).getByRole("button", { name: "Check again" }));
   await waitFor(() => expect(app.environment("desk").requests("banks.verify").at(-1)?.params).toEqual({ bankId: bank.id }));
 });
@@ -149,7 +149,7 @@ it("says the plain line once an account here covers a notebook the check found n
   await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
   const card = await screen.findByRole("region", { name: bank.name });
   await waitFor(() => expect(app.environment("desk").requests("forge.accounts.list").length).toBeGreaterThan(0));
-  expect((await within(card).findByRole("alert")).textContent).toBe("Error: agent-harness cannot reach project-memory. Choose Check again.");
+  expect((await within(card).findAllByRole("alert")).map((alert) => alert.textContent)).toContain("Error: agent-harness cannot reach project-memory. Choose Check again.");
   expect(within(card).queryByText(/needs a forge account/)).toBeNull();
   expect(within(card).getAllByRole("button", { name: "Check again" }).find((button) => button.closest("[data-step-status]") === null)).toBeDefined();
 });

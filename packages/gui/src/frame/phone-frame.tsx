@@ -9,10 +9,12 @@ interface PhoneFrame {
   readonly drawerTrigger: RefObject<HTMLButtonElement | null>;
   /** Where focus returns when the drawer closes, if not the header's trigger. */
   readonly drawerOpener: RefObject<HTMLElement | null>;
-  /** `opener` is a control other than the header's trigger that opened the drawer. */
-  showDrawer(shown: boolean, opener?: HTMLElement): void;
+  /** Whether closing restores focus; a new session explicitly keeps it in its message box. */
+  readonly drawerRestoreFocus: RefObject<boolean>;
+  /** `opener` is a control other than the header's trigger; `restoreFocus` defaults to true. */
+  showDrawer(shown: boolean, options?: { readonly opener?: HTMLElement; readonly restoreFocus?: boolean }): void;
 }
-const PhoneContext = createContext<PhoneFrame>({ narrow: false, drawerShown: false, drawerTrigger: { current: null }, drawerOpener: { current: null }, showDrawer: () => undefined });
+const PhoneContext = createContext<PhoneFrame>({ narrow: false, drawerShown: false, drawerTrigger: { current: null }, drawerOpener: { current: null }, drawerRestoreFocus: { current: true }, showDrawer: () => undefined });
 export const usePhoneFrame = () => use(PhoneContext);
 
 /** Classify layout bounds, never keyboard/zoom-reduced VisualViewport dimensions.
@@ -29,8 +31,10 @@ export const PhoneFrameProvider = ({ children }: { readonly children: ReactNode 
   const [drawerShown, setDrawerShown] = useState(false);
   const drawerTrigger = useRef<HTMLButtonElement>(null);
   const drawerOpener = useRef<HTMLElement>(null);
-  const showDrawer = useCallback((shown: boolean, opener?: HTMLElement) => {
-    if (shown) drawerOpener.current = opener ?? null;
+  const drawerRestoreFocus = useRef(true);
+  const showDrawer = useCallback<PhoneFrame["showDrawer"]>((shown, options) => {
+    if (shown) drawerOpener.current = options?.opener ?? null;
+    drawerRestoreFocus.current = options?.restoreFocus ?? true;
     setDrawerShown(shown);
   }, []);
   useEffect(() => {
@@ -39,21 +43,20 @@ export const PhoneFrameProvider = ({ children }: { readonly children: ReactNode 
     changed();
     return () => media.forEach(query => query.removeEventListener("change", changed));
   }, [media]);
-  const value = useMemo(() => ({ narrow, drawerShown, drawerTrigger, drawerOpener, showDrawer }), [narrow, drawerShown, showDrawer]);
+  const value = useMemo(() => ({ narrow, drawerShown, drawerTrigger, drawerOpener, drawerRestoreFocus, showDrawer }), [narrow, drawerShown, showDrawer]);
   return <PhoneContext value={value}><Dialog.Root open={narrow && drawerShown} onOpenChange={showDrawer}>{children}</Dialog.Root></PhoneContext>;
 };
 
 /** Radix owns modal trapping and dismissal; focus changes never scroll the document.
- * Closing hands focus back to what opened the drawer, unless what closed it already gave it
- * to something outside, as a new session's message box takes it (#1902). */
+ * Closing hands focus back to what opened the drawer. New session explicitly leaves it in
+ * its message box (#1902); incidental focus during the delayed close cannot change that decision. */
 export const SessionDrawer = () => {
-  const { narrow, drawerTrigger, drawerOpener } = usePhoneFrame();
+  const { narrow, drawerTrigger, drawerOpener, drawerRestoreFocus } = usePhoneFrame();
   const content = useRef<HTMLDivElement>(null);
   const [anchor, setAnchor] = useState<HTMLSpanElement | null>(null);
   if (!narrow) return null;
   const handBack = () => {
-    const held = document.activeElement;
-    if (held !== null && held !== document.body && !content.current?.contains(held)) return;
+    if (!drawerRestoreFocus.current) return;
     (drawerOpener.current?.isConnected ? drawerOpener.current : drawerTrigger.current)?.focus({ preventScroll: true });
   };
   // Portal into the viewport owner so absolute bounds follow its height and top.

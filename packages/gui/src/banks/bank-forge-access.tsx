@@ -16,6 +16,14 @@ const accountFor = (origin: string, accounts: readonly ForgeAccountRecord[]) => 
   })))?.account ?? null;
 };
 
+/** An account connected since the last bank check supersedes its missing-account cause, while reachability still needs a new check. */
+export const bankWithCurrentForge = (bank: BankRecord, accounts: readonly ForgeAccountRecord[] | undefined): BankRecord => {
+  if (accounts === undefined || bank.location.kind !== "remote" || bank.status.reachable.state !== "unreachable" || bank.status.reachable.cause !== "no-forge-account" || accountFor(bank.location.origin, accounts) === null) return bank;
+  const reachable = { ...bank.status.reachable };
+  delete reachable.cause;
+  return { ...bank, status: { ...bank.status, reachable } };
+};
+
 /** Check again on a notebook's card: verify that one notebook now (`banks.verify`), its reason beside it when it cannot. */
 export interface BankCheck {
   readonly busy: boolean;

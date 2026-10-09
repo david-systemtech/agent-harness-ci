@@ -122,6 +122,9 @@ const REASONS: Readonly<Record<string, Readonly<Record<string, Words>>>> = {
     no_launcher: said(`${PRODUCT_NAME} cannot update itself here. Update it the way it was installed.`),
     not_outside: said("This computer's updates are not run by an outside updater."),
     not_ready: (verb) => `That update is not ready yet. Wait for it, then choose ${verb}.`,
+    // Bringing over earlier work or past chats (stateImport.run, carryOver.run).
+    no_source: said("No earlier work is on this computer any more."),
+    import_in_progress: said("Bringing over is under way already. Wait for it to finish."),
     // A memory bank's.
     exists: EXISTS,
     name_taken: said("That name is taken. Choose another name."),
@@ -152,10 +155,17 @@ const reasonOf = ({ code, data }: RefusedAnswer): string | undefined => {
   return typeof reason === "string" ? reason : undefined;
 };
 
+/** The lines of their own a refusal's data names for Details (`data.details`, a key-manager sign-in's since #1852); none when it names none. */
+const detailsOf = ({ data }: RefusedAnswer): readonly string[] => {
+  const details = data?.["details"];
+  return Array.isArray(details) ? details.filter((line): line is string => typeof line === "string") : [];
+};
+
 /**
  * `refusal` in plain words, for the button `verb` ("Check again"): its
  * reason's line, else its code's, else `Something went wrong. Choose {verb}
- * to try again.`; Details hold the code, the reason and the raw message.
+ * to try again.`; Details hold the code, the reason and the raw message,
+ * then the lines its data names (`data.details`).
  * A refusal with no data is this client's own (`requests.call`'s), worded
  * apart: its `unreachable` is a lost connection, the wire's a site that did
  * not answer; a capability's absence keeps the capability's plain line.
@@ -166,6 +176,6 @@ export const plainRefusal = (refusal: RefusedAnswer, verb: string): PlainRefusal
   const words = (reason === undefined ? undefined : REASONS[refusal.code]?.[reason]) ?? (own && CAPABILITY_LINES.has(refusal.code) ? said(refusal.message) : (own ? OWN : WIRE)[refusal.code]);
   return {
     line: words === undefined ? `Something went wrong. ${tryAgain(verb)}` : words(verb),
-    details: [`${refusal.code}${reason === undefined ? "" : ` (${reason})`}: ${refusal.message}`],
+    details: [`${refusal.code}${reason === undefined ? "" : ` (${reason})`}: ${refusal.message}`, ...detailsOf(refusal)],
   };
 };

@@ -42,12 +42,12 @@ const checkAccount = async (client: WireClient): Promise<StepResult> => {
 };
 
 describe("the Account step with no account", () => {
-  it("needs attention saying none is added, with no action, since the card's Sign in is the fix; account.signed-in holds with none to name", async () => {
+  it("needs attention saying there is no Claude account yet, with no action, since the card's Sign in is the fix; account.signed-in holds with none to name", async () => {
     const t = await start({ accounts: [] });
     expect(await checkAccount(await t.client())).toEqual({
       step: "account",
       state: "needs-attention",
-      reason: "No account is added on this environment: Sign in adds one.",
+      reason: "No Claude account yet. Sign in to start.",
       failing: ["account.present"],
       actions: [],
       checkedAt: MANUAL_CLOCK_START,
@@ -61,12 +61,12 @@ describe("the Account step with accounts", () => {
     expect(await checkAccount(client)).toEqual({ step: "account", state: "done", reason: ONE_HOLDS, failing: [], actions: [], checkedAt: MANUAL_CLOCK_START });
   });
 
-  it("names one expired account with Sign in again targeting it", async () => {
+  it("names one expired account with Sign in again targeting it (setup-copy.md §5.1)", async () => {
     const { client } = await withAccounts(["claude-max"], () => ({ ...signedInAs(null), expired: true }));
     expect(await checkAccount(client)).toEqual({
       step: "account",
       state: "needs-attention",
-      reason: "The sign-in of claude-max has expired: Sign in again.",
+      reason: "claude-max's sign-in has run out. Sign in again to keep using it.",
       failing: ["account.signed-in"],
       actions: ["sign-in-again"],
       targets: [{ action: "sign-in-again", kind: "account", id: "claude-max", label: "claude-max" }],
@@ -74,7 +74,20 @@ describe("the Account step with accounts", () => {
     });
   });
 
-  it("names each account signed out, expired or unreadable, in the store's order, and not one signed in, offering Check again for the unreadable one, its error in details", async () => {
+  it("names one signed-out account with Sign in again targeting it, and no method, path or id in its line", async () => {
+    const { client } = await withAccounts(["work"], () => signedInAs(null));
+    expect(await checkAccount(client)).toEqual({
+      step: "account",
+      state: "needs-attention",
+      reason: "work is signed out. Sign in again to use it.",
+      failing: ["account.signed-in"],
+      actions: ["sign-in-again"],
+      targets: [{ action: "sign-in-again", kind: "account", id: "work", label: "work" }],
+      checkedAt: MANUAL_CLOCK_START,
+    });
+  });
+
+  it("makes one line of several accounts that need to sign in again, in the store's order, with a Sign in again for each, and says the unreadable one apart with Check again, its error in details", async () => {
     const statuses: Record<string, AuthStatus> = {
       personal: signedInAs("personal@example.com"),
       work: signedInAs(null),
@@ -86,12 +99,24 @@ describe("the Account step with accounts", () => {
     expect(await checkAccount(client)).toEqual({
       step: "account",
       state: "needs-attention",
-      reason:
-        "work is signed out: Sign in again. The sign-in of lab has expired: Sign in again. agent-harness could not read spare's sign-in. Choose Check again.",
+      reason: "2 accounts need to sign in again: work, lab. agent-harness could not read spare's sign-in. Choose Check again.",
       details: ["spare: The binary could not be run."],
       failing: ["account.signed-in"],
       actions: ["sign-in-again", "check-again"],
       targets: [target("work"), target("lab")],
+      checkedAt: MANUAL_CLOCK_START,
+    });
+  });
+
+  it("makes one line of several accounts whose sign-in could not be read, offering Check again alone, each error in details", async () => {
+    const { client } = await withAccounts(["work", "lab"], (account) => ({ ...signedInAs(null), error: `The status of ${account.id} timed out.` }));
+    expect(await checkAccount(client)).toEqual({
+      step: "account",
+      state: "needs-attention",
+      reason: "agent-harness could not read the sign-ins of 2 accounts: work, lab. Choose Check again.",
+      details: ["work: The status of work timed out.", "lab: The status of lab timed out."],
+      failing: ["account.signed-in"],
+      actions: ["check-again"],
       checkedAt: MANUAL_CLOCK_START,
     });
   });
@@ -105,6 +130,6 @@ describe("the Account step with accounts", () => {
     expect(t.adapter.statusReads).toHaveLength(reads);
 
     await client.request("accounts.refresh", { accountId: "claude-max" });
-    expect(await checkAccount(client)).toMatchObject({ state: "needs-attention", failing: ["account.signed-in"], reason: "The sign-in of claude-max has expired: Sign in again." });
+    expect(await checkAccount(client)).toMatchObject({ state: "needs-attention", failing: ["account.signed-in"], reason: "claude-max's sign-in has run out. Sign in again to keep using it." });
   });
 });

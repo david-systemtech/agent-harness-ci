@@ -27,6 +27,9 @@ import { createNamedRows } from "./named-rows.js";
  * - **A sign-out** (`key-manager.connection.signed-out`) raises none: only
  *   a person's command signs out, and the connection awaiting a sign-in is
  *   what they asked for. Its status is still heard.
+ * - **A removal** (`key-manager.connection.removed`) withdraws every row
+ *   this runtime raised about the connection, in its turn behind the rows
+ *   heard before it: what they asked of David went with it (#1851).
  *
  * A row names its connection by its label, which the add and a relabelling
  * (`key-manager.connection.updated`) give: the labels heard are kept per
@@ -63,6 +66,8 @@ export interface KeyManagerNotices {
 export const createKeyManagerNotices = (host: KeyManagerNoticesHost): KeyManagerNotices => {
   /** Each connection's status kind as last heard, per environment. A connection never heard of is not here. */
   const statuses = new Map<string, Map<string, KeyManagerStatusKind>>();
+  /** The ids of the rows raised about each connection, per environment, which its removal withdraws. */
+  const raisedRows = new Map<string, Map<string, string[]>>();
   let closed = false;
   const rows = createNamedRows({
     notices: host.notices,
@@ -87,8 +92,20 @@ export const createKeyManagerNotices = (host: KeyManagerNoticesHost): KeyManager
     const before = heard.get(connectionId);
     heard.set(connectionId, status.kind);
     if (!news || WORKING.has(status.kind) || before === status.kind) return;
-    rows.say(environmentId, connectionId, (label) => `${label ?? "A key manager"} on ${host.name(environmentId)}: ${status.message}`);
+    rows.say(environmentId, connectionId, (label) => `${label ?? "A key manager"} on ${host.name(environmentId)}: ${status.message}`, (raised) => {
+      let held = raisedRows.get(environmentId);
+      if (held === undefined) raisedRows.set(environmentId, (held = new Map()));
+      held.set(connectionId, [...(held.get(connectionId) ?? []), raised.id]);
+    });
   };
+
+  /** Withdraws the rows raised about a removed connection, once every row heard before the removal is raised. */
+  const removed = (environmentId: string, connectionId: string): void =>
+    rows.inTurn(environmentId, () => {
+      const ids = raisedRows.get(environmentId)?.get(connectionId) ?? [];
+      raisedRows.get(environmentId)?.delete(connectionId);
+      if (ids.length > 0) host.notices.retire((raised) => ids.includes(raised.id));
+    });
 
   return {
     heard(environmentId, event, news) {
@@ -117,19 +134,24 @@ export const createKeyManagerNotices = (host: KeyManagerNoticesHost): KeyManager
           if (label !== undefined) rows.named(environmentId, connectionId, label);
           return;
         }
-        // Ticks, a base path and a removal change no status; an id is never used again, so what is known of a removed
-        // connection is kept, for a row still waiting behind its label.
+        // Heard as history too: it withdraws only a row this runtime raised, and history raises none. An id is never used
+        // again, so what is known of the removed connection is kept, for a row still waiting behind its label.
+        case "key-manager.connection.removed":
+          return removed(environmentId, notice.payload.connectionId);
+        // Ticks and a base path change no status.
         default:
           return;
       }
     },
     forget(environmentId) {
       statuses.delete(environmentId);
+      raisedRows.delete(environmentId);
       rows.forget(environmentId);
     },
     close() {
       closed = true;
       statuses.clear();
+      raisedRows.clear();
       rows.close();
     },
   };

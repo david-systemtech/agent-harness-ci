@@ -29,7 +29,7 @@ const REASONS: readonly (readonly [code: string, reasons: readonly string[]])[] 
   ["forbidden", FORBIDDEN_REASONS],
   ["unavailable", ["starting", "draining"]],
   ["verification_failed", KEY_MANAGER_VERIFICATION_FAILURES],
-  ["conflict", [...UPDATE_CONFLICT_REASONS, ...BANK_CONFLICT_REASONS, ...ROUTINE_CONFLICT_REASONS, ...TOOL_RUN_CONFLICT_REASONS, ...FILE_UNDO_CONFLICT_REASONS, "target_exists"]],
+  ["conflict", [...UPDATE_CONFLICT_REASONS, ...BANK_CONFLICT_REASONS, ...ROUTINE_CONFLICT_REASONS, ...TOOL_RUN_CONFLICT_REASONS, ...FILE_UNDO_CONFLICT_REASONS, "target_exists", "no_source", "import_in_progress"]],
 ];
 
 /** A line of its own that says nothing raw: no code in snake case, no braces, no member names, no "params". */
@@ -95,6 +95,21 @@ describe("plainRefusal", () => {
   it("tells unreachable on the wire, a site that did not answer, from this client losing its connection", () => {
     const wire = plainRefusal({ code: "unreachable", message: "https://forge.home.test did not answer.", data: { origin: "https://forge.home.test" } }, "Check again");
     expect(wire.line).toBe("The site did not answer. Check the address and your connection, then choose Check again.");
+  });
+
+  it("keeps the lines a refusal's data.details names under Details, after its code, its reason and its message (#1851)", () => {
+    const refused = plainRefusal(
+      { code: "verification_failed", message: "OpenBao did not accept these details. Check them and try again.", data: { reason: "rejected", details: ["OpenBao answered HTTP 400: invalid role or secret ID.", "Nothing was stored."] } },
+      "Connect OpenBao or Vault",
+    );
+    expect(refused.details).toEqual([
+      "verification_failed (rejected): OpenBao did not accept these details. Check them and try again.",
+      "OpenBao answered HTTP 400: invalid role or secret ID.",
+      "Nothing was stored.",
+    ]);
+    // Anything but a list of lines there is not said.
+    expect(plainRefusal({ code: "sealed", message: "m", data: { details: "one string" } }, "Check again").details).toEqual(["sealed: m"]);
+    expect(plainRefusal({ code: "sealed", message: "m", data: { details: ["a line", 7] } }, "Check again").details).toEqual(["sealed: m", "a line"]);
   });
 
   it("says an unknown code or reason with the verb to try again", () => {

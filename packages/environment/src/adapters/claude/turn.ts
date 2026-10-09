@@ -4,6 +4,7 @@ import type { Clock } from "../../serve/clock.js";
 import { AsyncQueue } from "./async-queue.js";
 import { createDeltaBatcher, type DeltaBatcher } from "./delta-batcher.js";
 import { createMapperState, endTurn, mapSdkMessage, type MapperState } from "./mapper.js";
+import type { SpendMeter } from "./spend.js";
 import type { TaskLedger } from "./tasks.js";
 
 /**
@@ -45,6 +46,7 @@ export interface TurnOptions {
   readonly control: TurnControl;
   readonly clock: Pick<Clock, "now" | "setTimeout">;
   readonly ledger: TaskLedger;
+  readonly spend: SpendMeter;
 }
 
 export class ClaudeTurn implements ProviderTurn {
@@ -72,7 +74,7 @@ export class ClaudeTurn implements ProviderTurn {
     this.promptIds = options.promptIds;
     this.messageIds = options.messageIds;
     this.#control = options.control;
-    this.state = createMapperState({ ledger: options.ledger, now: () => options.clock.now().getTime() });
+    this.state = createMapperState({ ledger: options.ledger, spend: options.spend, now: () => options.clock.now().getTime() });
     this.#adopted = new Promise((resolve) => (this.#resolveAdopted = resolve));
     if (options.origin === "run") this.#resolveAdopted(options.runId);
     this.#batcher = createDeltaBatcher(options.clock, (event) => {

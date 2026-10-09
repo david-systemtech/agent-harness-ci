@@ -64,7 +64,8 @@ import { environmentUpdateFailed } from "../updates/credential-notice.js";
  * `carry-over.imported` (#578) or `carry-over.memory-assigned` (#580),
  * which refresh the cached `carryOver.inventory`; nor
  * `state-import.finished` (#581), which
- * refreshes the cached `stateImport.detect`; nor `denylist.updated` and
+ * refreshes the cached `stateImport.detect` and retains its failed items
+ * in `projections.stateImportFailures` (#1935); nor `denylist.updated` and
  * `review.updated` (#811), which refresh the cached denylist, permission
  * settings and Unattended review.
  */
@@ -261,7 +262,7 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         // over's card shows it copied.
         case "carry-over.memory-assigned":
           return;
-        // A state import ended (#581): the request cache reads stateImport.detect again, and Carry over's card shows its report.
+        // A state import ended (#581): the request cache reads stateImport.detect again, and the stream retains its failed items (#1935).
         case "state-import.finished":
           return;
         // A paired Chrome's change (#548) raises none: the request cache reads browser.chromes.list and browser.status again.

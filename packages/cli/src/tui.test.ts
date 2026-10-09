@@ -379,12 +379,12 @@ describe("the service verbs agent-harness tui hands the terminal UI", () => {
   });
 });
 
-/** A loopback port nothing listens on: one the system handed out, closed again. */
-const closedPort = async (): Promise<number> => {
-  const server = createServer();
+/** A loopback address that never answers: keep its port claimed so another test's server cannot answer there. */
+const unreachablePort = async (): Promise<number> => {
+  const server = createServer((socket) => socket.destroy());
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  onTestFinished(() => new Promise<void>((done) => server.close(() => done())));
   const { port } = server.address() as { readonly port: number };
-  await new Promise<void>((done) => server.close(() => done()));
   return port;
 };
 
@@ -399,10 +399,10 @@ describe("the environment agent-harness tui would show, chosen without a screen"
 
     expect(await selectEnvironment({}, context)).toMatchObject({ ok: false, reason: "none" });
 
-    // The local environment's grant file, where `tui` reads it, names a port nothing listens on: it is not running.
+    // The local environment's grant file, where `tui` reads it, names an address that refuses every request: it is not running.
     const dataDir = defaultDataDirectory(cli.installContext);
     mkdirSync(dataDir, { recursive: true });
-    writeFileSync(join(dataDir, BOOTSTRAP_GRANT_FILE), JSON.stringify({ secret: "secret-for-tests", address: { host: "127.0.0.1", port: await closedPort() } }));
+    writeFileSync(join(dataDir, BOOTSTRAP_GRANT_FILE), JSON.stringify({ secret: "secret-for-tests", address: { host: "127.0.0.1", port: await unreachablePort() } }));
     expect(await selectEnvironment({ cwd: "/srv/notes" }, context)).toEqual({
       ok: false,
       reason: "unreachable",

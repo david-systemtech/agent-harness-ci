@@ -1,6 +1,6 @@
 import {
   DENYLIST_SECTIONS,
-  type ContainmentCause,
+  PRODUCT_NAME,
   type ContainmentLevel,
   type ContainmentReport,
   type Denylist,
@@ -45,41 +45,26 @@ export type StateCheckAnswer =
       readonly actions?: readonly SetupAction[];
     };
 
-/**
- * What a person can do on Linux about a containment level the probe refused:
- * Claude Code's own setup for its sandbox (the bubblewrap and socat packages,
- * and on Ubuntu 24.04 the AppArmor profile that lets `bwrap` create user
- * namespaces), then a restart, since the probe runs once, as the environment
- * starts (#133).
- */
-export const CONTAINMENT_LINUX_HINT =
-  "On Linux, install the bubblewrap and socat packages (sudo apt-get install bubblewrap socat); on Ubuntu 24.04 and later, where AppArmor restricts unprivileged user namespaces, also add an AppArmor profile that grants bwrap userns (/etc/apparmor.d/bwrap, as Claude Code's sandboxing documentation gives it) and reload AppArmor. Then restart the environment, which probes containment as it starts.";
-
-/** What a container also needs when its seccomp profile refused the namespace (#133's finding on the agent box). */
-const CONTAINER_SECCOMP_HINT = "In a container, start it with a seccomp profile that allows unshare(CLONE_NEWUSER).";
-
-/**
- * The causes the machine itself can remove, for which the package hint is
- * given: what the probe found on it (a missing binary, the kernel, AppArmor,
- * seccomp, socat, a failing mechanism). Not the adapter's (no package makes
- * an adapter enforce containment), the platform's (native Windows has no
- * mechanism), or a probe that failed or never ran.
- */
-const MACHINE_CAUSES: ReadonlySet<ContainmentCause> = new Set<ContainmentCause>(["binary_missing", "userns_blocked", "apparmor", "seccomp", "socat_missing", "failed"]);
+/** What the step says of a sandbox this computer cannot give (setup-copy.md §5.12); how to fix it is the client's, from the cause. */
+const SANDBOX_UNAVAILABLE = "The sandbox you chose does not work on this computer yet.";
 
 /**
  * The containment default holds when this environment can enforce it; `off`
  * always can. A default that was set on a start whose probe allowed it and
  * that a later start's probe refuses (bubblewrap removed, the kernel
- * changed) does not, and the line names the level, the probe's reason and,
- * where installing or configuring something would help, the Linux package
- * hint.
+ * changed) does not: the line says so in plain words and offers Turn the
+ * sandbox off, and details hold the level, the probe's reason, its cause
+ * (which a client reads for How to fix it) and what the failing command
+ * printed.
  */
 export const containmentDefaultHolds = (level: ContainmentLevel, report: ContainmentReport): StateCheckAnswer => {
   const why = unenforceable(report, level);
   if (why === null) return true;
-  const hints = MACHINE_CAUSES.has(why.cause) ? [CONTAINMENT_LINUX_HINT, ...(why.cause === "seccomp" ? [CONTAINER_SECCOMP_HINT] : [])] : [];
-  return { reason: [`The containment default ${level} cannot be enforced here: ${why.reason}`, ...hints].join(" ") };
+  return {
+    reason: SANDBOX_UNAVAILABLE,
+    details: [`permissions.containment.default: ${level}`, `Probe: ${why.reason}`, `Cause: ${why.cause}`, ...(why.detail === undefined ? [] : [`What it printed: ${why.detail}`])],
+    actions: ["turn-sandbox-off"],
+  };
 };
 
 /** The denylist as the check reads it: each section, and the actor of the latest change to it (null for a section never recorded). */
@@ -111,32 +96,38 @@ const byPerson = (actor: string | null): boolean => actor !== null && parseActor
  * (never seeded, or emptied by the environment), does not hold, and
  * `permissions.denylist.restorePresets` (Restore) puts them back: each such
  * section is a target of Restore, so a client restores those sections alone
- * and leaves one a person emptied as it is (#573). Hosts has no presets, so
- * it always holds.
+ * and leaves one a person emptied as it is (#573). The line names the lists
+ * in setup-copy.md §5.12's words; details say what each is missing. Hosts
+ * has no presets, so it always holds.
  */
 export const denylistHoldsPresets = (state: DenylistState, presets: Denylist): StateCheckAnswer => {
-  const problems: { readonly section: DenylistSection; readonly line: string }[] = [];
+  const problems: { readonly section: DenylistSection; readonly detail: string }[] = [];
   for (const section of DENYLIST_SECTIONS) {
     const expected = presets[section];
     if (expected.length === 0) continue;
     const entries = state.denylist[section];
-    const name = `The ${SECTION_NAMES[section]} section of the denylist`;
+    const name = SECTION_NAMES[section];
     if (entries.length === 0) {
-      if (!byPerson(state.changedBy[section])) problems.push({ section, line: `${name} holds none of its presets, and no person emptied it; Restore puts them back.` });
+      if (!byPerson(state.changedBy[section])) problems.push({ section, detail: `${name}: holds none of its built-in entries, and no person emptied it.` });
       continue;
     }
     const held = new Set(entries.map((entry) => entry.id));
     const missing = expected.filter((entry) => !held.has(entry.id)).map((entry) => entry.pattern);
     if (missing.length === 0) continue;
     const named = missing.slice(0, NAMED).join(", ") + (missing.length > NAMED ? ` and ${missing.length - NAMED} more` : "");
-    problems.push({ section, line: `${name} is missing ${missing.length} of its presets (${named}); Restore puts them back.` });
+    problems.push({ section, detail: `${name}: ${missing.length} built-in ${missing.length === 1 ? "entry is" : "entries are"} missing: ${named}.` });
   }
   if (problems.length === 0) return true;
+  const names = problems.map(({ section }) => SECTION_NAMES[section]);
   return {
-    reason: problems.map((problem) => problem.line).join(" "),
+    reason: `Some built-in entries are missing from the ${namesWords(names)} always-ask ${names.length === 1 ? "list" : "lists"}.`,
+    details: problems.map((problem) => problem.detail),
     targets: problems.map(({ section }): SetupTarget => ({ action: "restore", kind: "denylist-section", id: section, label: SECTION_NAMES[section] })),
   };
 };
+
+/** Names in a sentence: "paths", "paths and hosts", "browser domains, paths and hosts". */
+const namesWords = (names: readonly string[]): string => (names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1) as string}`);
 
 /** What agents get at each containment default, as the Permissions step's line says it (setup-copy.md §5.12). */
 const CONTAINMENT_WORDS: Readonly<Record<ContainmentLevel, string>> = {
@@ -154,8 +145,7 @@ const CONTAINMENT_WORDS: Readonly<Record<ContainmentLevel, string>> = {
  */
 export const permissionsLine = (level: ContainmentLevel, state: DenylistState, presets: Denylist): Finding => {
   const emptied = DENYLIST_SECTIONS.filter((section) => presets[section].length > 0 && state.denylist[section].length === 0).map((section) => SECTION_NAMES[section]);
-  const names = emptied.length <= 1 ? emptied.join("") : `${emptied.slice(0, -1).join(", ")} and ${emptied.at(-1) as string}`;
-  const lists = emptied.length === 0 ? "" : ` You emptied the ${names} always-ask ${emptied.length === 1 ? "list" : "lists"}.`;
+  const lists = emptied.length === 0 ? "" : ` You emptied the ${namesWords(emptied)} always-ask ${emptied.length === 1 ? "list" : "lists"}.`;
   return { reason: `Set. ${CONTAINMENT_WORDS[level]}.${lists}`, details: [`permissions.containment.default: ${level}`] };
 };
 
@@ -165,4 +155,9 @@ export const permissionsLine = (level: ContainmentLevel, state: DenylistState, p
  * starts (ADR 0006), so a check that fails says a refusal was got past.
  */
 export const runsAsNonRoot = (isRoot: boolean): StateCheckAnswer =>
-  isRoot ? { reason: "The environment runs as root, which it must never do: start it as an ordinary user (the container's non-root USER)." } : true;
+  isRoot
+    ? {
+        reason: `${PRODUCT_NAME} runs as the administrator (root) account, which is unsafe. Restart it as your own user.`,
+        details: ["isRoot: true", `${PRODUCT_NAME} serve refuses root; in a container, run it as the image's non-root USER.`],
+      }
+    : true;
