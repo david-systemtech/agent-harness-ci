@@ -5,12 +5,12 @@ import {
   formatTokens,
   formatUsd,
   gaugeOf,
+  modelChoiceWarning,
   modelChoiceWords,
   modelsOf,
   statusOf,
   type Clock,
   type EnvironmentView,
-  type RunChoice,
   type RunState,
   type Runtime,
   type SessionProjection,
@@ -31,13 +31,11 @@ import type { StatusLineOne, StatusLineTwo } from "./status-line.js";
  * the plan windows of its account's identity from `projections.usage`, the
  * containment default and the hand-off recommendation from the request cache
  * (`permissions.settings.get`, `accounts.handoff.recommend`), each followed
- * while the line shows it. What this terminal chose for the session's next
- * runs (a model and effort from `/model`, a containment level it set) is
- * handed in. What the line says is the client runtime's rule (`statusOf`,
+ * while the line shows it; the model and effort `/model` chose are the
+ * summary's (`runChoice`, #1961). What this terminal set for the session's
+ * next runs (a containment level) is handed in. What the line says is the client runtime's rule (`statusOf`,
  * which the desktop window's status line says too; #402).
  */
-
-export type { RunChoice };
 
 export interface StatusInputs {
   readonly runtime: Runtime;
@@ -53,7 +51,6 @@ export interface StatusInputs {
   readonly liveRunId: string | undefined;
   /** The session's provider steers a message sent during a run into it. */
   readonly steers: boolean;
-  readonly choice: RunChoice | undefined;
   /** The session's own containment level, as this terminal set it; undefined when it has not. */
   readonly containment: ContainmentLevel | undefined;
   /** The account this terminal handed the session off onto, which its summary names only once a run of it has used it. */
@@ -78,6 +75,8 @@ export const useStatus = (inputs: StatusInputs): StatusView => {
 
   const accounts = useMemo(() => (environmentId !== undefined ? runtime.projections.accounts(environmentId) : undefined), [runtime, environmentId]);
   useFollow(accounts, request);
+  const models = useMemo(() => (environmentId !== undefined ? runtime.projections.models(environmentId) : undefined), [runtime, environmentId]);
+  useFollow(opened ? models : undefined, request);
   useFollow(opened ? runtime.projections.usage : undefined, request);
   const permissions = useMemo(
     () => (environmentId !== undefined ? runtime.requests.cached(environmentId, "permissions.settings.get", {}) : undefined),
@@ -97,7 +96,6 @@ export const useStatus = (inputs: StatusInputs): StatusView => {
           runState: inputs.runState,
           liveRunId: inputs.liveRunId,
           ceiling: environment?.ceiling ?? null,
-          choice: inputs.choice,
           forkedOnto: inputs.forkedOnto,
           containmentSet: inputs.containment,
           containmentDefault: permissions?.read().result?.values["permissions.containment.default"],
@@ -140,14 +138,17 @@ export const useStatus = (inputs: StatusInputs): StatusView => {
 
   const label = facts.accountId === null ? undefined : (accounts?.read().value?.find((account) => account.id === facts.accountId)?.label ?? facts.accountId);
   const { model, mode, containment } = facts;
-  // The provider's name for a model the display table does not know, from the catalogue a picker last read; reading it never fetches.
-  const listed = model && modelsOf(runtime.projections.models(environmentId).read().value ?? [], facts.accountId).find((entry) => entry.id === model.model);
+  // Follow the catalogue before a run so an unavailable saved model or effort is visible without opening the picker.
+  const catalogues = models?.read().value ?? null;
+  const listed = model && modelsOf(catalogues ?? [], facts.accountId).find((entry) => entry.id === model.model);
+  const catalogueLoaded = catalogues?.some((entry) => facts.accountId === null || entry.accountId === facts.accountId) ?? false;
+  const warning = modelChoiceWarning(model, listed, catalogueLoaded);
   const modeBadge = MODE_BADGES[mode.mode];
   const one: StatusLineOne = {
     parts: [
       badge,
       label !== undefined ? { text: label, bold: true } : { text: "default account", dim: true },
-      model ? { text: modelChoiceWords(model, listed?.label) } : { text: "default model", dim: true },
+      model ? { text: `${modelChoiceWords(model, listed?.label)}${warning === undefined ? "" : " ⚠ unavailable"}`, ...(warning !== undefined && { color: TERMINAL_ROLES.warning }) } : { text: "default model", dim: true },
       mode.clampedFrom === null ? modeBadge : { ...modeBadge, text: `${modeBadge.text} ${clampWords(mode.clampedFrom)}` },
       ...(containment ? [containmentBadge(containment.level, containment.isDefault)] : []),
     ],
@@ -162,5 +163,5 @@ export const useStatus = (inputs: StatusInputs): StatusView => {
   const { activity } = facts;
   const styled: Styled =
     activity.kind === "waiting" ? { text: activity.words, color: TERMINAL_ROLES.warning } : activity.kind === "idle" ? { text: activity.words, dim: true } : { text: activity.words };
-  return { one, two: { kind: "working", activity: styled, details, hints: hints() } };
+  return { one, two: { kind: "working", activity: warning !== undefined && !live ? { text: warning, color: TERMINAL_ROLES.warning } : styled, details, hints: hints() } };
 };

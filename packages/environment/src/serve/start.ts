@@ -229,6 +229,7 @@ import { sourceAccountInventories } from "../state-import/inventory.js";
 import { directoryInventory } from "../carry-over/directory-inventory.js";
 import { createCarryOver } from "../carry-over/methods.js";
 import { createImportCoordinator } from "../state-import/coordinator.js";
+import { lastImportFailures } from "../state-import/last-failures.js";
 import { stateImportProjector } from "../state-import/items.js";
 import { followDeferredDefaults } from "../state-import/default-account.js";
 import { stateImportMethods, type StateImportHooks } from "../state-import/methods.js";
@@ -1889,7 +1890,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...lifecycle.handlers,
     // The snapshot, sent when replay from the cursor is out of bounds: the status now, the look (#323), and every step's cached
     // result (#569).
-    "environment.subscribe": () => ({ stream: environmentStream, snapshot: () => ({ status: lifecycle.status(), environment: look.read(), setup: setup.cached() }) }),
+    "environment.subscribe": () => ({ stream: environmentStream, snapshot: () => ({ status: lifecycle.status(), environment: look.read(), setup: setup.cached(), stateImportFailures: lastImportFailures(log, record.id) }) }),
     ...look.handlers,
     ...knownEnvironmentsMethods(knownEnvironments),
     // The rebuild joins the command's transaction, so it and the receipt commit together.

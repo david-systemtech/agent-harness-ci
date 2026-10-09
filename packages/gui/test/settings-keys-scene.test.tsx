@@ -15,7 +15,7 @@ describe("the settings keys scene", () => {
     const merge = screen.getByRole("switch", { name: "Settle sessions after merge" });
     await user.click(merge);
     expect(merge.getAttribute("aria-checked")).toBe("true");
-    const ceiling = screen.getByRole("combobox", { name: "Maximum permission mode" });
+    const ceiling = screen.getByRole("combobox", { name: "How much agents may do without asking" });
     await user.selectOptions(ceiling, within(ceiling).getByRole("option", { name: "plan" }));
     expect(within(ceiling).getByRole("option", { selected: true }).textContent).toBe("plan");
     expect(screen.getByText("sessions.autoSettleAfterIdle").classList.contains("text-ink-faint")).toBe(true);

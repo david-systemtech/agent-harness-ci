@@ -110,6 +110,10 @@ const oweWebhooks = (db: ProjectionDb, routineId: string, entryId: string, targe
   }
 };
 
+/** Captured targets remain owed while a firing runs or its delivery awaits an attempt. */
+export const hasPendingWebhookDelivery = (reader: Reader, endpoint: string): boolean =>
+  reader.all("SELECT 1 FROM routine_webhook_pending WHERE endpoint = ? LIMIT 1", endpoint).length > 0;
+
 /** The result's JSON; the summary shares the client notice's words, but the text keeps all 16,000 characters. */
 const payloadOf = (routineId: string, { entry, name }: DeliverableEntry, options: WebhookDeliveriesOptions): WebhookPayload | null => {
   const outcome = deliveredOutcome(entry);

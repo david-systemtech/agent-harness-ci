@@ -17,4 +17,6 @@ export const geometry = ({ width }: { readonly width: number }) => [
   { selector: '[data-run-sheet] [data-usage-rings]:has([role="img"])', renderedOnly: true, visibleWithin: "[data-run-sheet]" },
   // An email is one line of its own, never broken mid-word (#1895).
   { selector: "[data-run-sheet] [data-run-identity]", renderedOnly: true, unbroken: true },
+  // So is an account's name, the selected one's long email included (#1963).
+  { selector: "[data-run-sheet] [data-run-primary]", renderedOnly: true, unbroken: true },
 ];

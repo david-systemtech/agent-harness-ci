@@ -21,7 +21,7 @@ import {
 } from "@agent-harness/client-runtime";
 import { PRODUCT_NAME, managedTool, type SetupAction, type SetupTarget } from "@agent-harness/contracts";
 import { ExternalLink, Play, RefreshCw } from "lucide-react";
-import { useId, useRef, useState } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { SignInCard } from "../accounts/sign-in-card.js";
 import { nameOf } from "../connections/words.js";
 import { ToolTerminal, type ShownRun } from "../managed-tools/tool-terminal.js";
@@ -126,6 +126,10 @@ interface StepStatusProps extends StepCardProps {
   readonly handledActions?: readonly SetupAction[];
   /** A card with its own tool terminal draws the named action's run there too. */
   readonly toolStarted?: (run: ShownRun) => void;
+  /** A card's own fold in a needs-a-fix notice, beneath its buttons (the Permissions card's How to fix it). */
+  readonly fixFold?: ReactNode;
+  /** Facts the card adds to the result's Details beneath its raw words (the Browser card's extension folder and listening address). */
+  readonly facts?: readonly string[];
 }
 
 /** A check this client met itself unable to reach the environment: the reach line says that, so the step does not say it twice. */
@@ -149,7 +153,7 @@ const unreachable = (refusal: RefusedAnswer): boolean => refusal.code === "unrea
  * card says. Sign in again opens the sign-in card over it. It is the whole
  * of the fallback card, and the head of a registered one.
  */
-export const StepStatus = ({ environmentId, step, restore, actions, cardAction, handledActions = [], toolStarted }: StepStatusProps) => {
+export const StepStatus = ({ environmentId, step, restore, actions, cardAction, handledActions = [], toolStarted, fixFold, facts = [] }: StepStatusProps) => {
   const runtime = useRuntime();
   const { leave } = useChecklist();
   const details = useDetails();
@@ -233,7 +237,8 @@ export const StepStatus = ({ environmentId, step, restore, actions, cardAction, 
             title={line}
             {...(note !== undefined && { description: note })}
             actions={<>{named}{refusal === undefined && checkAgain}</>}
-            details={details({ ...report, checkedAt: result.checkedAt, line, failing: result.failing, details: result.details ?? [] })}
+            {...(fixFold !== undefined && { fold: fixFold })}
+            details={details({ ...report, checkedAt: result.checkedAt, line, failing: result.failing, details: [...(result.details ?? []), ...facts] })}
           />
         ) : (
           <>
@@ -242,7 +247,7 @@ export const StepStatus = ({ environmentId, step, restore, actions, cardAction, 
           </>
         )}
         {result?.lastGood !== undefined && <p className="text-sm text-ink-muted">{lastGoodWords(result.lastGood, now)}</p>}
-        {!fix && result !== null && !step.pending && <TechnicalDetails {...details({ ...report, checkedAt: result.checkedAt, line, failing: result.failing, details: result.details ?? [] })} />}
+        {!fix && result !== null && !step.pending && <TechnicalDetails {...details({ ...report, checkedAt: result.checkedAt, line, failing: result.failing, details: [...(result.details ?? []), ...facts] })} />}
         {!fix && <div className="flex flex-wrap gap-2">{named}{refusal === undefined && checkAgain}</div>}
         {reasons.map((reason) => <p key={reason} className="text-sm text-ink-faint">{reason}</p>)}
         {refusal !== undefined && (

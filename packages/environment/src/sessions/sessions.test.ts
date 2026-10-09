@@ -466,6 +466,12 @@ describe("the field table's behavioural half", () => {
       await command(client, "sessions.setBrowser", { sessionId: id, browser: { kind: "headless" } });
       return { id, list, type: "session.browser.set" };
     },
+    "sessions.setModel": async (client) => {
+      const { id } = await create(client);
+      const list = await watch(client);
+      await client.request("sessions.setModel", { commandId: randomUUID(), sessionId: id, model: "sonnet", effort: "low" });
+      return { id, list, type: "session.model-set" };
+    },
     "sessions.setGroup": async (client) => {
       const { id: groupId } = await createGroup(client, { name: `Group ${randomUUID()}` });
       const { id } = await create(client);
@@ -529,5 +535,7 @@ describe("the field table's behavioural half", () => {
       expect(summary[field as keyof SessionSummary], `the summary shows ${field}`).toEqual(fields[field]);
     }
     expect(fields).toMatchObject({ activity: { state: "running", since: new Date(Date.parse(MANUAL_CLOCK_START) + 60_000).toISOString() }, accountId: "claude-max", model: "opus" });
+    // It writes the next run's model and effort too, which a person's sessions.setModel owns (#1961).
+    expect(fields).toMatchObject({ runChoice: { model: "opus", effort: null } });
   });
 });

@@ -29,7 +29,7 @@ it.each(["phone", "own-client"] as const)("keeps Tab inside the %s session drawe
   await user.click(within(await screen.findByRole("dialog", { name: "Settings rows" })).getByRole("button", { name: "Accounts" }));
   if (preset === "phone") {
     expect(screen.getByRole("button", { name: "Give this phone full access" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "Add an account…" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Sign in with Claude" }).hasAttribute("disabled")).toBe(true);
   }
   const rowsToggle = screen.getByRole("button", { name: "Settings rows" });
   await user.click(rowsToggle);

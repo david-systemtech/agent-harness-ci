@@ -497,7 +497,7 @@ describe("the step registry", () => {
   it("links the Permissions entry to the Your machines step, checks containment, the denylist's presets and not-root, and is never skipped", () => {
     expect(permissions.links).toEqual([{ step: "your-machines" }]);
     expect(permissions.stateChecks.map((check) => [check.id, check.actions])).toEqual([
-      ["permissions.containment", []],
+      ["permissions.containment", ["turn-sandbox-off"]],
       ["permissions.denylist", ["restore"]],
       ["permissions.not-root", []],
     ]);

@@ -1,6 +1,6 @@
 import { CONTAINMENT_CAUSES, denylistPresets, type ContainmentCause, type ContainmentReport, type Denylist, type DenylistSection } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { CONTAINMENT_LINUX_HINT, containmentDefaultHolds, denylistHoldsPresets, runsAsNonRoot, type DenylistState } from "./step-checks.js";
+import { containmentDefaultHolds, denylistHoldsPresets, runsAsNonRoot, type DenylistState } from "./step-checks.js";
 
 /**
  * The Permissions step's three state checks as pure functions (#141): the
@@ -13,8 +13,6 @@ const DATA_DIR = "/home/someone/.local/state/agent-harness";
 const PRESETS = denylistPresets(DATA_DIR);
 const PERSON = "client_session:3f1c2a4e-0b7d-4e8a-9c61-2d5f7a9e1b33";
 const ENVIRONMENT = "system:permissions";
-/** The causes the probe finds on the machine, which a package or a setting there can remove. */
-const MACHINE_CAUSES = ["binary_missing", "socat_missing", "userns_blocked", "apparmor", "seccomp", "failed"] as const;
 
 /** A report whose workspace levels are unavailable for `cause`, or available when `cause` is null. */
 const reportFor = (cause: ContainmentCause | null, container = false): ContainmentReport => ({
@@ -44,35 +42,30 @@ describe("the containment default", () => {
     expect(containmentDefaultHolds("workspace-no-network", reportFor(null))).toBe(true);
   });
 
-  it("fails naming the level and the probe's reason, with the Linux package hint for each cause the machine can fix", () => {
-    for (const cause of MACHINE_CAUSES) {
-      const answer = containmentDefaultHolds("workspace", reportFor(cause));
-      expect(answer, cause).toEqual({ reason: expect.stringContaining(`The containment default workspace cannot be enforced here: The probe says no (${cause}). ${CONTAINMENT_LINUX_HINT}`) as unknown as string });
-    }
-    expect(CONTAINMENT_LINUX_HINT).toBe(
-      "On Linux, install the bubblewrap and socat packages (sudo apt-get install bubblewrap socat); on Ubuntu 24.04 and later, where AppArmor restricts unprivileged user namespaces, also add an AppArmor profile that grants bwrap userns (/etc/apparmor.d/bwrap, as Claude Code's sandboxing documentation gives it) and reload AppArmor. Then restart the environment, which probes containment as it starts.",
-    );
-  });
-
-  it("adds the seccomp profile a container needs when seccomp refused the namespace", () => {
-    const answer = containmentDefaultHolds("workspace", reportFor("seccomp", true));
-    expect(answer).toEqual({ reason: expect.stringMatching(/restart the environment, which probes containment as it starts\. In a container, start it with a seccomp profile that allows unshare\(CLONE_NEWUSER\)\.$/) as unknown as string });
-  });
-
-  it("gives no package hint where no package helps: the adapter, the platform, a probe that failed or never ran", () => {
-    const without = ["adapter", "platform", "probe_failed", "not_probed"] as const;
-    for (const cause of without) {
+  it("fails in setup-copy.md §5.12's one line, offering Turn the sandbox off, with the level, the probe's words and its cause in details, for every cause", () => {
+    for (const cause of CONTAINMENT_CAUSES) {
       expect(containmentDefaultHolds("workspace", reportFor(cause)), cause).toEqual({
-        reason: `The containment default workspace cannot be enforced here: The probe says no (${cause}).`,
+        reason: "The sandbox you chose does not work on this computer yet.",
+        details: ["permissions.containment.default: workspace", `Probe: The probe says no (${cause}).`, `Cause: ${cause}`],
+        actions: ["turn-sandbox-off"],
       });
     }
-    // Every cause is in one list or the other: a new one fails here until it is placed.
-    expect(new Set([...MACHINE_CAUSES, ...without])).toEqual(new Set(CONTAINMENT_CAUSES));
+  });
+
+  it("keeps what the failing command printed in details, apart from the probe's reason", () => {
+    const report = reportFor("apparmor");
+    const levels = report.levels.map((level) => (level.available ? level : { ...level, detail: "bwrap: setting up uid map: Permission denied" }));
+    expect(containmentDefaultHolds("workspace-no-network", { ...report, levels })).toMatchObject({
+      details: ["permissions.containment.default: workspace-no-network", "Probe: The probe says no (apparmor).", "Cause: apparmor", "What it printed: bwrap: setting up uid map: Permission denied"],
+    });
   });
 
   it("fails on a report that does not name the level, as not probed", () => {
     const report: ContainmentReport = { ...reportFor(null), levels: [{ level: "off", available: true, reason: null, cause: null }] };
-    expect(containmentDefaultHolds("workspace", report)).toEqual({ reason: expect.stringMatching(/^The containment default workspace cannot be enforced here: The containment probe did not report workspace/) as unknown as string });
+    expect(containmentDefaultHolds("workspace", report)).toMatchObject({
+      reason: "The sandbox you chose does not work on this computer yet.",
+      details: ["permissions.containment.default: workspace", "Probe: The containment probe did not report workspace, so it cannot be enforced.", "Cause: not_probed"],
+    });
   });
 });
 
@@ -92,15 +85,16 @@ describe("the denylist's presets", () => {
     expect(denylistHoldsPresets(state, PRESETS)).toBe(true);
   });
 
-  it("fail for a section missing some presets, naming three and counting the rest, with Restore, which names the section as its target", () => {
+  it("fail for a section missing some presets in setup-copy.md §5.12's line, its missing entries in details, three named and the rest counted, with Restore, which names the section as its target", () => {
     const state = seeded();
     state.denylist.paths = state.denylist.paths.slice(0, 11);
     state.changedBy.paths = PERSON;
     expect(denylistHoldsPresets(state, PRESETS)).toEqual({
-      reason: `The paths section of the denylist is missing 4 of its presets (${PRESETS.paths
+      reason: "Some built-in entries are missing from the paths always-ask list.",
+      details: [`paths: 4 built-in entries are missing: ${PRESETS.paths
         .slice(11, 14)
         .map((entry) => entry.pattern)
-        .join(", ")} and 1 more); Restore puts them back.`,
+        .join(", ")} and 1 more.`],
       targets: [{ action: "restore", kind: "denylist-section", id: "paths", label: "paths" }],
     });
   });
@@ -111,8 +105,12 @@ describe("the denylist's presets", () => {
       changedBy: { browserDomains: null, paths: null, commandPatterns: null, hosts: null },
     };
     expect(denylistHoldsPresets(never, PRESETS)).toEqual({
-      reason:
-        "The browser domains section of the denylist holds none of its presets, and no person emptied it; Restore puts them back. The paths section of the denylist holds none of its presets, and no person emptied it; Restore puts them back. The command patterns section of the denylist holds none of its presets, and no person emptied it; Restore puts them back.",
+      reason: "Some built-in entries are missing from the browser domains, paths and command patterns always-ask lists.",
+      details: [
+        "browser domains: holds none of its built-in entries, and no person emptied it.",
+        "paths: holds none of its built-in entries, and no person emptied it.",
+        "command patterns: holds none of its built-in entries, and no person emptied it.",
+      ],
       targets: [
         { action: "restore", kind: "denylist-section", id: "browserDomains", label: "browser domains" },
         { action: "restore", kind: "denylist-section", id: "paths", label: "paths" },
@@ -122,7 +120,8 @@ describe("the denylist's presets", () => {
     const state = seeded();
     state.denylist.commandPatterns = [];
     expect(denylistHoldsPresets(state, PRESETS)).toEqual({
-      reason: "The command patterns section of the denylist holds none of its presets, and no person emptied it; Restore puts them back.",
+      reason: "Some built-in entries are missing from the command patterns always-ask list.",
+      details: ["command patterns: holds none of its built-in entries, and no person emptied it."],
       targets: [{ action: "restore", kind: "denylist-section", id: "commandPatterns", label: "command patterns" }],
     });
   });
@@ -134,8 +133,11 @@ describe("the denylist's presets", () => {
 });
 
 describe("not root", () => {
-  it("holds unless permissions.settings.get says the environment runs as root", () => {
+  it("holds unless permissions.settings.get says the environment runs as root, said as setup-copy.md §5.4's root line with the facts in details", () => {
     expect(runsAsNonRoot(false)).toBe(true);
-    expect(runsAsNonRoot(true)).toEqual({ reason: "The environment runs as root, which it must never do: start it as an ordinary user (the container's non-root USER)." });
+    expect(runsAsNonRoot(true)).toEqual({
+      reason: "agent-harness runs as the administrator (root) account, which is unsafe. Restart it as your own user.",
+      details: ["isRoot: true", "agent-harness serve refuses root; in a container, run it as the image's non-root USER."],
+    });
   });
 });

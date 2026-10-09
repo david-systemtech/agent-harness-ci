@@ -5,6 +5,7 @@ export { createRuntime, type Runtime } from "./runtime.js";
 export { CredentialAccessUnansweredError, isCredentialAccessUnanswered, PairingCodeSpentError, StoredCredentialUnavailableError } from "./credential-unavailable.js";
 export { SERVICE_FAILURE_KINDS, ServiceFailureError, serviceFailureOf, type ServiceFailure, type ServiceFailureKind } from "./service-failure.js";
 export { derived, writable, type Observable, type Writable } from "./observable.js";
+export { onLocalDayChange } from "./local-day.js";
 /** The id a client mints for a session or a group it creates (the contracts' `SessionId` and `GroupId` are version 4), and for a command (version 7). */
 export { uuidv4, uuidv7 } from "./ids.js";
 export type {
@@ -89,9 +90,12 @@ export type { SkillsCopies, SkillsCopySelection, SkillsCopyItem, SkillsCopyItemR
 export type { BankCopyItemReport } from "./banks-copy.js";
 export type { KeyManagers } from "./key-managers.js";
 export {
-  INJECTION_SWITCH_WORDS,
+  CONNECTION_FIX_WORDS,
+  INJECTION_SWITCH_HINT,
+  INJECTION_SWITCH_OFF_WORDS,
   INJECTION_WORDS,
   KEY_MANAGER_METHOD_WORDS,
+  KEY_MANAGER_PROVIDER_NAMES,
   KEY_MANAGER_PROVIDER_WORDS,
   KEY_MANAGER_STATUS_ADVICE,
   KEY_MANAGER_STATUS_WORDS,
@@ -101,22 +105,28 @@ export {
   certificateFacts,
   cliHealthWords,
   cliWords,
+  connectionHealth,
   copyLine,
+  injectionSwitchWords,
   injectsWords,
   listWords,
   methodWords,
   mintWords,
+  moveOfferWords,
   originWords,
   overridesWith,
   policyWarning,
+  savedWords,
   statusWords,
   tokenWords,
+  type ConnectionFix,
 } from "./key-managers/words.js";
 export {
   KEY_MANAGER_ADDRESS_PRESETS,
   KEY_MANAGER_LABEL_PRESETS,
   addConnection,
   asksAddress,
+  connectWords,
   copyValue,
   moveItems,
   previewCertificate,
@@ -125,6 +135,7 @@ export {
   setInjected,
   setPolicies,
   signInAgain,
+  signInRefusal,
   signOutConnection,
   ticksWith,
   updateConnection,
@@ -224,6 +235,8 @@ export type {
   AccountPresetReason,
   BrowserChip,
   BrowserPresetReason,
+  EffortChip,
+  EffortPresetReason,
   EnvironmentChip,
   EnvironmentOption,
   EnvironmentPresetReason,
@@ -548,6 +561,7 @@ export {
   elapsedClock,
   gaugeOf,
   identityWords,
+  modelChoiceWarning,
   modelChoiceWords,
   modelDisplayName,
   modelName,
@@ -588,6 +602,7 @@ export {
   handingOffWords,
   setSessionContainment,
   setSessionMode,
+  setSessionModel,
   type AdminOutcome,
   type ContainmentSet,
   type HandOff,
@@ -614,7 +629,7 @@ export {
   NO_WINDOWS_READ,
   accountChoiceWords,
   accountStatusWords,
-  ambientOffer,
+  ambientSignIn,
   directoryWords,
   effortChoices,
   familyChoices,
@@ -624,9 +639,22 @@ export {
   pooledWords,
   removalWords,
   resetWords,
+  type AmbientSignIn,
   type FamilyChoice,
 } from "./accounts/words.js";
-export { adoptAccount, modelPreset, presetModelDefaults, relabelAccount, removeAccount, type AccountOutcome, type ModelPreset } from "./accounts/actions.js";
+export {
+  NEW_ACCOUNT_LABEL,
+  adoptAccount,
+  emailLabel,
+  modelPreset,
+  nameProblem,
+  newAccountLabel,
+  presetModelDefaults,
+  relabelAccount,
+  removeAccount,
+  type AccountOutcome,
+  type ModelPreset,
+} from "./accounts/actions.js";
 export {
   RECOMMENDED_MODELS,
   addFavourite,
@@ -645,7 +673,11 @@ export {
   DENYLIST_TEST_KIND_NAMES,
   NOTHING_TO_REVIEW,
   DECIDED_BECAUSE,
-  availabilityWords,
+  MODE_WORDS,
+  PROMPT_TIMEOUT_CHOICES,
+  SANDBOX_LEVEL_WORDS,
+  isTimeout,
+  promptTimeoutChoices,
   reviewCountsWords,
   reviewDenialWords,
   reviewRanWords,
@@ -653,6 +685,11 @@ export {
   sectionGrammar,
   sectionHasPresets,
   sectionHolds,
+  sandboxReadiness,
+  sandboxSetup,
+  type CommandToCopy,
+  type PromptTimeoutChoice,
+  type SandboxSetup,
 } from "./permissions/words.js";
 export {
   editedSection,

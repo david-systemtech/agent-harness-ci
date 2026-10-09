@@ -215,15 +215,15 @@ describe("the environment stream kind", () => {
     expect(held.look).toEqual({ name: "desk", icon: "server", colour: "teal" });
     const renamed = kind.apply(held, noticeEvent(2, "env", "environment.renamed", { name: "LAB" }));
     const coloured = kind.apply(renamed, noticeEvent(3, "env", "environment.colour-set", { colour: "amber" }));
-    expect(coloured).toEqual({ status, look: { name: "LAB", icon: "server", colour: "amber" }, setup: [] });
+    expect(coloured).toEqual({ status, look: { name: "LAB", icon: "server", colour: "amber" }, setup: [], stateImportFailures: [] });
     expect(kind.decode(JSON.parse(JSON.stringify(kind.encode(coloured))))).toEqual(coloured);
 
     // From an environment from before the look: none in the snapshot, and a stored document with none reads as none.
     expect(kind.fromSnapshot({ sequence: 1, status }).look).toEqual({});
-    expect(kind.decode({ status, setup: [] }).look).toEqual({});
+    expect(kind.decode({ status, setup: [], stateImportFailures: [] }).look).toEqual({});
     // A look this build cannot read (a newer environment's icon) is none, and the rest of the snapshot still reads.
-    expect(kind.fromSnapshot({ sequence: 1, status, environment: { name: "desk", icon: "phone", colour: "teal" } })).toEqual({ status, look: {}, setup: [] });
+    expect(kind.fromSnapshot({ sequence: 1, status, environment: { name: "desk", icon: "phone", colour: "teal" } })).toEqual({ status, look: {}, setup: [], stateImportFailures: [] });
     // Replayed from nothing, a notice sets its field alone.
-    expect(kind.apply(kind.empty(), noticeEvent(1, "env", "environment.icon-set", { icon: "nas" }))).toEqual({ status: null, look: { icon: "nas" }, setup: [] });
+    expect(kind.apply(kind.empty(), noticeEvent(1, "env", "environment.icon-set", { icon: "nas" }))).toEqual({ status: null, look: { icon: "nas" }, setup: [], stateImportFailures: [] });
   });
 });

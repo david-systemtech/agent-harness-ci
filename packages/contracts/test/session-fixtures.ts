@@ -86,6 +86,7 @@ export const freshSummary = {
   parkedPromptCount: 0,
   accountId: null,
   model: null,
+  runChoice: null,
   mode: null,
   browser: null,
   pullRequests: [],
@@ -116,6 +117,7 @@ const fullSummary = {
   parkedPromptCount: 2,
   accountId: "claude-max",
   model: "claude-opus-5-5",
+  runChoice: { model: "claude-sonnet-5-5", effort: null },
   mode: "plan",
   browser: { kind: "chrome", environmentId, chromeId: null },
   pullRequests: [mergedPullRequest],
@@ -128,6 +130,9 @@ const invalidSummaries = [
   { ...freshSummary, mode: "default" },
   { ...freshSummary, browser: { kind: "firefox" } },
   { ...freshSummary, browser: undefined },
+  { ...freshSummary, runChoice: undefined },
+  { ...freshSummary, runChoice: { model: "", effort: null } },
+  { ...freshSummary, runChoice: { model: "claude-sonnet-5-5", effort: "" } },
   { ...freshSummary, id: "not-a-uuid" },
   { ...freshSummary, title: "" },
   { ...freshSummary, titleSource: "provider" },
@@ -201,6 +206,10 @@ const eventPayloads: Record<string, Fixtures> = {
   "run.browser.resolved": {
     valid: [{ runId, ...resolution }, { runId, ...resolution, requested: { kind: "dock" }, browser: { kind: "none" }, reason: "unattended" }],
     invalid: [resolution, { runId: "r-1", ...resolution }, { runId, ...resolution, reason: "because" }],
+  },
+  "session.model-set": {
+    valid: [{ model: "claude-sonnet-5-5", effort: "high" }, { model: "claude-sonnet-5-5", effort: null }],
+    invalid: [{}, { model: "claude-sonnet-5-5" }, { model: "", effort: null }, { model: "claude-sonnet-5-5", effort: "" }],
   },
   "session.draft-set": { valid: [{ draft: "Now the retention sweep" }, { draft: null }], invalid: [{}, { draft: "" }] },
   "session.group-set": { valid: [{ groupId }, { groupId: null }], invalid: [{}, { groupId: "g-1" }] },
@@ -334,6 +343,10 @@ export const sessionSchemaFixtures: Record<string, Fixtures> = {
   },
   "sessions/activity-state.json": { valid: ["idle", "starting", "running", "parked"], invalid: ["busy", ""] },
   "sessions/session-activity.json": { valid: [{ state: "idle", since: at }], invalid: [{ state: "idle" }, { state: "busy", since: at }] },
+  "sessions/session-run-choice.json": {
+    valid: [{ model: "claude-sonnet-5-5", effort: "high" }, { model: "claude-sonnet-5-5", effort: null }],
+    invalid: [{ model: "claude-sonnet-5-5" }, { model: "", effort: null }, { model: "claude-sonnet-5-5", effort: "" }],
+  },
   "sessions/pull-request-state.json": { valid: ["open", "closed", "merged"], invalid: ["draft", ""] },
   "sessions/pull-request.json": { valid: [pullRequest, mergedPullRequest], invalid: [{ ...pullRequest, state: "draft" }, { url: pullRequest.url }] },
   "sessions/session-summary.json": { valid: [freshSummary, fullSummary], invalid: invalidSummaries },
@@ -453,6 +466,13 @@ export const sessionMethodFixtures: Record<string, { params: Fixtures; result: F
     params: {
       valid: [...browsers.map((browser) => ({ ...target, browser })), { ...target, browser: null }],
       invalid: [target, ...invalidBrowsers.map((browser) => ({ ...target, browser })), { commandId, browser: null }],
+    },
+    result: summaryResult,
+  },
+  "sessions.setModel": {
+    params: {
+      valid: [{ ...target, model: "claude-sonnet-5-5", effort: "high" }, { ...target, model: "claude-sonnet-5-5", effort: null }],
+      invalid: [target, { ...target, model: "claude-sonnet-5-5" }, { ...target, model: "", effort: null }, { ...target, model: "claude-sonnet-5-5", effort: "" }, { commandId, model: "claude-sonnet-5-5", effort: null }],
     },
     result: summaryResult,
   },
