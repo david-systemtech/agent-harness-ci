@@ -78,6 +78,7 @@ const summary = {
   parkedPromptCount: 0,
   accountId: null,
   model: null,
+  runChoice: null,
   mode: null,
   browser: null,
   pullRequests: [],

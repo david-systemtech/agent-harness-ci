@@ -16,7 +16,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CircleStop, LoaderCircle, Paperclip, SendHorizontal } from "lucide-react";
 import { KeyContext, useFirstKey, useKeyAction, type Offer } from "../keys/key-dispatch.js";
 import { useSessionQueue } from "../queue/session-queue.js";
-import { useModelChoice } from "../status/run-choices.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { useProvider } from "../session/provider.js";
 import { useSettingsCommand } from "../settings/settings-command.js";
@@ -153,7 +152,6 @@ export const Composer = ({ environmentId, sessionId, authoring = false }: Compos
     });
   }, runtime.capability(environmentId, "files.undo"), { keepComposer: true });
   const queue = useSessionQueue();
-  const [choice] = useModelChoice(environmentId, sessionId);
 
   // The session's workspace, while the environment has found it gone: no run reads anything there until it has another.
   const gone = useGoneWorkspace(environmentId, sessionId);
@@ -169,7 +167,7 @@ export const Composer = ({ environmentId, sessionId, authoring = false }: Compos
 
   const sendFailure = () => {
     if (sending.status === "absent") return say(sending.message);
-    void runtime.checks.sendFailure(environmentId, sessionId, choice).then((outcome) => {
+    void runtime.checks.sendFailure(environmentId, sessionId).then((outcome) => {
       if (!outcome.ok) say(outcome.line);
     });
   };
@@ -197,7 +195,7 @@ export const Composer = ({ environmentId, sessionId, authoring = false }: Compos
     box.put("");
     attachments.set([]);
     say(undefined);
-    void sendMessage(runtime, environmentId, sessionId, message, live, choice).then((outcome) => {
+    void sendMessage(runtime, environmentId, sessionId, message, live).then((outcome) => {
       if (outcome.ok) return;
       say(outcome.line);
       // What was not sent comes back into an empty box, so it is not lost.

@@ -239,7 +239,7 @@ describe("/model", () => {
     },
   ];
 
-  it("lists the models the session's account can use with their efforts, and the choice rides the session's next run", async () => {
+  it("lists the models the session's account can use with their efforts, and the choice is the session's, which its next run goes out on (#1961)", async () => {
     const { app, env } = await launch([desk({ models })]);
     await command(app, "/model");
     await app.waitFor("Models for work on desk");
@@ -255,7 +255,11 @@ describe("/model", () => {
     await app.type("go");
     await app.press(KEY.enter);
     await app.waitFor("▌ go");
-    expect(env.requests("runs.start").map((r) => r.params)).toEqual([expect.objectContaining({ text: "go", model: "claude-opus-4", effort: "high" })]);
+    expect(env.requests("sessions.setModel").map((r) => r.params)).toEqual([expect.objectContaining({ model: "claude-opus-4", effort: "high" })]);
+    const [start] = env.requests("runs.start").map((r) => r.params);
+    expect(start).toMatchObject({ text: "go" });
+    expect(start).not.toHaveProperty("model");
+    await app.waitFor("Opus 4 - High ·");
   });
 
   it("chooses a model with no effort at once", async () => {

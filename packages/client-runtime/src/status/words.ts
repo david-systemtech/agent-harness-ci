@@ -233,6 +233,14 @@ export const modelChoiceWords = (choice: { readonly model: string; readonly effo
   return choice.effort === null ? name : `${name} - ${effortName(choice.effort)}`;
 };
 
+/** A saved choice that a read catalogue cannot take, before the next run. Both renderers show the same warning. */
+export const modelChoiceWarning = (choice: { readonly model: string; readonly effort: string | null } | undefined, listed: ModelEntry | undefined, catalogueLoaded: boolean): string | undefined => {
+  if (choice === undefined || !catalogueLoaded) return undefined;
+  if (listed === undefined) return "This stored model is not listed for this account. Choose an available model for the next run.";
+  if (choice.effort !== null && !listed.efforts.includes(choice.effort)) return "This stored effort is not listed for this model. Choose an available effort for the next run.";
+  return undefined;
+};
+
 /** The line a picker says when a model is chosen for the session's next run. */
 export const nextRunWords = (session: string, choice: { readonly model: string; readonly effort: string | null }, label: string | null = null): string =>
   `The next run of ${session} goes out on ${modelChoiceWords(choice, label)}${choice.effort === null ? " at its own effort" : ""}.`;

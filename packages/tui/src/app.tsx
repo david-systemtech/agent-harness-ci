@@ -814,7 +814,7 @@ export const App = (props: AppProps) => {
   const sendCheckFailure = (): boolean => {
     if (!opened || !checkView?.offer || sendingFailure.current) return false;
     sendingFailure.current = true;
-    void runtime.checks.sendFailure(opened.environmentId, opened.sessionId, pickers.choice(opened)).then((answer) => {
+    void runtime.checks.sendFailure(opened.environmentId, opened.sessionId).then((answer) => {
       if (!answer.ok) say(answer.line);
     }).finally(() => { sendingFailure.current = false; });
     return true;
@@ -991,7 +991,6 @@ export const App = (props: AppProps) => {
     runState: session.runState,
     liveRunId: liveRun,
     steers: session.provider?.steering === true,
-    choice: pickers.choice(opened),
     containment: pickers.containment(opened),
     forkedOnto: pickers.forkedOnto(opened),
     width: size.columns,
@@ -1024,7 +1023,7 @@ export const App = (props: AppProps) => {
     setSending((s) => [...s, { id, text: message.text, messageId: undefined, before }]);
     if (options.remember !== false) stores.history?.append({ text: message.text, cwd: projection?.summary?.workspace.path ?? props.flags.workspace, sessionId });
     setView((v) => ({ ...v, offset: 0 }));
-    void sendMessage(runtime, environmentId, sessionId, message, live, pickers.choice(opened)).then((outcome) => {
+    void sendMessage(runtime, environmentId, sessionId, message, live).then((outcome) => {
       if (!outcome.ok) {
         options.onRefused?.();
         setSending((s) => s.filter((one) => one.id !== id));

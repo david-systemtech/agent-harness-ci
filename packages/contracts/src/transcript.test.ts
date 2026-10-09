@@ -199,6 +199,7 @@ describe("the per-session snapshot", () => {
     parkedPromptCount: 0,
     accountId: "claude-max",
     model: "opus",
+    runChoice: { model: "opus", effort: null },
     mode: "acceptEdits",
     browser: null,
     pullRequests: [],

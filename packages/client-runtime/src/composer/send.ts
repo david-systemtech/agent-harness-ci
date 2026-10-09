@@ -78,10 +78,11 @@ export const attachmentRefused = (attachment: AttachmentInput, provider: Adapter
 
 /**
  * Sends `message` to the session: `runs.start` with no run live, with the
- * model and effort `choice` names (`/model`; a null effort is the model's
- * own, which the environment's default effort does not replace, #1950),
- * `runs.send` during one. A start refused because a run went live meanwhile
- * (`conflict`, `run_active`) is sent again as `runs.send`, a new command.
+ * model and effort `choice` names (a new session's first run), else on the
+ * session's own (the summary's `runChoice`, #1961). An explicit null effort
+ * is the model's own, which the environment's default effort does not replace (#1950).
+ * During a live run it uses `runs.send`. A start refused because a run went
+ * live meanwhile (`conflict`, `run_active`) is sent again as `runs.send`, a new command.
  */
 export const sendMessage = async (
   runtime: Runtime,
@@ -93,7 +94,7 @@ export const sendMessage = async (
 ): Promise<SendOutcome> => {
   const params = { sessionId, text: message.text, ...(message.attachments.length > 0 && { attachments: [...message.attachments] }) };
   if (!live) {
-    // A run started here takes the model and effort `/model` chose for the session; a message queued behind a live run takes the run's.
+    // A run started here takes the model and effort asked for, else the session's; a message queued behind a live run takes the run's.
     const started = await runtime.commands.dispatch(environmentId, "runs.start", {
       ...params,
       ...(choice && { model: choice.model, effort: choice.effort }),
