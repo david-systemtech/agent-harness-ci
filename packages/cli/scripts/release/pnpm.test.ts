@@ -1,7 +1,8 @@
-import { readFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { stagedSettings, trimLockfile } from "./pnpm.js";
+import { pnpmInstall, stagedSettings, trimLockfile } from "./pnpm.js";
 import { runtimePackages } from "./stage.js";
 import { artefactTargets } from "./targets.js";
 
@@ -84,4 +85,33 @@ describe("the staged workspace's settings", () => {
     expect(stagedSettings(linux!, true)).not.toContain("sideEffectsCache");
     expect(stagedSettings(linux!, false)).toContain("sideEffectsCache: false");
   });
+});
+
+it.runIf(process.platform !== "win32")("carries dependency patches into the release's frozen production install", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "release-patches-"));
+  const oldPath = process.env["PATH"];
+  try {
+    const repoRoot = join(scratch, "repo");
+    const workspace = join(scratch, "stage");
+    const bin = join(scratch, "bin");
+    mkdirSync(join(repoRoot, "patches"), { recursive: true });
+    mkdirSync(bin);
+    writeFileSync(join(repoRoot, "package.json"), "{}");
+    writeFileSync(join(repoRoot, "pnpm-workspace.yaml"), "patchedDependencies:\n  node-pty@1.1.0: patches/node-pty@1.1.0.patch\n");
+    writeFileSync(join(repoRoot, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\nimporters:\n  .: {}\n");
+    writeFileSync(join(repoRoot, "patches/node-pty@1.1.0.patch"), "the Windows cleanup patch");
+    writeFileSync(join(bin, "pnpm"), `#!/bin/sh
+if [ "$1" = store ]; then echo '${scratch}/store'; exit 0; fi
+cat patches/node-pty@1.1.0.patch > installed-patch
+`);
+    chmodSync(join(bin, "pnpm"), 0o755);
+    process.env["PATH"] = `${bin}:${oldPath}`;
+    await pnpmInstall({ repoRoot, workspace, packages: [], target: artefactTargets(["win32-x64"])[0]!, runScripts: false });
+    expect(readFileSync(join(workspace, "installed-patch"), "utf8")).toBe("the Windows cleanup patch");
+    expect(readFileSync(join(workspace, "pnpm-workspace.yaml"), "utf8")).toContain("node-pty@1.1.0: patches/node-pty@1.1.0.patch");
+  } finally {
+    if (oldPath === undefined) delete process.env["PATH"];
+    else process.env["PATH"] = oldPath;
+    rmSync(scratch, { recursive: true, force: true });
+  }
 });
