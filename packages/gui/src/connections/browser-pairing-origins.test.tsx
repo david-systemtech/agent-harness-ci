@@ -1,3 +1,4 @@
+// @vitest-environment-options {"url":"https://environment.example"}
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { createRuntime } from "@agent-harness/client-runtime";
@@ -55,11 +56,13 @@ const servedByDesk = async (size: { readonly width: number; readonly height: num
   /** Pastes `link` into the pairing form in `place` and sends it; the line under the form once it says more than Pairing…. */
   const pairIn = async (place: HTMLElement, link: string) => {
     const form = await within(place).findByRole("form", { name: "Pair by link" });
-    await user.click(within(form).getByRole("textbox", { name: "Pairing link" }));
+    const field = within(form).getByRole("textbox", { name: "Pairing link" });
+    await user.clear(field);
+    await user.click(field);
     await user.paste(link);
     await user.click(within(form).getByRole("button", { name: "Pair" }));
     const status = form.parentElement!.querySelector<HTMLElement>('[role="status"]')!;
-    await waitFor(() => expect(status.textContent).toMatch(/^Not paired|^Use the environment/));
+    await waitFor(() => expect(status.textContent).toMatch(/^Not paired|^Use the environment|is paired already/));
     return status;
   };
   /** Settings, opened from the phone header. */
@@ -83,6 +86,41 @@ const servedByDesk = async (size: { readonly width: number; readonly height: num
 const PHONES = [{ width: 390, height: 844 }, { width: 360, height: 640 }] as const;
 
 describe.each(PHONES)("pairing another HTTPS environment from the browser client at $width x $height", (size) => {
+  it("recognises same-origin pairing with or without the explicit HTTPS default port", async () => {
+    const { pair, pairIn, runtime } = await servedByDesk(size);
+    expect(runtime.connections.list.read()[0]?.address).toBe("https://environment.example");
+    const status = await pair("https://environment.example/pair#K7Q2MXH4RT");
+    expect(status.textContent).toContain("desk is paired already. Pair it again in place?");
+    const again = await pairIn(await screen.findByRole("dialog", { name: "Settings" }), "https://environment.example:443/pair#K7Q2MXH4RT");
+    expect(again.textContent).toContain("desk is paired already. Pair it again in place?");
+  });
+
+  it("refuses a standard-port HTTPS origin without adding the native HTTP port or fetching it", async () => {
+    const { pair, fetched } = await servedByDesk(size);
+    const status = await pair("https://unapproved.example.invalid/pair#K7Q2MXH4RT");
+    expect(status.textContent).toContain("This browser client may not contact https://unapproved.example.invalid.");
+    expect(status.textContent).not.toContain(":7433");
+    expect(fetched.filter((url) => url.startsWith("https://unapproved.example.invalid"))).toEqual([]);
+  });
+
+  it("contacts an exactly approved standard-port HTTPS origin, including links naming port 443, but refuses another port", async () => {
+    const approved = "https://laptop.example.test";
+    const { pair, pairIn, fetched } = await servedByDesk(size, [approved]);
+    const status = await pair(`${approved}/pair#K7Q2MXH4RT`);
+    expect(status.textContent).toBe(`Not paired: Nothing answered at ${approved}: fetch failed.`);
+    expect(fetched).toContain(`${approved}/.well-known/agent-harness/environment`);
+    const settings = await screen.findByRole("dialog", { name: "Settings" });
+    const defaultPort = await pairIn(settings, `${approved}:443/pair#K7Q2MXH4RT`);
+    expect(defaultPort.textContent).toBe(`Not paired: Nothing answered at ${approved}: fetch failed.`);
+    expect(fetched.filter((url) => url.startsWith(approved))).toEqual([
+      `${approved}/.well-known/agent-harness/environment`,
+      `${approved}/.well-known/agent-harness/environment`,
+    ]);
+    const otherPort = await pairIn(settings, `${approved}:8443/pair#K7Q2MXH4RT`);
+    expect(otherPort.textContent).toContain(`This browser client may not contact ${approved}:8443`);
+    expect(fetched.filter((url) => url.startsWith(`${approved}:8443`))).toEqual([]);
+  });
+
   it("refuses an origin this environment does not allow before any fetch, names it, says both steps and goes to Browser origins", async () => {
     const { user, pair, goneToOrigins, fetched, scrolled } = await servedByDesk(size);
     const status = await pair(LINK);
