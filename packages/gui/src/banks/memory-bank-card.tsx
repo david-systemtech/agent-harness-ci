@@ -9,7 +9,7 @@ import { MintedSessionCard } from "../setup/minted-session-card.js";
 import { BankForgeAccess } from "./bank-forge-access.js";
 import { JoinBankForm } from "./join-bank.js";
 import { PersonalBankForm, TeamBankForm } from "./create-bank.js";
-import { stepForBank } from "./bank-step.js";
+import { bankCheckIncomplete, stepForBank } from "./bank-step.js";
 import { BankInvitation } from "./bank-invitation.js";
 import { ExternalLink } from "../session/external-link.js";
 import { StepStatus } from "../setup/step-status.js";
@@ -111,7 +111,7 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
   };
   return <>
     <p className="max-w-[56ch] text-sm text-ink-muted">Facts your agents keep</p>
-    {(read.result === null || read.result.banks.length === 0) && <StepStatus environmentId={environmentId} step={step} />}
+    {(read.result === null || read.result.banks.length === 0 || bankCheckIncomplete(step)) && <StepStatus environmentId={environmentId} step={step} />}
     <div data-bank-content className="flex min-w-0 w-full max-w-[620px] flex-col gap-3.5">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <p className="text-2xs text-ink-faint">Shared notebooks for your accounts and projects.</p>
@@ -170,7 +170,7 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
         {update === null && <p>Validator is up to date.</p>}
         {bank.kind === "team" && bank.location.kind === "remote" && <BankInvitation environmentId={environmentId} location={bank.location} forges={forges.result?.accounts ?? []} />}
         {bank.status.manifest.state === "awaiting-review" && landing.state !== "awaiting-review" && <Tooltip content="Awaiting owner review" keys="Tab, Enter or Space"><span className="inline-flex"><ExternalLink look="inline-flex items-center gap-1.5 text-beam-text underline" url={bank.status.manifest.pullRequest}><GitPullRequest aria-hidden="true" className="size-4" />Awaiting owner review</ExternalLink></span></Tooltip>}
-        {bank.enabled && bank.role === "read-write" ? <MintedSessionCard environmentId={environmentId} step={subjectStep} subject={bank.id} artefact={{ kind: "folder", path: bank.checkout }} startLabel="Describe this bank" {...((landing.state === "awaiting-review" || bank.status.manifest.state === "awaiting-review") && { outcome: "landed and awaiting review" })} /> : <p className="text-2xs text-ink-faint">{bank.enabled ? "This bank is read only." : "Turn on this bank to use it in runs."}</p>}
+        {bank.enabled && bank.role === "read-write" ? <MintedSessionCard environmentId={environmentId} step={subjectStep} subject={bank.id} artefact={{ kind: "folder", path: bank.checkout }} startLabel="Describe this bank" {...(!bankCheckIncomplete(step) && (landing.state === "awaiting-review" || bank.status.manifest.state === "awaiting-review") && { outcome: "landed and awaiting review" })} /> : <p className="text-2xs text-ink-faint">{bank.enabled ? "This bank is read only." : "Turn on this bank to use it in runs."}</p>}
       </section>;
     })}</SettingsCardGrid>
     <BankChoices value={mode} choose={(next) => { say(undefined); setMode(next); }} />

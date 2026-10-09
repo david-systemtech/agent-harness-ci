@@ -138,6 +138,45 @@ it("keeps a healthy bank's stopped describing conversation controls on its own c
   expect(within(screen.getByRole("region", { name: ready.name })).getByText("Done")).toBeDefined();
 });
 
+it.each([
+  { reason: "Checking took too long. Choose Check again.", details: ["Stopped after 30 seconds."], lastGood: false },
+  { reason: "agent-harness could not finish checking this step. Choose Check again.", details: ["memory-bank.manifest: Verification failed"], lastGood: true },
+])("keeps incomplete verification visible instead of treating recorded healthy banks as newly verified: $reason", async ({ reason, details, lastGood }) => {
+  const healthy = { ...team, location: { kind: "local" as const }, status: {
+    ...team.status, landing: { state: "ok" as const, since },
+    ...(lastGood && { manifest: { state: "awaiting-review" as const, since, pullRequest: "https://forge.example.test/owner/notebook/pulls/1" } }),
+  } };
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["banks", "forge", "setup"],
+    accounts: [{ label: "Project" }], setup: { "memory-bank": {
+      state: "needs-attention", reason, details, failing: ["memory-bank.manifest"], actions: ["check-again"],
+      ...(lastGood && { lastGood: { state: "done" as const, reason: "Previously verified notebooks.", checkedAt: since } }),
+    } },
+  }] }, {}, (world) => {
+    world.environment("desk").wire.answer("banks.list", () => ({ result: { banks: [healthy] } }));
+  });
+  app.shell.openDeepLink(settingsDeepLink("knowledge.banks"));
+  const bank = await screen.findByRole("region", { name: healthy.name });
+  expect(await screen.findByText(reason)).toBeDefined();
+  if (lastGood) expect(screen.getByText(/Last time it worked.*Previously verified notebooks/)).toBeDefined();
+  expect(within(bank).queryByText("Done")).toBeNull();
+  expect(within(bank).queryByText("Your notebook is ready.")).toBeNull();
+  const aggregate = screen.getByText(reason).closest("[data-step-status]");
+  if (!(aggregate instanceof HTMLElement)) throw new Error("The incomplete check has no visible status.");
+  await app.user.click(within(aggregate).getByRole("button", { name: "Details" }));
+  expect(screen.getByText(new RegExp(details[0]?.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") ?? ""))).toBeDefined();
+  const desk = app.environment("desk");
+  const sessionId = "0199aa00-0000-4000-8000-000000000007";
+  desk.wire.answer("setup.mint", async () => {
+    await app.runtime.commands.dispatch(desk.environmentId, "sessions.create", { id: sessionId, title: "Describe notebook", workspace: { kind: "scratch" } });
+    desk.startRun(sessionId, "Describe this notebook.");
+    return { result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: { sessionId } } };
+  });
+  await app.user.click(within(bank).getByRole("button", { name: "Describe this bank" }));
+  expect((await screen.findByRole("status", { name: "Authoring status" })).textContent).toBe("running");
+  act(() => desk.endRun(sessionId, desk.liveRun(sessionId) ?? ""));
+  await waitFor(() => expect(screen.getByRole("status", { name: "Authoring status" }).textContent).toBe("needs attention"));
+});
+
 it("keeps different bank findings and a stopped describing conversation on their own cards", async () => {
   const first = { ...team, name: "needs-description", status: { ...team.status,
     landing: { state: "ok" as const, since }, manifest: { state: "missing" as const, since },
