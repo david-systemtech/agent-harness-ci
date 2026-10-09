@@ -1,18 +1,22 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { fakeShell } from "@agent-harness/client-runtime/testing";
-import { SCOPES } from "@agent-harness/contracts";
+import { SCOPES, type EnvironmentBinding } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderOptions, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
 /**
- * Add a machine and the pairing presets on Your machines (ADR 0025; the Set
- * up spec, "Your machines"; #577): a link pasted or a QR scanned makes the
- * machine a card offering Set up this machine; Install on another machine's
- * lines from this machine's release; each card's code minted by preset with
- * the scopes and ceiling explicit, a preset above this client's own ceiling
- * dim; and Set up's "Set up another computer" opening Add a machine. Driven
- * through the harness over two scripted environments: `desk`, this
- * machine's, and `laptop`, unpaired until a test pairs it.
+ * Add a device on Your machines (setup-copy.md §5.5; ADR 0025; #577, #1847):
+ * Part 1 asks who a code for this computer is for and makes it, with the
+ * scopes and ceiling explicit, a choice above this client's own access dim
+ * with why, and, while this computer is reachable only from itself, the
+ * warning above the button and a code that says it works only here; Part 2
+ * is the pairing form of §4.2, a link pasted or a QR scanned making the
+ * computer a card offering Set up this machine, each refusal in §4.2's words
+ * with the raw failure in Details; Part 3 installs agent-harness on another
+ * computer from this computer's release; and Set up's "Set up another
+ * computer" opens it. Driven through the harness over two scripted
+ * environments: `desk`, this computer's, and `laptop`, unpaired until a test
+ * pairs it.
  */
 
 const NO_SESSION = "No session is open. Choose one from the sidebar.";
@@ -40,9 +44,12 @@ const openMachines = async (app: RenderedApp) => {
   return within(settings).getByRole("region", { name: "Your machines" });
 };
 
-/** Pastes `link` into Add a machine's pairing form and sends it. */
-const pasteLink = async (app: RenderedApp, add: HTMLElement, link: string) => {
-  const form = within(add).getByRole("form", { name: "Pair by link" });
+/** Add a device, on Your machines. */
+const addADevice = async (app: RenderedApp) => within(await openMachines(app)).getByRole("region", { name: "Add a device" });
+
+/** Pastes `link` into the pairing form and sends it. */
+const pasteLink = async (app: RenderedApp, place: HTMLElement, link: string) => {
+  const form = within(place).getByRole("form", { name: "Pair by link" });
   act(() => within(form).getByRole("textbox", { name: "Pairing link" }).focus());
   await app.user.paste(link);
   await app.user.click(within(form).getByRole("button", { name: "Pair" }));
@@ -51,8 +58,14 @@ const pasteLink = async (app: RenderedApp, add: HTMLElement, link: string) => {
 /** The environment the full checklist checks, as its picker shows it. */
 const pickedIn = (region: HTMLElement) => within(within(region).getByRole("combobox", { name: /^(Environment|Setting up)$/ })).getByRole("option", { selected: true }).textContent;
 
-describe("Add a machine", () => {
-  it("pairs from a pasted link, and the machine becomes a card offering Set up this machine, which opens the checklist there on its first step needing attention", async () => {
+/** A computer bound to loopback alone: no tailnet address and no LAN address. */
+const LOOPBACK_ALONE: { readonly binding: EnvironmentBinding } = { binding: { tailnet: null, tailnetFound: null, tailscaleInstalled: false, lan: null, lanAddresses: [] } };
+
+describe("Add a device, Part 2: connect this app to another computer", () => {
+  /** Part 2 of Add a device. */
+  const partTwo = async (app: RenderedApp) => within(await addADevice(app)).getByRole("region", { name: "Connect this app to another computer" });
+
+  it("pairs from a pasted link, and the computer becomes a card offering Set up this machine, which opens the checklist there on its first step needing attention", async () => {
     const app = await opened({
       laptop: {
         capabilities: ["setup"],
@@ -62,8 +75,10 @@ describe("Add a machine", () => {
     const pane = await openMachines(app);
     expect(within(pane).queryByRole("region", { name: "laptop" })).toBeNull();
 
-    await pasteLink(app, within(pane).getByRole("region", { name: "Add a machine" }), app.environment("laptop").wire.link);
+    const part = within(within(pane).getByRole("region", { name: "Add a device" })).getByRole("region", { name: "Connect this app to another computer" });
+    await pasteLink(app, part, app.environment("laptop").wire.link);
     const laptop = await within(pane).findByRole("region", { name: "laptop" });
+    expect(within(part).getByRole("status").textContent).toBe("Connected to laptop.");
     expect(within(laptop).getByText("Paired with laptop: set it up now?")).toBeDefined();
     // Only the card the exchange made offers it.
     expect(within(within(pane).getByRole("region", { name: "desk" })).queryByRole("button", { name: "Set up this machine" })).toBeNull();
@@ -79,50 +94,127 @@ describe("Add a machine", () => {
   it("leaves the card, with no offer, on Not now", async () => {
     const app = await opened();
     const pane = await openMachines(app);
-    await pasteLink(app, within(pane).getByRole("region", { name: "Add a machine" }), app.environment("laptop").wire.link);
+    await pasteLink(app, within(pane).getByRole("region", { name: "Add a device" }), app.environment("laptop").wire.link);
     const laptop = await within(pane).findByRole("region", { name: "laptop" });
     await app.user.click(within(laptop).getByRole("button", { name: "Not now" }));
     expect(within(laptop).queryByRole("button", { name: "Set up this machine" })).toBeNull();
     expect(within(pane).getByRole("region", { name: "laptop" })).toBe(laptop);
   });
 
-  it("offers Scan a QR where the shell gives the window a camera, pairing with the link it reads", async () => {
+  it("says where a pairing link comes from under its field, with no example value in it", async () => {
+    const app = await opened();
+    const field = within(await partTwo(app)).getByRole("textbox", { name: "Pairing link" });
+    expect(field.getAttribute("placeholder")).toBeNull();
+    expect(field.getAttribute("aria-describedby")).not.toBeNull();
+    expect(document.getElementById(field.getAttribute("aria-describedby") as string)?.textContent).toBe(
+      "To get one, open Set up on that computer and choose Add a device. On a server, run agent-harness pair.",
+    );
+  });
+
+  it("says nothing answered at the host, as an alert with what to check, never fetch failed in the line, and keeps the raw failure in Details", async () => {
+    const app = await opened({ laptop: { discovery: "nothing" } });
+    const part = await partTwo(app);
+    const link = app.environment("laptop").wire.link;
+    await pasteLink(app, part, link);
+    const alert = await within(part).findByRole("alert");
+    const host = new URL(link).host;
+    const line = `Nothing answered at ${host}. Check that the other computer is on and that both are connected to Tailscale.`;
+    // The line, read with a hidden "Error: " first; what the platform said ("fetch failed") and the URL are not in it.
+    expect(within(alert).getByText("Error:").className).toContain("sr-only");
+    expect(alert.textContent).toBe(`Error: ${line}Details`);
+    await app.user.click(within(alert).getByRole("button", { name: "Details" }));
+    expect(within(alert).getByText(new RegExp(`Nothing answered at http://${host.replace(/\./g, "\\.")}`), { selector: "pre" })).toBeDefined();
+    // What the person pasted stays (setup-copy.md §1 rule 17).
+    expect((within(part).getByRole("textbox", { name: "Pairing link" }) as HTMLInputElement).value).toBe(link);
+  });
+
+  it("says a link for this computer is for this computer, which this app is connected to already", async () => {
+    const app = await opened();
+    const part = await partTwo(app);
+    await pasteLink(app, part, app.environment("desk").wire.link);
+    expect(within(await within(part).findByRole("alert")).getByText("That link is for this computer. This app is already connected to it.")).toBeDefined();
+  });
+
+  it("pairs from an address and code typed in the fold Type an address and code instead", async () => {
+    const app = await opened();
+    const pane = await openMachines(app);
+    const part = within(within(pane).getByRole("region", { name: "Add a device" })).getByRole("region", { name: "Connect this app to another computer" });
+    expect(within(part).queryByRole("form", { name: "Pair by address and code" })).toBeNull();
+    await app.user.click(within(part).getByRole("button", { name: "Type an address and code instead" }));
+    const form = within(part).getByRole("form", { name: "Pair by address and code" });
+    act(() => within(form).getByRole("textbox", { name: "Address" }).focus());
+    await app.user.keyboard(app.environment("laptop").wire.origin);
+    act(() => within(form).getByRole("textbox", { name: "Pairing code" }).focus());
+    await app.user.keyboard("k7q2m xh4rt");
+    await app.user.click(within(form).getByRole("button", { name: "Pair" }));
+    expect(await within(pane).findByRole("region", { name: "laptop" })).toBeDefined();
+  });
+
+  it("offers Scan a QR code where the shell gives the window a camera, pairing with the link it reads", async () => {
     const shell = fakeShell();
     const app = await opened({}, { shell });
     shell.answer("camera.scanQr", async () => app.environment("laptop").wire.link);
     const pane = await openMachines(app);
-    await app.user.click(within(within(pane).getByRole("region", { name: "Add a machine" })).getByRole("button", { name: "Scan a QR" }));
+    await app.user.click(within(within(pane).getByRole("region", { name: "Add a device" })).getByRole("button", { name: "Scan a QR code" }));
     expect(await within(pane).findByRole("region", { name: "laptop" })).toBeDefined();
     expect(shell.calls.filter(([member]) => member === "camera.scanQr")).toHaveLength(1);
   });
 
-  it("says why there is no Scan a QR where the shell gives the window no camera", async () => {
+  it("says why there is no Scan a QR code where the shell gives the window no camera", async () => {
     const app = await opened({}, { shell: Object.assign(fakeShell(), { camera: undefined }) });
-    const add = within(await openMachines(app)).getByRole("region", { name: "Add a machine" });
-    expect(within(add).queryByRole("button", { name: "Scan a QR" })).toBeNull();
-    expect(within(add).getByText("Scan a QR: This app cannot scan a QR code here. Paste the link instead.")).toBeDefined();
+    const add = await addADevice(app);
+    expect(within(add).queryByRole("button", { name: "Scan a QR code" })).toBeNull();
+    expect(within(add).getByText("This app cannot scan a QR code here. Paste the link instead.")).toBeDefined();
   });
 
-  it("shows a copyable install line per platform from this machine's release, with its channel and the name typed, and the container's compose snippet, with them too, and the updater's documentation", async () => {
+  it("is where Set up's Set up another computer opens, its link's field taking the focus", async () => {
+    const app = await opened();
+    await app.user.keyboard("{Control>},{/Control}");
+    const settings = await screen.findByRole("region", { name: "Settings" });
+    await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Set up another computer" }));
+    const add = within(within(settings).getByRole("region", { name: "Your machines" })).getByRole("region", { name: "Add a device" });
+    expect(document.activeElement).toBe(within(add).getByRole("textbox", { name: "Pairing link" }));
+  });
+});
+
+describe("Add a device, Part 3: install agent-harness on another computer", () => {
+  /** Part 3 of Add a device. */
+  const partThree = async (app: RenderedApp) => within(await addADevice(app)).getByRole("region", { name: "Install agent-harness on another computer" });
+
+  it("numbers the steps, shows a copyable line per system from this computer's release, with its channel and the name typed, and the container's in Using Docker or Podman?, with How to set up the updater", async () => {
     const app = await opened({ desk: { settings: { "updates.channel": "beta" } } });
-    const install = within(within(await openMachines(app)).getByRole("region", { name: "Add a machine" })).getByRole("region", { name: "Install on another machine" });
+    const install = await partThree(app);
     const line = (platform: string) => within(within(install).getByRole("region", { name: platform })).getByText(/./, { selector: "pre" }).textContent;
     const release = "https://git.example.test/david/agent-harness/releases/download/v0.0.0-fake";
     const tokenToCurl = `printf 'header = "Authorization: token %s"\\n' "$AGENT_HARNESS_TOKEN" | curl -K - -fsSL`;
 
-    expect(await within(install).findByRole("region", { name: "macOS and Linux" })).toBeDefined();
-    expect(line("macOS and Linux")).toBe(`${tokenToCurl} ${release}/install.sh | sh -s -- --channel beta`);
-    act(() => within(install).getByRole("textbox", { name: "Name (optional)" }).focus());
+    expect(await within(install).findByRole("region", { name: "Mac or Linux" })).toBeDefined();
+    expect(within(install).getAllByRole("listitem").map((step) => step.textContent)).toEqual([
+      "1. On the other computer, open a terminal.",
+      "2. Copy the line for its system and paste it.",
+      "3. When it finishes, it shows a pairing link. Paste it in Part 2.",
+    ]);
+    // A private release's lines read a token, which every line needs.
+    expect(within(install).getByText(/^This release is private\./).textContent).toBe("This release is private. Before you paste a line, set AGENT_HARNESS_TOKEN to a token that can read it.");
+    expect(line("Mac or Linux")).toBe(`${tokenToCurl} ${release}/install.sh | sh -s -- --channel beta`);
+    act(() => within(install).getByRole("textbox", { name: "Name for the new computer (optional)" }).focus());
     await app.user.keyboard("Build box");
-    expect(line("macOS and Linux")).toBe(`${tokenToCurl} ${release}/install.sh | sh -s -- --channel beta --name 'Build box'`);
+    expect(line("Mac or Linux")).toBe(`${tokenToCurl} ${release}/install.sh | sh -s -- --channel beta --name 'Build box'`);
     expect(line("Windows (PowerShell)")).toBe(
       `& ([scriptblock]::Create((('header = "Authorization: token ' + $env:AGENT_HARNESS_TOKEN + '"') | curl.exe -K - -fsSL ${release}/install.ps1) -join "\`n")) -Channel beta -Name 'Build box'`,
     );
-    await app.user.click(within(within(install).getByRole("region", { name: "macOS and Linux" })).getByRole("button", { name: "Copy" }));
+    await app.user.click(within(within(install).getByRole("region", { name: "Mac or Linux" })).getByRole("button", { name: "Copy" }));
     expect(app.shell.calls).toContainEqual(["clipboard.writeText", `${tokenToCurl} ${release}/install.sh | sh -s -- --channel beta --name 'Build box'`]);
 
-    const container = "A container (Docker or Podman), from the folder to keep its compose file in";
-    expect(line(container)).toBe(
+    expect(within(install).queryByRole("region", { name: "Docker or Podman" })).toBeNull();
+    await app.user.click(within(install).getByRole("button", { name: "Using Docker or Podman?" }));
+    expect(within(install).getAllByRole("listitem").slice(3).map((step) => step.textContent)).toEqual([
+      "1. Make a folder for it and open a terminal there.",
+      "2. Copy this line and paste it.",
+      "3. The pairing link appears in the container's log.",
+      "4. To keep it up to date, set up the host updater.",
+    ]);
+    expect(line("Docker or Podman")).toBe(
       [
         `${tokenToCurl} -o compose.yaml ${release}/compose.yaml`,
         `${tokenToCurl} -o host-updater.sh ${release}/host-updater.sh`,
@@ -132,100 +224,213 @@ describe("Add a machine", () => {
         "docker compose logs environment",
       ].join("\n"),
     );
-    expect(within(install).getByText(/^Until a client first pairs with it, the container prints its pairing link, QR and code to its log at each start/)).toBeDefined();
-    expect(within(install).getByText(/Its first start takes the channel and the name from the line that starts it; a later start keeps them, and its card changes either once paired\./)).toBeDefined();
-    await app.user.click(within(install).getByRole("button", { name: "The host-side updater's documentation" }));
+    await app.user.click(within(install).getByRole("button", { name: "How to set up the updater" }));
     expect(app.shell.calls).toContainEqual(["openExternal", "https://git.example.test/david/agent-harness/src/tag/v0.0.0-fake/docs/host-updater.md"]);
   });
 
-  it("offers anonymous public install commands and explains how to schedule the downloaded host-side updater", async () => {
+  it("offers a public release's lines with no token line", async () => {
     const app = await opened({ desk: { updates: { status: { version: "0.1.1", releaseSource: { origin: "https://github.com", kind: "github", repository: "owner/name" } } } } });
-    const install = within(within(await openMachines(app)).getByRole("region", { name: "Add a machine" })).getByRole("region", { name: "Install on another machine" });
-    await within(install).findByRole("region", { name: "macOS and Linux" });
-    expect(install.textContent).not.toMatch(/AGENT_HARNESS_TOKEN|Forgejo token|Authorization|docker login/);
-    expect(within(install).getByText(/Public releases download without credentials/)).toBeDefined();
-    expect(within(install).getByText(/schedule host-updater.sh on the host every five minutes/)).toBeDefined();
+    const install = await partThree(app);
+    await within(install).findByRole("region", { name: "Mac or Linux" });
+    expect(install.textContent).not.toMatch(/AGENT_HARNESS_TOKEN|private|Authorization|docker login/);
     await app.user.click(within(within(install).getByRole("region", { name: "Windows (PowerShell)" })).getByRole("button", { name: "Copy" }));
     expect(app.shell.calls).toContainEqual(["clipboard.writeText", '& ([scriptblock]::Create((curl.exe -fsSL https://github.com/owner/name/releases/download/v0.1.1/install.ps1) -join "`n")) -Channel stable']);
   });
-
-  it("is where Set up's Set up another computer opens, its link's field taking the focus", async () => {
-    const app = await opened();
-    await app.user.keyboard("{Control>},{/Control}");
-    const settings = await screen.findByRole("region", { name: "Settings" });
-    await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Set up another computer" }));
-    const add = within(within(settings).getByRole("region", { name: "Your machines" })).getByRole("region", { name: "Add a machine" });
-    expect(document.activeElement).toBe(within(add).getByRole("textbox", { name: "Pairing link" }));
-  });
 });
 
-describe("a pairing code by preset", () => {
-  /** Opens the paired `laptop`'s Pair another client, as `laptop` scripts it. */
-  const pairingOn = async (laptop: Partial<ScriptedEnvironment> = {}) => {
-    const app = await opened({ laptop: { reach: "paired", ...laptop } });
-    const pane = await openMachines(app);
-    return { app, part: within(within(pane).getByRole("region", { name: "laptop" })).getByRole("region", { name: "Pair another client" }), laptop: app.environment("laptop") };
+describe("Add a device, Part 1: connect a phone or computer to this one", () => {
+  /** Part 1 of Add a device, on `desk` as `desk` scripts it. */
+  const partOne = async (desk: Partial<ScriptedEnvironment> = {}) => {
+    const app = await opened({ desk });
+    const part = within(await addADevice(app)).getByRole("region", { name: "Connect a phone or computer to this one" });
+    return { app, part, desk: app.environment("desk") };
   };
 
-  /** What the code minted grants and how long it has, as shown beside it. */
-  const minted = async (part: HTMLElement) => within(await within(part).findByRole("group", { name: "Pairing code" }));
+  /** The code made, as shown. */
+  const made = async (part: HTMLElement) => within(await within(part).findByRole("group", { name: "Pairing code" }));
 
-  it("mints my own client's, preset, with every scope and bypassPermissions explicit, and shows what it grants beside it with its countdown", async () => {
-    const { app, part, laptop } = await pairingOn();
-    expect(within(part).getByRole("radio", { name: "My own client — everything for my own devices (phone included)" }).getAttribute("aria-checked")).toBe("true");
-    await app.user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
-    const code = await minted(part);
-    expect(laptop.requests("access.pairings.create").at(-1)?.params).toMatchObject({ scopes: [...SCOPES], ceiling: "bypassPermissions" });
-    expect(code.getByText("Grants every scope, up to bypassPermissions.")).toBeDefined();
-    expect(code.getByRole("timer").textContent).toBe("10m 0s left");
-    act(() => app.clock.advance(1000));
-    expect(code.getByRole("timer").textContent).toBe("9m 59s left");
+  it("asks Who is it for? with Me pre-selected, each choice a note in words, Custom under More options, and no scope or mode id anywhere", async () => {
+    const { part } = await partOne();
+    const who = within(part).getByRole("radiogroup", { name: "Who is it for?" });
+    expect(within(who).getAllByRole("radio").map((radio) => [radio.getAttribute("aria-label"), radio.getAttribute("aria-checked"), document.getElementById(radio.getAttribute("aria-describedby") as string)?.textContent])).toEqual([
+      ["Me", "true", "Your own phone or computer. It can do everything you can do here."],
+      ["A phone with limited access", "false", "It can chat with agents and answer their questions. It cannot open terminals or change settings. Agents on it edit files but ask before anything else."],
+      ["A program or bot", "false", "A tool such as a bot. It can start and follow sessions but not change settings."],
+    ]);
+    expect(within(part).queryByRole("radio", { name: "Custom" })).toBeNull();
+    expect(part.textContent).not.toMatch(/sessions:write|runs:drive|acceptEdits|bypassPermissions|Ceiling|scope/);
   });
 
-  it("mints a program's with read, sessions:write and runs:drive and the ceiling picked, preset acceptEdits", async () => {
-    const { app, part, laptop } = await pairingOn();
-    await app.user.click(within(part).getByRole("radio", { name: "A program" }));
-    const ceiling = within(part).getByRole("combobox", { name: "Ceiling" }) as HTMLSelectElement;
-    expect(ceiling.value).toBe("acceptEdits");
-    expect(within(part).queryByRole("group", { name: "Scopes" })).toBeNull();
-    await app.user.selectOptions(ceiling, "plan");
+  it("makes Me's code with every scope and bypassPermissions explicit, and reads §5.5: how to use it, the QR, the link to copy, the address and code to type, and its minutes", async () => {
+    const { app, part, desk } = await partOne();
     await app.user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
-    expect((await minted(part)).getByText("Grants read, sessions:write and runs:drive, up to plan.")).toBeDefined();
-    expect(laptop.requests("access.pairings.create").at(-1)?.params).toMatchObject({ scopes: ["read", "sessions:write", "runs:drive"], ceiling: "plan" });
+    const code = await made(part);
+    expect(desk.requests("access.pairings.create").at(-1)?.params).toMatchObject({ scopes: [...SCOPES], ceiling: "bypassPermissions" });
+    expect(code.getByText("On the new device, open agent-harness and choose Connect to another computer. Scan this code or paste the link.")).toBeDefined();
+    expect(code.getByRole("img", { name: "QR code of the pairing link" })).toBeDefined();
+    const link = within(code.getByRole("region", { name: "Pairing link" })).getByText(/\/pair#/, { selector: "pre" }).textContent;
+    expect(link).toMatch(/^http:\/\/.+\/pair#K7Q2MXH4R/);
+    expect(code.queryByRole("region", { name: "Code" })).toBeNull();
+    await app.user.click(code.getByRole("button", { name: "Type it instead" }));
+    expect(within(code.getByRole("region", { name: "Address" })).getByText(/./, { selector: "pre" }).textContent).toBe(new URL(link ?? "").host);
+    expect(within(code.getByRole("region", { name: "Code" })).getByText(/./, { selector: "pre" }).textContent).toMatch(/^K7Q2M-XH4R.$/);
+    expect(code.getByRole("timer").textContent).toBe("This code works once, for 10 minutes. 10 min left.");
+    act(() => app.clock.advance(60_000));
+    expect(code.getByRole("timer").textContent).toBe("This code works once, for 10 minutes. 9 min left.");
   });
 
-  it("mints a custom one with the scopes ticked and the ceiling picked, and none with no scope ticked", async () => {
-    const { app, part, laptop } = await pairingOn();
+  it.each([
+    "https://desk.tail1234.ts.net",
+    "https://desk.tail1234.ts.net:8443",
+    "https://[2001:db8::7]",
+  ])("keeps HTTPS in the address shown and copied for a code from %s", async (origin) => {
+    const { app, part, desk } = await partOne();
+    desk.wire.answer("access.pairings.create", () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: {
+      pairingId: "0199dd00-0000-7000-8000-000000000001",
+      code: "K7Q2MXH4RT",
+      link: `${origin}/pair#K7Q2MXH4RT`,
+      expiresAt: new Date(app.clock.now().getTime() + 10 * 60_000).toISOString(),
+      scopes: [...SCOPES],
+      ceiling: "bypassPermissions",
+    } } }));
+    await app.user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
+    const code = await made(part);
+    await app.user.click(code.getByRole("button", { name: "Type it instead" }));
+    const address = within(code.getByRole("region", { name: "Address" })).getByText(/./, { selector: "pre" }).textContent ?? "";
+    expect(address).toBe(origin);
+    await app.user.click(code.getByRole("button", { name: "Copy address" }));
+    expect(app.shell.calls).toContainEqual(["clipboard.writeText", address]);
+  });
+
+  it("discards a displayed code when its access changes, including an empty Custom choice", async () => {
+    const { app, part, desk } = await partOne();
+    const make = async () => {
+      await app.user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
+      await made(part);
+    };
+    await make();
+    expect(desk.requests("access.pairings.create").at(-1)?.params).toMatchObject({ scopes: [...SCOPES], ceiling: "bypassPermissions" });
+    await app.user.click(within(part).getByRole("radio", { name: "A phone with limited access" }));
+    expect(within(part).queryByRole("group", { name: "Pairing code" })).toBeNull();
+    expect(within(part).queryByRole("button", { name: "Copy pairing link" })).toBeNull();
+    await make();
+    expect(desk.requests("access.pairings.create").at(-1)?.params).toMatchObject({ scopes: ["read", "sessions:write", "runs:drive"], ceiling: "acceptEdits" });
+    await app.user.click(within(part).getByRole("radio", { name: "A program or bot" }));
+    await app.user.click(within(part).getByRole("radio", { name: "Ask before any change" }));
+    expect(within(part).queryByRole("group", { name: "Pairing code" })).toBeNull();
+    await make();
+    await app.user.click(within(part).getByRole("button", { name: "More options" }));
     await app.user.click(within(part).getByRole("radio", { name: "Custom" }));
-    const scopes = within(part).getByRole("group", { name: "Scopes" });
-    expect(within(scopes).getByRole("checkbox", { name: "read" }).getAttribute("aria-checked")).toBe("true");
-    await app.user.click(within(scopes).getByRole("checkbox", { name: "read" }));
-    expect(within(part).getByText("A pairing code grants at least one scope.")).toBeDefined();
+    expect(within(part).queryByRole("group", { name: "Pairing code" })).toBeNull();
+    await make();
+    await app.user.click(within(part).getByRole("checkbox", { name: "See sessions" }));
+    expect(within(part).queryByRole("group", { name: "Pairing code" })).toBeNull();
+    expect(within(part).getByRole("button", { name: "Make a pairing code" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("says a code ran out once its ten minutes are over, and offers Make a new code", async () => {
+    const { app, part, desk } = await partOne();
+    await app.user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
+    await made(part);
+    act(() => app.clock.advance(10 * 60_000));
+    expect(within(part).queryByRole("group", { name: "Pairing code" })).toBeNull();
+    expect(within(part).getByText("This code has run out.")).toBeDefined();
+    await app.user.click(within(part).getByRole("button", { name: "Make a new code" }));
+    await made(part);
+    expect(desk.requests("access.pairings.create")).toHaveLength(2);
+  });
+
+  it("asks a program or bot how much its agents may do without asking, in the four plain choices, preset Edit files, ask for the rest", async () => {
+    const { app, part, desk } = await partOne();
+    await app.user.click(within(part).getByRole("radio", { name: "A program or bot" }));
+    const freedom = within(part).getByRole("radiogroup", { name: "How much may its agents do without asking?" });
+    expect(within(freedom).getAllByRole("radio").map((radio) => [radio.getAttribute("aria-label"), radio.getAttribute("aria-checked")])).toEqual([
+      ["Ask before any change", "false"],
+      ["Edit files, ask for the rest", "true"],
+      ["Let Claude decide", "false"],
+      ["Never ask", "false"],
+    ]);
+    await app.user.click(within(freedom).getByRole("radio", { name: "Ask before any change" }));
+    await app.user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
+    const code = await made(part);
+    expect(code.queryByText(/^On the new device/)).toBeNull();
+    expect(desk.requests("access.pairings.create").at(-1)?.params).toMatchObject({ scopes: ["read", "sessions:write", "runs:drive"], ceiling: "plan" });
+  });
+
+  it("makes a Custom one under More options with what it can do ticked and the choice made, and none with nothing ticked, saying why beside the button", async () => {
+    const { app, part, desk } = await partOne();
+    await app.user.click(within(part).getByRole("button", { name: "More options" }));
+    await app.user.click(within(part).getByRole("radio", { name: "Custom" }));
+    const can = within(part).getByRole("group", { name: "What it can do" });
+    expect(within(can).getAllByRole("checkbox").map((tick) => [tick.getAttribute("aria-label"), tick.getAttribute("aria-checked")])).toEqual([
+      ["See sessions", "true"],
+      ["Start and organise sessions", "false"],
+      ["Run agents and answer their questions", "false"],
+      ["Use terminals, files and changes", "false"],
+      ["Change settings and sign in accounts", "false"],
+    ]);
+    await app.user.click(within(can).getByRole("checkbox", { name: "See sessions" }));
+    expect(within(part).getByText("Tick at least one thing it can do.")).toBeDefined();
     expect(within(part).getByRole("button", { name: "Make a pairing code" }).hasAttribute("disabled")).toBe(true);
 
-    await app.user.click(within(scopes).getByRole("checkbox", { name: "terminal" }));
-    await app.user.click(within(scopes).getByRole("checkbox", { name: "read" }));
-    await app.user.selectOptions(within(part).getByRole("combobox", { name: "Ceiling" }), "auto");
+    await app.user.click(within(can).getByRole("checkbox", { name: "Use terminals, files and changes" }));
+    await app.user.click(within(can).getByRole("checkbox", { name: "See sessions" }));
+    await app.user.click(within(part).getByRole("radio", { name: "Let Claude decide" }));
     await app.user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
-    expect((await minted(part)).getByText("Grants read and terminal, up to auto.")).toBeDefined();
-    expect(laptop.requests("access.pairings.create").at(-1)?.params).toMatchObject({ scopes: ["read", "terminal"], ceiling: "auto" });
+    await made(part);
+    expect(desk.requests("access.pairings.create").at(-1)?.params).toMatchObject({ scopes: ["read", "terminal"], ceiling: "auto" });
   });
 
-  it("dims my own client, with why, where this client's own ceiling is acceptEdits, presetting a program's, and each ceiling above its own", async () => {
-    const { app, part, laptop } = await pairingOn({ hello: { ceiling: "acceptEdits" } });
-    const own = within(part).getByRole("radio", { name: "My own client — everything for my own devices (phone included)" }) as HTMLInputElement;
-    await waitFor(() => expect(own.disabled).toBe(true));
-    expect(within(part).getByText("Above this client's own ceiling on laptop, acceptEdits: a pairing code grants at most its minter's.")).toBeDefined();
-    expect(within(part).getByRole("radio", { name: "A program" }).getAttribute("aria-checked")).toBe("true");
-    const offered = within(within(part).getByRole("combobox", { name: "Ceiling" })).getAllByRole("option") as HTMLOptionElement[];
-    expect(offered.map((option) => [option.value, option.disabled])).toEqual([
-      ["plan", false],
-      ["acceptEdits", false],
-      ["auto", true],
-      ["bypassPermissions", true],
+  it("dims Me, saying this app cannot give more, where this client's own ceiling is acceptEdits, presetting the phone, and each choice above its own", async () => {
+    const { app, part, desk } = await partOne({ hello: { ceiling: "acceptEdits" } });
+    const me = within(part).getByRole("radio", { name: "Me" }) as HTMLButtonElement;
+    await waitFor(() => expect(me.disabled).toBe(true));
+    expect(document.getElementById(me.getAttribute("aria-describedby") as string)?.textContent).toContain("This app itself has limited access, so it cannot give more.");
+    expect(within(part).getByRole("radio", { name: "A phone with limited access" }).getAttribute("aria-checked")).toBe("true");
+    await app.user.click(within(part).getByRole("radio", { name: "A program or bot" }));
+    const freedom = within(part).getByRole("radiogroup", { name: "How much may its agents do without asking?" });
+    expect(within(freedom).getAllByRole("radio").map((radio) => [radio.getAttribute("aria-label"), (radio as HTMLButtonElement).disabled])).toEqual([
+      ["Ask before any change", false],
+      ["Edit files, ask for the rest", false],
+      ["Let Claude decide", true],
+      ["Never ask", true],
     ]);
     await app.user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
-    await minted(part);
-    expect(laptop.requests("access.pairings.create").at(-1)?.params).toMatchObject({ scopes: ["read", "sessions:write", "runs:drive"], ceiling: "acceptEdits" });
+    await made(part);
+    expect(desk.requests("access.pairings.create").at(-1)?.params).toMatchObject({ scopes: ["read", "sessions:write", "runs:drive"], ceiling: "acceptEdits" });
+  });
+
+  it("warns above the button while this computer is reachable only from itself, and a code made anyway says it only works here, with no QR for another device", async () => {
+    const { app, part } = await partOne({ status: LOOPBACK_ALONE });
+    const warning = await within(part).findByText("Other devices cannot reach this computer yet, so they cannot use a code made now. Set up Tailscale first.");
+    const button = within(part).getByRole("button", { name: "Make a pairing code" });
+    expect(warning.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await app.user.click(button);
+    const code = await made(part);
+    expect(code.getByText("This code only works on this computer.")).toBeDefined();
+    expect(code.queryByText(/^On the new device/)).toBeNull();
+    expect(code.queryByRole("img", { name: "QR code of the pairing link" })).toBeNull();
+    expect(code.queryByRole("region", { name: "Pairing link" })).toBeNull();
+    expect(code.queryByRole("button", { name: "Copy pairing link" })).toBeNull();
+    await app.user.click(code.getByRole("button", { name: "Type it instead" }));
+    expect(within(code.getByRole("region", { name: "Address" })).getByText(/./, { selector: "pre" }).textContent).toBe("127.0.0.1:7433");
+    expect(within(code.getByRole("region", { name: "Code" })).getByText(/./, { selector: "pre" }).textContent).toMatch(/^K7Q2M-XH4R.$/);
+  });
+
+  it("says nothing about reaching this computer while it binds a tailnet address", async () => {
+    const { part } = await partOne({ status: { binding: { ...LOOPBACK_ALONE.binding, tailnet: { address: "100.64.0.7", name: "desk.tail1234.ts.net" } } } });
+    await within(part).findByRole("button", { name: "Make a pairing code" });
+    expect(within(part).queryByText(/Other devices cannot reach this computer yet/)).toBeNull();
+  });
+
+  it("says nothing about reaching this computer while a proxy serves it at an HTTPS origin, on loopback alone, which its codes' links carry", async () => {
+    const { app, part } = await partOne({ status: { binding: { ...LOOPBACK_ALONE.binding, webOrigin: "https://desk.tail1234.ts.net" } } });
+    await app.user.click(await within(part).findByRole("button", { name: "Make a pairing code" }));
+    const code = await made(part);
+    expect(within(code.getByRole("region", { name: "Pairing link" })).getByText(/\/pair#/, { selector: "pre" }).textContent).toMatch(/^https:\/\/desk\.tail1234\.ts\.net\/pair#/);
+    expect(code.getByRole("img", { name: "QR code of the pairing link" })).toBeDefined();
+    expect(code.queryByText("This code only works on this computer.")).toBeNull();
+    expect(within(part).queryByText(/Other devices cannot reach this computer yet/)).toBeNull();
   });
 });

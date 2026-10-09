@@ -225,7 +225,10 @@ export const scriptedAccess = (host: AccessHost): ScriptedAccessHandle => {
     const expiresAt = new Date(clock.now().getTime() + 10 * 60 * 1000).toISOString();
     const scopes = Array.isArray(params["scopes"]) ? params["scopes"] : [...SCOPES];
     const ceiling = params["ceiling"] === undefined ? host.settings()["permissions.defaultCeiling"] : Ceiling.parse(params["ceiling"]);
-    const answer = accepted({ pairingId, code, link: `${wire.origin}/pair#${code}`, expiresAt, scopes, ceiling });
+    // A proxy's advertised origin wins; otherwise loopback-only bindings link to loopback, as in environment/src/serve/start.ts.
+    const binding = host.status?.binding;
+    const origin = binding?.webOrigin ?? (binding != null && binding.tailnet === null && binding.lan === null ? "http://127.0.0.1:7433" : wire.origin);
+    const answer = accepted({ pairingId, code, link: `${origin}/pair#${code}`, expiresAt, scopes, ceiling });
     append("pairing.created", { pairingId, scopes, ceiling, expiresAt }, host.head());
     return answer;
   });

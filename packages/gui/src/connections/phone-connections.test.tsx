@@ -26,20 +26,20 @@ it("refuses a mixed HTTP link and retains the manual fields", async () => {
   const user = userEvent.setup();
   await user.type(within(form).getByRole("textbox", { name: "Pairing link" }), "http://environment.example.test/pair#K7Q2MXH4RT");
   await user.click(within(form).getByRole("button", { name: "Pair" }));
-  expect(await screen.findByText(/HTTP connections are unavailable in the browser/)).toBeDefined();
-  expect(screen.getByRole("textbox", { name: "Pairing code" })).toBeDefined();
+  expect(await screen.findByText("Use the other computer's HTTPS pairing link or HTTPS address. This page cannot connect over HTTP.")).toBeDefined();
+  expect((within(form).getByRole("textbox", { name: "Pairing link" }) as HTMLInputElement).value).toBe("http://environment.example.test/pair#K7Q2MXH4RT");
 });
 
 it("Custom cannot grant a missing scope or a ceiling above the minter", async () => {
   vi.stubGlobal("innerWidth", 390);
   const container = document.createElement("div"); document.body.append(container);
   await act(async () => { const gallery = await mountGallery(container, "phone-connections-custom"); close = gallery.close; });
-  const scopes = await screen.findByRole("group", { name: "Scopes" });
-  expect((within(scopes).getByRole("checkbox", { name: "terminal" }) as HTMLButtonElement).disabled).toBe(true);
-  expect((within(scopes).getByRole("checkbox", { name: "admin" }) as HTMLButtonElement).disabled).toBe(false);
+  const scopes = await screen.findByRole("group", { name: "What it can do" });
+  expect((within(scopes).getByRole("checkbox", { name: "Use terminals, files and changes" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((within(scopes).getByRole("checkbox", { name: "Change settings and sign in accounts" }) as HTMLButtonElement).disabled).toBe(false);
   const part = screen.getByRole("region", { name: "Pair another client" });
-  const ceiling = within(part).getByRole("combobox", { name: "Ceiling" });
-  expect((within(ceiling).getByRole("option", { name: "bypassPermissions" }) as HTMLOptionElement).disabled).toBe(true);
+  const ceiling = within(part).getByRole("radiogroup", { name: "How much may its agents do without asking?" });
+  expect((within(ceiling).getByRole("radio", { name: "Never ask" }) as HTMLButtonElement).disabled).toBe(true);
 });
 it("a trusted admin can save separate client and connection origins", async () => {
   vi.stubGlobal("innerWidth", 390);
@@ -90,7 +90,7 @@ it("touch cancellation from the Settings pairing form restores manual entry and 
   });
   const user = userEvent.setup();
   const pairing = await screen.findByRole("dialog", { name: "Settings" });
-  await user.click(within(pairing).getByRole("button", { name: "Scan a QR" }));
+  await user.click(within(pairing).getByRole("button", { name: "Scan a QR code" }));
   const camera = document.querySelector<HTMLDialogElement>(".web-camera")!;
   expect(pairing.contains(camera)).toBe(true);
   const cancel = camera.querySelector<HTMLButtonElement>("button")!;
@@ -98,11 +98,11 @@ it("touch cancellation from the Settings pairing form restores manual entry and 
   await user.pointer([{ keys: "[TouchA>]", target: cancel }, { keys: "[/TouchA]", target: cancel }]);
   expect(stop).toHaveBeenCalledOnce();
   expect(document.querySelector(".web-camera")).toBeNull();
-  expect(within(pairing).getByRole("textbox", { name: "Pairing code" })).toBeDefined();
+  expect(within(pairing).getByRole("textbox", { name: "Pairing link" })).toBeDefined();
 });
 
 
-it.each(["desktop", "web"] as const)("explains each pairing grant on %s and defaults to everything for the owner's phone", async platform => {
+it.each(["desktop", "web"] as const)("asks who each code is for on %s, in words, and defaults to Me", async platform => {
   vi.stubGlobal("innerWidth", platform === "web" ? 390 : 1280);
   const container = document.createElement("div"); document.body.append(container);
   const registry = {
@@ -117,24 +117,17 @@ it.each(["desktop", "web"] as const)("explains each pairing grant on %s and defa
   await user.click(await screen.findByRole("button", { name: "Settings" }));
   const card = await screen.findByRole("region", { name: "desk" });
   const part = within(card).getByRole("region", { name: "Pair another client" });
-  const radios = within(part).getAllByRole("radio");
-  expect(radios.map(radio => radio.getAttribute("aria-label"))).toEqual([
-    "My own client — everything for my own devices (phone included)", "A program", "Phone — restricted", "Custom",
-  ]);
+  const radios = within(within(part).getByRole("radiogroup", { name: "Who is it for?" })).getAllByRole("radio");
+  expect(radios.map(radio => radio.getAttribute("aria-label"))).toEqual(["Me", "A phone with limited access", "A program or bot"]);
   expect(radios[0]?.getAttribute("aria-checked")).toBe("true");
   const description = (radio: HTMLElement) => document.getElementById(radio.getAttribute("aria-describedby")!)!.textContent;
-  expect(description(radios[0]!)).toContain("use terminals, files and diffs, and administer the environment");
-  expect(description(radios[0]!)).toContain("bypassPermissions (run without permission checks");
-  expect(description(radios[1]!)).toContain("read and organise sessions, drive runs and answer prompts; no terminal or admin access");
-  expect(description(radios[1]!)).toContain("initially acceptEdits (accept file edits; ask before other actions");
-  expect(description(radios[2]!)).toContain("Restricted choice");
-  expect(description(radios[2]!)).toContain("bypass permissions is unavailable");
-  expect(description(radios[3]!)).toContain("raise or lower access for a single pairing");
-  expect(description(radios[3]!)).toContain("Initially read (read sessions) and plan (plan without making changes)");
+  expect(description(radios[0]!)).toBe("Your own phone or computer. It can do everything you can do here.");
+  expect(description(radios[1]!)).toContain("It cannot open terminals or change settings.");
+  expect(description(radios[2]!)).toBe("A tool such as a bot. It can start and follow sessions but not change settings.");
   await user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
   const code = await within(part).findByRole("group", { name: "Pairing code" });
-  expect(code.textContent).toContain("Grants every scope, up to bypassPermissions.");
-  await user.click(radios[2]!);
+  expect(code.textContent).toContain("On the new device, open agent-harness and choose Connect to another computer.");
+  await user.click(radios[1]!);
   await user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
-  await waitFor(() => expect(code.textContent).toContain("Grants read, sessions:write and runs:drive, up to acceptEdits."));
+  await waitFor(() => expect(within(part).getByRole("timer").textContent).toBe("This code works once, for 10 minutes. 10 min left."));
 });

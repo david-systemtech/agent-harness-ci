@@ -49,7 +49,7 @@ it("explains the actual grant in plain words and replaces it without changing th
   await app.user.click(within(sheet).getByRole("button", { name: "Give this phone full access" }));
   const pairing = await screen.findByRole("dialog", { name: "Give this phone full access" });
   expect(pairing.textContent).toContain("Settings → Your machines");
-  expect(pairing.textContent).toContain("My own client");
+  expect(pairing.textContent).toContain("this environment’s card → Me.");
   expect(pairing.textContent).toContain("agent-harness pair");
   await app.user.type(within(pairing).getByRole("textbox", { name: "Pairing link" }), app.environment.wire.link.replace(/^http:/, "https:"));
   app.environment.autoAccept(false);
@@ -90,7 +90,7 @@ it("keeps the old pairing and open session after an expired replacement code", a
   const pairing = screen.getByRole("dialog", { name: "Give this phone full access" });
   await app.user.type(within(pairing).getByRole("textbox", { name: "Pairing link" }), app.environment.wire.link.replace(/^http:/, "https:"));
   await app.user.click(within(pairing).getByRole("button", { name: "Pair" }));
-  expect(await within(pairing).findByText(/expired/i)).toBeDefined();
+  expect(await within(pairing).findByText(/This code has run out\. Make a new code on the other computer\./)).toBeDefined();
   expect(app.runtime.connections.list.read()[0]?.clientSessionId).toBe(identity);
   expect(focusedPane(app.presentation.values.read().paneLayout).session).toEqual(app.session);
 });
@@ -122,7 +122,7 @@ it.each([
   await app.user.click(within(pairing).getByRole("button", { name: "Pair" }));
   await waitFor(() => expect(app.environment.wire.opened()).toBeGreaterThan(openedBefore));
   await act(async () => { await app.environment.accept({ scopes: [...grant.scopes], ceiling: grant.ceiling }); });
-  expect(await within(pairing).findByText(/full-access code made with My own client/)).toBeDefined();
+  expect(await within(pairing).findByText(/full-access code made for Me/)).toBeDefined();
   expect(app.runtime.connections.list.read()).toEqual(before);
   expect(focusedPane(app.presentation.values.read().paneLayout).session).toEqual(app.session);
   await app.user.keyboard("{Escape}");

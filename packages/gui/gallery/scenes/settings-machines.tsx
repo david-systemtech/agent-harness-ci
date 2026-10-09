@@ -13,7 +13,7 @@ export const geometry: typeof settingsGeometry = (viewport) => [
   { selector: "[data-machine-card]", paddingLeft: 12, paddingTop: 12 },
   { selector: "[data-machine-card] > header > svg", width: 16, height: 16 },
   { selector: '[data-machine-card] button[data-variant][data-size="default"]', height: 32 },
-  { selector: '[aria-label="Copy pairing code"]', height: 24 },
+  { selector: '[aria-label="Copy pairing link"]', height: 24 },
   { selector: '[data-machine-card] input[title="Name (type; Enter to rename)"]', height: 32 },
 ];
 export const ladders = ["light", "dark"] as const;
