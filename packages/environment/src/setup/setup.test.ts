@@ -29,7 +29,8 @@ import type { WireClient } from "../../test/wire-client.js";
 const { onCleanup, tempDir } = useCleanups();
 
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
-  const t = await startTestEnvironment(options);
+  // Scripted checks are answered by the test after it gets the environment.
+  const t = await startTestEnvironment({ ...options, awaitSetupStartPass: options.setupSteps === undefined });
   onCleanup(() => t.close());
   return t;
 };
@@ -241,22 +242,28 @@ describe("the Appearance step's check (ADR 0023; #391)", () => {
     await setTheme(client, themed("Signal", { accent: { hue: 0, chroma: 0.21 }, danger: { hue: 40, chroma: 0.15 } }));
     expect(await check(client, "appearance")).toMatchObject({
       state: "needs-attention",
-      reason: 'Theme "Signal" has 1 seed clamped to meet the rules: accent (component contrast, dark ladder). Restore puts back the Default theme.',
+      reason: 'Some colours in Signal were adjusted so text stays readable.',
+      details: ["accent (visibility of controls, Dark mode)"],
       failing: ["appearance.contrast"],
       actions: ["restore"],
     });
 
     // Chromas no screen shows, on two seeds: each is named once, in the seeds' order, its rule in both ladders.
     await setTheme(client, themed("Loud", { success: { hue: 150, chroma: 0.4 }, accent: { hue: 264, chroma: 0.4 } }));
-    expect((await check(client, "appearance")).reason).toBe(
-      'Theme "Loud" has 2 seeds clamped to meet the rules: accent (gamut, light and dark ladders), success (gamut, light and dark ladders). Restore puts back the Default theme.',
-    );
+    expect(await check(client, "appearance")).toMatchObject({
+      reason: "Some colours in Loud were adjusted so text stays readable.",
+      details: [
+        "accent (screen colour limits, Light and Dark mode)",
+        "success (screen colour limits, Light and Dark mode)",
+      ],
+    });
 
     // A tinted canvas: one seed, two rules.
     await setTheme(client, themed("Olive", { canvas: { hue: 121, chroma: 0.15 } }));
-    expect((await check(client, "appearance")).reason).toBe(
-      'Theme "Olive" has 1 seed clamped to meet the rules: canvas (gamut, light and dark ladders; component contrast, light ladder). Restore puts back the Default theme.',
-    );
+    expect(await check(client, "appearance")).toMatchObject({
+      reason: "Some colours in Olive were adjusted so text stays readable.",
+      details: ["canvas (screen colour limits, Light and Dark mode; visibility of controls, Light mode)"],
+    });
   });
 
   it("is done again once Restore has written the preset theme back through settings.update", async () => {

@@ -1,4 +1,4 @@
-import { CATALOGUE, CATALOGUE_SEED_INSTRUCTION_ID, type BankJoinPreview, type CarryOverInventory, type ContainmentReport, type ResultOf, type StepId, type StepResult } from "@agent-harness/contracts";
+import { CATALOGUE, CATALOGUE_SEED_INSTRUCTION_ID, DEFAULT_THEME, type BankJoinPreview, type CarryOverInventory, type ContainmentReport, type ResultOf, type StepId, type StepResult } from "@agent-harness/contracts";
 import type { EnvironmentHandle, ScriptedSetup } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { LadderName } from "@agent-harness/theme";
 import { useEffect, useState } from "react";
@@ -25,7 +25,7 @@ export const joinPreview: BankJoinPreview = {
 /** A step's status at the head of its card (setup-copy.md §3; #1840): done, needing a fix with Details open, a check that could not run, and the environment out of reach. */
 type StatusRegion = "status-done" | "status-fix" | "status-could-not-check" | "status-unreachable";
 
-type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | "instructions-unread" | "permissions-sandbox" | StatusRegion | BrowserRegion;
+type SetupRegion = StepId | "appearance-default" | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | "instructions-unread" | "permissions-sandbox" | StatusRegion | BrowserRegion;
 
 const isStatus = (kind: SetupRegion): kind is StatusRegion => kind.startsWith("status-");
 
@@ -116,7 +116,7 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
-  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" ? "key-manager" : kind === "instructions-unread" ? "instructions" : kind === "permissions-sandbox" ? "permissions" : isStatus(kind) ? "skills" : isBrowserRegion(kind) ? "browser" : kind;
+  const target: StepId = kind === "appearance-default" ? "appearance" : kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" ? "key-manager" : kind === "instructions-unread" ? "instructions" : kind === "permissions-sandbox" ? "permissions" : isStatus(kind) ? "skills" : isBrowserRegion(kind) ? "browser" : kind;
   const status = isStatus(kind) ? STATUS_RESULTS[kind] : undefined;
   const prepared = await prepareWorld({ environments: [{
     name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks"],
@@ -124,6 +124,10 @@ async function prepareRegion(kind: SetupRegion) {
       ? [{ label: "Project", directory: { kind: "owned", path: "/accounts/project" }, status: { state: "expired", checkedAt: null, detail: null } }]
       : [{ label: "Project", directory: { kind: "adopted", path: "/accounts/project" } }],
     sessions: kind === "authoring" ? [{ title: "Set up: Memory bank", tags: ["setup", "memory-bank"] }] : [],
+    ...(kind === "appearance-default" && {
+      settings: { "appearance.theme": { name: "Loud", seeds: { ...DEFAULT_THEME.seeds, accent: { hue: 264, chroma: 0.4 } } } },
+      setup: { appearance: { state: "needs-attention" as const, reason: "Some colours in Loud were adjusted so text stays readable.", failing: ["appearance.contrast"], actions: ["restore" as const] } },
+    }),
     ...(kind === "host-updater" && { setup: { "your-machines": NEVER_POLLED } }),
     ...(kind === "rail-states" && { setup: RAIL_STATES }),
     ...(kind === "instructions-unread" && { setup: { instructions: UNREAD_PARTS } }),
@@ -208,6 +212,11 @@ export function setupRegionScene(kind: SetupRegion) {
         if (kind === "status-unreachable" && !finished && document.querySelector("[data-step-status]") !== null) {
           finished = true;
           scene.prepared.world.environment("desk").server.drop();
+          return;
+        }
+        if (kind === "appearance-default") {
+          const reset = [...document.querySelectorAll<HTMLButtonElement>("[data-setup-scroll] button")].find((button) => button.textContent === "Use the Default theme");
+          if (!finished && reset !== undefined && !reset.disabled) { finished = true; reset.click(); }
           return;
         }
         if (kind === "host-updater" || kind === "permissions-sandbox") {

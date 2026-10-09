@@ -113,7 +113,7 @@ const CONFIRMATIONS: readonly Confirmation[] = STEP_REGISTRY.flatMap((step): rea
 export const confirmationOf = (key: SettingsKey, value: unknown): Confirmation | undefined =>
   CONFIRMATIONS.find((confirmation) => confirmation.key === key && confirmation.value === value);
 
-/** How a write went: the values the environment answered with (the key's among them), or the one line that says why not, with the environment's refusal when it refused. */
+/** How a write went: the saved values, or its line and structured refusal for plain wording and Details. A key nothing writes has no request refusal. */
 export type SettingSaved = { readonly ok: true; readonly values: Readonly<Record<string, unknown>> } | { readonly ok: false; readonly line: string; readonly refusal?: RefusedAnswer };
 
 export interface SaveOptions {

@@ -159,3 +159,18 @@ it("captures the ready introduction before the owner enters Account", async () =
     expect(screen.queryByRole("navigation", { name: "Step navigation" })).toBeNull();
   } finally { view.unmount(); }
 });
+
+// setup-copy.md §5.13: the saved colours survive while the Default question is open.
+it.each(["light", "dark"] as const)("captures the Default theme question in %s before any write", async (ladder) => {
+  const { default: Scene } = await import("../gallery/scenes/setup-appearance-default.js");
+  const view = render(<Scene ladder={ladder} />);
+  try {
+    const question = await screen.findByRole("alertdialog", { name: "Use the Default theme?" });
+    expect(within(question).getByText("Your colour changes to Loud will be lost.")).toBeDefined();
+    expect(within(question).getByRole("button", { name: "Use Default" })).toBeDefined();
+    await userEvent.setup().click(within(question).getByRole("button", { name: "Keep Loud" }));
+    const card = screen.getByRole("region", { name: "Appearance" });
+    expect(within(card).getByText("Loud, on desk")).toBeDefined();
+    expect(within(card).getByRole("button", { name: "Use the Default theme" })).toBeDefined();
+  } finally { view.unmount(); }
+});

@@ -1,6 +1,9 @@
+import { useToastTimers } from "./toast-timers.js";
 import { screen, waitFor, within } from "@testing-library/react";
 import { expect, it } from "vitest";
 import { mountGallery } from "../gallery/mount.js";
+
+useToastTimers();
 
 it("shows long notice banners, all three tones, and separate transient feedback with the measured geometry", async () => {
   const container = document.createElement("div");

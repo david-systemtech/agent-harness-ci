@@ -217,7 +217,7 @@ const twoEnvironments = async () => {
         capabilities: ["setup"],
         setup: onlySteps({
           ...PASSING,
-          appearance: { state: "needs-attention", reason: "Theme \"Olive\" has 1 seed clamped.", failing: ["appearance.contrast"], actions: ["restore"] },
+          appearance: { state: "needs-attention", reason: "Some colours in Olive were adjusted so text stays readable.", failing: ["appearance.contrast"], actions: ["restore"] },
         }),
       },
     ],
@@ -295,7 +295,7 @@ describe("the Set up pane", () => {
     await app.user.click(within(within(within(settings()).getByRole("region", { name: "Set up" })).getByRole("list", { name: "Steps" })).getByRole("button", { name: "Appearance" }));
     expect(screen.queryByRole("region", { name: "Settings" })).toBeNull();
     expect(within(steps()).getByRole("button", { name: "Appearance" }).getAttribute("aria-current")).toBe("step");
-    expect(within(within(checklist() as HTMLElement).getByRole("region", { name: "Appearance" })).getByText("Theme \"Olive\" has 1 seed clamped.")).toBeDefined();
+    expect(within(within(checklist() as HTMLElement).getByRole("region", { name: "Appearance" })).getByText("Some colours in Olive were adjusted so text stays readable.")).toBeDefined();
     await app.user.click(screen.getByRole("button", { name: "Close Set up" }));
     await app.user.click(screen.getByRole("button", { name: "Leave for now" }));
 
@@ -341,7 +341,7 @@ describe("the Set up pane", () => {
 
     desk.setSetup({
       permissions: { state: "needs-attention", reason: "Some built-in entries are missing from the paths always-ask list.", failing: ["permissions.denylist"], actions: ["restore"] },
-      appearance: { state: "needs-attention", reason: "Theme \"Olive\" has 1 seed clamped.", failing: ["appearance.contrast"], actions: ["restore"] },
+      appearance: { state: "needs-attention", reason: "Some colours in Olive were adjusted so text stays readable.", failing: ["appearance.contrast"], actions: ["restore"] },
     });
     await app.user.click(within(pane).getByRole("button", { name: "Check everything again" }));
     const card = await within(await screen.findByRole("region", { name: "Set up" })).findByRole("region", { name: "Permissions" });
@@ -554,7 +554,7 @@ describe("a step's named actions", () => {
           reach: "local",
           setup: {
             permissions: { state: "needs-attention", reason: "The denylist lost 2 presets.", failing: ["permissions.denylist"], actions: ["restore"] },
-            appearance: { state: "needs-attention", reason: "Theme \"Olive\" has 1 seed clamped.", failing: ["appearance.contrast"], actions: ["restore"] },
+            appearance: { state: "needs-attention", reason: "Some colours in Olive were adjusted so text stays readable.", failing: ["appearance.contrast"], actions: ["restore"] },
           },
           settings: { "appearance.theme": { ...SETTINGS["appearance.theme"].preset, name: "Olive" } },
           lostPresets: denylistPresets("/home").paths.slice(0, 2).map((entry) => entry.id),
@@ -577,8 +577,11 @@ describe("a step's named actions", () => {
 
     await app.user.click(within(steps()).getByRole("button", { name: "Appearance" }));
     const appearance = within(checklist() as HTMLElement).getByRole("region", { name: "Appearance" });
-    await app.user.click(within(appearance).getByRole("button", { name: "Restore" }));
-    expect(await within(appearance).findByText("Restored the Default theme.")).toBeDefined();
+    await app.user.click(await within(appearance).findByRole("button", { name: "Use the Default theme" }));
+    const question = await screen.findByRole("alertdialog", { name: "Use the Default theme?" });
+    expect(desk.settings()["appearance.theme"].name).toBe("Olive");
+    await app.user.click(within(question).getByRole("button", { name: "Use Default" }));
+    expect(await within(appearance).findByText("Saved Default on desk.")).toBeDefined();
     expect(desk.settings()["appearance.theme"]).toEqual(SETTINGS["appearance.theme"].preset);
     expect(desk.requests("setup.check").at(-1)?.params).toEqual({ step: "appearance" });
   });
