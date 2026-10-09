@@ -14,8 +14,8 @@ export interface ServiceRestart {
   readonly failure: ReactNode;
 }
 
-/** Where a restart from this app stands: the drain asked, then the start once the service stopped. */
-type RestartProgress = "idle" | "draining" | "starting";
+/** Where a restart stands: drain asked, disconnected, then an explicit start if the launcher has not restarted it. */
+type RestartProgress = "idle" | "draining" | "reconnecting" | "starting";
 
 /** What stopped a restart: the drain, refused while the computer still runs, or the start once it had stopped. */
 interface RestartRefusal {
@@ -45,11 +45,14 @@ export const useServiceRestart = (view: EnvironmentView | undefined, onRestarted
   const name = view === undefined ? "this computer" : nameOf(view);
   useEffect(() => {
     if (environmentId === undefined) return;
-    if (progress === "draining" && phase === "service-down") {
+    if (progress === "draining" && phase !== "ready" && phase !== "service-down") {
+      setProgress("reconnecting");
+    }
+    if ((progress === "draining" || progress === "reconnecting") && phase === "service-down") {
       setProgress("starting");
       service.start(environmentId);
     }
-    if (progress === "starting" && phase === "ready") {
+    if ((progress === "reconnecting" || progress === "starting") && phase === "ready") {
       setProgress("idle");
       runtime.requests.refresh(environmentId, "environment.status", {});
       onRestarted?.();

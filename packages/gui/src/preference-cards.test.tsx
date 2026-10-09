@@ -233,6 +233,39 @@ describe("the Permissions card's sandbox", () => {
     expect(await within(field(permissions, "permissions.containment.default")).findByRole("radio", { name: "Project folder", description: "Works here" })).toBeDefined();
   });
 
+  it("checks Permissions and enables both restart controls when the launcher restarts the drained environment", async () => {
+    const app = await firstLaunch({
+      containment: NO_BUBBLEWRAP,
+      settings: { "permissions.containment.default": "workspace" },
+      setup: { permissions: { state: "needs-attention", reason: "The sandbox you chose does not work on this computer yet.", failing: ["permissions.containment"], actions: ["turn-sandbox-off"] } },
+    });
+    const desk = app.environment("desk");
+    const permissions = await cardOf(app, "Permissions");
+    const notice = within(permissions).getAllByRole("alert").find((alert) => alert.textContent?.includes("The sandbox you chose does not work on this computer yet."))!;
+    await app.user.click(within(notice).getByRole("button", { name: "How to fix it" }));
+    await moreSafety(app, permissions);
+    await app.user.click(within(field(permissions, "permissions.containment.default")).getByRole("button", { name: "How to set it up" }));
+    const phase = () => app.runtime.projections.environments.read().find((view) => view.environmentId === desk.environmentId)?.phase;
+    const checks = () => desk.requests("setup.check").filter((request) => request.params["step"] === "permissions");
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const before = checks().length;
+      await app.user.click(within(notice).getByRole("button", { name: "Restart agent-harness" }));
+      await waitFor(() => expect(desk.requests("environment.drain")).toHaveLength(1));
+      expect(phase()).toBe("ready");
+      expect(checks()).toHaveLength(before);
+      expect(within(permissions).getAllByRole("button", { name: "Restarting…" }).every((button) => button.hasAttribute("disabled"))).toBe(true);
+      act(() => desk.bye("draining"));
+      await waitFor(() => expect(phase()).toBe("draining"));
+      act(() => app.clock.advance(5_000));
+      await waitFor(() => expect(phase()).toBe("ready"), { timeout: 10_000 });
+      await waitFor(() => expect(checks()).toHaveLength(1));
+      const buttons = within(permissions).getAllByRole("button", { name: "Restart agent-harness" });
+      expect(buttons).toHaveLength(2);
+      expect(buttons.every((button) => !button.hasAttribute("disabled"))).toBe(true);
+    }
+    expect(app.shell.calls.filter(([member]) => member === "service.start")).toEqual([]);
+  });
+
   it("keeps both restart commands to copy on a paired computer", async () => {
     const app = await renderApp({ environments: [
       { name: "desk", reach: "local" },
