@@ -1689,13 +1689,17 @@ export const App = (props: AppProps) => {
       const environment = viewOf(card.environmentId);
       const row = card.rows?.[clampCursor(card.cursor, card.rows.length)];
       if (!environment || !row) return;
+      const connection = runtime.connections.list.read().find((r) => r.environmentId === environment.environmentId);
+      const own = connection?.clientSessionId === row.id ? connection.kind : undefined;
       update({
         question: {
           text: `Revoke ${row.label} on ${nameOf(environment)}? y/n`,
           yes: () =>
-            void revokeClientSession(runtime, environment, row, props.newCommandId()).then((line) => {
+            void revokeClientSession(runtime, environment, row, props.newCommandId(), own).then((line) => {
               say(line);
-              openClientSessions(environment);
+              // Re-list only a reachable connection after revoking another client; keep the own-session result visible.
+              if (own === undefined && runtime.connections.list.read().some((r) => r.environmentId === environment.environmentId && r.phase === "ready")) openClientSessions(environment);
+              else update({ card: { kind: "menu", environmentId: environment.environmentId, cursor: 0 } });
             }),
         },
       });
