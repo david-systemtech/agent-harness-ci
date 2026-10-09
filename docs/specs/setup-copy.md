@@ -581,6 +581,8 @@ quoted from the files named; a builder greps for them.
 - Title `Choose how the window looks`. Why `You can change this any time.`
 - `Light or dark` `Match my computer` (pre-selected) / `Light` / `Dark` with `This applies to this device only.`; `Theme` Default / Ember / Lagoon as swatches.
 - More options `Customise colours`: seeds named `Background`, `Accent`, `Code`, `Thinking`, `Success`, `Warning`, `Danger`, sliders `Colour` and `Strength`; Save, Import, Export.
+- With no edits, Save and Cancel are disabled beside `Choose a theme or customise colours before saving.`; a write says `Saving your theme…`.
+- The detailed `Colour preview` names its swatches `Light colours` / `Dark colours` and its list `Adjusted colours`. Adjustments read `text readability`, `visibility of controls`, `screen colour limits` or `distinct colours`, with `Light mode`, `Dark mode` or `Light and Dark mode`. The theme file keeps its existing seed keys.
 - Lines: done `Your theme is easy to read.`; adjusted `Some colours in {theme} were adjusted so text stays readable.` **Use the Default theme**, which asks
   `Use the Default theme? Your colour changes to {theme} will be lost.` **Use Default** / **Keep {theme}**.
 

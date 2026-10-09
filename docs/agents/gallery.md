@@ -1,6 +1,51 @@
 # Accepting window gallery captures
 
+Every pull request gets a `gallery / gallery` result. The trusted relay compares
+the entire PR head to its merge base against main, including earlier commits.
+Changes under `packages/gui/` (scenes, baselines and bundled fonts included),
+`packages/theme/`, `packages/client-runtime/`, `packages/contracts/` or
+`packages/browser/` render,
+as do gallery scripts and workflows, the root dependency manifests/lockfile and
+`tsconfig.base.json`. The path rule lives in `.forgejo/scripts/gallery-needed.py`.
+Other changes succeed with `no GUI change: gallery skipped`, without dispatching
+a hosted render or posting a screenshot comment. Add the `gallery` label to
+force a render; adding or removing that label reevaluates the decision.
+
+The hosted gallery workflow remains unchanged and installed byte for byte on
+the relay repository. The decision happens before dispatch. A PR changing this
+rule must render because gallery machinery is an input; `pull_request_target`
+uses the trusted base's rule, so live skip verification needs a non-GUI PR after
+the rule lands. Then verify a GUI change (including one in an earlier commit)
+still renders and posts screenshots, and the label forces a non-GUI render.
+
 Use this recipe when a deliberate GUI change produces reviewed pixel differences in a pull request.
+
+## Pull request checks
+
+The gallery check selects GUI and gallery-tooling changes in
+`.forgejo/workflows/gallery.yml`. Review its captures using the recipe below.
+
+The `image / image` check compares the complete PR head with its merge base
+against `main`, including earlier commits in the PR. It builds for changes to
+CLI/environment workspace dependencies, the GUI bundle staged into the image,
+container/build scripts, compose and release inputs, root build configuration
+or workspace manifests and lockfiles. The dependency set is read from the
+workspace manifests so a new workspace dependency is included automatically.
+Non-GUI tests, PNG gallery captures, desktop source and docs skip the build;
+the job still succeeds with `no image input changed: build skipped`.
+GUI source, web assets and wizard copy currently enter the image through the
+Dockerfile's GUI build and staging step, so they require an image build.
+GUI tests and gallery text require a build too: Tailwind scans those files
+for utility classes that can change the staged production CSS. PNG captures are
+binary and do not contribute utility classes.
+
+Add the PR label `image` to force a build, including on a head whose check
+already skipped. Other labels neither launch nor cancel an image build.
+Releases, manual release builds and main's release smoke still build the image
+unconditionally. A PR changing the image workflow or selector itself builds
+the image too; its skip path is covered by the selector's fixture tests.
+
+## Accept captures
 
 1. Work in the pull request's worktree with its current head checked out. Wait for every hosted gallery shard comment for that head. Review every baseline/capture/difference triplet and any new scene image; confirm the captures show the intended change.
 2. Resolve every geometry failure in the layout or measurement expectations. Baseline acceptance changes pixel comparisons; geometry checks continue to block immediately.

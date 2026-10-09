@@ -33,7 +33,7 @@ it.each(["light", "dark"] as const)("draws the Theme scene in %s with client con
   expect(switchGeometry).toBeDefined();
   const measuredSwitches = [...document.querySelectorAll(switchGeometry!.selector)];
   expect(measuredSwitches).toEqual(pane.getAllByRole("switch"));
-  for (const name of ["Light ladder", "Dark ladder"]) expect(within(pane.getByRole("group", { name })).getAllByRole("img")).toHaveLength(7);
+  for (const name of ["Light colours", "Dark colours"]) expect(within(pane.getByRole("group", { name })).getAllByRole("img")).toHaveLength(7);
   expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toContainEqual({ selector: 'input[aria-label="Search settings"]', height: 32 });
   expect(document.documentElement.dataset["ladder"]).toBe(ladder);
 });
@@ -84,7 +84,7 @@ it("signals Theme readiness only after its controls and held fonts are ready", a
     close = mounted.close;
     return mounted;
   });
-  expect(screen.getByRole("group", { name: "Dark ladder" })).toBeDefined();
+  expect(screen.getByRole("group", { name: "Dark colours" })).toBeDefined();
   expect(container.dataset["galleryReady"]).toBeUndefined();
   expect(gallery.ready).toBeInstanceOf(Promise);
   await act(async () => {
@@ -105,7 +105,7 @@ it("settles a closing Theme scene without fonts and prevents its marker reaching
     close = mounted.close;
     return mounted;
   });
-  expect(screen.getByRole("group", { name: "Dark ladder" })).toBeDefined();
+  expect(screen.getByRole("group", { name: "Dark colours" })).toBeDefined();
   await act(async () => { await gallery.close(); });
   close = undefined;
   expect(await Promise.race([gallery.ready, Promise.resolve("pending")])).toBe(false);
