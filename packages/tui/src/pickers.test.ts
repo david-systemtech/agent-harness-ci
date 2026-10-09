@@ -892,15 +892,15 @@ describe("/setup", () => {
     await app.waitUntil(() => env.requests("tools.run").length === 1, "the update to start after the list answers");
   });
 
-  it("restores the denylist sections named by the line then checks Permissions", async () => {
+  it("restores the always-ask lists named by the line with Restore them, then checks Permissions", async () => {
     const { app, env } = await launch([desk({ capabilities: ["setup"], setup: {
       ...Object.fromEntries(STEP_ORDER.map((step) => [step, null])),
-      permissions: { state: "needs-attention", reason: "Denylist presets are missing.", actions: ["restore"],
+      permissions: { state: "needs-attention", reason: "Some built-in entries are missing from the paths and hosts always-ask lists.", actions: ["restore"],
         targets: [{ action: "restore", kind: "denylist-section", id: "paths", label: "paths" }, { action: "restore", kind: "denylist-section", id: "hosts", label: "hosts" }],
       },
     } })]);
     await command(app, "/setup");
-    await app.waitFor("Restore: paths, hosts");
+    await app.waitFor("Restore them");
     await app.press(KEY.enter);
     await app.waitUntil(() => env.requests("setup.check").length === 1, "the restored step checked");
     expect(env.requests("permissions.denylist.restorePresets").map((r) => r.params)).toEqual([expect.objectContaining({ sections: ["paths", "hosts"] })]);
