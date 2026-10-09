@@ -138,6 +138,15 @@ describe("the list", () => {
     expect(within(pane).getAllByRole("row").map((row) => row.getAttribute("aria-label"))).toEqual([null, "Interrupt; again in a moment to quit"]);
 
     await app.user.clear(search);
+    await app.user.type(search, "tell agents about this computer");
+    const instructions = within(pane).getByRole("table", { name: "Instructions controls" });
+    expect(within(instructions).getByText("Turn Tell agents about this computer on or off")).toBeDefined();
+    expect(within(instructions).getByText("Tab to Tell agents about this computer; Space")).toBeDefined();
+    await app.user.clear(search);
+    await app.user.type(search, "orientation");
+    expect(within(pane).queryByRole("table", { name: "Instructions controls" })).toBeNull();
+
+    await app.user.clear(search);
     await app.user.type(search, "nothing holds this");
     expect(tables(pane)).toEqual([]);
     expect(within(pane).getByText("No action matches “nothing holds this”.")).toBeDefined();

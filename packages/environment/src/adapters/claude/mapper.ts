@@ -348,8 +348,9 @@ export const readRateLimit = (message: unknown): { window: string; status: "allo
   return {
     window,
     status,
-    // A percentage, carried as the vocabulary's fraction.
-    utilisation: typeof used === "number" && Number.isFinite(used) ? Math.max(0, used) / 100 : null,
+    // Already the vocabulary's fraction: the CLI passes the provider's header on unchanged and shows it times 100 (#1953),
+    // unlike the plan-usage read's percentage.
+    utilisation: typeof used === "number" && Number.isFinite(used) ? Math.max(0, used) : null,
     // Epoch seconds, or milliseconds from a producer that sends those.
     resetsAt: typeof resets === "number" && Number.isFinite(resets) && resets > 0 ? new Date(resets > 1e12 ? resets : resets * 1000).toISOString() : null,
   };
