@@ -329,6 +329,25 @@ describe("the Skills card's lines and actions", () => {
 });
 
 describe("the Skills card's Add from a link", () => {
+  it("keeps found folders and Add selected unavailable with a reason after the connection is lost", async () => {
+    const { app, desk } = await opened();
+    desk.wire.answer("skills.probe", () => ({ result: found }));
+    await lookFor(app, linked);
+    const panel = within(card()).getByRole("region", { name: "Add from a link" });
+    const tick = await within(panel).findByRole("checkbox", { name: "skills · 2 skills" });
+    await app.user.click(tick);
+    expect((within(panel).getByRole("button", { name: "Add selected" }) as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => { desk.discovery("nothing"); desk.server.drop(); });
+    await waitFor(() => expect((tick as HTMLInputElement).disabled).toBe(true));
+    const add = within(panel).getByRole("button", { name: "Add selected" });
+    expect((add as HTMLButtonElement).disabled).toBe(true);
+    expect((tick as HTMLInputElement).checked).toBe(true);
+    expect(within(panel).getAllByText("desk cannot be reached.").length).toBeGreaterThan(0);
+    await app.user.click(add);
+    expect(desk.requests("skills.sources.add")).toHaveLength(0);
+    expect(desk.requests("skills.sources.remove")).toHaveLength(0);
+  });
+
   it("sits in More options: Look for skills lists the folders found, and Add selected adds the ones ticked", async () => {
     const { app, desk, update } = await opened();
     desk.wire.answer("skills.probe", (params) => {

@@ -141,6 +141,8 @@ export const FoundFolders = ({ environmentId, url, replacing, done, partly }: {
   readonly partly: (line: string) => void;
 }) => {
   const runtime = useRuntime();
+  // Capability answers change with the connection, even while its probe result stays cached.
+  useObservable(runtime.connections.list);
   const { choose: goTo } = useChecklist();
   const branch = replacing?.source.follow.kind === "branch" ? replacing.source.follow.branch : null;
   const params = useMemo(() => ({ url, ...(branch !== null && { branch }) }), [url, branch]);
@@ -172,7 +174,14 @@ export const FoundFolders = ({ environmentId, url, replacing, done, partly }: {
   const folders = [...(probe.root === null ? [] : [probe.root]), ...probe.folders];
   if (folders.length === 0) return <p className="text-sm">No skill folders were found there.</p>;
   const finishing = replacing !== undefined && added.current.length > 0 && !removed.current;
+  const adding = runtime.capability(environmentId, "skills.sources.add");
+  const removing = replacing !== undefined && !removed.current ? runtime.capability(environmentId, "skills.sources.remove") : undefined;
+  const blocked = ((chosen.length > 0 || !finishing) && adding.status === "absent" ? adding.message : undefined)
+    ?? (removing?.status === "absent" ? removing.message : undefined);
+  const reason = blocked ?? (chosen.length === 0 && !finishing ? "Choose a skill folder first." : undefined);
   const add = async () => {
+    if ((chosen.length > 0 && runtime.capability(environmentId, "skills.sources.add").status === "absent")
+      || (replacing !== undefined && !removed.current && runtime.capability(environmentId, "skills.sources.remove").status === "absent")) return;
     const remove = async () => {
       if (replacing === undefined || removed.current) return true;
       removed.current = await send(() => runtime.requests.call(environmentId, "skills.sources.remove", { commandId: commandId(), sourceId: replacing.source.id }), "Add selected");
@@ -215,7 +224,7 @@ export const FoundFolders = ({ environmentId, url, replacing, done, partly }: {
           <input
             type="checkbox"
             className="accent-beam focus-visible:outline-beam"
-            disabled={folder.count === 0 || sending}
+            disabled={folder.count === 0 || sending || adding.status === "absent" || removing?.status === "absent"}
             checked={chosen.includes(folder.folder)}
             onChange={(event) => choose(event.target.checked ? [...chosen, folder.folder] : chosen.filter((value) => value !== folder.folder))}
           /><Folder aria-hidden="true" className="size-3.5" />
@@ -223,8 +232,8 @@ export const FoundFolders = ({ environmentId, url, replacing, done, partly }: {
         </label>
       ))}
       <span className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="sm" disabled={(chosen.length === 0 && !finishing) || sending} onClick={() => void add()}><Plus aria-hidden="true" />Add selected</Button>
-        {chosen.length === 0 && !finishing && <span className="text-xs text-ink-muted">Choose a skill folder first.</span>}
+        <Button variant="outline" size="sm" disabled={reason !== undefined || sending} onClick={() => void add()}><Plus aria-hidden="true" />Add selected</Button>
+        {reason !== undefined && <span className="text-xs text-ink-muted">{reason}</span>}
       </span>
       {refusal !== undefined && <RefusedLine environmentId={environmentId} refusal={refusal} />}
     </div>
