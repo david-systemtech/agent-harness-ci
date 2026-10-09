@@ -25,8 +25,8 @@ export const SkillsCard = ({ environmentId, step }: StepCardProps) => {
   const clock = useClock();
   const view = useObservable(runtime.projections.environments).find((view) => view.environmentId === environmentId);
   const read = useObservable(useMemo(() => runtime.requests.cached(environmentId, "skills.get", {}), [runtime, environmentId]));
-  const [said, setSaid] = useState<Pick<ActionOutcome, "line" | "details"> | undefined>(undefined);
-  const say = (message: string) => setSaid({ line: oneLine(message) });
+  const [said, setSaid] = useState<Pick<ActionOutcome, "ok" | "line" | "details"> | undefined>(undefined);
+  const say = (message: string) => setSaid({ ok: true, line: oneLine(message) });
   const [pulling, setPulling] = useState(false);
   const skills = read.result;
   const ticks = catalogueTickStates(CATALOGUE.skills, skills?.sources ?? []);
@@ -46,7 +46,7 @@ export const SkillsCard = ({ environmentId, step }: StepCardProps) => {
                 setPulling(true);
                 try {
                   const outcome = await pullSetupSources(runtime, environmentId, sources.map((source) => ({ id: source.id, label: `${source.identity} — ${source.folder}` })), () => clock.now());
-                  setSaid(sources.length === 0 ? { line: "No unpinned source to pull." } : outcome);
+                  setSaid(sources.length === 0 ? { ok: true, line: "No unpinned source to pull." } : outcome);
                 } finally {
                   setPulling(false);
                 }
@@ -58,7 +58,7 @@ export const SkillsCard = ({ environmentId, step }: StepCardProps) => {
       {view !== undefined && view.phase !== "ready" && <p className="text-sm text-amber">Stale: {reachWords(runtime, view)}. Skills as this window last read them, read-only.</p>}
       {!namedPull && pull.status === "absent" && step.result?.actions.includes("pull-now") && <p className="text-sm text-ink-faint">{pull.message}</p>}
       {read.error !== null && <p className="text-sm text-amber">{oneLine(read.error.message)}</p>}
-      {said !== undefined && <Outcome outcome={said} role="status" className="text-sm text-ink-muted" />}
+      {said !== undefined && <Outcome outcome={said} className="text-sm text-ink-muted" />}
       <section aria-label="Skills catalogue" className="flex flex-col gap-3">
         <h3 className="font-semibold">Skills catalogue</h3>
         {CATALOGUE.skills.map((entry) => (
