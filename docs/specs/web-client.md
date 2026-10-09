@@ -282,7 +282,13 @@ explicit; feature-detect support and denial. On supported iOS/iPadOS 16.4+,
 permission requires an installed Home Screen web app and a user gesture.
 Validate supported HTTPS vendor endpoints; reject arbitrary/private fetch
 targets. Retire 404/410 endpoints and revoked/expired-client subscriptions.
-The browser vendor gateway can reach a suspended/closed client; tailnet access
+Pairing the same browser again in place (Give this phone full access)
+revokes its old client session and so its registration: the client registers
+the browser's subscription (or a new one, while permission stands) for the
+new client session under the old label, and where the browser cannot
+subscribe without a tap, says push is off with Enable push in the window
+(#1959). The browser
+ vendor gateway can reach a suspended/closed client; tailnet access
 is required when the user opens the private session. Notification clicks open
 the same-origin session route. The worker never owns a session socket or run.
 
