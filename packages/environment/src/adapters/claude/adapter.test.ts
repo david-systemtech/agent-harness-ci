@@ -1547,7 +1547,7 @@ describe("the process across turns", () => {
     expect(usageOf(await third.events.done)).toEqual([turnSpend(500, 3000, 80000, 40, 0.5), turnSpend(500, 3000, 80000, 40, 0.5)]);
   });
 
-  it("does not charge restored session totals to a cold resumed turn stopped before a request settles", async () => {
+  it.each([false, true])("does not charge restored session totals to a cold resumed turn stopped before a request settles (invalid trailing ledger: %s)", async (invalidTrailingLedger) => {
     let saved: { type: string; [key: string]: unknown }[] = [];
     const store = { append: async () => undefined, load: async () => saved, listUnrenamedSummaries: async () => [] };
     const adapter = adapterWith({ sessionStore: store });
@@ -1568,6 +1568,10 @@ describe("the process across turns", () => {
       totalLinesAdded: 0, totalLinesRemoved: 0, totalDuration: 40, startTime: clock.now().getTime(),
       modelUsage: { "claude-haiku-4-5": { ...spentSoFar(130, 514, 96000, 0.375)["claude-haiku-4-5"], webSearchRequests: 0 } },
     }];
+    if (invalidTrailingLedger) saved.push({
+      ...saved[0], type: "cost-state", totalDuration: -1,
+      modelUsage: { "claude-haiku-4-5": { ...spentSoFar(160, 580, 120000, 0.5)["claude-haiku-4-5"], webSearchRequests: 0 } },
+    });
     const input = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION }, instructions: "Be brief." });
     const run = adapter.createRun(input, contextWith());
     const query = await started(3); // The login refresh is query two; changed instructions need a new process.

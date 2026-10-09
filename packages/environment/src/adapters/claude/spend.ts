@@ -1,9 +1,28 @@
 import type { ModelUsage } from "@agent-harness/contracts";
+import { z } from "zod";
 
 type Record_ = Record<string, unknown>;
 
 const isRecord = (value: unknown): value is Record_ => value !== null && typeof value === "object" && !Array.isArray(value);
 const count = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : 0);
+
+// The pinned CLI 2.1.289 validates the whole cost-state before replacing its saved ledger.
+// Keep these bounds and fields aligned with its cost-state schema, including cross-model token sums.
+const savedNumber = z.number().nonnegative().finite().max(1e15);
+const savedTokenKeys = ["inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens"] as const;
+const savedCostState = z.object({
+  type: z.literal("cost-state"), sessionId: z.string(), totalCostUSD: savedNumber.max(1e9),
+  totalAPIDuration: savedNumber, totalAPIDurationWithoutRetries: savedNumber, totalToolDuration: savedNumber,
+  totalLinesAdded: savedNumber, totalLinesRemoved: savedNumber, totalDuration: savedNumber, startTime: savedNumber,
+  modelUsage: z.record(z.string().regex(/^[^\p{Cc}\p{Cf}]+$/u), z.object({
+    inputTokens: savedNumber, outputTokens: savedNumber, thinkingTokens: savedNumber.optional(),
+    cacheReadInputTokens: savedNumber, cacheCreationInputTokens: savedNumber, webSearchRequests: savedNumber,
+    costUSD: savedNumber,
+  })).refine((models) => savedTokenKeys.every(
+    (key) => Object.values(models).reduce((sum, model) => sum + model[key], 0) <= 1e15,
+  )),
+  hasUnknownModelCost: z.boolean().optional(),
+});
 
 /** A result's `modelUsage` per model, as the CLI counts it: since its process started, not for the turn alone. */
 export const readModelUsage = (raw: unknown): ModelUsage[] => {
@@ -57,8 +76,10 @@ export class SpendMeter {
   readonly #last = new Map<string, ModelUsage>();
 
   /** A cold resume restores the provider's saved ledger before sampling; that spend belongs to earlier runs. */
-  restore(modelUsage: unknown): void {
-    for (const usage of readModelUsage(modelUsage)) this.#last.set(usage.model, usage);
+  restore(entries: readonly unknown[] | null, providerSessionId: string): void {
+    const saved = entries?.findLast((entry) => isRecord(entry) && entry["sessionId"] === providerSessionId && savedCostState.safeParse(entry).success);
+    if (!isRecord(saved)) return;
+    for (const usage of readModelUsage(saved["modelUsage"])) this.#last.set(usage.model, usage);
   }
 
   /** A result message's reading, and its share: each model's spend since the reading before, a model that spent nothing left out. Null for any other message. */

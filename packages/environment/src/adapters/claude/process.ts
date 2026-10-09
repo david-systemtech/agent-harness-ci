@@ -663,8 +663,7 @@ export class ClaudeProcess implements TurnControl {
       if (this.#deps.sessionStore !== null && input.target.kind !== "fresh") {
         const providerSessionId = input.target.providerSessionId;
         const entries = await this.#deps.sessionStore.load({ projectKey: input.sessionId, sessionId: input.target.providerSessionId });
-        const saved = entries?.findLast((entry) => entry.type === "cost-state" && entry["sessionId"] === providerSessionId);
-        if (saved !== undefined) this.#spend.restore(saved["modelUsage"]);
+        this.#spend.restore(entries, providerSessionId);
       }
       const resumePoint = await this.#resumePoint(input);
       // Asked once for this spawn (#307), and not for one that will not happen; the pool releases it as it lets the process go.
