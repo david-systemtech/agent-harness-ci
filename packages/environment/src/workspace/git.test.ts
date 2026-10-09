@@ -36,10 +36,12 @@ it.skipIf(process.platform === "win32")("stops a clone's pack helper before an o
   const helpers = join(root, "helpers");
   mkdirSync(helpers);
   const sockets = new Set<Socket>();
-  const ready = Promise.withResolvers<Socket>();
-  const server = createServer((socket) => {
-    sockets.add(socket);
-    socket.once("data", () => ready.resolve(socket));
+  const server = createServer();
+  const ready = new Promise<Socket>((resolve) => {
+    server.on("connection", (socket) => {
+      sockets.add(socket);
+      socket.once("data", () => resolve(socket));
+    });
   });
   onCleanup(async () => {
     for (const socket of sockets) socket.destroy();
@@ -79,7 +81,7 @@ esac
     env: { GIT_EXEC_PATH: helpers, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
   });
   onCleanup(async () => { stopping.abort(); await answer; });
-  const helper = await ready.promise;
+  const helper = await ready;
   const outcome = new Promise<string>((resolve) => {
     helper.once("close", () => resolve("closed"));
     helper.once("data", () => resolve("wrote"));
