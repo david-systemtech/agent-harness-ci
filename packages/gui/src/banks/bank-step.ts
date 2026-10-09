@@ -25,7 +25,7 @@ export const stepForBank = (step: SetupStepView, bank: BankRecord): SetupStepVie
     return answer === true ? [] : [{ check, answer }];
   });
   const failures = findings.filter(({ answer }) => !answer.holds);
-  const stopped = failures.length === 0 ? [] : stoppedForBank(result.targets ?? [], bank.id);
+  const stopped = stoppedForBank(result.targets ?? [], bank.id);
   const actions: SetupAction[] = [...new Set([
     ...stopped.map((target) => target.action),
     ...(failures.length === 0 ? ["revise" as const] : failures.flatMap(({ check }) => check.actions)),
@@ -39,7 +39,7 @@ export const stepForBank = (step: SetupStepView, bank: BankRecord): SetupStepVie
   return { ...step, result: {
     step: result.step, checkedAt: result.checkedAt, asked: result.asked, ageMs: result.ageMs,
     olderThanCadence: result.olderThanCadence, stale: result.stale,
-    state: failures.length === 0 ? "done" : "needs-attention",
+    state: failures.length === 0 && stopped.length === 0 ? "done" : "needs-attention",
     reason: [
       ...(stopped.length === 0 ? [] : ["The describing conversation stopped."]),
       ...(failures.length === 0 ? ["Your notebook is ready.", ...findings.map(({ answer }) => answer.reason)] : failures.map(({ answer }) => answer.reason)),

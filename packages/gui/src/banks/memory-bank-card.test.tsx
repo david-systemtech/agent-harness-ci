@@ -101,6 +101,43 @@ it("keeps an invalid bank's repair message off a ready bank, including after Che
   await waitFor(() => expect(screen.getByRole("status", { name: "Authoring status" }).textContent).toBe("landed"));
 });
 
+it("keeps a healthy bank's stopped describing conversation controls on its own card", async () => {
+  const invalid = { ...team, name: "broken-notebook", location: { kind: "local" as const }, status: {
+    ...team.status, landing: { state: "ok" as const, since }, manifest: { state: "missing" as const, since },
+  } };
+  const healthy = { ...invalid, id: "0199aa00-0000-4000-8000-000000000005", name: "healthy-notebook",
+    status: { ...invalid.status, manifest: { state: "valid" as const, since } },
+  };
+  const ready = { ...healthy, id: "0199aa00-0000-4000-8000-000000000007", name: "ready-notebook" };
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["banks", "forge", "setup"],
+    accounts: [{ label: "Project" }], setup: { "memory-bank": {
+      state: "needs-attention", reason: "The describing conversation stopped. broken-notebook needs a description.",
+      failing: ["memory-bank.manifest"], actions: ["try-again", "write-it-myself", "start-over", "revise"], targets: [
+        { action: "try-again", kind: "session", id: "0199aa00-0000-4000-8000-000000000006", label: "Describe the healthy bank" },
+        { action: "write-it-myself", kind: "bank", id: healthy.id, label: healthy.name },
+        { action: "start-over", kind: "bank", id: healthy.id, label: healthy.name },
+        { action: "revise", kind: "bank", id: invalid.id, label: invalid.name },
+      ],
+    } },
+  }] }, {}, (world) => {
+    world.environment("desk").wire.answer("banks.list", () => ({ result: { banks: [invalid, healthy, ready] } }));
+  });
+  app.shell.openDeepLink(settingsDeepLink("knowledge.banks"));
+  const stopped = await screen.findByRole("region", { name: healthy.name });
+  expect(await within(stopped).findByText("The describing conversation stopped. Your notebook is ready.")).toBeDefined();
+  expect(within(stopped).getByText("Needs a fix")).toBeDefined();
+  expect(within(stopped).getByRole("button", { name: "Continue it: Describe the healthy bank" })).toBeDefined();
+  expect(within(stopped).getByRole("button", { name: `Write it myself: ${healthy.name}` })).toBeDefined();
+  expect(within(stopped).getByRole("button", { name: `Start again: ${healthy.name}` })).toBeDefined();
+  expect(stopped.textContent).not.toContain(invalid.name);
+  for (const bank of [invalid, ready]) {
+    const other = await screen.findByRole("region", { name: bank.name });
+    expect(other.textContent).not.toContain("describing conversation stopped");
+    expect(within(other).queryByRole("button", { name: /Continue it|Write it myself|Start again/ })).toBeNull();
+  }
+  expect(within(screen.getByRole("region", { name: ready.name })).getByText("Done")).toBeDefined();
+});
+
 it("keeps different bank findings and a stopped describing conversation on their own cards", async () => {
   const first = { ...team, name: "needs-description", status: { ...team.status,
     landing: { state: "ok" as const, since }, manifest: { state: "missing" as const, since },
