@@ -90,6 +90,25 @@ const NEVER_BROUGHT: ScriptedEnvironment["setup"] = {
     targets: [{ action: "import-again", kind: "account", id: "account-1", label: "Personal" }],
   },
 };
+/** The step's last-import naming accounts with import-again: never brought over, or left items behind, as its line says. */
+const needsImport = (reason: string, accounts: readonly (readonly [string, string])[]) => ({
+  state: "needs-attention" as const,
+  reason,
+  actions: ["import-again" as const],
+  failing: ["carry-over.last-import"],
+  targets: accounts.map(([id, label]) => ({ action: "import-again" as const, kind: "account" as const, id, label })),
+});
+/** Carry over for Personal and Work, earlier work found in a data folder, each account's inventory as `listed` gives it. */
+const withEarlierWork = async (setup: ScriptedEnvironment["setup"], listed: (accountId: string) => CarryOverInventory) => {
+  const found: StateImportDetection = { dataFolder: { path: "/data/source", holds: { profiles: 1, banks: 0, routines: 0, instructions: 0, skillSources: 0, connections: 0 } }, terminalFolder: null };
+  const app = await opened({ capabilities: ["stateImport"], accounts: [{ label: "Personal" }, { label: "Work" }], setup }, inventory(), [], undefined, (desk) => {
+    desk.wire.answer("carryOver.inventory", (params) => ({ result: listed(String(params["accountId"])) }));
+    desk.wire.answer("stateImport.detect", () => ({ result: found }));
+    desk.wire.answer("stateImport.run", () => ({ result: { receipt: { status: "accepted", sequence: 3, changed: true } } }));
+  });
+  await screen.findByRole("region", { name: "State import" });
+  return app;
+};
 const fold = async (app: Awaited<ReturnType<typeof opened>>, name: string) => {
   await app.user.click(screen.getByRole("button", { name }));
   return within(screen.getByRole("button", { name }).parentElement as HTMLElement);
@@ -308,18 +327,63 @@ describe("Carry over in Set up", () => {
   });
 
   it("does not bring the earlier work over again when a second sign-in is brought over after the first", async () => {
-    const found: StateImportDetection = { dataFolder: { path: "/data/source", holds: { profiles: 1, banks: 0, routines: 0, instructions: 0, skillSources: 0, connections: 0 } }, terminalFolder: null };
-    const app = await opened({ capabilities: ["stateImport"], accounts: [{ label: "Personal" }, { label: "Work" }] }, inventory(), [], undefined, (desk) => {
-      desk.wire.answer("carryOver.inventory", (params) => ({ result: params["accountId"] === "account-1" ? imported() : inventory(String(params["accountId"])) }));
-      desk.wire.answer("stateImport.detect", () => ({ result: found }));
-      desk.wire.answer("stateImport.run", () => ({ result: { receipt: { status: "accepted", sequence: 3, changed: true } } }));
-    });
+    const app = await withEarlierWork(
+      { "carry-over": needsImport("Work has past chats to bring over. Choose Bring them over.", [["account-2", "Work"]]) },
+      (accountId) => (accountId === "account-1" ? imported() : inventory(accountId)),
+    );
     const desk = app.environment("desk");
-    await screen.findByRole("region", { name: "State import" });
     await app.user.click(screen.getByRole("button", { name: "Bring them over" }));
     await waitFor(() => expect(desk.requests("carryOver.run")).toHaveLength(2));
     await screen.findByText(/^Brought over/);
     expect(desk.requests("stateImport.run")).toHaveLength(0);
+  });
+
+  it("does not bring the earlier work over with a new sign-in while the step says an earlier import left items behind", async () => {
+    const app = await withEarlierWork(
+      {
+        "carry-over": needsImport("1 item from Personal did not come over. Choose Try again. Work has past chats to bring over. Choose Bring them over.", [
+          ["account-1", "Personal"],
+          ["account-2", "Work"],
+        ]),
+      },
+      (accountId) => inventory(accountId),
+    );
+    const desk = app.environment("desk");
+    await app.user.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(desk.requests("carryOver.run")).toHaveLength(2));
+    await screen.findByText(/^Brought over/);
+    expect(desk.requests("stateImport.run")).toHaveLength(0);
+  });
+
+  it("brings the earlier work over when the step's import check took too long, as the inventory says nothing came over yet", async () => {
+    const app = await withEarlierWork(
+      { "carry-over": { state: "needs-attention", reason: "Checking took too long. Choose Check again.", details: ["Stopped after 5 seconds."], failing: ["carry-over.last-import"], actions: ["check-again"] } },
+      (accountId) => inventory(accountId),
+    );
+    await app.user.click(screen.getByRole("button", { name: "Bring them over" }));
+    await waitFor(() => expect(app.environment("desk").requests("stateImport.run")).toHaveLength(1));
+  });
+
+  it("brings the earlier work over once when every account's run is refused and Bring them over is chosen again", async () => {
+    const app = await withEarlierWork(
+      { "carry-over": needsImport("Personal has past chats to bring over. Choose Bring them over. Work has past chats to bring over. Choose Bring them over.", [["account-1", "Personal"], ["account-2", "Work"]]) },
+      (accountId) => inventory(accountId),
+    );
+    const desk = app.environment("desk");
+    desk.wire.answer("carryOver.run", () => ({
+      result: {
+        receipt: {
+          status: "rejected", sequence: 5, changed: false, reason: "conflict",
+          error: { code: "conflict", message: "Bringing over past work is under way already. Wait for it to finish.", data: { reason: "import_in_progress" } },
+        },
+      },
+    }));
+    await app.user.click(screen.getByRole("button", { name: "Bring them over" }));
+    await waitFor(() => expect(desk.requests("carryOver.run")).toHaveLength(2));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Bring them over" }).hasAttribute("disabled")).toBe(false));
+    await app.user.click(screen.getByRole("button", { name: "Bring them over" }));
+    await waitFor(() => expect(desk.requests("carryOver.run")).toHaveLength(4));
+    expect(desk.requests("stateImport.run")).toHaveLength(1);
   });
 
   it("brings the earlier work over with the first Bring them over when a chat run here or a checkout offered as a skill already reads as not new", async () => {
