@@ -55,8 +55,11 @@ export interface SideColumnViewProps {
  * session is open in the pane. The Terminal pane stays drawn while the connection cannot open a
  * terminal, keeping the one it draws, and its close button closes that
  * terminal too (#409).
+ *
+ * A narrow pane brings back its hidden sheet from a handle at its edge; a phone frame's pane
+ * (`restoreInHeader`) leaves that to the header's control, so nothing covers its transcript (#1960).
  */
-export const SideColumnView = ({ environmentId, sessionId }: SideColumnViewProps) => {
+export const SideColumnView = ({ environmentId, sessionId, restoreInHeader = false }: SideColumnViewProps & { readonly restoreInHeader?: boolean }) => {
   const runtime = useRuntime();
   // The connections' phases: each pane's capability is asked again whenever one moves.
   useObservable(runtime.projections.environments);
@@ -120,7 +123,7 @@ export const SideColumnView = ({ environmentId, sessionId }: SideColumnViewProps
       const floats = (entry.borderBoxSize[0]?.inlineSize ?? entry.contentRect.width) < 900;
       setNarrow(floats);
       // On a phone a sheet left open is not put back over the session it would cover (#1903): the session opens
-      // with its column hidden, and the edge handle brings back the pane it showed. Elsewhere it is restored as it was.
+      // with its column hidden, and the header's control brings back the pane it showed. Elsewhere it is restored as it was.
       if (!arrived && !shownByGesture.delete(sideColumnKey({ environmentId, sessionId })) && floats && onPhone()) change(hideLeftOpen);
       arrived = true;
     });
@@ -159,15 +162,15 @@ export const SideColumnView = ({ environmentId, sessionId }: SideColumnViewProps
         sheet.current?.querySelector<HTMLButtonElement>('[aria-label="Close side sheet"]')?.focus();
       }
     } else if (wasVisible.current) {
-      if (narrow && column.hidden && shown !== null) reopen.current?.focus();
+      if (narrow && column.hidden && shown !== null) (restoreInHeader ? document.querySelector<HTMLElement>("[data-window-header] [data-dock-reopen]") : reopen.current)?.focus();
       else if (opener.current?.isConnected) opener.current.focus();
       else host.current?.parentElement?.querySelector<HTMLElement>('[aria-label="Message"]')?.focus();
     }
     wasVisible.current = visibleSheet;
-  }, [visibleSheet, narrow, column.hidden, shown]);
+  }, [visibleSheet, narrow, column.hidden, shown, restoreInHeader]);
   return <div ref={host} className="contents">
     {shown !== null && <>
-      {narrow && column.hidden && <IconButton ref={reopen} data-dock-reopen label="Show the side column" keys="Enter / Space"
+      {narrow && column.hidden && !restoreInHeader && <IconButton ref={reopen} data-dock-reopen label="Show the side column" keys="Enter / Space"
         onClick={() => change((held) => hideColumn(held, false))}
         className="absolute inset-y-[6px] right-0 z-30 h-auto w-[16px] rounded-l-md border-hairline bg-panel p-0"><ChevronLeft aria-hidden="true" /></IconButton>}
       <aside ref={sheet} role={narrow ? "dialog" : undefined} aria-modal={narrow ? true : undefined} onKeyDown={(event) => {
