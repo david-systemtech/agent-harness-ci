@@ -42,7 +42,8 @@ it.each([
   await userEvent.setup().click(within(pane).getByRole("button", { name: add }));
   const form = await within(pane).findByRole("region", { name: `${add} on desk` });
   expect(within(form).getAllByRole("radio").length).toBeGreaterThan(2);
-  expect(within(form).getByRole("textbox", { name: scene === "settings-forges" ? "URL" : "Label" })).toBeDefined();
+  // The key managers' form names the connection under More options (setup-copy.md §5.7, #1851); its address is asked at once.
+  expect(within(form).getByRole("textbox", { name: scene === "settings-forges" ? "URL" : "Address" })).toBeDefined();
   await userEvent.setup().click(within(form).getByRole("button", { name: "Cancel" }));
   expect(within(pane).queryByRole("region", { name: `${add} on desk` })).toBeNull();
 });

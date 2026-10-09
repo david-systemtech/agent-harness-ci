@@ -814,7 +814,7 @@ export const App = (props: AppProps) => {
   const sendCheckFailure = (): boolean => {
     if (!opened || !checkView?.offer || sendingFailure.current) return false;
     sendingFailure.current = true;
-    void runtime.checks.sendFailure(opened.environmentId, opened.sessionId, pickers.choice(opened)).then((answer) => {
+    void runtime.checks.sendFailure(opened.environmentId, opened.sessionId).then((answer) => {
       if (!answer.ok) say(answer.line);
     }).finally(() => { sendingFailure.current = false; });
     return true;
@@ -991,7 +991,6 @@ export const App = (props: AppProps) => {
     runState: session.runState,
     liveRunId: liveRun,
     steers: session.provider?.steering === true,
-    choice: pickers.choice(opened),
     containment: pickers.containment(opened),
     forkedOnto: pickers.forkedOnto(opened),
     width: size.columns,
@@ -1024,7 +1023,7 @@ export const App = (props: AppProps) => {
     setSending((s) => [...s, { id, text: message.text, messageId: undefined, before }]);
     if (options.remember !== false) stores.history?.append({ text: message.text, cwd: projection?.summary?.workspace.path ?? props.flags.workspace, sessionId });
     setView((v) => ({ ...v, offset: 0 }));
-    void sendMessage(runtime, environmentId, sessionId, message, live, pickers.choice(opened)).then((outcome) => {
+    void sendMessage(runtime, environmentId, sessionId, message, live).then((outcome) => {
       if (!outcome.ok) {
         options.onRefused?.();
         setSending((s) => s.filter((one) => one.id !== id));
@@ -1689,13 +1688,17 @@ export const App = (props: AppProps) => {
       const environment = viewOf(card.environmentId);
       const row = card.rows?.[clampCursor(card.cursor, card.rows.length)];
       if (!environment || !row) return;
+      const connection = runtime.connections.list.read().find((r) => r.environmentId === environment.environmentId);
+      const own = connection?.clientSessionId === row.id ? connection.kind : undefined;
       update({
         question: {
           text: `Revoke ${row.label} on ${nameOf(environment)}? y/n`,
           yes: () =>
-            void revokeClientSession(runtime, environment, row, props.newCommandId()).then((line) => {
+            void revokeClientSession(runtime, environment, row, props.newCommandId(), own).then((line) => {
               say(line);
-              openClientSessions(environment);
+              // Re-list only a reachable connection after revoking another client; keep the own-session result visible.
+              if (own === undefined && runtime.connections.list.read().some((r) => r.environmentId === environment.environmentId && r.phase === "ready")) openClientSessions(environment);
+              else update({ card: { kind: "menu", environmentId: environment.environmentId, cursor: 0 } });
             }),
         },
       });

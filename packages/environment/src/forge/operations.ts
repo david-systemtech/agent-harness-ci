@@ -11,6 +11,7 @@ import {
   type ForgeOwner,
   type KindUnsupportedError,
   type SecretShapedError,
+  type VerificationFailedError,
 } from "@agent-harness/contracts";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import { secretShapedIn } from "../scrub/refusal.js";
@@ -22,7 +23,7 @@ import { kindUnsupported, type Detection } from "./detection.js";
 import type { CallOptions } from "./forge-http.js";
 import { listForgeAccounts, liveForgeAccount } from "./forge-store.js";
 import { servingAccount } from "./git-helper.js";
-import { adviceLine, belongsToOther, identityChangedLine, siteOf } from "./lines.js";
+import { adviceLine, belongsToOther, identityChangedLine, siteOf, tokenRefused } from "./lines.js";
 import { forgeAccountMissing } from "./missing-origins.js";
 import type {
   DownloadedAsset,
@@ -130,8 +131,8 @@ export interface NoPrimaryForgeRefusal {
   readonly data: { readonly step: "forges" };
 }
 
-/** Why an operation did not reach the forge. */
-export type ForgeRefusal = ForgeAccountMissingError | CredentialUnavailableError | SecretShapedError | NoPrimaryForgeRefusal | KindUnsupportedError;
+/** Why an operation could not proceed, including a token refused by the identity probe. */
+export type ForgeRefusal = ForgeAccountMissingError | CredentialUnavailableError | SecretShapedError | NoPrimaryForgeRefusal | KindUnsupportedError | VerificationFailedError;
 
 /**
  * A refusal as a record that keeps one line of it says it: its plain line, then its details in brackets where it has
@@ -143,7 +144,7 @@ export const refusalReason = (error: ForgeRefusal): string => {
   return details.length > 0 ? `${error.message} (${details.join(" ")})` : error.message;
 };
 
-/** What an operation came to: the forge's reply, or a refusal before it reached the forge. */
+/** What an operation came to: the forge's reply, or a refusal to proceed. */
 export type ForgeAnswer<T> = ForgeReply<T> | { readonly outcome: "refused"; readonly error: ForgeRefusal };
 
 export interface ForgeOperations {
@@ -433,7 +434,13 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
         withAccount(request, async ({ provider: forge, origin, token, call, account }) => {
           const user = await forge.identity(origin, token, call);
           if (user.outcome === "unreachable") return user;
-          if (user.outcome === "refused") return { outcome: "failed", status: user.status, message: user.message };
+          if (user.outcome === "refused") {
+            return refused({
+              code: "verification_failed",
+              message: adviceLine(tokenRefused(siteOf(origin), account.identity?.login ?? null)),
+              data: { origin, status: user.status, details: [user.message] },
+            });
+          }
           // Another user's owners are not the forge account's: refused as a credential answering as another user is everywhere.
           const held = account.identity;
           if (held !== null && user.identity.userId !== held.userId) {

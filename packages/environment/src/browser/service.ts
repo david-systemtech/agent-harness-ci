@@ -68,6 +68,11 @@ const secretEntry = (chromeId: string): string => `${VAULT_PREFIX}${chromeId}`;
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
+/** The Browser step's lines (setup-copy.md §5.11): skipped with no Chrome paired, every paired Chrome closed, an extension out of date. */
+const NOT_CONNECTED = "Chrome is not connected. Optional.";
+const CLOSED = "Chrome is closed, so agents cannot use it. Open Chrome. This updates by itself.";
+const OUT_OF_DATE = "The Chrome extension is out of date. In chrome://extensions, choose reload on agent-harness.";
+
 export interface BrowserServiceOptions {
   readonly log: EventLog;
   readonly clock: Clock;
@@ -346,15 +351,14 @@ export const createBrowserService = (options: BrowserServiceOptions): BrowserSer
     driverOf: (chromeId) => driver.driverOf(chromeId),
     headless,
     stateChecks: {
-      "browser.present": () => readChromes(reader).length > 0 || { reason: "No Chrome is paired with this environment." },
-      "browser.chrome-connected": () => readChromes(reader).some((chrome) => listener.isConnected(chrome.id)) || {
-        reason: "The extension only runs while Chrome is open. Open Chrome and, if it asks, dismiss the developer-mode notice; this turns green by itself.",
-        targets: readChromes(reader).map((chrome) => ({ action: "unpair", kind: "chrome", id: chrome.id, label: chrome.name })),
-      },
+      "browser.present": () => readChromes(reader).length > 0 || { reason: NOT_CONNECTED },
+      // A closed Chrome is fixed by opening it, so Unpair stays in the card's More options, never offered as the fix.
+      "browser.chrome-connected": () => readChromes(reader).some((chrome) => listener.isConnected(chrome.id)) || { reason: CLOSED, actions: ["check-again"] },
       "browser.extension-current": () => {
         const outdated = readChromes(reader).filter((chrome) => listed(chrome).outdated);
         return outdated.length === 0 || {
-          reason: outdated.map((chrome) => `${chrome.name}: Chrome is running version ${chrome.lastReportedVersion} of the extension; this environment has ${state.shippedVersion}. Open chrome://extensions and click Reload.`).join(" "),
+          reason: OUT_OF_DATE,
+          details: outdated.map((chrome) => `${chrome.name}: extension ${chrome.lastReportedVersion}, this computer ships ${state.shippedVersion}`),
           targets: outdated.map((chrome) => ({ action: "reload", kind: "chrome", id: chrome.id, label: chrome.name })),
         };
       },

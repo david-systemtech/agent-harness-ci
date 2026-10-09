@@ -198,6 +198,8 @@ export interface TestEnvironmentOptions {
   readonly launcherProtocol?: EnvironmentOptions["launcherProtocol"];
   /** The steps `setup.check` runs (`test/setup-steps.ts` scripts them); preset: the step registry with the environment's own answers. */
   readonly setupSteps?: EnvironmentOptions["setupSteps"];
+  /** Wait for Set up's start pass before returning, so a test can pin the log head. Preset true; false lets a test drive a held start check itself. */
+  readonly awaitSetupStartPass?: boolean;
   /**
    * How `web_read` resolves and connects, and what a test observes of its
    * workers, each part over the helper's preset: a resolver that resolves
@@ -372,7 +374,7 @@ export const bootstrapExchange = async (
   return ClientSessionCredential.parse(answer.body);
 };
 
-/** Starts an environment for a test. The caller closes it, typically with its cleanup hook. */
+/** Starts an environment for a test, past Set up's start pass unless opted out. The caller closes it, typically with its cleanup hook. */
 export const startTestEnvironment = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
   const clock = options.clock ?? manualClock();
   const adapter = options.adapter ?? fakeAdapter();
@@ -464,6 +466,8 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     if (ownDir) await removeTree(ownDir);
     throw error;
   }
+
+  if (options.awaitSetupStartPass !== false) await env.setup.startPass;
 
   /** The entries `serve` was given, which every client's `apply` consults before the registry. */
   const served = new Map<string, Method>();

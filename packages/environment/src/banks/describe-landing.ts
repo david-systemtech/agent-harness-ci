@@ -1,3 +1,4 @@
+import { realpath } from "node:fs/promises";
 import { ENVIRONMENT_STREAM_KIND, SESSION_STREAM_KIND, type BankEntry } from "@agent-harness/contracts";
 import { validateBank } from "@agent-harness/contracts/bank-validator";
 import type { BankCredentials } from "./credentials.js";
@@ -48,12 +49,19 @@ export const createDescribeLanding = (options: {
     );
     if (consumed !== undefined) return;
     const workspace = readSummary(reader, mint.session_id)?.workspace;
-    if (workspace?.kind !== "worktree" || workspace.repository !== describeRepositoryAt(options.dataDir, bank.checkout) || !workspace.branch.startsWith("setup/describe-")) return;
+    if (workspace?.kind !== "worktree" || !workspace.branch.startsWith("setup/describe-") ||
+      await realpath(workspace.repository) !== await realpath(describeRepositoryAt(options.dataDir, bank.checkout))) {
+      failed(bank, "The completed describe conversation is not in this bank's dedicated describe repository. Start a fresh describe session.");
+      return;
+    }
     const base = await runGit(workspace.repository, ["merge-base", "refs/heads/main", `refs/heads/${workspace.branch}`], { maxBytes: 1024 });
-    if (!base.ok) return;
+    if (!base.ok || base.truncated) throw new Error("The describe branch base could not be read.");
     const before = await readBankFiles(workspace.repository, base.stdout.toString("utf8").trim());
     const after = await readBankFiles(workspace.repository, `refs/heads/${workspace.branch}`);
-    if (after["BANK.md"] === undefined) return;
+    if (after["BANK.md"] === undefined) {
+      if (before["BANK.md"] !== undefined) failed(bank, "The committed describe result has no BANK.md. Start a fresh describe session.");
+      return;
+    }
     const current = await readBankFiles(bank.checkout, "refs/heads/main");
     const writes = Object.fromEntries([...new Set([...Object.keys(before), ...Object.keys(after)])]
       .filter((path) => before[path] !== after[path] && current[path] !== after[path])
@@ -74,12 +82,15 @@ export const createDescribeLanding = (options: {
       return;
     }
     const head = await runGit(workspace.repository, ["rev-parse", `refs/heads/${workspace.branch}`], { maxBytes: 1024 });
-    if (!head.ok) return;
+    if (!head.ok || head.truncated) throw new Error("The describe branch head could not be read.");
     const answer = await options.forge.pullRequests.listByHead({ origin: bank.location.origin, repository: bank.location.repository, branch: workspace.branch, limit: 5, purpose: "land a bank describe conversation" });
-    if (answer.outcome !== "done") return;
+    if (answer.outcome !== "done") throw new Error("The describe pull requests could not be read.");
     const sha = head.stdout.toString("utf8").trim();
     const pr = answer.value.find((pr) => pr.base.ref === "main" && pr.head.sha === sha && pr.state !== "closed");
-    if (pr === undefined) return;
+    if (pr === undefined) {
+      failed(bank, "The committed describe result has no matching pull request on the bank's main. Open its pull request or start a fresh describe session.");
+      return;
+    }
     if (pr.state !== "merged") {
       const fetched = await options.git(bank.id, { operation: "fetch", cwd: bank.checkout, refspecs: [`+refs/heads/${workspace.branch}:refs/remotes/origin/${workspace.branch}`], purpose: "land a bank describe conversation" });
       if (fetched.outcome === "refused" || !fetched.git.ok || fetched.git.truncated) throw new Error("The describe branch could not be fetched.");

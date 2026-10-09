@@ -16,7 +16,8 @@ import type { SessionListView, SessionRow } from "./session-list.js";
  * the request cache and the client-local `environments.lastUsed`, given what
  * the renderer has in focus and the chips already set. It answers each
  * chip's preset, the reason for it and its options, in the card's order:
- * environment, account, model, workspace, browser.
+ * environment, account, model (with the first run's effort), workspace,
+ * browser.
  */
 
 /** What the new-session card is opened on: what the sidebar or the rail has in focus. */
@@ -42,7 +43,7 @@ export interface NewSessionChips {
   readonly account?: { readonly environmentId: string; readonly accountId: string };
   /** The model chosen, by id. */
   readonly model?: string;
-  /** The first run's effort, used only when the chosen model supports it. */
+  /** The first run's effort chosen for `model`, null for the model's own; used only when that model takes it (`EffortChip`). */
   readonly effort?: string | null;
   /** The workspace chosen, with the environment it was chosen on: another environment keeps its repository, or scratch. */
   readonly workspace?: { readonly environmentId: string; readonly request: WorkspaceRequest };
@@ -122,6 +123,22 @@ export interface ModelChip {
 }
 
 /**
+ * Why the first run's effort is what it is (#1950): `chosen` (set for the
+ * model chip's model, which takes it; null, the model's own, among them),
+ * `default` (`accounts.defaultEffort`, which the model takes, as the
+ * environment applies it to a run that names none); `own` otherwise (the
+ * model takes no effort, or no default it takes is set); `none` without a
+ * model.
+ */
+export type EffortPresetReason = "chosen" | "default" | "own" | "none";
+
+export interface EffortChip {
+  /** The effort the first run goes out at; null for the model's own. */
+  readonly value: string | null;
+  readonly reason: EffortPresetReason;
+}
+
+/**
  * Why the workspace chip holds what it holds: `chosen` (set on this
  * environment), `kept` (the repository of one set on another environment,
  * or scratch), `session` (the focused session's, shared), `repository` (the
@@ -161,6 +178,7 @@ export interface NewSessionView {
   readonly environment: EnvironmentChip;
   readonly account: AccountChip;
   readonly model: ModelChip;
+  readonly effort: EffortChip;
   readonly workspace: WorkspaceChip;
   readonly browser: BrowserChip;
 }
@@ -182,8 +200,8 @@ export interface NewSessionHost extends BrowserSources {
   defaults(environmentId: string): Observable<CachedAnswer<"settings.get">>;
 }
 
-/** The settings the account, model and browser presets read. */
-export const PRESET_SETTING_KEYS = ["accounts.defaultAccount", "accounts.defaultModelFamily", "browser.reach"] as const;
+/** The settings the account, model, effort and browser presets read. */
+export const PRESET_SETTING_KEYS = ["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort", "browser.reach"] as const;
 
 /** Why no session can start on the environment now: the first capability a new session needs that is absent, in its line. */
 const unusableReason = (record: ConnectionRecord | undefined): string | null => {
@@ -259,6 +277,7 @@ const environmentChip = (context: NewSessionContext, records: readonly Connectio
 /** The chips after the environment when none is chosen. */
 const NO_ACCOUNT: AccountChip = { value: null, reason: "none", gauge: null, options: [] };
 const NO_MODEL: ModelChip = { value: null, reason: "none", options: [] };
+const NO_EFFORT: EffortChip = { value: null, reason: "none" };
 const NO_WORKSPACE: WorkspaceChip = { value: null, reason: "none", options: [] };
 const NO_BROWSER: BrowserChip = { value: null, reason: "none", options: [] };
 
@@ -323,6 +342,14 @@ const modelChip = ({ host, context, focused, environmentId }: Card, account: Acc
   if (session !== undefined) return { value: session, reason: "session", options };
   const preset = defaultModel(options, host.defaults(environmentId).read().result?.values["accounts.defaultModelFamily"]);
   return preset !== undefined ? { value: preset, reason: "default", options } : { value: null, reason: "none", options };
+};
+
+const effortChip = ({ host, context, environmentId }: Card, model: ModelEntry | null): EffortChip => {
+  if (model === null) return NO_EFFORT;
+  const chosen = context.chips?.effort;
+  if (context.chips?.model === model.id && chosen !== undefined && (chosen === null || model.efforts.includes(chosen))) return { value: chosen, reason: "chosen" };
+  const preset = host.defaults(environmentId).read().result?.values["accounts.defaultEffort"];
+  return preset != null && model.efforts.includes(preset) ? { value: preset, reason: "default" } : { value: null, reason: "own" };
 };
 
 /** The repository identity of a workspace chosen on `environmentId`: of the session it names, else of a session using its directory; null when none is known. */
@@ -407,9 +434,10 @@ export const newSessionProjection = (host: NewSessionHost, context: NewSessionCo
     (): NewSessionView => {
       const where = environment();
       const card = cardOn(where.value);
-      if (card === null) return { environment: where, account: NO_ACCOUNT, model: NO_MODEL, workspace: NO_WORKSPACE, browser: NO_BROWSER };
+      if (card === null) return { environment: where, account: NO_ACCOUNT, model: NO_MODEL, effort: NO_EFFORT, workspace: NO_WORKSPACE, browser: NO_BROWSER };
       const account = accountChip(card);
-      return { environment: where, account, model: modelChip(card, account.value), workspace: workspaceChip(card), browser: browserChip(card, account.value) };
+      const model = modelChip(card, account.value);
+      return { environment: where, account, model, effort: effortChip(card, model.value), workspace: workspaceChip(card), browser: browserChip(card, account.value) };
     },
   );
 };

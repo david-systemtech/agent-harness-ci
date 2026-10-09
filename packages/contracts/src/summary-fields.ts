@@ -64,6 +64,8 @@ export const SUMMARY_FIELD_OWNERS = {
   parkedPromptCount: { event: "prompt.opened" },
   accountId: { event: "run.started" },
   model: { event: "run.started" },
+  // The model and effort the next run goes out on (#1961): a person's choice; each run's start writes the model and effort it took.
+  runChoice: { command: "sessions.setModel" },
   // Mode: the permissions workstream's command (#129); `sessions.create` records the first value.
   mode: { command: "permissions.mode.set" },
   // Browser (browser spec): `sessions.create` records the first value; the agent's answer to the several-Chromes question writes it too.

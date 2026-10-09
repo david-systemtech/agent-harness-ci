@@ -305,6 +305,15 @@ export const SessionActivity = z
   .meta({ description: "What a session's runs are doing, and since when; a new session is idle since it was created." });
 export type SessionActivity = z.infer<typeof SessionActivity>;
 
+/** The model and effort a session's next run goes out on (#1961): the session's own, so every client and the run read the same. */
+export const SessionRunChoice = z
+  .object({
+    model: z.string().min(1).meta({ description: "The model, by id." }),
+    effort: z.string().min(1).nullable().meta({ description: "The effort; null for the model's own." }),
+  })
+  .meta({ description: "A model and effort for a session's next run: effort null for the model's own." });
+export type SessionRunChoice = z.infer<typeof SessionRunChoice>;
+
 /** A pull request's state as the forge reports it. */
 export const PULL_REQUEST_STATES = ["open", "closed", "merged"] as const;
 export const PullRequestState = z.enum(PULL_REQUEST_STATES).meta({
@@ -371,6 +380,10 @@ export const SessionSummary = z
     parkedPromptCount: z.int().nonnegative().meta({ description: "Prompts a run of the session is parked on, unanswered." }),
     accountId: z.string().min(1).nullable().meta({ description: "The account the latest run used; null before any run." }),
     model: z.string().min(1).nullable().meta({ description: "The model the latest run used; null before any run." }),
+    runChoice: SessionRunChoice.nullable().meta({
+      description:
+        "The model and effort the session's next run goes out on when its command names none: as sessions.setModel last chose them, else as the latest run used them; null before either, so a run takes the model the session was created with, else the account's default. The status line names it, so it says what the next run uses.",
+    }),
     // Mode (permissions spec): what a run of the session asks for, read here for the status line.
     mode: Mode.nullable().meta({
       description:
@@ -552,6 +565,9 @@ export const SessionUntaggedPayload = z.object({ tag: Tag }).meta({ description:
 export const SessionDraftSetPayload = z
   .object({ draft: StoredDraft })
   .meta({ description: "session.draft-set: the session's composer draft was replaced, or cleared (null)." });
+export const SessionModelSetPayload = SessionRunChoice.meta({
+  description: "session.model-set: a person chose the model and effort the session's next runs go out on (sessions.setModel).",
+});
 export const SessionGroupSetPayload = z
   .object({ groupId: GroupId.nullable() })
   .meta({ description: "session.group-set: the session was put in a group, or taken out of one (null)." });
@@ -712,6 +728,7 @@ export const SESSION_EVENT_TYPES = {
   "session.tagged": listed(SessionTaggedPayload, SummaryPatch),
   "session.untagged": listed(SessionUntaggedPayload, SummaryPatch),
   "session.draft-set": listed(SessionDraftSetPayload, SummaryPatch),
+  "session.model-set": listed(SessionModelSetPayload, SummaryPatch),
   "session.group-set": listed(SessionGroupSetPayload, SummaryPatch),
   "session.settled": listed(SessionSettledPayload, SummaryPatch),
   "session.unsettled": listed(SessionUnsettledPayload, SummaryPatch),
@@ -764,6 +781,7 @@ export type SessionActiveReorderedPayload = z.infer<typeof SessionActiveReordere
 export type SessionTaggedPayload = z.infer<typeof SessionTaggedPayload>;
 export type SessionUntaggedPayload = z.infer<typeof SessionUntaggedPayload>;
 export type SessionDraftSetPayload = z.infer<typeof SessionDraftSetPayload>;
+export type SessionModelSetPayload = z.infer<typeof SessionModelSetPayload>;
 export type SessionDeletedPayload = z.infer<typeof SessionDeletedPayload>;
 export type SessionPurgedPayload = z.infer<typeof SessionPurgedPayload>;
 export type SessionGroupSetPayload = z.infer<typeof SessionGroupSetPayload>;

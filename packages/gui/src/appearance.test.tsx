@@ -33,7 +33,11 @@ const settings = () => screen.getByRole("region", { name: "Settings" });
 const openTheme = async (app: RenderedApp) => {
   await app.user.keyboard("{Control>},{/Control}");
   await app.user.click(within(await screen.findByRole("navigation", { name: "Settings rows" })).getByRole("button", { name: "Theme" }));
-  return within(settings()).getByRole("region", { name: "Theme" });
+  const row = within(settings()).getByRole("region", { name: "Theme" });
+  await within(row).findByText(/, on desk$/);
+  const more = within(row).getByRole("button", { name: "More options" });
+  if (more.getAttribute("aria-expanded") !== "true") await app.user.click(more);
+  return row;
 };
 
 const root = () => document.documentElement;
@@ -44,10 +48,11 @@ describe("the Theme row's preferences", () => {
   it("sets light or dark: light, dark, or the OS's, the preset; the window is painted in it at once", async () => {
     const app = await opened();
     const row = await openTheme(app);
+    expect(within(row).getByText("This applies to this device only.")).toBeDefined();
     const choice = within(row).getByRole("radiogroup", { name: "Light or dark" });
     const radio = (name: string) => within(choice).getByRole("radio", { name });
     expect(within(choice).getAllByRole("radio").map((each) => [each.closest("label")?.textContent, (each as HTMLInputElement).checked])).toEqual([
-      ["The OS's", true],
+      ["Match my computer", true],
       ["Light", false],
       ["Dark", false],
     ]);
@@ -58,10 +63,10 @@ describe("the Theme row's preferences", () => {
     await app.user.click(radio("Dark"));
     expect(app.presentation.values.read().lightOrDark).toBe("dark");
     expect(root().style.colorScheme).toBe("dark");
-    await app.user.click(radio("The OS's"));
+    await app.user.click(radio("Match my computer"));
     // jsdom's OS says nothing of light or dark: the dark ladder.
     expect(app.presentation.values.read().lightOrDark).toBe("system");
-    expect((radio("The OS's") as HTMLInputElement).checked).toBe(true);
+    expect((radio("Match my computer") as HTMLInputElement).checked).toBe(true);
   });
 
   it("shows the applied value after an out-of-range or empty size is entered", async () => {
@@ -129,40 +134,40 @@ describe("the home environment's theme", () => {
     const app = await opened({ settings: { "appearance.theme": LOUD } });
     const shown = homeTheme(await openTheme(app));
     expect(await within(shown).findByText("Loud, on desk")).toBeDefined();
-    expect(within(shown).getByText("accent: hue 264, chroma 0.4")).toBeDefined();
-    expect(within(shown).getByText("canvas: hue 0, chroma 0")).toBeDefined();
+    expect(within(shown).getByText("Accent")).toBeDefined();
+    expect(within(shown).getByText("Background")).toBeDefined();
 
     for (const [label, ladder] of [
-      ["Light ladder", "light"],
-      ["Dark ladder", "dark"],
+      ["Light colours", "light"],
+      ["Dark colours", "dark"],
     ] as const) {
       const swatches = within(shown).getByRole("group", { name: label });
       // The ladder is painted on its own swatches, whatever the window paints: its tokens, as the theme package derives them.
       const expected = cssVariables(derive(LOUD)[ladder]);
       expect(Object.fromEntries(Object.keys(expected).map((name) => [name, swatches.style.getPropertyValue(name)]))).toEqual(expected);
       expect(within(swatches).getAllByRole("img").map((swatch) => [swatch.getAttribute("aria-label"), swatch.style.backgroundColor])).toEqual([
-        ["canvas", "var(--abyss)"],
-        ["accent", "var(--beam)"],
-        ["machine", "var(--cyan)"],
-        ["thinking", "var(--sage)"],
-        ["success", "var(--mint)"],
-        ["warning", "var(--amber)"],
-        ["danger", "var(--signal)"],
+        ["Background", "var(--abyss)"],
+        ["Accent", "var(--beam)"],
+        ["Code", "var(--cyan)"],
+        ["Thinking", "var(--sage)"],
+        ["Success", "var(--mint)"],
+        ["Warning", "var(--amber)"],
+        ["Danger", "var(--signal)"],
       ]);
     }
 
     expect(
-      within(within(shown).getByRole("list", { name: "Clamped seeds" }))
+      within(within(shown).getByRole("list", { name: "Adjusted colours" }))
         .getAllByRole("listitem")
         .map((clamp) => clamp.textContent),
-    ).toEqual(["accent: gamut, light and dark ladders", "success: gamut, light and dark ladders"]);
+    ).toEqual(["Accent: screen colour limits, Light and Dark mode", "Success: screen colour limits, Light and Dark mode"]);
   });
 
   it("says no seed is clamped when both ladders hold every rule", async () => {
     const app = await opened();
     const shown = homeTheme(await openTheme(app));
     expect(await within(shown).findByText("Default, on desk")).toBeDefined();
-    expect(within(shown).getByText("No seed is clamped: both ladders meet the contrast, gamut and hue-separation rules.")).toBeDefined();
-    expect(within(shown).queryByRole("list", { name: "Clamped seeds" })).toBeNull();
+    expect(within(shown).getByText("Your theme is easy to read.")).toBeDefined();
+    expect(within(shown).queryByRole("list", { name: "Adjusted colours" })).toBeNull();
   });
 });

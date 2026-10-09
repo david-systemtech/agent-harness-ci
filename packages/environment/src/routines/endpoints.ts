@@ -10,6 +10,7 @@ import {
   webhookKey,
   type AddressClass,
   type ParamsOf,
+  type ResultOf,
   type KeyManagerReferenceHolder,
   type RoutineEndpointSetPayload,
   type WebhookEndpoint,
@@ -21,11 +22,13 @@ import type { ScrubRegistry } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
 import type { MoveSource } from "../key-managers/moves.js";
 import { createEndpointMoveSource } from "./endpoint-move-source.js";
-import type { CommandRejection, MethodHandlers, PreparedCommand } from "../serve/methods.js";
+import type { CommandContext, CommandRejection, MethodHandlers, PreparedCommand } from "../serve/methods.js";
 import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { listStoredEndpoints, storedEndpoint, type EndpointResult, type StoredEndpoint } from "./endpoint-store.js";
-import type { DeliveryEndpoint } from "./webhook-delivery.js";
+import { hasPendingWebhookDelivery, type DeliveryEndpoint } from "./webhook-delivery.js";
+import { attentionStore } from "../attention/store.js";
+import { listStoredRoutines } from "./routine-store.js";
 import { postWebhook } from "./webhook-post.js";
 
 /**
@@ -134,6 +137,8 @@ export interface RoutineEndpoints {
   start(): Promise<void>;
   /** Resolves the endpoint and its secret per delivery; the caller releases a resolved reference when its attempt ends. */
   resolve(name: string): Promise<DeliveryEndpoint>;
+  /** Removes an unused endpoint in the route removal's transaction, checking every client's targets and disabled routines too. */
+  removeUnused(name: string, removingRoute: string, context: CommandContext): NonNullable<ResultOf<"attention.routes.remove">["endpoint"]>;
   readonly handlers: Required<Pick<MethodHandlers, EndpointMethodName>>;
   readonly moveSource: MoveSource;
   referenceHolders(connectionId: string): KeyManagerReferenceHolder[];
@@ -227,6 +232,17 @@ export const createRoutineEndpoints = (options: RoutineEndpointsOptions): Routin
       } catch (error) {
         console.error("Deleting the vault entries of webhook endpoints that are gone failed; the next start tries again:", error);
       }
+    },
+
+    removeUnused(name, removingRoute, context) {
+      const endpoint = storedEndpoint(reader, name);
+      if (endpoint === null) return { name, state: "missing" };
+      const routineUses = listStoredRoutines(reader).some(({ definition }) => definition.delivery.some(target => target.kind === "webhook" && target.target === name));
+      const routeUses = attentionStore(log).targets().some(({ target }) => target.id !== removingRoute && target.transport === "webhook" && target.configuration["endpoint"] === name);
+      if (routineUses || routeUses || hasPendingWebhookDelivery(reader, name)) return { name, state: "retained" };
+      log.append(stream, [{ type: "routine.endpoint-removed", payload: { name } }], { tx: context.tx, actor: context.actor, commandId: context.commandId });
+      context.tx.afterCommit(() => forget(name));
+      return { name, state: "removed", secretKind: endpoint.secretKind };
     },
 
     resolve: (name) => resolve(name, "delivery"),
