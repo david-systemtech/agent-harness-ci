@@ -6,16 +6,19 @@ const ADDRESS = /^(?:(https?):\/\/)?(\[[0-9a-f:.]+\]|[^\s/:?#[\]@]+)(?::(\d{1,5}
  * An address as David types or a link carries it (`desk`, `desk:7433`,
  * `100.64.0.7:7433`, `[fd7a::1]:7433`, with or without `http://` and a
  * trailing slash) as the one origin a connection keeps:
- * `http://host:port`, lower-cased, at `DEFAULT_ENVIRONMENT_PORT` when no port
- * is given. Undefined for anything else, a path or query included.
+ * lower-cased, at `DEFAULT_ENVIRONMENT_PORT` when no HTTP port is given.
+ * Explicit HTTPS uses its standard port, omitted from the canonical origin.
+ * Undefined for anything else, a path or query included.
  */
 export const parseAddress = (typed: string): string | undefined => {
   const match = ADDRESS.exec(typed.trim());
   if (!match) return undefined;
   const [, scheme = "http", host = "", portText] = match;
-  const port = portText === undefined ? DEFAULT_ENVIRONMENT_PORT : Number(portText);
+  const protocol = scheme.toLowerCase();
+  const port = portText === undefined ? (protocol === "https" ? 443 : DEFAULT_ENVIRONMENT_PORT) : Number(portText);
   if (!(port >= 1 && port <= 65535)) return undefined;
-  return `${scheme.toLowerCase()}://${host.toLowerCase()}:${port}`;
+  const origin = `${protocol}://${host.toLowerCase()}`;
+  return protocol === "https" && port === 443 ? origin : `${origin}:${port}`;
 };
 
 /** The origin of a host and port, as the grant file names them: an IPv6 address in brackets. */
