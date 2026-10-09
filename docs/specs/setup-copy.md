@@ -378,9 +378,16 @@ Added when the dialog was built (#1843), where the lines above did not reach the
   - `Your other devices cannot reach this computer yet. Install Tailscale here and on your other devices.` **Get Tailscale** (opens tailscale.com/download) **Check again**
   - `Tailscale is installed but not connected. Open Tailscale and sign in, then choose Check again.`
   - `Tailscale is ready. Restart agent-harness to use it.` **Restart agent-harness** where the service can restart, else `It is used from the next start.`
+  - and, when `Use Tailscale` is off, which no install helps: `Use Tailscale is off in More options, so your other devices cannot reach this computer.`
+  - once the Wi-Fi network switch is applied, where Tailscale is not bound and no Tailscale address waits for a restart: `Devices on this Wi-Fi network can reach this computer. To reach it from anywhere else, use Tailscale.`
+  - **Check again** under every line but the first; it reads how the computer is reached again.
+  - on Windows, under every line but the first and the Use Tailscale one: `Windows asks once whether Node.js may accept connections. Keep Private networks ticked and choose Allow access.` (#1910)
+  - **Restart agent-harness** (this computer's own service, from the desktop app) drains it and starts it again; meanwhile `{name} is restarting.`;
+    if it does not: `agent-harness did not restart on {name}.` `Choose Restart agent-harness to try again.` Details: the refusal;
+    where it stopped and did not start again, `Choose Start to try again.` (Restart cannot drain what is not running; the checklist's Start can), and that notice goes once it runs again.
   - then **Add a device** (§5.5).
-- More options: name, icon and colour; switch `Use Tailscale` with `On: agent-harness uses Tailscale whenever it is installed.` (the switch is preset on, so it must not read as "Tailscale is working"); switch `Also allow devices on this Wi-Fi network` with `Anyone on this network could try to connect. They still need a pairing code.`;
-  updates (`Update automatically`, channel `Stable` / `Beta`); link **All settings for this computer** (Settings › Your machines; leaves Set up).
+- More options: name, icon and colour; switch `Use Tailscale` with `On: agent-harness uses Tailscale whenever it is installed.` (the switch is preset on, so it must not read as "Tailscale is working"); switch `Also allow devices on this Wi-Fi network` with `Anyone on this network could try to connect. They still need a pairing code.` (it uses the computer's first local network address; choosing another is Settings'; with none, the switch is off and held, and says `This computer is not on a local network.`);
+  updates (`Update automatically`, `Channel` `Stable` / `Beta`); link **All settings for this computer** (Settings › Your machines; leaves Set up).
   Browser origins, the sandbox list and the grant note are not on this card. A limited pairing shows one line `This app has limited access to {name}.` with **What does this mean?** (#1631's sheet).
 - Lines: done `{name} is ready. It updates itself.` / `{name} is ready. Automatic updates are off.` / `{name} is ready. The host's updater keeps it up to date.` /
   pinned `{name} is ready. It stays on version {v}.`, and while the pin does not run yet (its update waits for idle, or never comes) `{name} is ready. It runs version {v0} and is pinned to {v}.`; restarting within its 30 minutes `{name} is restarting.` and the same second sentence; Details: `Version: {v0}` (the running version), `Updates: {on | off | pinned to {v} | by the host's updater}`, and `Tailscale address: {ip} ({tailnet name})`, `Local network address: {ip}` or `Reachable from: this computer only`;
