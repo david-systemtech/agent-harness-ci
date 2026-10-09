@@ -1,36 +1,40 @@
 import { AccessUnavailable } from "../connections/limited-access.js";
-import { adminCall, clientLocalImportValues, uuidv7 } from "@agent-harness/client-runtime";
-import type { StateImportHoldings, StateImportReport } from "@agent-harness/contracts";
-import { ArrowRight, Download, ScanSearch } from "lucide-react";
-import { CountGrid } from "./count-grid.js";
+import { adminCall, clientLocalImportValues, plainRefusal, uuidv7, type PlainRefusal } from "@agent-harness/client-runtime";
+import type { StateImportReport } from "@agent-harness/contracts";
+import { Download, ScanSearch } from "lucide-react";
 import { useMemo, useState } from "react";
 import { TEXT_SIZE_LEAST, TEXT_SIZE_MOST } from "../presentation.js";
-import { useChecklist } from "../setup/checklist-window.js";
+import { TechnicalDetails } from "../setup/details.js";
 import { Button } from "../ui/index.js";
 import { useClock, useObservable, usePresentation, useRuntime } from "../window-context.js";
-import { StateImportResult } from "./state-import-report.js";
+import { foundDetails, foundLine } from "./earlier-work-words.js";
+import { StateImportResult, useEarlierWorkDetails } from "./state-import-report.js";
 
-/** The state import is offered only when the environment serves it and finds a source folder (ADR 0036). */
-export const StateImportSection = ({ environmentId, needsRepair }: { readonly environmentId: string; readonly needsRepair: boolean }) => {
+/** The earlier-work section (the state import) is offered only when the environment serves it and finds a source folder (ADR 0036). */
+export const StateImportSection = ({ environmentId }: { readonly environmentId: string }) => {
   const runtime = useRuntime();
   useObservable(runtime.projections.environments);
   return runtime.capability(environmentId, "stateImport").status === "present"
-    ? <DetectedStateImport key={environmentId} environmentId={environmentId} needsRepair={needsRepair} />
+    ? <DetectedStateImport key={environmentId} environmentId={environmentId} />
     : null;
 };
 
-const foundCount = (count: number | null) => count === null ? "unreadable" : count;
-const Holdings = ({ holds }: { readonly holds: StateImportHoldings }) => (
-  <CountGrid label="Source holdings" rows={[["Profiles", foundCount(holds.profiles)], ["Banks", foundCount(holds.banks)], ["Routines", foundCount(holds.routines)], ["Instructions", foundCount(holds.instructions)], ["Skill sources", foundCount(holds.skillSources)], ["Connections", foundCount(holds.connections)]]} />
-);
+/** The buttons' names, which a refusal's line asks the person to choose again (setup-copy.md §5.3). */
+const PREVIEW = "Preview";
+const BRING_IT_OVER = "Bring it over";
 
-const DetectedStateImport = ({ environmentId, needsRepair }: { readonly environmentId: string; readonly needsRepair: boolean }) => {
+/**
+ * setup-copy.md §5.3's earlier work: one line saying what was found, its
+ * folders under Details, Preview and Bring it over, and the report, whose
+ * failed items each say their own fix.
+ */
+const DetectedStateImport = ({ environmentId }: { readonly environmentId: string }) => {
   const runtime = useRuntime();
-  const { choose } = useChecklist();
   const found = useObservable(useMemo(() => runtime.requests.cached(environmentId, "stateImport.detect", {}), [runtime, environmentId]));
   const clock = useClock();
+  const detailsOf = useEarlierWorkDetails(environmentId);
   const [report, setReport] = useState<StateImportReport | undefined>(undefined);
-  const [line, say] = useState<string | undefined>(undefined);
+  const [refusal, setRefusal] = useState<PlainRefusal | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [clientLocalApplied, setClientLocalApplied] = useState(false);
   const [, setMode] = usePresentation("lightOrDark");
@@ -41,10 +45,10 @@ const DetectedStateImport = ({ environmentId, needsRepair }: { readonly environm
   const admin = runtime.capability(environmentId, "stateImport.run");
   const run = async (dryRun: boolean) => {
     setBusy(true);
-    say(undefined);
+    setRefusal(undefined);
     const answer = await adminCall(() => runtime.requests.call(environmentId, "stateImport.run", { commandId: uuidv7(clock.now()), dryRun }));
     setBusy(false);
-    if (!answer.ok) return say(`Not imported: ${answer.line}`);
+    if (!answer.ok) return setRefusal(plainRefusal(answer.refusal, dryRun ? PREVIEW : BRING_IT_OVER));
     setReport(answer.result);
     const values = clientLocalImportValues(runtime, environmentId, dryRun, answer.result);
     setClientLocalApplied(values !== null);
@@ -58,30 +62,21 @@ const DetectedStateImport = ({ environmentId, needsRepair }: { readonly environm
   };
   const detection = found.result;
   if (detection === null || (detection.dataFolder === null && detection.terminalFolder === null)) return null;
+  const line = foundLine(detection);
   return (
-    <section aria-label="State import" className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-4">
-      <h3 className="text-sm font-medium text-ink">State import</h3>
-      {detection.dataFolder !== null && (
-        <>
-          <p className="text-sm text-ink-muted">Data folder: {detection.dataFolder.path}</p>
-          <Holdings holds={detection.dataFolder.holds} />
-        </>
-      )}
-      {detection.terminalFolder !== null && <p className="text-sm text-ink-muted">Terminal-client state folder: {detection.terminalFolder.path}</p>}
-      {needsRepair && <>
-        <p className="text-sm text-ink-muted">Provider sign-in does not grant access to private skill repositories. Add or repair their credentials in Forges; restore missing exact skill names in Skills, then import again. For SSH sources without a forge account, check this environment machine's SSH keys and known-hosts entry. Accounts and sessions already carried are kept.</p>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" title="Open Forges · Tab, Enter or Space" onClick={() => choose("forges")}><ArrowRight aria-hidden="true" />Open Forges</Button>
-          <Button variant="outline" title="Open Skills · Tab, Enter or Space" onClick={() => choose("skills")}><ArrowRight aria-hidden="true" />Open Skills</Button>
-        </div>
-      </>}
-      {admin.status === "absent" && <AccessUnavailable environmentId={environmentId} answer={admin}><p className="text-sm text-amber">Read-only: {admin.message}</p></AccessUnavailable>}
+    <section aria-label="Earlier work" data-earlier-work className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-4">
+      <p className="text-sm text-ink">{line}</p>
+      <TechnicalDetails {...detailsOf(line, foundDetails(detection))} />
+      {admin.status === "absent" && <AccessUnavailable environmentId={environmentId} answer={admin}><p className="text-sm text-amber">You can look but not change this. {admin.message}</p></AccessUnavailable>}
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" title="Dry run · Tab, Enter or Space" disabled={busy || admin.status === "absent"} onClick={() => void run(true)}><ScanSearch aria-hidden="true" />Dry run</Button>
-        <Button variant="default" title="Import · Tab, Enter or Space" disabled={busy || admin.status === "absent"} onClick={() => void run(false)}><Download aria-hidden="true" />Import</Button>
+        <Button variant="outline" title={`${PREVIEW} · Tab, Enter or Space`} disabled={busy || admin.status === "absent"} onClick={() => void run(true)}><ScanSearch aria-hidden="true" />{PREVIEW}</Button>
+        <Button variant="default" title={`${BRING_IT_OVER} · Tab, Enter or Space`} disabled={busy || admin.status === "absent"} onClick={() => void run(false)}><Download aria-hidden="true" />{BRING_IT_OVER}</Button>
       </div>
-      {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}
-      {report !== undefined && <StateImportResult report={report} clientLocalApplied={clientLocalApplied} />}
+      {refusal !== undefined && <div className="flex flex-col gap-1">
+        <p role="alert" className="text-sm text-signal"><span className="sr-only">Error: </span>{refusal.line}</p>
+        <TechnicalDetails {...detailsOf(refusal.line, refusal.details)} />
+      </div>}
+      {report !== undefined && <StateImportResult environmentId={environmentId} report={report} clientLocalApplied={clientLocalApplied} />}
     </section>
   );
 };

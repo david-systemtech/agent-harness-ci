@@ -41,33 +41,34 @@ const start = async () => {
   return { ...t, client, check, cached, advance, chrome, pair, keep };
 };
 
-describe("the Browser step (#559)", () => {
+describe("the Browser step (#559; setup-copy.md §5.11, #1857)", () => {
   it("skips with nothing paired, even while an unpaired extension is connected", async () => {
     const t = await start();
-    expect(await t.check()).toMatchObject({ state: "skipped", reason: "No Chrome is paired with this environment.", failing: [], actions: [] });
+    expect(await t.check()).toMatchObject({ state: "skipped", reason: "Chrome is not connected. Optional.", failing: [], actions: [] });
     t.keep(await t.chrome().connect());
     expect(await t.check()).toMatchObject({ state: "skipped", failing: [], actions: [] });
   });
 
-  it("is done while a paired Chrome is connected on the shipped version, and needs the connection check after it disconnects", async () => {
+  it("is done while a paired Chrome is connected on the shipped version, and after it disconnects says Chrome is closed without offering Unpair as the fix", async () => {
     const t = await start();
     const { fake, connection } = await t.pair();
     expect(await t.check()).toMatchObject({ state: "done", failing: [], actions: [] });
     const { subscription } = await t.client.subscribe("environment.subscribe", { afterSequence: t.env.log.head() });
     await connection.extension.close();
     await t.client.next((f) => f.type === "event" && f.subscription === subscription && f.event.type === "chrome.updated" && f.event.payload.change === "disconnected");
-    expect(await t.check()).toMatchObject({
+    const closed = await t.check();
+    expect(closed).toMatchObject({
       state: "needs-attention",
       failing: ["browser.chrome-connected"],
-      reason: "The extension only runs while Chrome is open. Open Chrome and, if it asks, dismiss the developer-mode notice; this turns green by itself.",
-      actions: ["check-again", "unpair", "pair-another"],
-      targets: [{ action: "unpair", kind: "chrome", id: fake.credential()?.chromeId, label: "Work" }],
+      reason: "Chrome is closed, so agents cannot use it. Open Chrome. This updates by itself.",
+      actions: ["check-again"],
     });
+    expect(closed).not.toHaveProperty("targets");
     t.keep(await fake.connect());
     expect(await t.check()).toMatchObject({ state: "done", failing: [] });
   });
 
-  it("names each Chrome on another extension version, including a disconnected one, and keeps its pairing", async () => {
+  it("says the extension is out of date, each Chrome's version in details, including a disconnected one, and keeps its pairing", async () => {
     const t = await start();
     const { fake, connection } = await t.pair("Personal");
     await connection.extension.close();
@@ -75,7 +76,8 @@ describe("the Browser step (#559)", () => {
     expect(await t.check()).toMatchObject({
       state: "needs-attention",
       failing: ["browser.extension-current"],
-      reason: "Personal: Chrome is running version 0.9.0-test of the extension; this environment has 1.0.0-test. Open chrome://extensions and click Reload.",
+      reason: "The Chrome extension is out of date. In chrome://extensions, choose reload on agent-harness.",
+      details: ["Personal: extension 0.9.0-test, this computer ships 1.0.0-test"],
       actions: ["reload", "check-again"],
       targets: [{ action: "reload", kind: "chrome", id: fake.credential()?.chromeId, label: "Personal" }],
     });
