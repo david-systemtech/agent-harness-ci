@@ -513,9 +513,9 @@ describe("/settings", () => {
     const frame = app.frame();
     expect(frame).toMatch(/Default account\s+none/);
     expect(frame).toMatch(/Stop idle agent processes after minutes\s+30/);
-    expect(frame).toMatch(/Maximum permission mode\s+acceptEdits/);
-    expect(frame).toMatch(/Unanswered permission timeout\s+24 hours/);
-    expect(frame).toMatch(/Permission bypass acknowledged\s+none\s+read-only/);
+    expect(frame).toMatch(/How much agents may do without asking\s+acceptEdits/);
+    expect(frame).toMatch(/If nobody answers a question\s+24 hours/);
+    expect(frame).toMatch(/Agreed to never ask on scheduled runs\s+none\s+read-only/);
     // Down to the Service row's keys, past the five, one, five, nine, two and seven of the rows above it.
     await app.press(...Array.from({ length: 29 }, () => KEY.down));
     await app.waitFor(/Settle idle sessions\s+14 days/);
@@ -546,9 +546,9 @@ describe("/settings", () => {
     expect(env.requests("settings.update").map((r) => r.params)).toContainEqual(expect.objectContaining({ values: { "providers.processIdleMinutes": 45 } }));
     // A choice, through the permission settings' own method, past the Instructions row's switch.
     await app.press(KEY.down, KEY.down, KEY.enter);
-    await app.waitFor("Maximum permission mode:");
+    await app.waitFor("How much agents may do without asking:");
     await app.press(KEY.down, KEY.enter);
-    await app.waitFor("Maximum permission mode is auto.");
+    await app.waitFor("How much agents may do without asking is auto.");
     expect(env.requests("permissions.settings.set").map((r) => r.params)).toEqual([expect.objectContaining({ values: { "permissions.defaultCeiling": "auto" } })]);
     // A switch flips on Enter: down past the rest of Permissions, Browser, Key managers and Your machines to the Service row's second key.
     await app.press(...Array.from({ length: 24 }, () => KEY.down), KEY.enter);
@@ -575,11 +575,11 @@ describe("/settings", () => {
     await command(app, "/settings access.permissions");
     await app.waitFor("Settings on desk");
     await app.press(KEY.down, KEY.enter);
-    await app.waitFor("Unattended permission mode:");
+    await app.waitFor("For scheduled and automatic runs:");
     await app.press(KEY.down, KEY.enter);
     await app.waitFor(`${BYPASS} Make bypassPermissions the unattended mode? y/n`);
     await app.press("y");
-    await app.waitFor("Unattended permission mode is bypassPermissions.");
+    await app.waitFor("For scheduled and automatic runs is bypassPermissions.");
     expect(env.requests("permissions.settings.set").map((r) => r.params)).toEqual([
       expect.objectContaining({ values: { "permissions.unattended.mode": "bypassPermissions" }, acknowledgeBypass: true }),
     ]);
@@ -599,7 +599,7 @@ describe("/settings", () => {
     await command(app, "/settings");
     await app.waitFor("Settings on desk");
     await app.press(KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter);
-    await app.waitFor("Unattended permission mode:");
+    await app.waitFor("For scheduled and automatic runs:");
     await app.press(KEY.down, KEY.enter);
     await app.waitFor("Make bypassPermissions the unattended mode? y/n");
     // The question stands while the list below it opens a value to type.
@@ -669,17 +669,17 @@ describe("/settings by row (#389)", () => {
     const { app, env } = await launch();
     await command(app, "/settings access.permissions");
     await app.waitFor("Settings on desk");
-    await app.waitFor(/Maximum permission mode\s+acceptEdits/);
+    await app.waitFor(/How much agents may do without asking\s+acceptEdits/);
     const frame = app.frame();
     expect(frame).toContain("Permissions");
-    expect(frame).toMatch(/Default process containment\s+off/);
+    expect(frame).toMatch(/Sandbox\s+off/);
     expect(frame).not.toContain("accounts.defaultAccount");
     expect(frame).not.toContain("updates.channel");
     // The cursor starts on the row's first key.
     await app.press(KEY.enter);
-    await app.waitFor("Maximum permission mode:");
+    await app.waitFor("How much agents may do without asking:");
     await app.press(KEY.down, KEY.enter);
-    await app.waitFor("Maximum permission mode is auto.");
+    await app.waitFor("How much agents may do without asking is auto.");
     expect(env.requests("permissions.settings.set").map((r) => r.params)).toEqual([expect.objectContaining({ values: { "permissions.defaultCeiling": "auto" } })]);
   });
 
