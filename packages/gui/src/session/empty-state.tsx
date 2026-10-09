@@ -80,6 +80,6 @@ export const EmptyState = () => {
     <Tooltip content="New session" keys={sessionKey}>
       <Button variant="default" onClick={() => start.here({ environmentId })}><Plus aria-hidden="true" />Start a new session</Button>
     </Tooltip>
-    {phone.narrow && <Button variant="outline" onClick={event => phone.showDrawer(true, event.currentTarget)}><PanelLeft aria-hidden="true" />Choose a session</Button>}
+    {phone.narrow && <Button variant="outline" onClick={event => phone.showDrawer(true, { opener: event.currentTarget })}><PanelLeft aria-hidden="true" />Choose a session</Button>}
   </Welcome>;
 };
