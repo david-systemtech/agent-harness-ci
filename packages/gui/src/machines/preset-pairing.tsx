@@ -42,14 +42,18 @@ export const PresetPairing = ({ view, writable, warning }: { readonly view: Envi
       ...(!writable ? { disabledReason: "You can look but not change this." } : dim !== null ? { disabledReason: dim } : {}),
     }));
   const ceilingChoice = (
-    <ChoiceList label="How much may its agents do without asking?" value={ceiling} onValueChange={(value) => pickCeiling((now) => ({ ...now, [current]: value as Ceiling }))} choices={CEILING_CHOICES.map(({ mode, label, note }) => ({
-      value: mode, label, note,
-      ...(!writable ? { disabledReason: "You can look but not change this." } : ceilingAboveOwn(mode, view.ceiling) !== null ? { disabledReason: CANNOT_GIVE_MORE } : {}),
-    }))} />
+    <div className="flex flex-col gap-2">
+      <p className="text-sm text-ink">How much may its agents do without asking?</p>
+      <ChoiceList label="How much may its agents do without asking?" value={ceiling} onValueChange={(value) => pickCeiling((now) => ({ ...now, [current]: value as Ceiling }))} choices={CEILING_CHOICES.map(({ mode, label, note }) => ({
+        value: mode, label, note,
+        ...(!writable ? { disabledReason: "You can look but not change this." } : ceilingAboveOwn(mode, view.ceiling) !== null ? { disabledReason: CANNOT_GIVE_MORE } : {}),
+      }))} />
+    </div>
   );
 
   return (
     <div className="flex flex-col gap-2">
+      <p className="text-sm text-ink">Who is it for?</p>
       <ChoiceList label="Who is it for?" value={current} choices={choicesOf(["own-client", "phone", "program"])} onValueChange={(value) => choose(value as PairingPresetId)} />
       {preset.chooses === "ceiling" && ceilingChoice}
       <Fold summary="More options" open={more || preset.chooses === "scopes-and-ceiling"} onOpenChange={setMore}>
