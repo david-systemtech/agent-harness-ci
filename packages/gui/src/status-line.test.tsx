@@ -1,5 +1,5 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { ENVIRONMENT_ICONS, type AccountUsage, type EnvironmentIcon } from "@agent-harness/contracts";
+import { ENVIRONMENT_ICONS, whenWords, type AccountUsage, type EnvironmentIcon } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type ScriptedEnvironment } from "../test/harness.js";
 import { glyphOf } from "./connections/environment-glyphs.js";
@@ -179,9 +179,50 @@ describe("the plan gauge", () => {
     expect(within(details).getAllByText("Other limit")).toHaveLength(1);
     const row = label.parentElement?.parentElement as HTMLElement;
     expect(within(row).getByText("37%")).toBeTruthy();
-    expect(within(row).getByText("2026-09-25T14:30:00.000Z")).toBeTruthy();
+    expect(within(row).getByText(whenWords("2026-09-25T14:30:00.000Z", app.clock.now()))).toBeTruthy();
     expect(details.outerHTML).not.toMatch(/iguana[_ ]necktie/);
     expect(within(details).queryByRole("img", { name: /Other limit/ })).toBeNull();
+  });
+
+  // #1951: the popover listed one identical "Other limit —" row per silent limit.
+  it("lists only the limits that say something and counts the silent ones in one line, as Settings > Usage does", async () => {
+    const { app, env } = await opened();
+    const unknown = (name: string, utilisation: number | null) => ({ window: name, utilisation, resetsAt: null, verdict: null, observedAt: "2026-09-25T09:00:00.000Z" });
+    env.setUsage([reading("account-1", WORK, [window("five_hour", 0.42, "2026-09-25T09:00:00.000Z"), unknown("iguana_necktie", 0), unknown("walrus_hat", null), unknown("otter_scarf", null)])]);
+    const gauge = await within(statusLine()).findByRole("group", { name: "Plan usage" });
+    await within(gauge).findByRole("img", { name: /42%/ });
+    await app.user.click(within(gauge).getByRole("button", { name: "Usage details" }));
+    const details = await screen.findByRole("dialog", { name: "Usage details" });
+    expect(within(details).getAllByText("Other limit")).toHaveLength(1);
+    expect(within(details).getByText("0%")).toBeTruthy();
+    expect(within(details).getByText("2 other limits give no reading.")).toBeTruthy();
+    expect(within(details).queryByText("—")).toBeNull();
+  });
+
+  // #1951: the popover printed raw ISO reset and read times.
+  it("says reset and read times in the client's time words, the ISO value only in each time's attribute", async () => {
+    const { app, env } = await opened();
+    const now = app.clock.now();
+    const at = (ms: number) => new Date(now.getTime() + ms).toISOString();
+    const soon = at(104 * 60_000);
+    const later = at(4 * 86_400_000);
+    env.setUsage([{ ...reading("account-1", WORK, [
+      { window: "five_hour", utilisation: 0.42, resetsAt: soon, verdict: null, observedAt: now.toISOString() },
+      { window: "seven_day", utilisation: 0.1, resetsAt: later, verdict: null, observedAt: now.toISOString() },
+    ]), readAt: at(-51_000) }]);
+    await within(statusLine()).findByRole("img", { name: "5-hour 42%" });
+    await app.user.click(within(statusLine()).getByRole("button", { name: "Usage details" }));
+    const details = await screen.findByRole("dialog", { name: "Usage details" });
+    const times = within(details).getAllByText((_, element) => element?.tagName === "TIME");
+    expect(times.map((time) => [time.getAttribute("datetime"), time.textContent])).toEqual([
+      [soon, whenWords(soon, now)],
+      [later, whenWords(later, now)],
+      [at(-51_000), whenWords(at(-51_000), now)],
+    ]);
+    expect(whenWords(later, now)).toMatch(/^\d+ [A-Z][a-z]{2} \d\d:\d\d$/);
+    expect(details.textContent).toContain(`Resets ${whenWords(soon, now)} · in 1h 44m`);
+    expect(within(details).getByLabelText("Reading age").textContent).toBe(`Read 51s ago · ${whenWords(at(-51_000), now)}`);
+    expect(details.textContent).not.toMatch(/\d{4}-\d\d-\d\dT\d\d:\d\d/);
   });
 
   it("keeps current context separate from pooled plan usage and cumulative spend", async () => {
@@ -206,7 +247,7 @@ describe("the plan gauge", () => {
     const details = await screen.findByRole("dialog", { name: "Usage details" });
     expect(within(details).getByText("milo@work.test")).toBeTruthy();
     expect(within(details).getByText("80%")).toBeTruthy();
-    expect(within(details).getByText(/2026-09-25T14:30:00/)).toBeTruthy();
+    expect(within(details).getByText(whenWords("2026-09-25T14:30:00.000Z", app.clock.now()))).toBeTruthy();
     expect(within(details).getByText("Current request context appears in the Context meter when supported.")).toBeTruthy();
     await waitFor(() => expect(env.requests("accounts.usage").length).toBeGreaterThan(before));
     const age = within(details).getByLabelText("Reading age").textContent;
