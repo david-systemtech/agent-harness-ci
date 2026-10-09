@@ -217,12 +217,13 @@ export const containmentRows = (report: ContainmentReport | undefined, own: Cont
   });
 };
 
-/** `/usage`: each gauge's identity and the accounts it pools, then each window with its bar, reset and verdict; the reason when it has none. */
+/** `/usage`: each gauge's identity and the accounts it pools, then each window with its bar, reset (its day counted from `now`) and verdict; the reason when it has none. */
 export const usageLines = (
   usage: UsageView,
   views: readonly EnvironmentView[],
   accounts: (environmentId: string) => AccountsAnswer | undefined,
   cells: number,
+  now: Date,
 ): readonly (readonly Span[])[] => {
   const name = (environmentId: string) => {
     const view = views.find((v) => v.environmentId === environmentId);
@@ -237,7 +238,7 @@ export const usageLines = (
     const words = columnOf(gauge.windows.map((w) => windowWords(w.window)));
     for (const window of gauge.windows) {
       const tone = meterTone(window);
-      const reset = resetWords(window.resetsAt);
+      const reset = resetWords(window.resetsAt, now);
       lines.push([
         { text: `  ${pad(windowWords(window.window), words)}` },
         ...(window.utilisation !== null && cells > 0 ? [{ text: `${meterBar(window.utilisation, cells)} `, ...(tone !== undefined && { color: tone }) }] : []),

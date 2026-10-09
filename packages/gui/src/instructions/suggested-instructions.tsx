@@ -1,10 +1,11 @@
 import { uuidv4 } from "@agent-harness/client-runtime";
-import { CATALOGUE, type OwnedInstructionRow } from "@agent-harness/contracts";
+import { CATALOGUE, CATALOGUE_SEED_INSTRUCTION_ID, type OwnedInstructionRow } from "@agent-harness/contracts";
 import { useState } from "react";
 import { Part, SettingsCardGrid } from "../settings/part.js";
 import { Fold } from "../ui/index.js";
 import { useRuntime } from "../window-context.js";
 import { InstructionButton } from "./instruction-button.js";
+import { InstructionError } from "./instruction-error.js";
 import { useInstructionCommand } from "./use-instruction-command.js";
 
 /** Tick state and the Dismissed fold come only from instructions.list. */
@@ -12,12 +13,10 @@ export const SuggestedInstructions = ({
   environmentId,
   rows,
   dismissed,
-  custom,
 }: {
   readonly environmentId: string;
   readonly rows: readonly OwnedInstructionRow[];
   readonly dismissed: readonly string[];
-  readonly custom?: () => void;
 }) => {
   const runtime = useRuntime();
   const { send, sending, line } = useInstructionCommand(environmentId);
@@ -27,14 +26,7 @@ export const SuggestedInstructions = ({
     <Part title="Suggested instructions">
       {CATALOGUE.instructions.groups.map((group) => (
         <Part key={group.id} title={group.title}>
-          {group.id === "custom" &&
-            (custom === undefined ? (
-              <p className="text-sm text-ink-muted">Write your own with New instruction above.</p>
-            ) : (
-              <InstructionButton environmentId={environmentId} method="instructions.create" run={custom}>
-                Write a custom instruction
-              </InstructionButton>
-            ))}
+          {group.id === "custom" && <p className="text-sm text-ink-muted">Write your own with New instruction above.</p>}
           <SettingsCardGrid>{CATALOGUE.instructions.entries
             .filter((entry) => entry.group === group.id && !dismissed.includes(entry.id))
             .map((entry) => {
@@ -88,6 +80,44 @@ export const SuggestedInstructions = ({
           {line}
         </p>
       )}
+    </Part>
+  );
+};
+
+/**
+ * Set up's Suggestions (setup-copy.md §5.10): each catalogue entry not
+ * dismissed, but the seed that is Your note, as a tick with its one line.
+ * A ticked one is a copy, which Settings › Instructions changes or removes.
+ */
+export const SetupSuggestions = ({ environmentId, rows, dismissed }: { readonly environmentId: string; readonly rows: readonly OwnedInstructionRow[]; readonly dismissed: readonly string[] }) => {
+  const runtime = useRuntime();
+  const { send, sending, line } = useInstructionCommand(environmentId);
+  const create = runtime.capability(environmentId, "instructions.create");
+  const entries = CATALOGUE.instructions.entries.filter((entry) => entry.id !== CATALOGUE_SEED_INSTRUCTION_ID && !dismissed.includes(entry.id));
+  return (
+    <Part title="Suggestions">
+      <ul data-setup-suggestions className="flex flex-col gap-2">
+        {entries.map((entry) => {
+          const ticked = rows.some((row) => row.origin?.catalogueId === entry.id);
+          return (
+            <li key={entry.id} className="flex flex-col">
+              <label className={ticked || create.status === "absent" ? "text-sm text-ink-muted" : "text-sm text-ink"}>
+                <input
+                  type="checkbox"
+                  checked={ticked}
+                  disabled={sending || ticked || create.status === "absent"}
+                  onChange={() => void send("instructions.create", { id: uuidv4(), catalogueId: entry.id })}
+                />{" "}
+                {entry.title}
+              </label>
+              <p className="pl-5 text-sm text-ink-muted">{entry.summary}</p>
+              {ticked && <p className="pl-5 text-xs text-ink-muted">Added. Change or remove it in Settings › Instructions.</p>}
+            </li>
+          );
+        })}
+      </ul>
+      {create.status === "absent" && <p className="text-xs text-ink-faint">{create.message}</p>}
+      {line !== undefined && <InstructionError>{line}</InstructionError>}
     </Part>
   );
 };
