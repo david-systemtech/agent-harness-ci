@@ -1,5 +1,6 @@
 import type { ContextReading, JsonObject, ModelUsage, RunError } from "@agent-harness/contracts";
 import { recordedImage, type AdapterEvent, type RunEnd, type ToolDenial, type TranscriptEvent } from "../../adapter/contract.js";
+import type { SpendMeter } from "./spend.js";
 import type { TaskLedger } from "./tasks.js";
 
 /**
@@ -17,8 +18,9 @@ import type { TaskLedger } from "./tasks.js";
  * What it does not map, by decision: a subagent's own text and thinking
  * (its transcript is read on demand, not logged; its tool calls are, nested
  * under the call that started it), the prompt echo and replayed history (the
- * host records what was sent), and per-message spend (the result carries the run's). Main request
- * input usage is reported separately as current context.
+ * host records what was sent), and per-message spend (the result carries the process's so far, whose
+ * difference from the reading before is the run's). Main request input usage is reported separately as
+ * current context.
  */
 
 /** A tool call opened and not yet ended. */
@@ -60,10 +62,12 @@ export interface MapperState {
   contextMessageId: string | null;
   /** The process's delegated-work ledger, shared across its turns. */
   readonly ledger: TaskLedger;
+  /** The process's spend so far, shared across its turns: a result's share of it is the turn's. */
+  readonly spend: SpendMeter;
   readonly now: () => number;
 }
 
-export const createMapperState = (options: { readonly ledger: TaskLedger; readonly now: () => number }): MapperState => ({
+export const createMapperState = (options: { readonly ledger: TaskLedger; readonly spend: SpendMeter; readonly now: () => number }): MapperState => ({
   linked: false,
   providerSessionId: null,
   ended: false,
@@ -79,6 +83,7 @@ export const createMapperState = (options: { readonly ledger: TaskLedger; readon
   context: null,
   contextMessageId: null,
   ledger: options.ledger,
+  spend: options.spend,
   now: options.now,
 });
 
@@ -355,26 +360,6 @@ export const readRateLimit = (message: unknown): { window: string; status: "allo
   };
 };
 
-const modelUsage = (raw: unknown): ModelUsage[] => {
-  if (!isRecord(raw)) return [];
-  return Object.entries(raw).flatMap(([model, entry]): ModelUsage[] => {
-    if (!isRecord(entry) || model === "") return [];
-    const cost = entry["costUSD"];
-    const window = entry["contextWindow"];
-    return [
-      {
-        model,
-        inputTokens: count(entry["inputTokens"]),
-        outputTokens: count(entry["outputTokens"]),
-        cacheReadTokens: count(entry["cacheReadInputTokens"]),
-        cacheWriteTokens: count(entry["cacheCreationInputTokens"]),
-        costUsd: typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : null,
-        contextWindow: typeof window === "number" && Number.isInteger(window) && window > 0 ? window : null,
-      },
-    ];
-  });
-};
-
 /**
  * Closes a turn: its open tool calls cancelled, its open items settled as
  * aborted with the text they had (ADR 0022), then its one end. Nothing when
@@ -404,8 +389,9 @@ export const endTurn = (state: MapperState, end: Omit<RunEnd, "type">): AdapterE
   return events;
 };
 
-const mapResult = (message: Record_, state: MapperState): AdapterEvent[] => {
-  const usage = modelUsage(message["modelUsage"]);
+/** A result: the turn's share of the process's spend (`spend`, the reading and its share), its context window, its denials and its end. */
+const mapResult = (message: Record_, state: MapperState, spend: { readonly reading: ModelUsage[]; readonly share: ModelUsage[] }): AdapterEvent[] => {
+  const usage = spend.share;
   const succeeded = message["subtype"] === "success" && message["is_error"] !== true;
   const errors = Array.isArray(message["errors"]) ? message["errors"].filter((entry): entry is string => typeof entry === "string" && entry !== "") : [];
   const error: RunError | null = succeeded
@@ -415,7 +401,7 @@ const mapResult = (message: Record_, state: MapperState): AdapterEvent[] => {
         code: state.lastError?.code ?? text(message["terminal_reason"]) ?? text(message["subtype"]),
       };
   // The denials no frame reported come before the ending, so the host has every call's before it settles the rest.
-  const denominator = usage.find((entry) => entry.model === state.context?.model)?.contextWindow;
+  const denominator = spend.reading.find((entry) => entry.model === state.context?.model)?.contextWindow;
   const contextEvents: TranscriptEvent[] = [];
   if (state.context !== null && denominator != null && denominator !== state.context.contextWindow) {
     state.context = { ...state.context, contextWindow: denominator };
@@ -439,12 +425,14 @@ const tasksChanged = (state: MapperState): TranscriptEvent[] => (state.ledger.di
 /**
  * One SDK message as the transcript events it means for the turn `state`
  * belongs to. The ledger reads every message, ended turn or not, so work
- * that outlives a turn is known to the next; only its prompt suggestion is mapped once the
+ * that outlives a turn is known to the next, and the spend meter every result, so a result after
+ * the turn's end is not counted again by the next; only its prompt suggestion is mapped once the
  * turn has ended.
  */
 export const mapSdkMessage = (message: unknown, state: MapperState): AdapterEvent[] => {
   if (!isRecord(message)) return [];
   state.ledger.observe(message);
+  const spend = state.spend.read(message);
   if (message["type"] === "prompt_suggestion") {
     const suggestion = text(message["suggestion"]);
     if (!state.completed || state.suggested || suggestion === null || suggestion.trim() === "") return [];
@@ -481,7 +469,7 @@ export const mapSdkMessage = (message: unknown, state: MapperState): AdapterEven
       return verdict === null ? [] : [event("plan.limit", verdict)];
     }
     case "result":
-      return mapResult(message, state);
+      return spend === null ? [] : mapResult(message, state, spend);
     default:
       return [];
   }
