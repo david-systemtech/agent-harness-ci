@@ -228,6 +228,10 @@ describe("the seeds", () => {
     expect(within(picker).getByText("A theme's name is 1 to 40 characters on one line, with no white space at either end.")).toBeDefined();
     expect(ui.button("Save").disabled).toBe(true);
     expect(ui.button("Export").disabled).toBe(true);
+    await app.user.click(ui.button("More options"));
+    expect(within(picker).getByRole("alert").textContent).toContain("A theme's name is 1 to 40 characters on one line, with no white space at either end.");
+    expect(ui.button("Save").disabled).toBe(true);
+    await app.user.click(ui.button("More options"));
     await app.user.type(ui.name(), "Ember at night");
     expect(ui.button("Save").disabled).toBe(false);
   });
@@ -291,7 +295,8 @@ describe("saving", () => {
     const ui = controls(picker);
     await app.user.click(ui.radio("Ember"));
     await app.user.click(ui.button("Save"));
-    expect(await within(picker).findByText("Not saved: appearance.theme changed while it was being written.")).toBeDefined();
+    expect(await within(picker).findByText("This cannot be done right now. Wait a moment, then choose Save.")).toBeDefined();
+    expect(within(picker).queryByText(/appearance.theme changed/)).toBeNull();
     expect(within(picker).queryByText(/^Saved/)).toBeNull();
     expect(within(picker).getByText("Previewing Ember in this window: not saved on desk.")).toBeDefined();
     expect(within(picker).getByText("Default, on desk")).toBeDefined();
@@ -302,7 +307,7 @@ describe("saving", () => {
   });
 
   it("keeps custom colours after a refused Default reset and announces the refusal", async () => {
-    const app = await opened({ settings: { "appearance.theme": OLIVE }, receipts: { "settings.update": { rejected: "conflict", message: "Another edit changed the theme." } } });
+    const app = await opened({ settings: { "appearance.theme": OLIVE }, receipts: { "settings.update": { rejected: "internal", message: "disk full" } } });
     const picker = await openTheme(app);
     const ui = controls(picker);
     await app.user.click(ui.radio("Ember"));
@@ -312,7 +317,12 @@ describe("saving", () => {
     expect(themeWrites(app, "desk")).toEqual([]);
     await app.user.click(within(question).getByRole("button", { name: "Use Default" }));
     const refusal = await within(picker).findByRole("alert");
-    expect(refusal.textContent).toBe("Error: Not saved: Another edit changed the theme.");
+    expect(refusal.textContent).toBe("Error: agent-harness ran into a problem. Choose Use Default to try again.");
+    expect(within(picker).queryByText(/disk full/)).toBeNull();
+    await app.user.click(ui.button("Details"));
+    expect(within(picker).getByText(/internal: disk full/)).toBeDefined();
+    await app.user.click(ui.button("Copy details"));
+    expect(app.shell.calls.find(([member]) => member === "clipboard.writeText")?.[1]).toEqual(expect.stringContaining("internal: disk full"));
     expect(app.environment("desk").settings()["appearance.theme"]).toEqual(OLIVE);
     expect(ui.name().value).toBe("Ember");
     await paintedWith(EMBER);

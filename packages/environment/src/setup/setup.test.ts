@@ -250,15 +250,20 @@ describe("the Appearance step's check (ADR 0023; #391)", () => {
 
     // Chromas no screen shows, on two seeds: each is named once, in the seeds' order, its rule in both ladders.
     await setTheme(client, themed("Loud", { success: { hue: 150, chroma: 0.4 }, accent: { hue: 264, chroma: 0.4 } }));
-    expect((await check(client, "appearance")).reason).toBe(
-      'Some colours in Loud were adjusted so text stays readable.',
-    );
+    expect(await check(client, "appearance")).toMatchObject({
+      reason: "Some colours in Loud were adjusted so text stays readable.",
+      details: [
+        "accent (screen colour limits, Light and Dark mode)",
+        "success (screen colour limits, Light and Dark mode)",
+      ],
+    });
 
     // A tinted canvas: one seed, two rules.
     await setTheme(client, themed("Olive", { canvas: { hue: 121, chroma: 0.15 } }));
-    expect((await check(client, "appearance")).reason).toBe(
-      'Some colours in Olive were adjusted so text stays readable.',
-    );
+    expect(await check(client, "appearance")).toMatchObject({
+      reason: "Some colours in Olive were adjusted so text stays readable.",
+      details: ["canvas (screen colour limits, Light and Dark mode; visibility of controls, Light mode)"],
+    });
   });
 
   it("is done again once Restore has written the preset theme back through settings.update", async () => {

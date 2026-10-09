@@ -1,5 +1,5 @@
 import { ReadOnlyAccess } from "../connections/limited-access.js";
-import { LOCAL_PLACEHOLDER_ID, type EnvironmentView } from "@agent-harness/client-runtime";
+import { LOCAL_PLACEHOLDER_ID, plainRefusal, type EnvironmentView } from "@agent-harness/client-runtime";
 import { DEFAULT_THEME, MAX_SEED_CHROMA, THEME_SEED_NAMES, Theme, ThemeName, type ThemeSeedName } from "@agent-harness/contracts";
 import { COLOUR_NAMES, LADDERS, SEED_TOKENS, SHIPPED_THEMES, clampWords, cssVariables, derive, readThemeFile, themeFile, type DerivedTheme, type LadderName } from "@agent-harness/theme";
 import { Download, Palette, Save, SlidersHorizontal, Upload, X } from "lucide-react";
@@ -10,6 +10,8 @@ import { lackingLines, readOnlyLine, writersOf } from "../settings/generic-edito
 import { useSettingsValues } from "../settings/settings-values.js";
 import { sameTheme, usePreviewTheme } from "../theme/window-theme.js";
 import { MoreOptions } from "../setup/more-options.js";
+import { TechnicalDetails } from "../setup/details.js";
+import { useDetails } from "../setup/use-details.js";
 import { SettingsGroup } from "../settings/part.js";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter } from "../ui/dialog.js";
 import { Button, Input, Tooltip } from "../ui/index.js";
@@ -44,6 +46,7 @@ const THEME_KEYS = ["appearance.theme"] as const;
 interface Said {
   readonly refused: boolean;
   readonly line: string;
+  readonly details?: readonly string[];
 }
 
 /** A theme's file name: its name, with what a file name cannot hold made a dash. */
@@ -53,6 +56,7 @@ export const ThemePicker = ({ view, onSaved, showStatus = true }: { readonly vie
   const runtime = useRuntime();
   const shell = useShell();
   const settings = useSettingsValues(view.environmentId);
+  const details = useDetails();
   const saved = Theme.safeParse(settings.values?.["appearance.theme"]).data;
   const [candidate, setCandidate] = useState<Theme | undefined>(undefined);
   const [said, setSaid] = useState<Said | undefined>(undefined);
@@ -105,7 +109,7 @@ export const ThemePicker = ({ view, onSaved, showStatus = true }: { readonly vie
     setSaid(undefined);
     void settings.save("appearance.theme", writing).then((outcome) => {
       setSaving(false);
-      if (!outcome.ok) return setSaid({ refused: true, line: `Not saved: ${outcome.line}` });
+      if (!outcome.ok) return setSaid({ refused: true, ...(outcome.refusal === undefined ? { line: `Not saved: ${outcome.line}` } : plainRefusal(outcome.refusal, "Save")) });
       setCandidate((now) => (now === writing ? undefined : now));
       setSaid({ refused: false, line: `Saved ${writing.name} on ${on}.` });
       onSaved?.();
@@ -118,7 +122,7 @@ export const ThemePicker = ({ view, onSaved, showStatus = true }: { readonly vie
     setSaid(undefined);
     void settings.save("appearance.theme", DEFAULT_THEME).then((outcome) => {
       setSaving(false);
-      if (!outcome.ok) return setSaid({ refused: true, line: `Not saved: ${outcome.line}` });
+      if (!outcome.ok) return setSaid({ refused: true, ...(outcome.refusal === undefined ? { line: `Not saved: ${outcome.line}` } : plainRefusal(outcome.refusal, "Use Default")) });
       setCandidate(undefined);
       setSaid({ refused: false, line: `Saved Default on ${on}.` });
       onSaved?.();
@@ -160,7 +164,6 @@ export const ThemePicker = ({ view, onSaved, showStatus = true }: { readonly vie
                 <Palette aria-hidden="true" className="size-4 shrink-0 text-ink-muted" />
                 <Tooltip content="Theme name · Type to edit"><Input id={nameField} value={shown.name} disabled={!writable} onChange={(event) => edit({ ...shown, name: event.target.value })} className="min-w-0 flex-1" /></Tooltip>
               </div>
-              {!named && <p role="alert" className="text-xs text-signal"><span className="sr-only">Error: </span>A theme&apos;s name is 1 to 40 characters on one line, with no white space at either end.</p>}
               <Seeds theme={shown} disabled={!writable} change={(seed, value) => edit({ ...shown, seeds: { ...shown.seeds, [seed]: value } })} />
               <div className="flex flex-wrap gap-2">
                 <Tooltip content="Import theme" keys="Enter / Space"><Button disabled={!writable} onClick={importFile}>
@@ -181,6 +184,7 @@ export const ThemePicker = ({ view, onSaved, showStatus = true }: { readonly vie
               <X aria-hidden="true" />Cancel
             </Button></Tooltip>
           </div>
+          {!named && <p role="alert" className="text-xs text-signal"><span className="sr-only">Error: </span>A theme&apos;s name is 1 to 40 characters on one line, with no white space at either end.</p>}
           {writable && !changed && <p className="text-xs text-ink-muted">Choose a theme or customise colours before saving.</p>}
           {saving && <p role="status" className="text-sm text-ink-muted">Saving your theme…</p>}
           <input ref={filePicker} type="file" accept=".json,application/json" hidden aria-label="Theme file to import" onChange={picked} />
@@ -194,6 +198,7 @@ export const ThemePicker = ({ view, onSaved, showStatus = true }: { readonly vie
             </AlertDialogContent>
           </AlertDialog>
           {said !== undefined && <p role={said.refused ? "alert" : "status"} className={said.refused ? "text-sm text-signal" : "text-sm text-ink-muted"}>{said.refused && <span className="sr-only">Error: </span>}{said.line}</p>}
+          {said?.details !== undefined && <TechnicalDetails {...details({ computer: { name: on }, line: said.line, details: said.details })} />}
           {exporting && named && <Exported theme={shown} />}
         </>
       )}
