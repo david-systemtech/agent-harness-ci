@@ -985,7 +985,7 @@ GUI's data/actions and scopes; this table fixes the rebuilding anatomy.
 
 | Pane | Drawing and states |
 | --- | --- |
-| Set up summary | Numbered step links with aligned 6px health dots and one concise status; counts, Re-run, Open full checklist and Set up another machine, no second notice feed. |
+| Set up summary | Numbered steps, each with its state badge (health dot, icon and word), a link opening Set up at it and its whole line, never cut; counts, Check everything again, Open Set up and Set up another computer (setup-copy.md §4.5), no second notice feed. |
 | Accounts | Title action Add account; panel/hairline/lg cards, selected wash-strong, swatch/name/identity, status and plan badges, usage ring, secondary Edit/Remove. Create/edit inside body with labelled provider/name/colour/plan/directory fields only where supported by this product; adoption remains in place. Sign-in card shows verification URL, code field, fallback command/copy, pending spinner, retryable error, expiry/cancel/success. One primary action for current stage, not a primary on every provider tile. |
 | Default account and model | Staged picker §10.6 near labels; catalogue Refresh, friendly model name with mono id beneath, quick-access checkbox and supported capability badges, Use action/reason. No repeated provider prefix or catalogue jargon in primary value. Defaults remain runtime-owned. |
 | Usage | Pooled identity groups,24px rings and 4px bars, reset/time/staleness, account/environment provenance; one sign-in/unavailable sentence per identity, not repeated empty cards. Hand-off controls described under their label. |
