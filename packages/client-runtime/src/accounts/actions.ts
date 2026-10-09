@@ -23,6 +23,8 @@ export interface AccountOutcome {
   readonly ok: boolean;
   readonly line: string;
   readonly details?: readonly string[];
+  /** Adoption needs an explicit name because its email is absent or its label is already taken. */
+  readonly needsName?: boolean;
 }
 
 /** The name a new account is added under until it signs in (setup-copy.md §5.1), numbered from 2 past the names taken. */
@@ -81,7 +83,11 @@ export const adoptAccount = async (runtime: Pick<Runtime, "requests">, environme
   const problem = typed === "" ? undefined : nameProblem(typed);
   if (problem !== undefined) return { ok: false, line: problem };
   const answer = await adminCall(() => runtime.requests.call(environmentId, "accounts.adopt", { commandId, ...(typed !== "" && { label: typed }) }));
-  if (!answer.ok) return refused(answer, "Use this sign-in");
+  if (!answer.ok) {
+    const reason = answer.refusal.data?.["reason"];
+    const needsName = answer.refusal.code === "conflict" && (reason === "no_email" || reason === "label_taken");
+    return { ...refused(answer, "Use this sign-in"), ...(needsName ? { needsName: true } : {}) };
+  }
   return { ok: true, line: `${answer.result?.account.label ?? (typed === "" ? "The Claude Code sign-in" : typed)} is signed in.` };
 };
 

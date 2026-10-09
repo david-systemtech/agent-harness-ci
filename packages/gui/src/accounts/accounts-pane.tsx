@@ -53,17 +53,18 @@ export const AccountsPane = () => {
 const AccountsOn = ({ view }: { readonly view: EnvironmentView }) => {
   const runtime = useRuntime();
   const [label, setLabel] = useState("");
+  const [askedForName, askForName] = useState(false);
   const probed = runtime.capability(view.environmentId, "accounts.probe").status === "present";
   const probe = useFollowed(useMemo(() => probed ? runtime.requests.cached(view.environmentId, "accounts.probe", {}) : undefined, [runtime, view.environmentId, probed]))?.result;
   const needsName = probe?.present === true && probe.signedIn && probe.identity === null && probe.accountId === null;
   return (
     <>
       <p className="text-2xs leading-relaxed text-ink-faint">{settingsRow("accounts.accounts").hint}</p>
-      {(needsName || label !== "") && <label className="flex flex-col gap-1 text-sm text-ink-muted">
+      {(needsName || askedForName || label !== "") && <label className="flex flex-col gap-1 text-sm text-ink-muted">
         Label for the new account
         <Input data-account-name-required disabled={view.phase !== "ready" || runtime.capability(view.environmentId, "accounts.adopt").status !== "present"} value={label} onChange={event => setLabel(event.target.value)} className="w-64 max-w-full" />
       </label>}
-      <AccountsList view={view} inlineSignIn label={label} labelTaken={() => setLabel("")} />
+      <AccountsList view={view} inlineSignIn label={label} nameRequired={() => askForName(true)} labelTaken={() => { setLabel(""); askForName(false); }} />
       <StepLinks steps={CARRY_OVER} />
     </>
   );
@@ -75,6 +76,8 @@ export interface AccountsListProps {
   readonly label?: string;
   /** Empties the name typed once an account has taken it. */
   readonly labelTaken?: () => void;
+  /** Shows the name input when adoption needs a different name. */
+  readonly nameRequired?: () => void;
   readonly inlineSignIn?: boolean;
 }
 
@@ -116,7 +119,7 @@ export const SaidLine = ({ said }: { readonly said: AccountOutcome }) => (
  * per account. An account Sign in with Claude added as `Claude account` is
  * renamed to its email once it is signed in, unless a person chose or renamed its name first.
  */
-export const AccountsList = ({ view, label = "", labelTaken, inlineSignIn = false }: AccountsListProps) => {
+export const AccountsList = ({ view, label = "", labelTaken, nameRequired, inlineSignIn = false }: AccountsListProps) => {
   const runtime = useRuntime();
   const clock = useClock();
   const shell = useShell();
@@ -170,7 +173,8 @@ export const AccountsList = ({ view, label = "", labelTaken, inlineSignIn = fals
     if (typed !== "") labelTaken?.();
   };
   const adopted = (outcome: AccountOutcome) => {
-    if (outcome.ok && label.trim() !== "") labelTaken?.();
+    if (outcome.needsName) nameRequired?.();
+    if (outcome.ok) labelTaken?.();
     setSaid(outcome);
   };
 

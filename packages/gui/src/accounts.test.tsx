@@ -196,6 +196,20 @@ describe("Accounts", () => {
     expect(within(accounts).queryByRole("alert")).toBeNull();
   });
 
+  it("chooses another name in Settings when the sign-in email is already used as a label", async () => {
+    const app = await opened({ desk: { ambient: { present: true, signedIn: true, identity: MILO }, accounts: [{ label: MILO.email, identity: null }] } });
+    const desk = app.environment("desk");
+    const accounts = await openRow(app, "Accounts");
+    expect(within(accounts).queryByRole("textbox", { name: "Label for the new account" })).toBeNull();
+    await app.user.click(await within(question(accounts)).findByRole("button", { name: "Use this sign-in" }));
+    expect((await within(accounts).findByRole("alert")).textContent).toContain("Choose another name.");
+    await app.user.type(within(accounts).getByRole("textbox", { name: "Label for the new account" }), "Personal");
+    await app.user.click(within(question(accounts)).getByRole("button", { name: "Use this sign-in" }));
+    await within(accounts).findByRole("region", { name: "Personal" });
+    expect(desk.requests("accounts.adopt").map(request => request.params["label"])).toEqual([undefined, "Personal"]);
+    expect(within(accounts).queryByRole("textbox", { name: "Label for the new account" })).toBeNull();
+  });
+
   it("names a Claude Code sign-in without an email from Settings and retries its adoption", async () => {
     const app = await opened({ desk: { ambient: { present: true, signedIn: true, identity: null } } });
     const desk = app.environment("desk");

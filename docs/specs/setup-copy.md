@@ -234,7 +234,8 @@ quoted from the files named; a builder greps for them.
   `agent-harness could not read the sign-ins of {n} accounts: {labels}. Choose Check again.`
 - A new account from **Sign in with Claude** is added as `Claude account` (`Claude account 2`, …) and takes its email as its label once
   signed in, unless the person chose or renamed it (even to the same name). More options: `Label for the new account`, hint `Leave it empty to name the account by its email.`
-  Settings › Accounts shows `Label for the new account` beside the question when the computer's sign-in has no email to name it by.
+  Settings › Accounts shows `Label for the new account` beside the question when the computer's sign-in has no email to name it by,
+  or when using it is refused because its name is already taken.
 - Rows (#1842): `Email` (`Not known until it signs in`), `Status` (`Signed in` / `Signed out` / `Sign-in ran out` / `Cannot read the sign-in`);
   More options: field `Name`, **Rename**, **Remove…**; Details: `Folder: {path} (Claude Code's own, used in place)` /
   `Folder: {path} (made by agent-harness)`, `Plan: {reading}`, and for an unreadable read `Sign-in read: {error}`.
