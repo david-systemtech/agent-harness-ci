@@ -567,6 +567,24 @@ Added when the dialog was built (#1843), where the lines above did not reach the
   computer is missing.`; its copy for describing `agent-harness could not get {bank} ready to describe. Choose Describe it to try again.`
   A conversation a step does not have `This step has no conversation to start.`; its subject gone `What this conversation was for is no longer here. Choose Check again.`
 - Badges on a notebook: `Personal` / `Team`, `On` / `Off`, `On this computer only` / `On {host}`; the rest in Details. `Manifest: {state}` becomes `Description: ready / missing / has a problem / waiting for approval`.
+- Words the card needs beyond the list above (#1853; the card had them in older words, or none):
+  ready-to-go row while forges are connected but none is main, `Choose your main forge. New notebooks go there.` **Go to Forges** (§5.6's line); outside Set up **Go to Forges** opens
+  Settings › Forges. The team form's empty fields read `Enter a team name.` / `Enter a repository name.` / `Enter a first organisation.` / `Enter the first projects.`, its
+  unpicked forge and owner `Choose a forge.` / `Choose the owner from the list.`, each beside its own field; the join form's empty link `Enter a notebook link.` on **Preview**. A notebook that cannot be reached shows **Check again** beside its line on its card (it verifies that notebook), and a forge-account line always comes with **Go to Forges**. `Now describe your notebook. …` shows while the notebook has no description; once a
+  conversation exists, **Describe it** opens it again, and a conversation that ended without saving reads `Stopped`. Who describes it: `Account`, `Model`, `Effort` with
+  `No signed-in account`, `No model to choose` and `This computer's usual effort`. Try again with no conversation: `There is no conversation to continue. Choose Start again.`
+  A notebook's card: `Working on it…`; `Reading your notebooks…`; **Sync all** / **Sync** / **Turn on** / **Turn off** / **Remove**, a disabled one's reason beside it
+  (`Turn on a notebook to sync it.`, `Turn on {bank} to sync it.`); kept here `{bank} is on this computer only. Move it to your forge to use it on other computers too.`
+  **Move to your forge**, without a main forge `Choose your main forge before you move this notebook to it.` **Go to Forges**; an old copy of the rules
+  `{bank} uses an older copy of the notebook rules.` **Update the rules** (held: `Turn on {bank} first.`, `You can look at {bank} but not change it.`,
+  `An update is already waiting for your approval.`), then `The rules are up to date.` / `The rules were up to date already.`, or the saving-failed line with Details;
+  read-only `You can look at {bank} but not change it.`; off `Turn on {bank} so agents use it.`; a forge account another computer holds, beside the environment's line,
+  `Your {host} account is connected on {computer}, not here. Connect it here too.` **Go to Forges**; the review `Saved. Waiting for your approval on {host}.` (the
+  description) or the reviewed-change line above, each with **Open the review**. Remove: `Remove {bank}?` `Agents will stop using it. Its folder stays on this computer,
+  and its repository on the forge is kept.` **Cancel** · **Remove notebook**. Details: who may change it, default for, how it signs in, its folder and repository, accounts,
+  repositories, last sync, its notes and folders, the rules' version, and the description's rule with its message, missing orientation notes and unknown owners.
+  The preview's region is `Notebook preview`; its Details hold the organisations, entities, orientation, review rules and read and push access. A team notebook's
+  link to share is `Notebook link`. Every refusal is its plain line with Details (`plainRefusal` for one the environment does not word here).
 
 ### 5.9 Skills (gui/src/skills/skills-card.tsx, sources.tsx; environment/src/skills/*)
 - Title `Add ready-made skills`. Why `Skills are guides agents can follow, like reviewing code or writing tests.`
@@ -641,15 +659,16 @@ Added when the dialog was built (#1843), where the lines above did not reach the
     with `On Ubuntu or Debian` `sudo apt-get install bubblewrap socat`, `On Fedora` `sudo dnf install bubblewrap socat`, `On Arch Linux` `sudo pacman -S bubblewrap socat`;
     On macOS, a missing built-in sandbox says `This Mac is missing its built-in sandbox. Choose Off, or use a computer with a working sandbox.` (no install or restart command).
     A failed macOS probe says `macOS could not start its built-in sandbox. Check Details, then restart agent-harness to check again. If it still does not work, choose Off or use a computer with a working sandbox.`
-    with the restart command below, and no Linux package commands. The computer's reported operating system selects these cases; older reports naming Seatbelt are handled too.
+    with the restart action below, and no Linux package commands. The computer's reported operating system selects these cases; older reports naming Seatbelt are handled too.
     AppArmor `Ubuntu needs a rule that lets the sandbox start. Add it with this command.` `Add the rule` (the bwrap profile written to /etc/apparmor.d/bwrap and loaded);
     the kernel `Linux has turned off the user namespaces the sandbox needs.` `Turn them on` (a sysctl.d file, then `sudo sysctl --system`);
     a container's seccomp `The container's security profile stops the sandbox. Start the container with a seccomp profile that allows user namespaces.`;
     another failure on Linux `The sandbox did not start here. On Linux, install bubblewrap and socat; on Ubuntu, also add the rule.` with those commands;
     no mechanism `This computer has no sandbox agent-harness can use. On Windows, run agent-harness in WSL2 to use one.`; the agent `The agent this computer runs cannot use a sandbox.`;
     not probed `agent-harness has not checked the sandbox here yet.` Each that something on the computer fixes ends `Then restart agent-harness, which checks the sandbox as it starts:`
-    with `agent-harness service stop && agent-harness service start` (a container: `docker compose restart environment`) to copy, until this app can restart its service
-    (#1858: no client restarts the service yet, so **Restart agent-harness** is that command until the button exists, #1988).
+    with **Restart agent-harness** where this app can drain and start this computer's own service; while it restarts, `Restarting…`.
+    Once it is ready again, read the sandbox report and check Permissions again. A paired computer, the web, or a service this app cannot restart keeps
+    `agent-harness service stop && agent-harness service start` (a container: `docker compose restart environment`) to copy.
 - Lines: done `Set. Agents {are not sandboxed | stay inside the project folder | stay inside the project folder, offline}.` (+ ` You emptied the {section} always-ask list.`);
   sandbox unavailable `The sandbox you chose does not work on this computer yet.` **Turn the sandbox off** · fold `How to fix it` Details: the probe (`permissions.containment.default: {level}`, `Probe: {reason}`, `Cause: {cause}`, `What it printed: {detail}`);
   presets missing `Some built-in entries are missing from the {section} always-ask list.` (several: `from the {a}, {b} and {c} always-ask lists.`) **Restore them** Details: `{section}: {n} built-in entries are missing: {three} and {n} more.` or `{section}: holds none of its built-in entries, and no person emptied it.`; root as §5.4.
