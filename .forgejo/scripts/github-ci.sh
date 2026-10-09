@@ -202,18 +202,18 @@ gh_collection() {
   out=$(mktemp -p "$gl")
   while :; do
     if ! reply=$(gh_get "$api/actions/runs/$run_id/$path?per_page=100&page=$page"); then rm -f "$out"; return 1; fi
-    printf '%s\n' "$reply" >> "$out"
     if ! counts=$(printf '%s' "$reply" | python3 -c '
 import json,sys
 r=json.load(sys.stdin); rows=r.get(sys.argv[1]); total=r.get("total_count",len(rows) if isinstance(rows,list) else None)
 if not isinstance(rows,list) or len(rows)>100 or type(total) is not int or not len(rows)<=total<=1000: sys.exit(1)
-print(len(rows),total)' "$key"); then rm -f "$out"; return 1; fi
+with open(sys.argv[2],"a") as out: out.write(json.dumps(r)+"\n")
+print(len(rows),total)' "$key" "$out"); then rm -f "$out"; return 1; fi
     read -r count total <<< "$counts"
     [ "$((page * 100))" -ge "$total" ] && break
     [ "$count" -eq 100 ] || { rm -f "$out"; return 1; }
     page=$((page + 1))
   done
-  python3 -c 'import json,sys; rows=[json.loads(line)[sys.argv[2]] for line in open(sys.argv[1])]; print(json.dumps({sys.argv[2]:[item for page in rows for item in page]}))' "$out" "$key"
+  if ! python3 -c 'import json,sys; rows=[json.loads(line)[sys.argv[2]] for line in open(sys.argv[1])]; print(json.dumps({sys.argv[2]:[item for page in rows for item in page]}))' "$out" "$key"; then rm -f "$out"; return 1; fi
   rm -f "$out"
 }
 gallery_plan=

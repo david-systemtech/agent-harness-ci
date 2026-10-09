@@ -111,7 +111,7 @@ if stage == 'dispatch':
 elif stage == 'artifacts':
     rows=[] if os.environ.get('FAKE_NO_ARTIFACT')=='true' else json.loads(os.environ['FAKE_ARTIFACTS']) if os.environ.get('FAKE_ARTIFACTS') else [{'id':99,'name':'window-gallery','size_in_bytes':int(os.environ.get('FAKE_ARTIFACT_SIZE','100')),'expired':False}]
     page=int(url.split('page=')[-1]) if os.environ.get('FAKE_PAGINATION') else 1
-    out.write_text(json.dumps({'total_count':len(rows),'artifacts':rows[(page-1)*100:page*100]}))
+    out.write_text(json.dumps({'total_count':len(rows),'artifacts':rows[(page-1)*100:page*100]}, indent=2 if os.environ.get('FAKE_MULTILINE_JSON') else None))
 elif stage == 'archive':
     # Advance a held transfer clock, with no wall-clock sleep. curl's request
     # deadline decides whether the complete ZIP becomes available to publish.
@@ -142,7 +142,7 @@ elif stage == 'jobs':
                                       'steps':[{'name':'tests', 'conclusion':'failure'}]}]}))
     if os.environ.get('FAKE_PAGINATION'):
         page=int(url.split('page=')[-1]); rows=reply['jobs']; reply={'total_count':len(rows),'jobs':rows[(page-1)*100:page*100]}
-    out.write_text(json.dumps(reply))
+    out.write_text(json.dumps(reply, indent=2 if os.environ.get('FAKE_MULTILINE_JSON') else None))
 elif stage == 'contents':
     import base64
     out.write_text(json.dumps({'content':base64.b64encode(os.environ['FAKE_WORKFLOW'].encode()).decode()}))
@@ -1852,11 +1852,11 @@ it.each(["closed", "merged", "stale"])("refuses publication for a %s PR while cl
   expect(g.captures.size).toBe(0);
 });
 
-it("reads every jobs and artifact page before deciding that planned captures are complete", async () => {
+it.each(["compact", "multiline"])("reads every %s jobs and artifact page before deciding that planned captures are complete", async (format) => {
   const g = await queuedGallery();
   const jobs = [...Array.from({ length: 98 }, (_, index) => ({ id: index + 20, name: `other-${index}`, status: "completed", conclusion: "success" })), ...g.jobs];
   const artifacts = [...Array.from({ length: 98 }, (_, index) => ({ id: index + 200, name: `other-${index}`, size_in_bytes: 100 })), ...g.artifacts];
-  const result = await relay(g.f, { ...g.env, FAKE_PAGINATION: "true", FAKE_JOBS: JSON.stringify({ jobs }), FAKE_ARTIFACTS: JSON.stringify(artifacts) });
+  const result = await relay(g.f, { ...g.env, FAKE_PAGINATION: "true", FAKE_MULTILINE_JSON: format === "multiline" ? "true" : "", FAKE_JOBS: JSON.stringify({ jobs }), FAKE_ARTIFACTS: JSON.stringify(artifacts) });
   expect(result.code, result.stderr).toBe(0);
   expect(g.comments).toHaveLength(4);
   for (const stage of ["jobs", "artifacts"]) expect(apiCalls(g.f).some(call => call.stage === stage && call.args.some(arg => arg.includes("page=2")))).toBe(true);
