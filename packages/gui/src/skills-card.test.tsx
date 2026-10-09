@@ -251,8 +251,11 @@ describe("the Skills card's lines and actions", () => {
     expect(within(card()).getByText("team/procedures (skills) was removed to make room for its new folders.")).toBeDefined();
   });
 
-  it("at the limit, a refused add after others were added says those were added before the moved collection's removal", async () => {
-    const { app } = await refusedAtLimit({ folders: ["agents", "tools"], refused: 1 });
+  it("at the limit, a refused retry keeps saying the folders already added before the moved collection's removal, after Cancel", async () => {
+    const { app, desk } = await refusedAtLimit({ folders: ["agents", "tools"], refused: 1 });
+    desk.wire.answer("skills.sources.add", () => ({ error: { code: "conflict", message: "You can follow up to 20 collections. Remove one first.", data: { reason: "source_limit" } } }));
+    await app.user.click(within(card()).getByRole("button", { name: "Add selected" }));
+    expect(await within(card()).findByText("You can follow up to 20 collections. Remove one first.")).toBeDefined();
     await app.user.click(within(card()).getByRole("button", { name: "Cancel" }));
     expect(within(card()).getByText("Added team/procedures (agents). team/procedures (skills) was removed to make room for its new folders.")).toBeDefined();
   });

@@ -149,6 +149,8 @@ export const FoundFolders = ({ environmentId, url, replacing, done, partly }: {
   const { send, sending, refusal, commandId } = useCollectionVerb();
   // Set once the moved collection is removed, so a retry after a refused add never removes it again.
   const removed = useRef(false);
+  // Keep accepted folders for this panel, so a refused retry still says what earlier attempts added.
+  const added = useRef<string[]>([]);
   const choosingAgain = replacing !== undefined;
   useEffect(() => {
     // Choosing again reads the repository as it is now, never a look kept from before: once, so not
@@ -179,8 +181,7 @@ export const FoundFolders = ({ environmentId, url, replacing, done, partly }: {
     // A refused add after that leaves it removed: its folder is gone from the branch, so it cannot be added back.
     const first = replacing !== undefined && replacing.followed + chosen.length > SKILL_SOURCE_LIMIT;
     if (first && !(await remove())) return;
-    const added: string[] = [];
-    const addedLines = () => added.map((name) => `Added ${name}.`);
+    const addedLines = () => added.current.map((name) => `Added ${name}.`);
     const stopped = () => {
       const lines = [...addedLines(), ...(replacing !== undefined && removed.current ? [`${skillCollectionName(replacing.source, CATALOGUE.skills)} was removed to make room for its new folders.`] : [])];
       if (lines.length > 0) partly(lines.join(" "));
@@ -195,7 +196,7 @@ export const FoundFolders = ({ environmentId, url, replacing, done, partly }: {
         stopped();
         return;
       }
-      added.push(skillCollectionName({ identity: probe.identity, folder }, CATALOGUE.skills));
+      added.current.push(skillCollectionName({ identity: probe.identity, folder }, CATALOGUE.skills));
       choose((held) => held.filter((value) => value !== folder));
     }
     if (!first && !(await remove())) {
