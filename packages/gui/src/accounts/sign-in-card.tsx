@@ -331,7 +331,7 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
               <Input value={typed} onChange={(event) => setTyped(event.target.value)} autoFocus />
             </label>
             <p className="text-xs text-ink-faint">The email it signs in as makes a good label.</p>
-            {error !== null && <p role="alert" className="text-xs text-signal">{error}</p>}
+            {error !== null && <p role="alert" className="text-xs text-signal"><span className="sr-only">Error: </span>{error}</p>}
             <div className="flex justify-end gap-2">
               <AccountAction icon={X} onClick={leave}>Cancel</AccountAction>
               <AccountAction icon={Plus} variant="default" type="submit">
