@@ -548,6 +548,7 @@ jobs:
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-update-disk.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-provider-sign-in.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-terminal-state.mjs').Path -Destination (Join-Path $work 'scripts')
+            Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-bank-describe.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/stop-windows-process-tree.ps1').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/windows-smoke-diagnostics.ps1').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/install.ps1').Path -Destination (Join-Path $work 'install.ps1')
@@ -679,6 +680,8 @@ jobs:
             Wait-Ready 'launcher-entry version check (#1382) and launcher start'
             & $node scripts/check-packaged-terminal-state.mjs $server $dataDir
             if ($LASTEXITCODE -ne 0) { throw 'Packaged terminal state and CLI listing check failed' }
+            & $node scripts/check-packaged-bank-describe.mjs $server
+            if ($LASTEXITCODE -ne 0) { throw 'Packaged local-only bank describe check failed' }
             if ((Test-Path $serviceLog) -and (Select-String -LiteralPath $serviceLog -SimpleMatch 'names no version' -Quiet)) {
               throw 'launcher-entry version check (#1382): service log holds "names no version"'
             }
