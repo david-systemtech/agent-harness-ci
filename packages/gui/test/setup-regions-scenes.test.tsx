@@ -54,8 +54,9 @@ it.each(["light", "dark"] as const)("shows six bounded setup regions in %s", asy
       expect(after.getByText("Your skills now live in agent-harness. Edit them there.")).toBeDefined();
     }
     if (name === "setup-bank-preview") {
-      const preview = screen.getByRole("region", { name: "Bank preview" });
-      for (const heading of ["Organisations", "Projects", "Entities", "Orientation", "Access and review"]) expect(within(preview).getByRole("heading", { name: heading })).toBeDefined();
+      const preview = screen.getByRole("region", { name: "Notebook preview" });
+      for (const heading of ["team-memory: Project agreements and useful discoveries.", "Owners", "Projects"]) expect(within(preview).getByRole("heading", { name: heading })).toBeDefined();
+      expect(within(preview).getByText("Shared with the team: no personal facts, no secrets.")).toBeDefined();
     }
     if (name === "setup-authoring") {
       const conversation = screen.getByRole("region", { name: "Authoring conversation" });

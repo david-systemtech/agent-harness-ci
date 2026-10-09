@@ -2,6 +2,7 @@ import { ExternalLink, RefreshCw, Network, Radio, RotateCw, type LucideIcon } fr
 import type { EnvironmentView } from "@agent-harness/client-runtime";
 import type { EnvironmentBinding, SettingsKey } from "@agent-harness/contracts";
 import { useId, useMemo, useState, type ComponentProps, type ReactNode } from "react";
+import type { ServiceRestart } from "../connections/service-restart.js";
 import { nameOf } from "../connections/words.js";
 import { useSettingsValues } from "../settings/settings-values.js";
 import { Button, Select, Switch } from "../ui/index.js";
@@ -235,14 +236,6 @@ const VERDICT_WORDS: Readonly<Record<ReachVerdict, string>> = {
 /** What Windows asks once, before the first start that uses Tailscale or the Wi-Fi network (#1910), in Set up's words. */
 const FIREWALL_WORDS = "Windows asks once whether Node.js may accept connections. Keep Private networks ticked and choose Allow access.";
 
-/** Restarting the computer's agent-harness from this app, where its service can restart: none for a paired computer. */
-export interface Restart {
-  readonly restarting: boolean;
-  readonly start: () => void;
-  /** What stopped the last restart, as a notice. */
-  readonly failure: ReactNode;
-}
-
 /**
  * The reach verdict of Set up's Your machines step (setup-copy.md §5.4,
  * #1846), from `environment.status` in the request cache: one line, with
@@ -253,7 +246,7 @@ export interface Restart {
  * Windows, what its firewall asks once. A region of its own, under the
  * question, while "Also from my other devices" is chosen.
  */
-export const ReachVerdictLine = ({ view, restart }: { readonly view: EnvironmentView; readonly restart: Restart | undefined }) => {
+export const ReachVerdictLine = ({ view, restart }: { readonly view: EnvironmentView; readonly restart: ServiceRestart | undefined }) => {
   const runtime = useRuntime();
   const shell = useShell();
   const { environmentId } = view;
@@ -278,7 +271,7 @@ export const ReachVerdictLine = ({ view, restart }: { readonly view: Environment
                 <Button variant="default" onClick={download} title="Get Tailscale (Enter or Space)"><ExternalLink aria-hidden="true" data-icon="inline-start" />Get Tailscale</Button>
               )}
               {verdict === "needs-restart" && restart !== undefined && (
-                <Button variant="default" disabled={!ready} onClick={restart.start} title="Restart agent-harness (Enter or Space)"><RotateCw aria-hidden="true" data-icon="inline-start" />Restart agent-harness</Button>
+                <Button variant="default" disabled={restart.disabled} onClick={restart.start} title="Restart agent-harness (Enter or Space)"><RotateCw aria-hidden="true" data-icon="inline-start" />Restart agent-harness</Button>
               )}
               {verdict !== "reachable" && (
                 <Button disabled={!ready} onClick={recheck} title="Check again (Enter or Space)"><RefreshCw aria-hidden="true" data-icon="inline-start" />Check again</Button>
