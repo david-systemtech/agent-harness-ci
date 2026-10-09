@@ -51,6 +51,33 @@ it("captures Your machines' never-polled container line with the host updater's 
   } finally { view.unmount(); }
 });
 
+// setup-copy.md §5.11: the Browser card before anything is done, at step 5 with its code, and with its Chrome closed (#1857).
+it("captures the Browser card's steps 1 to 4 with no code, step 5 with its code, and a closed Chrome with no Unpair beside its line", async () => {
+  for (const [kind, check] of [
+    ["browser-step-1", async (card: HTMLElement) => {
+      await within(card).findByText("/extension/current");
+      expect(within(card).getByRole("img", { name: "Step 1: not done yet" })).toBeDefined();
+      expect(within(card).queryByRole("textbox", { name: "Pairing code" })).toBeNull();
+    }],
+    ["browser-code", async (card: HTMLElement) => {
+      expect(((await within(card).findByRole("textbox", { name: "Pairing code" })) as HTMLInputElement).value).toBe("TEST2345");
+      expect(within(card).getByRole("timer").textContent).toBe("5 min left");
+      expect(within(card).getByText("Chrome found the extension.")).toBeDefined();
+    }],
+    ["browser-closed", async (card: HTMLElement) => {
+      expect(await within(card).findByText("Chrome is closed, so agents cannot use it. Open Chrome. This updates by itself.")).toBeDefined();
+      await within(card).findByRole("img", { name: "Step 5: done" });
+      expect(within(card).queryByRole("button", { name: /Unpair/ })).toBeNull();
+    }],
+  ] as const) {
+    const Scene = setupRegionScene(kind);
+    const view = render(<Scene ladder="dark" />);
+    try {
+      await check(await screen.findByRole("region", { name: "Browser" }));
+    } finally { view.unmount(); }
+  }
+});
+
 // setup-copy.md §5.10: the Instructions card's Your note, Suggestions and fold, and its unread line with Go to each step (#1856).
 it("captures the Instructions card with Your note, Suggestions and Write your own, and its unread line naming the steps with Go to each", async () => {
   const Scene = setupRegionScene("instructions");

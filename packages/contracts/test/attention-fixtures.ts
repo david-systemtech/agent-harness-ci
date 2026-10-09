@@ -10,8 +10,15 @@ export const attentionSchemaFixtures = {
   "attention/target-status.json": { valid: [status, { ...status, transport: "webhook", webhookEndpoint: "phone-attention", global: true }], invalid: [{ ...status, state: "unknown" }, { ...status, transport: "webhook", webhookEndpoint: "https://receiver.example/attention" }] },
 };
 export const attentionMethodFixtures = {
+  "attention.routes.remove": {
+    params: { valid: [{ commandId, id: "target-1" }], invalid: [{ commandId, id: "" }] },
+    result: {
+      valid: [{ id: "target-1" }, { id: "target-1", endpoint: { name: "phone-attention", state: "removed", secretKind: "reference" } }, { id: "target-1", endpoint: { name: "phone-attention", state: "removed", secretKind: "missing" } }, { id: "target-1", endpoint: { name: "phone-attention", state: "removed", secretKind: "pasted" } }, { id: "target-1", endpoint: { name: "phone-attention", state: "retained" } }, { id: "target-1", endpoint: { name: "phone-attention", state: "missing" } }],
+      invalid: [{ id: "target-1", endpoint: { name: "phone-attention", state: "removed", secretKind: "unknown" } }, {}, { id: "target-1", endpoint: { name: "phone-attention", state: "unknown" } }, { id: "target-1", endpoint: { name: "https://receiver.example/attention", state: "removed" } }],
+    },
+  },
   "attention.targets.list": { params: { valid: [{}], invalid: [[]] }, result: { valid: [{ targets: [status] }, { targets: [] }], invalid: [{ targets: [{}] }] } },
   ...Object.fromEntries(["attention.targets.set", "attention.routes.set"].map(name => [name, { params: { valid: [{ commandId, target }, { commandId, target: atLimit }], invalid: [{ commandId, target: {} }, { commandId, target: overLimit }] }, result: { valid: [{ id: "target-1" }], invalid: [{}] } }])),
   ...Object.fromEntries(["attention.targets.configure", "attention.routes.configure"].map(name => [name, { params: { valid: [{ commandId, id: "target-1", enabled: false, completion: false }], invalid: [{ commandId, id: "target-1" }] }, result: { valid: [{ id: "target-1" }], invalid: [{}] } }])),
-  ...Object.fromEntries(["attention.targets.remove", "attention.routes.remove"].map(name => [name, { params: { valid: [{ commandId, id: "target-1" }], invalid: [{ commandId, id: "" }] }, result: { valid: [{ id: "target-1" }], invalid: [{}] } }])),
+  ...Object.fromEntries(["attention.targets.remove"].map(name => [name, { params: { valid: [{ commandId, id: "target-1" }], invalid: [{ commandId, id: "" }] }, result: { valid: [{ id: "target-1" }], invalid: [{}] } }])),
 };

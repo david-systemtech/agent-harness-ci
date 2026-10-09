@@ -1,4 +1,5 @@
 import type { Ceiling, Scope, EventEnvelope } from "@agent-harness/contracts";
+import type { ConnectionKind } from "../connections/records.js";
 import type { Runtime } from "../runtime.js";
 import { adminCall } from "../status/actions.js";
 import type { ClientSessionSummary } from "./words.js";
@@ -51,10 +52,26 @@ export const setSessionAccess = async (
   return answer.ok ? { ok: true, line: `Changed ${session.label}'s access: its connections reconnect with the new grant, without pairing again.` } : { ok: false, line: `Not changed: ${answer.line}` };
 };
 
-/** Revokes a client session (`access.sessions.revoke`): its sockets close and its token is refused from then on. */
-export const revokeSession = async (runtime: Pick<Runtime, "requests">, environmentId: string, session: Pick<ClientSessionSummary, "id" | "label">, commandId: string): Promise<AccessOutcome> => {
-  const answer = await adminCall(() => runtime.requests.call(environmentId, "access.sessions.revoke", { commandId, clientSessionId: session.id }));
-  return answer.ok ? { ok: true, line: `Revoked ${session.label}: its token is refused from now on.` } : { ok: false, line: `Not revoked: ${answer.line}` };
+/**
+ * Revokes a client session (`access.sessions.revoke`): its sockets close and
+ * its token is refused from then on. `own` is this client's own connection's
+ * kind when the session is its own, whose sockets the environment closes with
+ * `bye: revoked` as the revoke commits, so that close before the answer is
+ * the revocation done (#1962); its line says how this window reaches the
+ * environment again, as the connection's block does.
+ */
+export const revokeSession = async (
+  runtime: Pick<Runtime, "requests">,
+  environmentId: string,
+  session: Pick<ClientSessionSummary, "id" | "label">,
+  commandId: string,
+  own?: ConnectionKind,
+): Promise<AccessOutcome> => {
+  const revoked = own === undefined ? `Revoked ${session.label}: its token is refused from now on.` : `Revoked this client. ${own === "local" ? "Try again" : "Pair again"} to reconnect.`;
+  const sent = await runtime.requests.call(environmentId, "access.sessions.revoke", { commandId, clientSessionId: session.id });
+  if (own !== undefined && !sent.ok && sent.error.bye === "revoked") return { ok: true, line: revoked };
+  const answer = await adminCall(async () => sent);
+  return answer.ok ? { ok: true, line: revoked } : { ok: false, line: `Not revoked: ${answer.line}` };
 };
 
 /** How many events one `access.log.list` asks for: the most it answers. */

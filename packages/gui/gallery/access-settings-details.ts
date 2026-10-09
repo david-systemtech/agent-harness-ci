@@ -29,8 +29,8 @@ const denylist = (name: string): AccessSettingsDetail => {
 
 export const accessSettingsDetails = {
   pairing: {
-    row: "access.browser", pairing: true, anchor: 'section[aria-label="Pair"]',
-    visible: ['section[aria-label="Pair"]'],
+    row: "access.browser", pairing: true, anchor: '[data-browser-step="5"]',
+    visible: ['[data-browser-step="5"]'],
     controls: [{ selector: 'input[aria-label="Pairing code"]', width: 192, height: 32 }],
   },
   policy: {

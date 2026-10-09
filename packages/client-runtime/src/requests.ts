@@ -7,6 +7,7 @@ import {
   isCommand,
   isMethodName,
   registry,
+  type ByeReason,
   type MethodName,
   type ParamsOf,
   type Registry,
@@ -16,6 +17,7 @@ import {
   type Scope,
 } from "@agent-harness/contracts";
 import type { AbsentReason, CapabilityAnswer } from "./capabilities.js";
+import { SocketClosedError } from "./connections/connection.js";
 import type { ConnectionRecord } from "./connections/records.js";
 import { writable, type Observable, type Writable } from "./observable.js";
 import type { Clock, Timer } from "./platform.js";
@@ -66,6 +68,8 @@ export interface RequestFailure {
   readonly message: string;
   /** The environment's structured `data`, when the failure is its error. */
   readonly data?: Record<string, unknown>;
+  /** The environment's `bye`, when the socket closed with one before it answered: a revocation of this client's own session closes it so (#1962). */
+  readonly bye?: ByeReason;
 }
 
 /** A query's result as it is; a command's receipt beside its result (`ResponseOf`). */
@@ -126,8 +130,8 @@ export interface RequestsHost {
   request(environmentId: string, method: string, params: Record<string, unknown>): Promise<ResponseFrame>;
 }
 
-const failed = (code: RequestFailureCode, message: string, data?: Record<string, unknown>) =>
-  ({ ok: false, error: { code, message, ...(data && { data }) } }) as const;
+const failed = (code: RequestFailureCode, message: string, data?: Record<string, unknown>, bye?: ByeReason) =>
+  ({ ok: false, error: { code, message, ...(data && { data }), ...(bye && { bye }) } }) as const;
 
 export const createRequests = (host: RequestsHost): Pick<Requests, "call"> => ({
   async call<N extends MethodName>(environmentId: string, method: N, params: ParamsOf<N>): Promise<RequestAnswer<N>> {
@@ -147,7 +151,7 @@ export const createRequests = (host: RequestsHost): Pick<Requests, "call"> => ({
     try {
       response = await Promise.race([host.request(environmentId, method, checked.data as Record<string, unknown>), timeout]);
     } catch (error) {
-      return failed("unreachable", error instanceof Error ? error.message : String(error));
+      return failed("unreachable", error instanceof Error ? error.message : String(error), undefined, error instanceof SocketClosedError ? error.closed.bye?.reason : undefined);
     } finally {
       timer?.cancel();
     }

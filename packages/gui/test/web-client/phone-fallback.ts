@@ -41,10 +41,7 @@ export async function phoneFallback(environment: TestEnvironment) {
     },
     close: async (): Promise<void> => {
       try { await admin.apply("attention.routes.remove", { commandId: randomUUID(), id: name }); }
-      finally {
-        try { await admin.apply("routines.endpoints.remove", { commandId: randomUUID(), name }); }
-        finally { await admin.close(); await receiver.close(); }
-      }
+      finally { await admin.close(); await receiver.close(); }
     },
   };
 }

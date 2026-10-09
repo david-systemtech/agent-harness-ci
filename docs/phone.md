@@ -240,6 +240,16 @@ takes the new route away again. A name another endpoint already has, such as
 a routine's, is refused rather than replaced, and adding a route's own name
 again replaces its URL and secret, which finishes a route left disabled.
 
+To remove the fallback completely, tap **Remove** on its global route in
+**Settings → Attention**. The environment removes that route and, when no
+routine or other attention route names its endpoint, the named endpoint and
+its saved signing secret too. The confirmation remains visible after the
+row disappears and says what was removed. If a routine (even a disabled one)
+or another route still names it, the confirmation says the endpoint and
+secret were kept. For complete cleanup of a shared endpoint, remove its
+uses in routines and other routes before removing the final global route. An endpoint backed by a key-manager reference loses its
+reference here; the external secret itself stays in the key manager.
+
 There is no `agent-harness attention` CLI verb. A script can make the same
 two calls over the authenticated wire with an admin token:
 

@@ -126,6 +126,8 @@ interface StepStatusProps extends StepCardProps {
   readonly handledActions?: readonly SetupAction[];
   /** A card with its own tool terminal draws the named action's run there too. */
   readonly toolStarted?: (run: ShownRun) => void;
+  /** Facts the card adds to the result's Details beneath its raw words (the Browser card's extension folder and listening address). */
+  readonly facts?: readonly string[];
 }
 
 /** A check this client met itself unable to reach the environment: the reach line says that, so the step does not say it twice. */
@@ -149,7 +151,7 @@ const unreachable = (refusal: RefusedAnswer): boolean => refusal.code === "unrea
  * card says. Sign in again opens the sign-in card over it. It is the whole
  * of the fallback card, and the head of a registered one.
  */
-export const StepStatus = ({ environmentId, step, restore, actions, cardAction, handledActions = [], toolStarted }: StepStatusProps) => {
+export const StepStatus = ({ environmentId, step, restore, actions, cardAction, handledActions = [], toolStarted, facts = [] }: StepStatusProps) => {
   const runtime = useRuntime();
   const { leave } = useChecklist();
   const details = useDetails();
@@ -233,7 +235,7 @@ export const StepStatus = ({ environmentId, step, restore, actions, cardAction, 
             title={line}
             {...(note !== undefined && { description: note })}
             actions={<>{named}{refusal === undefined && checkAgain}</>}
-            details={details({ ...report, checkedAt: result.checkedAt, line, failing: result.failing, details: result.details ?? [] })}
+            details={details({ ...report, checkedAt: result.checkedAt, line, failing: result.failing, details: [...(result.details ?? []), ...facts] })}
           />
         ) : (
           <>
@@ -242,7 +244,7 @@ export const StepStatus = ({ environmentId, step, restore, actions, cardAction, 
           </>
         )}
         {result?.lastGood !== undefined && <p className="text-sm text-ink-muted">{lastGoodWords(result.lastGood, now)}</p>}
-        {!fix && result !== null && !step.pending && <TechnicalDetails {...details({ ...report, checkedAt: result.checkedAt, line, failing: result.failing, details: result.details ?? [] })} />}
+        {!fix && result !== null && !step.pending && <TechnicalDetails {...details({ ...report, checkedAt: result.checkedAt, line, failing: result.failing, details: [...(result.details ?? []), ...facts] })} />}
         {!fix && <div className="flex flex-wrap gap-2">{named}{refusal === undefined && checkAgain}</div>}
         {reasons.map((reason) => <p key={reason} className="text-sm text-ink-faint">{reason}</p>)}
         {refusal !== undefined && (
