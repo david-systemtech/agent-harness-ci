@@ -44,7 +44,7 @@ export const SetupPane = () => {
   const picked = usePickedEnvironment();
   const view = useSetupView(picked?.environmentId);
   useCheckOnOpen(picked?.environmentId);
-  const { open: openChecklist } = useChecklist();
+  const { open: openChecklist, openChecked } = useChecklist();
   const { open: openRow } = useSettings();
   const details = useDetails();
   /** The environments a Check everything again is running on, and what the last one on each found. */
@@ -74,7 +74,7 @@ export const SetupPane = () => {
     if (!answer.ok) return found({ passed: false, refusal: answer.error });
     const { counts } = runtime.projections.setup(environmentId).read();
     const first = counts.attention[0];
-    if (first !== undefined) openChecklist(first);
+    if (first !== undefined) openChecked(first, environmentId);
     else if (allPass(counts)) found({ passed: true });
   };
 
