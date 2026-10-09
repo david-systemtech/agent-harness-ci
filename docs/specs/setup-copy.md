@@ -276,6 +276,9 @@ Added when the dialog was built (#1843), where the lines above did not reach the
   Details (`Details:` the environment's own words). The footer's **Cancel the sign-in** becomes **Close**, which says nothing
   more where the dialog was opened. A code agent-harness refused before the CLI saw it ends the sign-in that waited for it, and
   Start again signs the same account in afresh.
+- A code that got no answer (no answer in time, a lost link: a failure the app met itself, not agent-harness's refusal) does not
+  end the sign-in, since agent-harness may already be checking it: the dialog stays on its steps with the mapper's line by
+  the code field (§3 patterns), and follows the sign-in to its end.
 - When the account was removed: `The sign-in stopped because {label} was removed.` (no Start again; an information notice).
 - `{m}` in `{m} min left` is whole minutes rounded up; from one minute down it reads `Less than a minute left.`
 - A start refused without the holder's name (an older agent-harness): `Another sign-in is running. Finish or cancel it first.`

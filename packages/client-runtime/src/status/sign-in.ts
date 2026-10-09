@@ -176,7 +176,7 @@ export const startSignIn = async (
   return { ok: true, startedAt: answer.result?.signIn.startedAt ?? null };
 };
 
-/** Sends the code the sign-in page showed, trimmed as the environment asks (`accounts.signin.code`); undefined once taken, else how the refusal ends the attempt. */
+/** Sends the code the sign-in page showed, trimmed as the environment asks (`accounts.signin.code`): taken, the environment's refusal with how it ends the attempt, or no answer, with the line said by the field while the sign-in goes on. */
 export const sendSignInCode = async (runtime: Runtime, environmentId: string, accountId: string, code: string, commandId: string): Promise<CodeSent> => {
   const answer: AdminOutcome<"accounts.signin.code"> = await adminCall(() => runtime.requests.call(environmentId, "accounts.signin.code", { commandId, accountId, code: code.trim() }));
   return answer.ok ? { kind: "taken" } : codeRefused(answer.refusal);
