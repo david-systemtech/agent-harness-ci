@@ -70,7 +70,6 @@ import {
   savedTokenUnreadable,
   siteOf,
   tokenOfOther,
-  tokenRefused,
   tokenRefusedAtAdd,
   unreachableAtAdd,
 } from "./lines.js";
@@ -1023,7 +1022,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
         case "done":
           return { owners: answer.value };
         case "failed": {
-          const message = answer.status === 401 ? adviceLine(tokenRefused(siteOf(origin), account.identity?.login ?? null)) : cannotListOrganisations(siteOf(origin));
+          const message = cannotListOrganisations(siteOf(origin));
           throw new ContractError({ code: "verification_failed", message, data: { origin, status: answer.status, details: [answer.message] } });
         }
         case "unreachable":
