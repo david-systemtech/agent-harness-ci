@@ -23,8 +23,11 @@ include("agent-harness");
 include("@agent-harness/gui");
 
 function imageInput(path) {
-  // Tests and gallery fixtures are never compiled into the environment or web bundle.
-  if (/(^|\/)(test|tests|gallery|__tests__)(\/|$)|\.(test|spec)\.[^/]+$/.test(path)) return false;
+  // GUI text is scanned by Tailwind, including tests and gallery scenes.
+  // PNG captures are binary and cannot contribute CSS candidates.
+  if (/(^|\/)(test|tests|gallery|__tests__)(\/|$)|\.(test|spec)\.[^/]+$/.test(path)) {
+    return path.startsWith("packages/gui/") && !path.endsWith(".png");
+  }
   if (/^packages\/[^/]+\/package\.json$/.test(path)) return true; // pnpm installs every workspace manifest.
   if (/^packages\//.test(path)) return inputs.has(path.split("/")[1]);
   return /^(Dockerfile|\.dockerignore|package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.npmrc|tsconfig[^/]*\.json)$/.test(path)

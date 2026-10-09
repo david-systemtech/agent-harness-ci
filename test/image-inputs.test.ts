@@ -1,12 +1,18 @@
 /** PR image selection against real merge bases; no image, daemon or network is used. */
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 
 const root = join(import.meta.dirname, "..");
 const script = join(root, ".forgejo/scripts/image-inputs.mjs");
+// Use the compiler and scanner installed with the GUI's Vite plugin.
+const guiRequire = createRequire(join(root, "packages/gui/package.json"));
+const tailwindRequire = createRequire(guiRequire.resolve("@tailwindcss/vite"));
+const { compile }: { compile: (css: string, options: { base: string; onDependency: (path: string) => void }) => Promise<{ build: (candidates: string[]) => string }> } = tailwindRequire("@tailwindcss/node");
+const { Scanner }: { Scanner: new (options: { sources: { base: string; pattern: string; negated: boolean }[] }) => { scan: () => string[] } } = tailwindRequire("@tailwindcss/oxide");
 const cleanups: string[] = [];
 afterEach(() => { for (const path of cleanups.splice(0)) rmSync(path, { recursive: true, force: true }); });
 
@@ -59,6 +65,22 @@ it("builds when an environment source file changes", () => {
 });
 
 it.each([
+  "packages/gui/gallery/scene.tsx", "packages/gui/src/setup/Setup.test.tsx", "packages/gui/test/harness.tsx",
+])("builds for GUI text that changes the production Tailwind CSS: %s", async path => {
+  const f = fixture();
+  f.write(path, '<div className="h-[741px]" />');
+  f.commit();
+  const guiSource = join(root, "packages/gui/src");
+  const compiler = await compile(readFileSync(join(guiSource, "styles.css"), "utf8"), { base: guiSource, onDependency: () => {} });
+  const before = compiler.build([]);
+  const scanner = new Scanner({ sources: [{ base: join(f.cwd, "packages/gui"), pattern: "**/*", negated: false }] });
+  const css = compiler.build(scanner.scan());
+  expect(css).toContain("height: 741px;");
+  expect(css).not.toBe(before);
+  expect(f.decide().output).toBe("build=true\n");
+});
+
+it.each([
   "Dockerfile", ".dockerignore", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", "tsconfig.base.json",
   "packages/contracts/src/events.ts", "packages/filesystem/src/index.ts", "packages/browser/src/index.ts",
   "packages/theme/src/index.ts", "packages/client-runtime/src/index.ts", "packages/tui/src/index.ts", "packages/cli/src/main.ts",
@@ -73,9 +95,9 @@ it.each([
   expect(f.decide().output).toBe("build=true\n");
 });
 
-it("skips GUI tests and gallery-only changes along with desktop code and docs", () => {
+it("skips PNG gallery captures, non-GUI tests, desktop code and docs", () => {
   const f = fixture();
-  for (const path of ["packages/gui/src/setup/Setup.test.tsx", "packages/gui/test/harness.tsx", "packages/gui/gallery/baselines/window.png", "packages/desktop/src/main.ts", "packages/environment/src/serve/server.test.ts", "test/container.test.ts", "scripts/gallery-accept.sh", "docs/agents/gallery.md"]) f.write(path);
+  for (const path of ["packages/gui/gallery/baselines/window.png", "packages/desktop/src/main.ts", "packages/environment/src/serve/server.test.ts", "test/container.test.ts", "scripts/gallery-accept.sh", "docs/agents/gallery.md"]) f.write(path);
   f.commit();
   expect(f.decide().output).toBe("build=false\n");
 });

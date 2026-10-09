@@ -9,8 +9,9 @@
 #
 # Compare the complete PR head with its merge base against origin/main.
 # CLI/environment dependencies, the staged GUI, container/build/release inputs
-# and manifests require a build; tests, gallery captures, desktop code and docs
-# skip it. The PR label `image` forces a build (including when added later).
+# and manifests require a build. GUI tests and gallery text are Tailwind CSS
+# inputs too; other tests, PNG gallery captures, desktop code and docs skip it.
+# The PR label `image` forces a build (including when added later).
 # Only the build step is conditional: a skip still succeeds as `image / image`
 # and prints "no image input changed: build skipped". Releases and main's smoke
 # builds are unconditional. See docs/agents/gallery.md beside the gallery rule.

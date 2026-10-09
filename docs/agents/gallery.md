@@ -13,10 +13,13 @@ CLI/environment workspace dependencies, the GUI bundle staged into the image,
 container/build scripts, compose and release inputs, root build configuration
 or workspace manifests and lockfiles. The dependency set is read from the
 workspace manifests so a new workspace dependency is included automatically.
-Tests, gallery scenes and baselines, desktop source and docs skip the build;
+Non-GUI tests, PNG gallery captures, desktop source and docs skip the build;
 the job still succeeds with `no image input changed: build skipped`.
 GUI source, web assets and wizard copy currently enter the image through the
 Dockerfile's GUI build and staging step, so they require an image build.
+GUI tests and gallery text require a build too: Tailwind scans those files
+for utility classes that can change the staged production CSS. PNG captures are
+binary and do not contribute utility classes.
 
 Add the PR label `image` to force a build, including on a head whose check
 already skipped. Other labels neither launch nor cancel an image build.
