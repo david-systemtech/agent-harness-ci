@@ -1,5 +1,8 @@
 import type { SceneGeometry } from "./scene-registry.js";
 
+/** A pane's card stays at its origin whatever its contents reveal: a tall card answered, a run stopped (#1948). */
+export const PANE_CARD_UNSCROLLABLE: SceneGeometry = { selector: "[data-grid-card]", unscrollable: true };
+
 /** Executed in the capture page; keep this function independent of imported runtime values. */
 export function measureSceneGeometry(): string[] {
   const checks: readonly SceneGeometry[] = JSON.parse(document.getElementById("root")?.dataset["galleryGeometry"] ?? "[]");
@@ -45,6 +48,9 @@ export function measureSceneGeometry(): string[] {
       if (check.sameHeight === true && index > 0) {
         const first = elements[0]!.getBoundingClientRect().height;
         if (Math.abs(rect.height - first) > (check.tolerance ?? 0.5)) visibility.push(`${check.selector}[${index}].height: got ${rect.height}, expected ${first} like ${check.selector}[0] ±${check.tolerance ?? 0.5}`);
+      }
+      if (check.unscrollable === true && [style.overflowX, style.overflowY].some(overflow => overflow !== "visible" && overflow !== "clip")) {
+        visibility.push(`${check.selector}[${index}]: scrolls (overflow ${style.overflowX} ${style.overflowY}); a revealed control can move it off its origin`);
       }
       if (check.minimumTop !== undefined && rect.top < check.minimumTop - (check.tolerance ?? 0.5)) {
         visibility.push(`${check.selector}[${index}].top: got ${rect.top}, expected at least ${check.minimumTop}`);
