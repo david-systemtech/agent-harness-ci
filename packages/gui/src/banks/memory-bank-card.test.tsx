@@ -1,4 +1,4 @@
-import { oneLine, settingsDeepLink } from "@agent-harness/client-runtime";
+import { settingsDeepLink } from "@agent-harness/client-runtime";
 import type { BankRecord } from "@agent-harness/contracts";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { expect, it } from "vitest";
@@ -35,7 +35,8 @@ const cardOf = async (bank: BankRecord, forges: { readonly origin: string; reado
 
 it("keeps a landing refused for want of a forge account, with its fix, while no forge account covers the bank's origin", async () => {
   const card = await cardOf(team, []);
-  expect(within(card).getByText(oneLine(`Landing failed at fetch: ${refusal}`)).getAttribute("role")).toBe("alert");
+  expect(within(card).getAllByRole("alert").map((alert) => alert.textContent)).toContain("Error: The last change to team-memory could not be saved to forge.example.test:5526.");
+  expect(within(card).getByRole("region", { name: "Details" }).textContent).toContain(`fetch: ${refusal}`);
 });
 
 it("says nothing of that landing once the environment's verification has cleared it, a verified account covering the bank's reachable origin", async () => {
@@ -95,10 +96,10 @@ it("keeps an invalid bank's repair message off a ready bank, including after Che
     desk.startRun(sessionId, "Describe this notebook.");
     return { result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: { sessionId } } };
   });
-  await app.user.click(within(ready).getByRole("button", { name: "Describe this bank" }));
-  expect((await screen.findByRole("status", { name: "Authoring status" })).textContent).toBe("running");
+  await app.user.click(within(ready).getByRole("button", { name: "Describe it" }));
+  expect((await screen.findByRole("status", { name: "Authoring status" })).textContent).toBe("Writing the description…");
   act(() => desk.endRun(sessionId, desk.liveRun(sessionId) ?? ""));
-  await waitFor(() => expect(screen.getByRole("status", { name: "Authoring status" }).textContent).toBe("landed"));
+  await waitFor(() => expect(screen.getByRole("status", { name: "Authoring status" }).textContent).toBe("Saved"));
 });
 
 it("keeps a healthy bank's stopped describing conversation controls on its own card", async () => {
@@ -171,10 +172,10 @@ it.each([
     desk.startRun(sessionId, "Describe this notebook.");
     return { result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: { sessionId } } };
   });
-  await app.user.click(within(bank).getByRole("button", { name: "Describe this bank" }));
-  expect((await screen.findByRole("status", { name: "Authoring status" })).textContent).toBe("running");
+  await app.user.click(within(bank).getByRole("button", { name: "Describe it" }));
+  expect((await screen.findByRole("status", { name: "Authoring status" })).textContent).toBe("Writing the description…");
   act(() => desk.endRun(sessionId, desk.liveRun(sessionId) ?? ""));
-  await waitFor(() => expect(screen.getByRole("status", { name: "Authoring status" }).textContent).toBe("needs attention"));
+  await waitFor(() => expect(screen.getByRole("status", { name: "Authoring status" }).textContent).toBe("Stopped"));
 });
 
 it("keeps different bank findings and a stopped describing conversation on their own cards", async () => {
@@ -209,7 +210,9 @@ it("keeps different bank findings and a stopped describing conversation on their
   expect(notes.textContent).not.toContain("describing conversation stopped");
   expect(within(notes).queryByRole("button", { name: /Continue it|Start again|Fix the description/ })).toBeNull();
   expect(within(notes).getByText("Needs a fix")).toBeDefined();
-  await app.user.click(within(notes).getByRole("button", { name: "Details" }));
+  const status = notes.querySelector("[data-step-status]");
+  if (!(status instanceof HTMLElement)) throw new Error("The notebook has no verification status.");
+  await app.user.click(within(status).getByRole("button", { name: "Details" }));
   const details = within(notes).getByText(/needs-notes: overview/);
   expect(details.textContent).not.toContain("The provider stopped.");
 });

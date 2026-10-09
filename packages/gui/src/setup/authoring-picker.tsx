@@ -26,19 +26,19 @@ export const AuthoringPicker = ({ picker }: { readonly picker: ReturnType<typeof
   return <div className="flex flex-wrap gap-2" role="group" aria-label="Authoring account, model and effort">
     <label className="flex flex-col gap-1 text-sm">Account
       <Select aria-label="Authoring account" value={view.account.value?.id ?? ""} onChange={(event) => chooseAccount(event.target.value)}>
-        <option value="" disabled>No account resolves</option>
+        <option value="" disabled>No signed-in account</option>
         {view.account.options.map((account) => <option key={account.id} value={account.id} disabled={account.status.state !== "signed-in"}>{account.label}</option>)}
       </Select>
     </label>
     <label className="flex flex-col gap-1 text-sm">Model
       <Select aria-label="Authoring model" value={view.model.value?.id ?? ""} onChange={(event) => chooseModel(event.target.value)}>
-        <option value="" disabled>No model resolves</option>
+        <option value="" disabled>No model to choose</option>
         {view.model.options.map((model) => <option key={model.id} value={model.id}>{modelName(model)}</option>)}
       </Select>
     </label>
     <label className="flex flex-col gap-1 text-sm">Effort
       <Select aria-label="Authoring effort" value={effort} onChange={(event) => chooseEffort(event.target.value)}>
-        <option value="">Environment default effort</option>
+        <option value="">This computer's usual effort</option>
         {view.model.value?.efforts.map((value) => <option key={value} value={value}>{effortName(value)}</option>)}
       </Select>
     </label>

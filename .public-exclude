@@ -18,6 +18,8 @@ docs/routines/hermes-delivery.md
 # Tests naming private inputs remain covered by development CI only.
 test/release-workflow.test.ts
 test/github-ci-script.test.ts
+test/hosted-ci-workflow.test.ts
+test/github-ci-workflow.test.ts
 test/gallery-needed.test.ts
 test/gallery-workflow-order.test.ts
 test/install-ps1-script.test.ts

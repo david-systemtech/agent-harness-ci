@@ -2,6 +2,7 @@ import { SANDBOX_LEVEL_WORDS, describeKey, plainRefusal, sandboxReadiness, sandb
 import { CONTAINMENT_LEVELS, SETTINGS, type ContainmentLevel, type ContainmentReport } from "@agent-harness/contracts";
 import { Box, Shield, ShieldOff } from "lucide-react";
 import { useId, useMemo, useState } from "react";
+import type { ServiceRestart } from "../connections/service-restart.js";
 import { useSettingsValues } from "../settings/settings-values.js";
 import { TechnicalDetails } from "../setup/details.js";
 import { useDetails } from "../setup/use-details.js";
@@ -37,7 +38,7 @@ const sandboxSetups = (report: ContainmentReport): readonly SandboxSetup[] => {
  * environment refuses it (`containment_unavailable`), said as an error.
  * Written through `permissions.settings.set` (`useSettingsValues`).
  */
-export const ContainmentDefault = ({ view, writable }: { readonly view: EnvironmentView; readonly writable: boolean }) => {
+export const ContainmentDefault = ({ view, writable, restart }: { readonly view: EnvironmentView; readonly writable: boolean; readonly restart?: ServiceRestart | undefined }) => {
   const runtime = useRuntime();
   const { environmentId } = view;
   const settings = useSettingsValues(environmentId);
@@ -79,7 +80,7 @@ export const ContainmentDefault = ({ view, writable }: { readonly view: Environm
           </label>
         );
       })}</div>
-      {setups.length > 0 && <SandboxSetupFold summary="How to set it up" setups={setups} />}
+      {setups.length > 0 && <SandboxSetupFold summary="How to set it up" setups={setups} restart={restart} />}
       <TechnicalDetails
         {...details({
           line: `${SETTINGS[KEY].label}: ${SANDBOX_LEVEL_WORDS[chosen]}.`,

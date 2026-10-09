@@ -1,6 +1,7 @@
 import { plainRefusal, restoredOutcome, sandboxSetup, SETUP_ACTION_WORDS, type ActionOutcome } from "@agent-harness/client-runtime";
 import type { DenylistSection } from "@agent-harness/contracts";
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useServiceRestart } from "../connections/service-restart.js";
 import type { StepCardProps } from "../setup/cards.js";
 import { MoreOptions } from "../setup/more-options.js";
 import { StepStatus, type CardRestore } from "../setup/step-status.js";
@@ -39,6 +40,11 @@ const MoreSafety: SafetySettings = ({ children }) => <MoreOptions step="permissi
 export const PermissionsCard = ({ environmentId, step }: StepCardProps) => {
   const runtime = useRuntime();
   const view = useObservable(runtime.projections.environments).find((environment) => environment.environmentId === environmentId);
+  const afterRestart = useCallback(() => {
+    runtime.requests.refresh(environmentId, "permissions.settings.get", {});
+    void checkSetup(runtime, environmentId, "permissions");
+  }, [runtime, environmentId]);
+  const restart = useServiceRestart(view, afterRestart);
   const denylist = useDenylist(environmentId);
   const settings = useSettingsValues(environmentId);
   const permissions = useObservable(useMemo(() => runtime.requests.cached(environmentId, "permissions.settings.get", {}), [runtime, environmentId]));
@@ -68,7 +74,7 @@ export const PermissionsCard = ({ environmentId, step }: StepCardProps) => {
   const availability = report?.levels.find((level) => level.level === chosen);
   const fixFold: ReactNode =
     step.result?.failing.includes("permissions.containment") === true && report !== undefined && chosen !== undefined && availability?.available !== true
-      ? <SandboxSetupFold summary="How to fix it" setups={[sandboxSetup(availability, report.container.declared || report.container.detected, report.platform)]} />
+      ? <SandboxSetupFold summary="How to fix it" restart={restart} setups={[sandboxSetup(availability, report.container.declared || report.container.detected, report.platform)]} />
       : undefined;
   const writable = view?.phase === "ready" && runtime.capability(environmentId, "permissions.settings.set").status === "present";
   return (
@@ -80,8 +86,9 @@ export const PermissionsCard = ({ environmentId, step }: StepCardProps) => {
         actions={{ "turn-sandbox-off": { disabled: !writable || turning, run: turnOff } }}
         {...(fixFold !== undefined && { fixFold })}
       />
+      {restart?.failure}
       {refused !== undefined && <FieldError line={refused.line} details={refused.details} />}
-      {view !== undefined && <PermissionsForm view={view} denylist={denylist} safety={MoreSafety} />}
+      {view !== undefined && <PermissionsForm view={view} denylist={denylist} safety={MoreSafety} restart={restart} />}
       <RestorePresetsDialog
         open={asking !== undefined}
         sections={asking?.sections}
