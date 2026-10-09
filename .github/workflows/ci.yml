@@ -1,21 +1,7 @@
-# CI for david/agent-harness, run on GitHub's free public-repository runners
-# instead of the homelab's.
-#
-# The code lives on Forgejo (git.systemtech.dev). Its `ci` job is a relay
-# (.forgejo/scripts/github-ci.sh in that repository): it pushes the commit
-# under test here as refs/heads/ci/<id>, sends a repository_dispatch, waits
-# for this run and passes or fails with it. The bots and the pull request page
-# keep reading the `ci / ci` status on Forgejo, so nothing downstream changed.
-#
-# Why here and not on the homelab runners: on 2026-09-30 agent-harness was 97%
-# of all `ci` minutes and SYSTEM-MNL ran at load 20-45. Public repositories get
-# 4-vCPU, 16 GB runners free, up to 20 jobs at once on the Free plan.
-#
-# repository_dispatch always runs the workflow on the default branch
-# (`workflows`), so a pull request opened before this existed is tested the
-# same way, and its caches are shared by every run. The steps mirror
-# .forgejo/workflows/ci.yml's original job; keep them in step when that job's
-# checks change.
+# Install byte for byte as .github/workflows/ci.yml on the hosted relay
+# repository's default branch (workflows). repository_dispatch reads it there;
+# the payload names the commit checked out by each job.
+# Source: .forgejo/github-workflows/ci.yml in the harness repository.
 
 name: ci
 run-name: ci ${{ github.event.client_payload.sha }} ${{ github.event.client_payload.id }}
@@ -39,9 +25,10 @@ jobs:
   # export drift check.
   checks:
     runs-on: ubuntu-24.04
-    # Keep the checks in the Node 24 image; the suite runs as the hosted
+    # Docker's official ECR Public mirror avoids Docker Hub's anonymous pull
+    # quota while keeping Node 24 and Bookworm. The suite runs as the hosted
     # runner's ordinary user in the test shards below.
-    container: node:24-bookworm
+    container: public.ecr.aws/docker/library/node:24-bookworm
     timeout-minutes: 25
     # A container job's default shell is sh; the steps are bash.
     defaults:
@@ -161,7 +148,7 @@ jobs:
   # user branches now run in the full suite shards above.
   root-user:
     runs-on: ubuntu-24.04
-    container: node:24-bookworm
+    container: public.ecr.aws/docker/library/node:24-bookworm
     timeout-minutes: 15
     defaults:
       run:
