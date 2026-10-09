@@ -299,9 +299,22 @@ describe("the workflows that run it", () => {
     expect(lines).toContain("        run: bash .forgejo/scripts/image.sh publish");
   });
 
+  it("keeps image / image green on a skip and guards only the expensive build step", () => {
+    const lines = workflow("image.yml");
+    const text = lines.join("\n");
+    expect(lines).toContain("name: image");
+    expect(lines).toContain("  image:");
+    expect(lines).toContain("          fetch-depth: 0");
+    expect(lines).toContain("          ref: ${{ github.event.pull_request.head.sha }}");
+    expect(lines).toContain("        run: node .forgejo/scripts/image-inputs.mjs");
+    expect(lines).toContain("        if: steps.inputs.outputs.build == 'true'");
+    expect(text.indexOf("id: inputs")).toBeLessThan(text.indexOf("if: steps.inputs.outputs.build"));
+    expect(text).not.toMatch(/paths(-ignore)?:|if:.*outputs.*\n.*runs-on:/);
+  });
+
   it("builds a pull request's image on the build runner with no secret, and nothing on a push to main", () => {
     const lines = workflow("image.yml");
-    expect(triggers(lines)).toEqual(["  pull_request:", "    types: [opened, synchronize, reopened]"]);
+    expect(triggers(lines)).toEqual(["  pull_request:", "    types: [opened, synchronize, reopened, labeled]"]);
     expect(lines).toContain("    runs-on: build");
     expect(lines).toContain("        run: bash .forgejo/scripts/image.sh build");
     expect(lines).toContain("          FORGEJO_TOKEN: ${{ github.token }}");

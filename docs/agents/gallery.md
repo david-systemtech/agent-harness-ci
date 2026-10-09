@@ -2,6 +2,30 @@
 
 Use this recipe when a deliberate GUI change produces reviewed pixel differences in a pull request.
 
+## Pull request checks
+
+The gallery check selects GUI and gallery-tooling changes in
+`.forgejo/workflows/gallery.yml`. Review its captures using the recipe below.
+
+The `image / image` check compares the complete PR head with its merge base
+against `main`, including earlier commits in the PR. It builds for changes to
+CLI/environment workspace dependencies, the GUI bundle staged into the image,
+container/build scripts, compose and release inputs, root build configuration
+or workspace manifests and lockfiles. The dependency set is read from the
+workspace manifests so a new workspace dependency is included automatically.
+Tests, gallery scenes and baselines, desktop source and docs skip the build;
+the job still succeeds with `no image input changed: build skipped`.
+GUI source, web assets and wizard copy currently enter the image through the
+Dockerfile's GUI build and staging step, so they require an image build.
+
+Add the PR label `image` to force a build, including on a head whose check
+already skipped. Other labels neither launch nor cancel an image build.
+Releases, manual release builds and main's release smoke still build the image
+unconditionally. A PR changing the image workflow or selector itself builds
+the image too; its skip path is covered by the selector's fixture tests.
+
+## Accept captures
+
 1. Work in the pull request's worktree with its current head checked out. Wait for every hosted gallery shard comment for that head. Review every baseline/capture/difference triplet and any new scene image; confirm the captures show the intended change.
 2. Resolve every geometry failure in the layout or measurement expectations. Baseline acceptance changes pixel comparisons; geometry checks continue to block immediately.
 3. Run `bash scripts/gallery-accept.sh <pr-number>`. It downloads the current head's captures into `packages/gui/gallery/baselines/`, validates the downloads before writing, and refuses a different working-tree head. It prints each accepted filename and the exact staging, commit and branch push commands.
