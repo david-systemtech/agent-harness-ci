@@ -74,7 +74,7 @@ const BrowserSettingsOn = ({ view }: { readonly view: EnvironmentView }) => {
       {pairingOffer.status === "absent" && <p>{pairingOffer.message}</p>}
       {pairing !== null && local !== undefined && (
         <section aria-label="Pair another Chrome" className="flex flex-col gap-3">
-          <BrowserPairing environmentId={local.environmentId} accountsEnvironmentId={view.environmentId} another={pairing} showSites={false} />
+          <BrowserPairing environmentId={local.environmentId} accountsEnvironmentId={view.environmentId} another={pairing} again="Pair another Chrome" showSites={false} />
           <Button title="Close pairing (Enter or Space)" className="self-start" onClick={() => pair(null)}><X aria-hidden="true" data-icon="inline-start" />Close pairing</Button>
         </section>
       )}
