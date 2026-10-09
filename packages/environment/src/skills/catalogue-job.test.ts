@@ -133,7 +133,7 @@ describe("the catalogue workflow", () => {
     const github = parse(readFileSync(join(root, ".forgejo/github-workflows/catalogue.yml"), "utf8"));
     expect(github.on.repository_dispatch.types).toEqual(["catalogue"]);
     expect(github.jobs.catalogue["runs-on"]).toBe("ubuntu-24.04");
-    expect(github.jobs.catalogue.container).toBe("node:24-bookworm");
+    expect(github.jobs.catalogue.container).toBe("public.ecr.aws/docker/library/node:24-bookworm");
     expect(github.jobs.catalogue.steps).toContainEqual(expect.objectContaining({ with: expect.objectContaining({ ref: "${{ github.event.client_payload.sha }}" }) }));
     expect(github.jobs.catalogue.steps).toContainEqual(expect.objectContaining({ run: "pnpm exec tsx --conditions=@agent-harness/source packages/environment/scripts/check-catalogue.ts" }));
   });
