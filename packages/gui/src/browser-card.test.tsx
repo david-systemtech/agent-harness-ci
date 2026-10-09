@@ -309,7 +309,7 @@ describe("the Browser card in Set up (setup-copy.md §5.11)", () => {
     onTestFinished(async () => { view.unmount(); await world.runtime.close(); await world.presentation.close(); });
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Settings" }));
-    await user.click(await screen.findByRole("button", { name: "Open the full checklist" }));
+    await user.click(await screen.findByRole("button", { name: "Open Set up" }));
     await user.click(within(await screen.findByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Browser" }));
     expect(await screen.findByText("Connecting Chrome works only in the desktop app.")).toBeDefined();
     expect(world.world.environment("desk").requests("browser.pairing.code")).toHaveLength(0);
