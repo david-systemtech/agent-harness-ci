@@ -48,6 +48,15 @@ describe("Carry over's favourite models", () => {
     expect(await favouritesOf(client)).toEqual(["claude-haiku-5"]);
   });
 
+  it("carries the model id alone of a choice the source stored as `<account>/<model>`, each once (#1954)", async () => {
+    const { client } = await start({
+      model: "account-a/claude-fable-5-1",
+      modelBySession: { s1: choice("account-a/opus"), s2: choice("account-b/opus"), s3: choice("account-b/claude-fable-5-1"), s4: choice("opus") },
+    });
+    expect((await run(client)).result?.failed).toEqual([]);
+    expect(await favouritesOf(client)).toEqual(["claude-fable-5-1", "opus"]);
+  });
+
   it("keeps the favourites the environment already has", async () => {
     const { client } = await start(PREFERENCES);
     await client.request("settings.update", { commandId: randomUUID(), values: { "accounts.favouriteModels": ["claude-fable-5"] } });
