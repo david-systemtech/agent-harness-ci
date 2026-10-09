@@ -1,0 +1,60 @@
+# Install as .github/workflows/catalogue.yml on agent-harness-ci's default
+# branch (workflows). Keeping the source outside .github here means the
+# relayed code's ci/<id> and mirror/main refs never register a workflow.
+name: catalogue
+run-name: catalogue ${{ github.event.client_payload.sha }} ${{ github.event.client_payload.id }}
+
+on:
+  repository_dispatch:
+    types: [catalogue]
+
+concurrency:
+  group: catalogue-${{ github.event.client_payload.group }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  catalogue:
+    runs-on: ubuntu-24.04
+    container: public.ecr.aws/docker/library/node:24-bookworm
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check the payload
+        env:
+          SHA: ${{ github.event.client_payload.sha }}
+        run: '[[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad sha"; exit 1; }'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.client_payload.sha }}
+          persist-credentials: false
+      - run: corepack enable && corepack prepare --activate
+      - name: Where pnpm keeps its store
+        id: pnpm-store
+        run: echo "dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.dir }}
+          key: pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - name: Check catalogue members and overlay folders
+        run: pnpm exec tsx --conditions=@agent-harness/source packages/environment/scripts/check-catalogue.ts
+
+  cleanup:
+    needs: [catalogue]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Delete this run's ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_REF: ci/${{ github.event.client_payload.id }}
+        run: |
+          [[ "$RUN_REF" =~ ^ci/[A-Za-z0-9._-]+$ ]] || { echo "::error::bad id"; exit 1; }
+          gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/$RUN_REF" || true
