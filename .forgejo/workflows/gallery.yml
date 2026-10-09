@@ -3,13 +3,14 @@
 # Every PR gets gallery / gallery. The trusted relay compares the head to its
 # merge base against main: GUI, theme, client dependencies, build inputs and
 # gallery machinery render; other changes succeed without dispatch or comment.
-# The gallery label forces rendering. Keep triggers unfiltered so skips report success.
+# The gallery label forces rendering. Every head event reports a result; unrelated
+# label additions use a separate skipped context, and removals trigger no job.
 name: gallery
 on:
   # Credentials and the publisher come only from the base branch. The PR is data.
   pull_request_target:
     branches: [main]
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, synchronize, reopened, labeled]
 # Forgejo posts cancellation statuses itself, even after a replacement has
 # succeeded. Queue events for an unchanged head so a label update cannot leave
 # a late cancellation over that head's verdict. New heads use independent groups.
@@ -18,6 +19,10 @@ concurrency:
   cancel-in-progress: false
 jobs:
   gallery:
+    # Forgejo publishes skipped jobs too: give unrelated labels a separate
+    # context so they cannot overwrite a pending or completed gallery verdict.
+    name: ${{ (github.event.label && github.event.label.name != 'gallery') && 'other-label' || 'gallery' }}
+    if: ${{ !github.event.label || github.event.label.name == 'gallery' }}
     runs-on: relay
     # Hosted planning/capture can use 30 minutes; delivery and publication need their own budget.
     timeout-minutes: 55
