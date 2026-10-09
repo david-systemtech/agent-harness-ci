@@ -16,4 +16,6 @@ export const geometry: readonly SceneGeometry[] = [
   { selector: '[data-run-column="Accounts"] [data-run-list]', maxHeight: 320 },
   { selector: '[data-run-column="Models"] [data-run-list]', maxHeight: 320 },
   { selector: '[data-run-column="Accounts"] [data-usage-rings]', height: 16 },
+  // An account's name is one line, cut with an ellipsis, even beside the selected row's check mark (#1963).
+  { selector: '[data-run-column="Accounts"] [data-run-primary]', unbroken: true },
 ];
