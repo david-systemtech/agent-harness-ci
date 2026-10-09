@@ -1,6 +1,6 @@
-import type { BankJoinPreview, CarryOverInventory, StepId, StepResult } from "@agent-harness/contracts";
+import { CATALOGUE, CATALOGUE_SEED_INSTRUCTION_ID, type BankJoinPreview, type CarryOverInventory, type ResultOf, type StepId, type StepResult } from "@agent-harness/contracts";
 import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
-import type { ScriptedEnvironment, ScriptedSetup } from "@agent-harness/client-runtime/testing/scripted-environment";
+import type { EnvironmentHandle, ScriptedEnvironment, ScriptedSetup } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { LadderName } from "@agent-harness/theme";
 import { useEffect, useState } from "react";
 import { App } from "../src/app.js";
@@ -26,7 +26,7 @@ export const joinPreview: BankJoinPreview = {
 /** A step's status at the head of its card (setup-copy.md §3; #1840): done, needing a fix with Details open, a check that could not run, and the environment out of reach. */
 type StatusRegion = "status-done" | "status-fix" | "status-could-not-check" | "status-unreachable";
 
-type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | StatusRegion | KeyManagerRegion;
+type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | "instructions-unread" | StatusRegion | KeyManagerRegion;
 
 const isStatus = (kind: SetupRegion): kind is StatusRegion => kind.startsWith("status-");
 
@@ -60,6 +60,32 @@ const NEVER_POLLED: Partial<StepResult> = {
   failing: ["your-machines.host-updater"], actions: ["how-to-set-up", "check-again"],
 };
 
+/** setup-copy.md §5.10: the block could not read the forges and notebooks parts, so the line names their steps (#1856). */
+const UNREAD_PARTS: Partial<StepResult> = {
+  state: "needs-attention", reason: "agent-harness could not read part of this computer's setup: Forges, Memory bank.",
+  failing: ["instructions.orientation-renders"], actions: ["check-again"], details: ["Unread sections of the orientation block: forges, banks"],
+};
+
+/** The Instructions card's world: About my setup seeded and one suggestion ticked, and the block a new run is handed (#1856). */
+const scriptInstructions = (desk: EnvironmentHandle, unreadRegistries: readonly string[]) => {
+  const text = "## This computer\n\nForges, key managers and notebooks are listed here for every run.";
+  const owned = CATALOGUE.instructions.entries.filter((entry) => entry.id === CATALOGUE_SEED_INSTRUCTION_ID || entry.id === "coding.fresh-checkout");
+  const listed: ResultOf<"instructions.list"> = {
+    orientation: { enabled: true, text, unreadRegistries: [...unreadRegistries], accounts: [] },
+    instructions: owned.map((entry, index) => ({
+      id: `0199dd00-0000-4000-8000-00000000008${index}`, title: entry.title, body: entry.text, origin: { catalogueId: entry.id, version: entry.version },
+      scope: "all", enabled: true, position: String.fromCharCode(109 + index), newerVersion: null, accounts: [],
+    })),
+    dismissed: [],
+  };
+  desk.wire.answer("instructions.list", () => ({ result: listed }));
+  desk.wire.answer("workspaces.browse", () => ({ result: { path: "/home/project", parent: "/home", directories: [], truncated: false } }));
+  desk.wire.answer("instructions.preview", () => ({ result: {
+    parts: [{ layer: "user", id: "orientation", title: "Orientation", text }], text,
+    manifest: { channel: "system-prompt-append", layers: [], alwaysOn: [], skillSetFingerprint: null, unreadRegistries: [...unreadRegistries], leftOut: [] },
+  } }));
+};
+
 /** The Skills step's result in each status scene, drawn by the step's status alone; the rest check as the environment's start did. */
 const STATUS_RESULTS: { readonly [Kind in StatusRegion]?: Partial<StepResult> } = {
   "status-done": { reason: "Your skills are ready.", details: ["Collections: team-skills, house-skills"] },
@@ -88,7 +114,7 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
-  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" || showsKeyManagers(kind) ? "key-manager" : isStatus(kind) ? "skills" : kind;
+  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" || showsKeyManagers(kind) ? "key-manager" : kind === "instructions-unread" ? "instructions" : isStatus(kind) ? "skills" : kind;
   const keyManagerRegion = showsKeyManagers(kind);
   const status = isStatus(kind) ? STATUS_RESULTS[kind] : undefined;
   const prepared = await prepareWorld({ environments: [{
@@ -99,10 +125,12 @@ async function prepareRegion(kind: SetupRegion) {
     sessions: kind === "authoring" ? [{ title: "Set up: Memory bank", tags: ["setup", "memory-bank"] }] : [],
     ...(kind === "host-updater" && { setup: { "your-machines": NEVER_POLLED } }),
     ...(kind === "rail-states" && { setup: RAIL_STATES }),
+    ...(kind === "instructions-unread" && { setup: { instructions: UNREAD_PARTS } }),
     ...(status !== undefined && { setup: { skills: status } }),
     ...(keyManagerRegion && keyManagersOf(kind)),
   }] }, { firstLaunch: true });
   const desk = prepared.world.environment("desk");
+  if (target === "instructions") scriptInstructions(desk, kind === "instructions-unread" ? ["forges", "banks"] : []);
   desk.wire.answer("browser.status", () => ({ result: {
     listener: { state: "listening", port: 47615 }, folder: { path: "/extension/current", problem: null }, shippedVersion: "0.1.0", unpairedConnected: false,
     headless: { allowRuns: true, availability: { available: false, reason: "No browser installed." }, liveContexts: 0 },
