@@ -393,8 +393,12 @@ describe("Add a device, Part 1: connect a phone or computer to this one", () => 
   });
 
   it("says nothing about reaching this computer while a proxy serves it at an HTTPS origin, on loopback alone, which its codes' links carry", async () => {
-    const { part } = await partOne({ status: { binding: { ...LOOPBACK_ALONE.binding, webOrigin: "https://desk.tail1234.ts.net" } } });
-    await within(part).findByRole("button", { name: "Make a pairing code" });
+    const { app, part } = await partOne({ status: { binding: { ...LOOPBACK_ALONE.binding, webOrigin: "https://desk.tail1234.ts.net" } } });
+    await app.user.click(await within(part).findByRole("button", { name: "Make a pairing code" }));
+    const code = await made(part);
+    expect(within(code.getByRole("region", { name: "Pairing link" })).getByText(/\/pair#/, { selector: "pre" }).textContent).toMatch(/^https:\/\/desk\.tail1234\.ts\.net\/pair#/);
+    expect(code.getByRole("img", { name: "QR code of the pairing link" })).toBeDefined();
+    expect(code.queryByText("This code only works on this computer.")).toBeNull();
     expect(within(part).queryByText(/Other devices cannot reach this computer yet/)).toBeNull();
   });
 });
