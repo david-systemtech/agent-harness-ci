@@ -35,14 +35,22 @@ const forgeFix = (origin: string, connected: boolean, refusal: ContractError): I
   });
 };
 
-/** Any other refusal of a tracked source: one plain line by what kept it, the owner's words and git's under Details. */
-const unaddable = (refusal: ContractError): ItemFailure => {
+/**
+ * Any other refusal of a tracked source: one plain line by what kept it, the owner's words and git's under Details.
+ * Git's not found cannot tell a missing repository or branch from a private one, so the line says both and names
+ * the forge to connect for the host when the remote is readable.
+ */
+const unaddable = (refusal: ContractError, origin: string | undefined): ItemFailure => {
   const problem = refusal.data["reason"] === "unreachable" ? refusal.data["problem"] : undefined;
+  const details = [refusal.message];
+  if (problem === "not_found") {
+    const missing = "agent-harness found no such repository or branch.";
+    return new ItemFailure(origin === undefined ? { message: missing, details }
+      : { message: `${missing} If it is private, connect a forge for ${forgeOriginHost(origin)}.`, step: "forges", details });
+  }
   return new ItemFailure({
-    message: problem === "not_found" ? "agent-harness found no repository at this address."
-      : problem === "network" ? "Its host did not answer in time. Choose Bring it over to try again."
-      : "agent-harness could not add this skill collection.",
-    details: [refusal.message],
+    message: problem === "network" ? "Its host did not answer in time. Choose Bring it over to try again." : "agent-harness could not add this skill collection.",
+    details,
   });
 };
 
@@ -97,23 +105,25 @@ export const planSkills = async (records: SourceSkills, options: PlanSkillsOptio
         try {
           handler = await sources.add.prepare(params, context);
         } catch (error) {
-          if (error instanceof ContractError && error.data["problem"] === "authentication") {
-            const remote = normaliseRemote(parsed.data.url);
-            if (remote !== null) {
-              const account = matchForgeAccount(remote, options.forgeAccounts());
-              if (account === null && remote.sshDerived) {
-                // Forge identity can map SSH hosts; machine authentication uses the original transport.
-                const host = /^ssh:\/\//i.test(parsed.data.url) ? new URL(parsed.data.url).hostname : parsed.data.url.replace(/^(?:[^@/]*@)?(\[[^\]]+\]|[^:]+):.*$/s, "$1");
-                throw new ItemFailure({
-                  message: `${host} did not let this computer in over SSH. Check this computer's SSH key and its known-hosts entry for ${host}.`,
-                  // The refusal's message already ends with git's line.
-                  details: [error.message, "The source's own SSH port is used."],
-                });
-              }
-              throw forgeFix(account?.origin ?? remote.origin, account !== null, error);
+          if (!(error instanceof ContractError)) throw error;
+          const problem = error.data["problem"];
+          const remote = problem === "authentication" || problem === "not_found" ? normaliseRemote(parsed.data.url) : null;
+          if (remote !== null) {
+            const account = matchForgeAccount(remote, options.forgeAccounts());
+            // A forge answers not found for a private repository its token cannot see: that token is the fix.
+            if (problem === "not_found" && account !== null) throw forgeFix(account.origin, true, error);
+            if (problem === "authentication" && account === null && remote.sshDerived) {
+              // Forge identity can map SSH hosts; machine authentication uses the original transport.
+              const host = /^ssh:\/\//i.test(parsed.data.url) ? new URL(parsed.data.url).hostname : parsed.data.url.replace(/^(?:[^@/]*@)?(\[[^\]]+\]|[^:]+):.*$/s, "$1");
+              throw new ItemFailure({
+                message: `${host} did not let this computer in over SSH. Check this computer's SSH key and its known-hosts entry for ${host}.`,
+                // The refusal's message already ends with git's line.
+                details: [error.message, "The source's own SSH port is used."],
+              });
             }
+            if (problem === "authentication") throw forgeFix(account?.origin ?? remote.origin, account !== null, error);
           }
-          throw error instanceof ContractError ? unaddable(error) : error;
+          throw unaddable(error, remote?.origin);
         }
         return (command) => {
           // A source added during preparation is reused without resetting its follow choice.

@@ -380,6 +380,32 @@ it("names the serving forge account's canonical origin for SSH and verified alia
 });
 
 
+it("sends a repository a connected forge cannot see to that forge's token", async () => {
+  const forge = await startFakeForge();
+  onCleanup(() => forge.close());
+  forge.user(TOKEN, { login: "fixture", id: 42 });
+  forge.repositories(TOKEN, []);
+  const canonical = "https://forge.skills.test:5526";
+  const source = tempDir();
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1, sources: [{ url: `${canonical}/team/hidden`, subdir: "." }], alwaysOn: [] }));
+  const stderr = `remote: Repository not found.\nfatal: repository '${canonical}/team/hidden/' not found`;
+  const t = await startTestEnvironment({ adapter: fakeAdapter(), setupSteps: NO_SETUP_STEPS,
+    forgeFetch: (url, init) => fetch(String(url).replace(canonical, forge.origin), init),
+    skillsGit: async () => ({ outcome: "ran", git: { ok: false, code: 128, stdout: Buffer.alloc(0), stderr, truncated: false, timedOut: false, missing: false } }),
+    stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }),
+  });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  await added(client, { url: canonical, kind: "forgejo" });
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  onCleanup(() => logged.mockRestore());
+  const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  // A forge answers not found for a private repository its token cannot see: the fix is that token.
+  expect(imported.result?.failed).toEqual([{ label: "Skill collection hidden",
+    message: "Your forge forge.skills.test could not open this skill collection. Check its token in Forges.", step: "forges",
+    details: expect.arrayContaining([expect.stringContaining("team/hidden/' not found")]) }]);
+});
+
 it("words a missing, unanswering or failed clone plainly and keeps git's words under Details", async () => {
   const said: Record<string, string> = {
     gone: "fatal: repository 'https://skills.test/team/gone/' not found",
@@ -401,7 +427,8 @@ it("words a missing, unanswering or failed clone plainly and keeps git's words u
   const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
   const failed = imported.result?.failed ?? [];
   expect(failed).toEqual(expect.arrayContaining([
-    { label: "Skill collection gone", message: "agent-harness found no repository at this address.", details: expect.arrayContaining([expect.stringContaining(said["gone"]!)]) },
+    // No forge is connected for the host, so the line names both readings git's answer allows, and the fix for a private one.
+    { label: "Skill collection gone", message: "agent-harness found no such repository or branch. If it is private, connect a forge for skills.test.", step: "forges", details: expect.arrayContaining([expect.stringContaining(said["gone"]!)]) },
     { label: "Skill collection slow", message: "Its host did not answer in time. Choose Bring it over to try again.", details: expect.arrayContaining([expect.stringContaining(said["slow"]!)]) },
     { label: "Skill collection odd", message: "agent-harness could not add this skill collection.", details: expect.arrayContaining([expect.stringContaining(said["odd"]!)]) },
   ]));
