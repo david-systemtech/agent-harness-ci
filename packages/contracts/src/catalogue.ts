@@ -333,7 +333,23 @@ export type CatalogueTickState =
  */
 export const catalogueTickStates = (entries: readonly CatalogueSkillEntry[], sources: readonly SkillSource[]): CatalogueTickState[] =>
   entries.map((entry) => {
-    const identity = repositoryIdentityOf(entry.url, []);
-    const source = sources.find((candidate) => candidate.identity === identity && candidate.folder === entry.folder);
+    const source = sources.find((candidate) => tracks(candidate, entry));
     return source === undefined ? { entryId: entry.id, state: "untracked" } : { entryId: entry.id, state: "tracked", sourceId: source.id };
   });
+
+/** Whether `source` tracks `entry`: it has the entry's repository identity and folder. */
+const tracks = (source: Pick<SkillSource, "identity" | "folder">, entry: CatalogueSkillEntry): boolean =>
+  source.identity === repositoryIdentityOf(entry.url, []) && source.folder === entry.folder;
+
+/**
+ * A source as a person reads it, a skill collection (setup-copy.md §5.9's
+ * `{collection}`; #1855): the title of the entry of `entries` it tracks, else
+ * its repository's path on its host, with the folder it reads after it when
+ * that is not the root.
+ */
+export const skillCollectionName = (source: Pick<SkillSource, "identity" | "folder">, entries: readonly CatalogueSkillEntry[]): string => {
+  const entry = entries.find((candidate) => tracks(source, candidate));
+  if (entry !== undefined) return entry.title;
+  const repository = source.identity.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]+\//i, "");
+  return source.folder === "." ? repository : `${repository} (${source.folder})`;
+};

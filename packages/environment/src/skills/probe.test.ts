@@ -167,13 +167,29 @@ describe("skills.probe's refusals", () => {
     const nowhere = await unreachableOrigin(onCleanup);
     const { t, client } = await start(forge, { harnessGitConfig: [...skillsInsteadOf(forge), [`url.${nowhere}/.insteadOf`, "https://down.test/"]] });
 
-    expect((await refused(client, `${SKILLS_HOST}david/missing`)).data).toMatchObject({ reason: "unreachable", problem: "not_found", origin: "https://skills.test" });
+    const missing = await refused(client, `${SKILLS_HOST}david/missing`);
+    expect(missing).toMatchObject({ message: "agent-harness found no repository at this address.", data: { reason: "unreachable", problem: "not_found", origin: "https://skills.test" } });
     expect((await refused(client, `${SKILLS_HOST}david/notes`, "no-such-branch")).data).toMatchObject({ reason: "unreachable", problem: "not_found" });
     const down = await refused(client, "https://down.test/david/notes");
-    expect(down).toMatchObject({ code: "conflict", data: { reason: "unreachable", problem: "network", origin: "https://down.test" } });
+    expect(down).toMatchObject({ code: "conflict", message: "down.test did not answer in time. Try again.", data: { reason: "unreachable", problem: "network", origin: "https://down.test" } });
     const broken = await refused(client, `${SKILLS_HOST}david/broken`);
     expect(broken.data).toMatchObject({ reason: "unreachable", problem: "git_failed", line: expect.stringMatching(/^fatal: /) });
-    expect(broken.message).toContain(String(broken.data["line"]));
+    // setup-copy.md §5.9: the message is the plain line; what git said is the data's line, for Details.
+    expect(broken.message).toBe("agent-harness could not read this repository. Try again.");
+    expect(checkouts(t)).toEqual([]);
+  });
+
+  it("names a missing git as not installed on this computer, from git's spawn ENOENT, keeping no checkout", async () => {
+    const { t, client } = await start(skillRepositories(tempDir), { name: "desk" });
+    // A PATH with no git on it, as on a computer where Git was never installed.
+    usePath(tempDir("agent-harness-no-git-"));
+
+    const answer = await refused(client, `${SKILLS_HOST}david/notes`);
+    expect(answer).toMatchObject({
+      code: "conflict",
+      message: "Git is not installed on desk. Install Git, then try again.",
+      data: { reason: "unreachable", problem: "git_missing", line: expect.stringContaining("ENOENT"), origin: "https://skills.test" },
+    });
     expect(checkouts(t)).toEqual([]);
   });
 });
@@ -262,7 +278,7 @@ process.stdin.on("end", async () => {
     expect(await probe(client, `${FORGE_ALIAS}/david/public-skills`)).toMatchObject({ root: { members: [{ name: "public-skills" }] } });
     const answer = await refused(client, `${FORGE_ALIAS}/david/private-skills`);
     expect(answer).toMatchObject({ code: "conflict", data: { reason: "unreachable", problem: "authentication", origin: FORGE_ALIAS } });
-    expect(answer.message).toContain("Set up, Forges");
+    expect(answer.message).toBe("This repository is private. Add a forge for forge.test first.");
     expect(forge.gitRequests.every((request) => request.username === null)).toBe(true);
     expect(checkouts(t)).toHaveLength(1);
   });
@@ -293,7 +309,7 @@ process.stdin.on("end", async () => {
 
     const answer = await refused(client, "git@ssh.skills.test:david/skills.git");
     expect(answer.data).toMatchObject({ reason: "unreachable", problem: "git_failed", line: expect.stringMatching(/\bssh: (?:command )?not found$/) });
-    expect(answer.message).toContain("git could not clone the repository.");
+    expect(answer.message).toBe("agent-harness could not read this repository. Try again.");
   });
 
   // The image installs openssh-client but holds none of the user's keys (#874): ssh runs, refuses, and the
@@ -307,6 +323,6 @@ process.stdin.on("end", async () => {
 
     const answer = await refused(client, "git@ssh.skills.test:david/skills.git");
     expect(answer.data).toMatchObject({ reason: "unreachable", problem: "authentication", line: "fatal: Could not read from remote repository." });
-    expect(answer.message).toContain("check your ssh keys");
+    expect(answer.message).toBe("This repository is private. Add a forge for ssh.skills.test first.");
   });
 });

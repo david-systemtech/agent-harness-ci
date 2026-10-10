@@ -1,181 +1,171 @@
-import { oneLine, pullSetupSources, type ActionOutcome } from "@agent-harness/client-runtime";
-import { CATALOGUE, catalogueTickStates, SKILL_SOURCE_LIMIT, type CatalogueSkillEntry, type CatalogueTickState } from "@agent-harness/contracts";
-import { TriangleAlert } from "lucide-react";
+import { plainRefusal, pullSetupSources, type ActionOutcome } from "@agent-harness/client-runtime";
+import { CATALOGUE, catalogueTickStates, skillCollectionName, SKILL_SOURCE_LIMIT, type CatalogueSkillEntry, type CatalogueTickState, type SkillsViewSource } from "@agent-harness/contracts";
+import { ExternalLink, Minus, Plus, TriangleAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { StepCardProps } from "../setup/cards.js";
+import { useChecklist } from "../setup/checklist-window.js";
+import { MoreOptions } from "../setup/more-options.js";
 import { Outcome } from "../setup/outcome.js";
 import { StepStatus } from "../setup/step-status.js";
-import { Button, Dialog, DialogContent } from "../ui/index.js";
+import { Button, Fold, Tooltip } from "../ui/index.js";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
-import { reachWords } from "../settings/generic-editor.js";
-import { MemberCard } from "./members.js";
-import { SkillButton, useSkillVerb } from "./skill-verb.js";
-import { AddSource, SourceCard } from "./sources.js";
-import { TrustedRepositories } from "./trust.js";
+import { AddFromLink, FoundFolders, RefusedLine, useCollectionVerb } from "./sources.js";
+
+/** How many collections a person follows before the card says the limit (setup-copy.md §5.9). */
+const LIMIT_SHOWN_FROM = 15;
+
+/** What the card last said an action did: its line, and its raw words for Details. */
+type Said = Pick<ActionOutcome, "ok" | "line" | "details">;
 
 /**
- * The Skills step (Set up specification, "7. Skills"; ADR 0029; #591):
- * honest catalogue cards, ticked only by the sources skills.get holds
- * (#508), followed by the home row's source, account-choice and trust
- * controls (#517). The catalogue ships with this client build; every
- * environment fact stays in the runtime cache, refreshed on skills.updated.
+ * The Skills step (setup-copy.md §5.9; Set up specification, "7. Skills";
+ * ADR 0029; #591, #1855): the catalogue's collections, each added with one
+ * button and removed with one more, honest about which are added by the
+ * sources skills.get holds (#508); Add from a link in More options; and
+ * Choose folders for a collection whose folders moved. Members, always-on
+ * choices and repository trust are Settings › Skills' (All skill settings).
+ * The catalogue ships with this client build; every environment fact stays
+ * in the runtime cache, refreshed on skills.updated.
  */
 export const SkillsCard = ({ environmentId, step }: StepCardProps) => {
   const runtime = useRuntime();
   const clock = useClock();
-  const view = useObservable(runtime.projections.environments).find((view) => view.environmentId === environmentId);
+  const { leave } = useChecklist();
   const read = useObservable(useMemo(() => runtime.requests.cached(environmentId, "skills.get", {}), [runtime, environmentId]));
-  const [said, setSaid] = useState<Pick<ActionOutcome, "ok" | "line" | "details"> | undefined>(undefined);
-  const say = (message: string) => setSaid({ ok: true, line: oneLine(message) });
+  const [said, setSaid] = useState<Said | undefined>(undefined);
   const [pulling, setPulling] = useState(false);
+  const [choosing, setChoosing] = useState<SkillsViewSource | undefined>(undefined);
+  const [addingFolders, setAddingFolders] = useState(false);
   const skills = read.result;
-  const ticks = catalogueTickStates(CATALOGUE.skills, skills?.sources ?? []);
+  const sources = skills?.sources ?? [];
+  const ticks = catalogueTickStates(CATALOGUE.skills, sources);
   const pull = runtime.capability(environmentId, "skills.sources.pull");
   const namedPull = step.result?.targets?.some((target) => target.action === "pull-now" && target.kind === "skill-source") ?? false;
+  const readable = skills !== null && read.error === null;
   return (
     <>
       <StepStatus
         environmentId={environmentId}
         step={step}
-        actions={namedPull ? undefined : {
-          "pull-now": {
-            disabled: pulling || skills === null || read.error !== null || pull.status === "absent",
+        actions={{
+          ...(!namedPull && { "pull-now": {
+            disabled: pulling || !readable || pull.status === "absent",
             run: () => {
-              const sources = (skills?.sources ?? []).filter((source) => source.follow.kind === "branch");
+              const following = sources.filter((source) => source.follow.kind === "branch");
               void (async () => {
                 setPulling(true);
                 try {
-                  const outcome = await pullSetupSources(runtime, environmentId, sources.map((source) => ({ id: source.id, label: `${source.identity} — ${source.folder}` })), () => clock.now());
-                  setSaid(sources.length === 0 ? { ok: true, line: "No unpinned source to pull." } : outcome);
+                  const outcome = await pullSetupSources(runtime, environmentId, following.map((source) => ({ id: source.id, label: skillCollectionName(source, CATALOGUE.skills) })), () => clock.now());
+                  setSaid(following.length === 0 ? { ok: true, line: "There is no collection to update." } : outcome);
                 } finally {
                   setPulling(false);
                 }
               })();
             },
+          } }),
+          "choose-folders": {
+            disabled: !readable || addingFolders,
+            run: (targets) => {
+              const source = sources.find((source) => targets.some((target) => target.id === source.id));
+              // An older computer may still offer the branch chooser for a pinned collection.
+              if (source?.follow.kind === "pinned") {
+                setSaid({ ok: false, line: `${skillCollectionName(source, CATALOGUE.skills)} is pinned. Open All skill settings to change its folders or version.` });
+                return;
+              }
+              setChoosing(source);
+            },
           },
         }}
       />
-      {view !== undefined && view.phase !== "ready" && <p className="text-sm text-amber">Stale: {reachWords(runtime, view)}. Skills as this window last read them, read-only.</p>}
       {!namedPull && pull.status === "absent" && step.result?.actions.includes("pull-now") && <p className="text-sm text-ink-faint">{pull.message}</p>}
-      {read.error !== null && <p className="text-sm text-amber">{oneLine(read.error.message)}</p>}
+      {read.error !== null && <Outcome outcome={{ ok: false, ...plainRefusal(read.error, "Check again") }} className="text-sm text-amber" />}
       {said !== undefined && <Outcome outcome={said} className="text-sm text-ink-muted" />}
+      {choosing !== undefined && (
+        <section aria-label={`Choose folders for ${skillCollectionName(choosing, CATALOGUE.skills)}`} className="flex flex-col gap-3 rounded-md border border-line p-4">
+          <FoundFolders key={choosing.id} environmentId={environmentId} url={choosing.url} replacing={{ source: choosing, followed: sources.length }} onBusy={setAddingFolders} done={(line) => { setSaid({ ok: true, line }); setChoosing(undefined); }} partly={(line) => setSaid({ ok: true, line })} />
+          <Button variant="outline" className="self-start" disabled={addingFolders} onClick={() => setChoosing(undefined)}>Cancel</Button>
+        </section>
+      )}
       <section aria-label="Skills catalogue" className="flex flex-col gap-3">
-        <h3 className="font-semibold">Skills catalogue</h3>
+        {sources.length >= LIMIT_SHOWN_FROM && <p className="text-sm text-ink-muted">You can follow up to {SKILL_SOURCE_LIMIT} collections.</p>}
         {CATALOGUE.skills.map((entry) => (
-          <CatalogueCard
-            key={entry.id}
-            entry={entry}
-            environmentId={environmentId}
-            tick={ticks.find((tick) => tick.entryId === entry.id)}
-            readable={skills !== null && read.error === null}
-            say={say}
-          />
+          <CatalogueCard key={entry.id} entry={entry} environmentId={environmentId} tick={ticks.find((tick) => tick.entryId === entry.id)} readable={readable} />
         ))}
       </section>
-      <AddSource environmentId={environmentId} say={say} title="Add by URL" />
-      {skills?.sources.map((source) => (
-        <div key={source.id} id={`skill-source-${source.id}`}>
-          <SourceCard environmentId={environmentId} source={source} say={say} />
-        </div>
-      ))}
-      {skills?.members.map((member) => (
-        <MemberCard key={`${member.layer.kind} ${member.path}`} environmentId={environmentId} member={member} skills={skills} readiness={undefined} say={say} />
-      ))}
-      <TrustedRepositories environmentId={environmentId} say={say} />
+      <MoreOptions step="skills">
+        <AddFromLink environmentId={environmentId} say={(line) => setSaid({ ok: true, line })} />
+      </MoreOptions>
+      <span className="flex flex-wrap items-center gap-2">
+        <Tooltip content="All skill settings" keys="Tab, Enter"><Button variant="outline" onClick={() => leave("knowledge.skills", environmentId)}><ExternalLink aria-hidden="true" />All skill settings</Button></Tooltip>
+        <span className="text-xs text-ink-muted">Leaves Set up</span>
+      </span>
     </>
   );
 };
 
-/** Tracking never changes always-on choices; unticking asks once before the source leaves every account. */
-const CatalogueCard = ({ entry, environmentId, tick, readable, say }: {
+/** A catalogue licence's declaration, as Details says it. */
+const declarationOf = ({ where }: CatalogueSkillEntry["licence"]): string =>
+  where.kind === "file" ? `${where.path} file` : where.kind === "frontmatter" ? "said in the skill's SKILL.md" : where.kind === "readme" ? "said in the README" : "not stated";
+
+/** One collection of the catalogue: Add, or Added with Remove; its licence, size and skills under Details. Adding never changes always-on choices. */
+const CatalogueCard = ({ entry, environmentId, tick, readable }: {
   readonly entry: CatalogueSkillEntry;
   readonly environmentId: string;
   readonly tick: CatalogueTickState | undefined;
   readonly readable: boolean;
-  readonly say: (line: string) => void;
 }) => {
   const runtime = useRuntime();
-  const { send, sending, commandId, refusal, clearRefusal } = useSkillVerb(say);
-  const [removing, setRemoving] = useState(false);
-  const tracked = tick?.state === "tracked";
-  const capability = runtime.capability(environmentId, tracked ? "skills.sources.remove" : "skills.sources.add");
+  const { send, sending, refusal, commandId } = useCollectionVerb();
+  const [open, setOpen] = useState(false);
+  const added = tick?.state === "tracked";
+  const capability = runtime.capability(environmentId, added ? "skills.sources.remove" : "skills.sources.add");
   const { licence } = entry;
-  const declaration = licence.where.kind === "file"
-    ? licence.where.path
-    : licence.where.kind === "frontmatter"
-      ? "declared in SKILL.md frontmatter"
-      : licence.where.kind === "readme"
-        ? "declared in README"
-        : "no declaration";
   return (
     <section aria-label={entry.title} className="flex flex-col gap-2 rounded-md border border-line p-4">
       <h4 className="font-semibold">{entry.title}</h4>
       <p className="text-sm text-ink-muted">{entry.pitch}</p>
-      <p className="text-sm">{entry.skillCount} skill(s)</p>
-      <p className="text-sm">
-        {(licence.where.kind !== "file" || licence.holder === null) && <TriangleAlert aria-label="Licence caution" className="mr-1 inline size-3.5 text-amber" />}
-        <a href={licence.link} target="_blank" rel="noreferrer">{licence.spdx ?? "No licence"} — {declaration}</a>
-        {licence.holder !== null && ` · ${licence.holder}`}
-      </p>
-      {licence.note !== null && <p className="text-sm text-amber">{licence.note}</p>}
-      {entry.alwaysOnHints.map((hint) => (
-        <p key={hint.name} className="text-sm text-ink-muted">
-          Suggested always-on: {hint.name} — {hint.characters} characters, about {Math.ceil(hint.characters / 4)} tokens on every run. Choose it per account after tracking.
-        </p>
-      ))}
-      {entry.fastMoving && <p className="text-sm text-ink-muted">Changes often.</p>}
-      <p className="text-sm text-ink-muted">At most {SKILL_SOURCE_LIMIT} sources.</p>
-      <label className="flex items-center gap-2">
-        <input
-          type="checkbox"
-          className="accent-beam focus-visible:outline-beam"
-          checked={tracked}
-          disabled={!readable || sending || capability.status === "absent"}
-          onChange={() => {
-            if (tracked) {
-              clearRefusal();
-              setRemoving(true);
-            } else {
-              void send(
-                () => runtime.requests.call(environmentId, "skills.sources.add", {
-                  commandId: commandId(), url: entry.url, folder: entry.folder, follow: { kind: "branch", branch: null },
-                }),
-                `Tracking ${entry.title}.`,
-              );
-            }
-          }}
-        />
-        Track {entry.title}
-      </label>
-      {tick?.state === "tracked" && <a className="text-sm text-beam" href={`#skill-source-${tick.sourceId}`}>Open source row</a>}
-      {capability.status === "absent" && <p className="text-sm text-ink-faint">{capability.message}</p>}
-      <Dialog open={removing} onOpenChange={setRemoving}>
-        <DialogContent title={`Stop tracking ${entry.title}`} description="Its skills leave every account on the next run; a live run keeps its snapshot.">
-          {refusal !== undefined && <p role="status" className="text-sm text-amber">{refusal}</p>}
-          <SkillButton
-            environmentId={environmentId}
-            method="skills.sources.remove"
-            busy={sending}
-            onClick={() => {
-              if (tick?.state === "tracked") {
-                void send(
-                  () => runtime.requests.call(environmentId, "skills.sources.remove", { commandId: commandId(), sourceId: tick.sourceId }),
-                  "Source removed.",
-                ).then((ok) => { if (ok) setRemoving(false); });
-              }
-            }}
+      <p className="text-sm">{entry.skillCount === 1 ? "1 skill" : `${entry.skillCount} skills`}</p>
+      <span className="flex flex-wrap items-center gap-2">
+        {tick?.state === "tracked" ? (
+          <>
+            <span className="text-sm text-mint">Added</span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!readable || sending || capability.status === "absent"}
+              onClick={() => void send(() => runtime.requests.call(environmentId, "skills.sources.remove", { commandId: commandId(), sourceId: tick.sourceId }), "Remove")}
+            >
+              <Minus aria-hidden="true" />Remove
+            </Button>
+          </>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!readable || sending || capability.status === "absent"}
+            onClick={() => void send(() => runtime.requests.call(environmentId, "skills.sources.add", { commandId: commandId(), url: entry.url, folder: entry.folder, follow: { kind: "branch", branch: null } }), "Add")}
           >
-            Confirm remove source
-          </SkillButton>
-          <Button onClick={() => setRemoving(false)}>Cancel</Button>
-        </DialogContent>
-      </Dialog>
-      <details>
-        <summary className="cursor-pointer">Show skills</summary>
-        {entry.members.map((member) => (
-          <p key={member.name} className="text-sm text-ink-muted">{member.name}: {member.description} ({member.invocation})</p>
-        ))}
-      </details>
+            <Plus aria-hidden="true" />Add
+          </Button>
+        )}
+        {capability.status === "absent" && <span className="text-xs text-ink-faint">{capability.message}</span>}
+      </span>
+      {refusal !== undefined && <RefusedLine environmentId={environmentId} refusal={refusal} />}
+      <Fold summary="Details" open={open} onOpenChange={setOpen}>
+        <div className="flex flex-col gap-1 text-sm text-ink-muted">
+          <p>
+            {(licence.where.kind !== "file" || licence.holder === null) && <TriangleAlert aria-label="Licence caution" className="mr-1 inline size-3.5 text-amber" />}
+            <a href={licence.link} target="_blank" rel="noreferrer">Licence: {licence.spdx ?? "none"}, {declarationOf(licence)}</a>
+            {licence.holder !== null && ` · ${licence.holder}`}
+          </p>
+          {licence.note !== null && <p className="text-amber">{licence.note}</p>}
+          {entry.fastMoving && <p>Changes often.</p>}
+          {entry.alwaysOnHints.map((hint) => (
+            <p key={hint.name}>{hint.name} can be always on: about {Math.ceil(hint.characters / 4)} tokens on every run. Choose it in Settings › Skills.</p>
+          ))}
+          {entry.members.map((member) => <p key={member.name}>{member.name}: {member.description}</p>)}
+        </div>
+      </Fold>
     </section>
   );
 };

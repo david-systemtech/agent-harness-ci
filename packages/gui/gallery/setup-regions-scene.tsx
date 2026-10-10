@@ -1,4 +1,4 @@
-import { DEFAULT_THEME, CATALOGUE, CATALOGUE_SEED_INSTRUCTION_ID, type BankJoinPreview, type CarryOverInventory, type ContainmentReport, type EnvironmentBinding, type ResultOf, type StepId, type StepResult } from "@agent-harness/contracts";
+import { DEFAULT_THEME, CATALOGUE, CATALOGUE_SEED_INSTRUCTION_ID, type BankJoinPreview, type CarryOverInventory, type ContainmentReport, type EnvironmentBinding, type ResultOf, type SkillsView, type StepId, type StepResult } from "@agent-harness/contracts";
 import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
 import type { EnvironmentHandle, ScriptedEnvironment, ScriptedForges, ScriptedSetup } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { LadderName } from "@agent-harness/theme";
@@ -26,7 +26,7 @@ export const joinPreview: BankJoinPreview = {
 /** A step's status at the head of its card (setup-copy.md §3; #1840): done, needing a fix with Details open, a check that could not run, and the environment out of reach. */
 type StatusRegion = "status-done" | "status-fix" | "status-could-not-check" | "status-unreachable";
 
-type SetupRegion = StepId | "appearance-default" | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "sign-in-refused" | "host-updater" | "rail-states" | "instructions-unread" | "permissions-sandbox" | "permissions-sandbox-paired" | StatusRegion | ForgesRegion | AccountRegion | KeyManagerRegion | BrowserRegion | "machines-tailscale" | "machines-unreachable";
+type SetupRegion = StepId | "appearance-default" | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "sign-in-refused" | "host-updater" | "rail-states" | "instructions-unread" | "skills-link-refusal" | "permissions-sandbox" | "permissions-sandbox-paired" | StatusRegion | ForgesRegion | AccountRegion | KeyManagerRegion | BrowserRegion | "machines-tailscale" | "machines-unreachable";
 
 const isSandbox = (kind: SetupRegion): boolean => kind === "permissions-sandbox" || kind === "permissions-sandbox-paired";
 
@@ -179,6 +179,20 @@ const RAIL_STATES: ScriptedSetup = {
   "key-manager": null,
 };
 
+/** setup-copy.md §5.9: one catalogue collection added, so the catalogue shows Add, and Added with Remove (#1855); every value is invented. */
+const SKILLS_ADDED: SkillsView = {
+  ownDirectory: "/home/gallery/skills/own", choices: [], accountId: "project", accounts: [{ accountId: "project", channel: "system-prompt-append", reason: null }], members: [],
+  sources: [{
+    id: "0f8fad5b-d9cb-469f-a165-70867728950e", url: "https://github.com/theclaymethod/unslop", identity: "https://github.com/theclaymethod/unslop", folder: ".",
+    follow: { kind: "branch", branch: null }, position: 1, addedBy: { kind: "client_session", id: "desk" }, addedAt: "2026-10-08T09:00:00.000Z",
+    commit: "c".repeat(40), skillCount: 1, sync: { outcome: "ok", since: "2026-10-08T09:00:00.000Z" }, attemptedAt: "2026-10-08T09:00:00.000Z",
+  }],
+};
+
+/** setup-copy.md §5.9: Add from a link refused for a computer with no git, git's words for Details (#1855). */
+const NO_GIT = { error: { code: "conflict", message: "Git is not installed on desk. Install Git, then try again.", data: { reason: "unreachable", problem: "git_missing", line: "spawn git ENOENT", origin: "https://git.example.test" } } };
+const LINK = "https://git.example.test/team/procedures";
+
 /** A provider's authorize link at its real length, which once printed over eight lines (#1690); every value is invented. */
 export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=true&client_id=client-for-gallery&response_type=code"
   + "&redirect_uri=https%3A%2F%2Fprovider.example.test%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference+user%3Asessions"
@@ -187,7 +201,7 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
   const signIn = kind === "sign-in" || kind === "sign-in-refused";
-  const target: StepId = kind === "appearance-default" ? "appearance" : kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || signIn || ACCOUNT_REGIONS.has(kind) ? "account" : kind === "host-updater" || kind === "machines-tailscale" || kind === "machines-unreachable" ? "your-machines" : kind === "rail-states" || showsKeyManagers(kind) ? "key-manager" : kind === "instructions-unread" ? "instructions" : isSandbox(kind) ? "permissions" : isStatus(kind) ? "skills" : isBrowserRegion(kind) ? "browser" : isForges(kind) ? "forges" : kind as StepId;
+  const target: StepId = kind === "appearance-default" ? "appearance" : kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || signIn || ACCOUNT_REGIONS.has(kind) ? "account" : kind === "host-updater" || kind === "machines-tailscale" || kind === "machines-unreachable" ? "your-machines" : kind === "rail-states" || showsKeyManagers(kind) ? "key-manager" : kind === "instructions-unread" ? "instructions" : isSandbox(kind) ? "permissions" : kind === "skills-link-refusal" || isStatus(kind) ? "skills" : isBrowserRegion(kind) ? "browser" : isForges(kind) ? "forges" : kind as StepId;
   const keyManagerRegion = showsKeyManagers(kind);
   const status = isStatus(kind) ? STATUS_RESULTS[kind] : undefined;
   const binding = MACHINES_BINDING[kind];
@@ -219,6 +233,8 @@ async function prepareRegion(kind: SetupRegion) {
     listener: { state: "listening", port: 47615 }, folder: { path: "/extension/current", problem: null }, shippedVersion: "0.1.0", unpairedConnected: kind === "browser-code",
     headless: { allowRuns: true, availability: { available: false, reason: "No browser installed." }, liveContexts: 0 },
   } }));
+  if (target === "skills") desk.wire.answer("skills.get", () => ({ result: SKILLS_ADDED }));
+  if (kind === "skills-link-refusal") desk.wire.answer("skills.probe", () => NO_GIT);
   const since = prepared.clock.now().toISOString();
   const chromes = kind === "browser-step-1" || kind === "browser-code" ? [] : [{ id: "0199aa00-0000-4000-8000-000000000041", name: "Project Chrome", pairedAt: since, lastConnectedAt: since, lastReportedVersion: "0.1.0", connected: kind !== "browser-closed", outdated: false }];
   desk.wire.answer("browser.chromes.list", () => ({ result: { chromes } }));
@@ -303,6 +319,29 @@ export function setupRegionScene(kind: SetupRegion) {
           }
           const check = buttons.find((button) => button.textContent === "Check address");
           if (check !== undefined && !check.disabled) { finished = true; check.click(); }
+          return;
+        }
+        if (kind === "skills-link-refusal") {
+          // More options › Add from a link, an address typed as a person would, Look for skills, and the refusal's Details open.
+          const scroll = document.querySelector("[data-setup-scroll]");
+          const button = (words: string) => [...(scroll?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((candidate) => candidate.textContent === words);
+          const field = scroll?.querySelector<HTMLInputElement>('input[aria-label="Repository address"]') ?? null;
+          if (field === null) {
+            const more = button("More options");
+            if (more?.getAttribute("aria-expanded") === "false") more.click();
+            return;
+          }
+          if (field.value === "") {
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(field, LINK);
+            field.dispatchEvent(new Event("input", { bubbles: true }));
+            return;
+          }
+          const look = button("Look for skills");
+          if (!finished && look !== undefined && !look.disabled) { finished = true; look.click(); }
+          const details = [...(scroll?.querySelectorAll<HTMLButtonElement>('[role="alert"] button') ?? [])].find((candidate) => candidate.textContent === "Details");
+          if (details?.getAttribute("aria-expanded") === "false") details.click();
+          // The link's field sits below the catalogue: bring it and the refusal under it into the capture.
+          if (details?.getAttribute("aria-expanded") === "true" && scroll !== null) scroll.scrollTop += field.getBoundingClientRect().top - scroll.getBoundingClientRect().top - 48;
           return;
         }
         if (MACHINES_BINDING[kind] !== undefined) {

@@ -612,15 +612,36 @@ Added when the dialog was built (#1843), where the lines above did not reach the
 - Title `Add ready-made skills`. Why `Skills are guides agents can follow, like reviewing code or writing tests.`
 - Catalogue: each card `{title}` `{one-line pitch}` `{n} skills` **Add** (added: `Added` with **Remove**); fold `Details`: licence, `Changes often`, size, the skill list.
   `You can follow up to 20 collections.` shows once, above the list, from 15 on.
+  In Details: `Licence: {spdx or none}, {LICENSE file | said in the skill's SKILL.md | said in the README | not stated}`; size
+  `{skill} can be always on: about {n} tokens on every run. Choose it in Settings › Skills.`; each skill `{name}: {description}`.
 - More options › `Add from a link`: `Repository address` **Look for skills** → `Found {n} skill folders:` ticks **Add selected**.
-- Skill members, always-on switches and repository trust are not in Set up (Settings › Skills, link **All skill settings**).
+  While looking: `Looking for skills…`. One folder: `Found 1 skill folder:`. Each tick `{folder} · {n} skills` (the repository's own
+  name for its top folder). Add selected with nothing ticked is greyed beside `Choose a skill folder first.`; a look that stopped early
+  `agent-harness stopped looking after 2,000 folders, so there may be more.`; after adding `Added {collection}.`
+- A collection is named by its catalogue title, else by its repository's path on its host, with `({folder})` when it is not the top folder.
+- Skill members, always-on switches and repository trust are not in Set up (Settings › Skills, link **All skill settings**, with the
+  visible hint `Leaves Set up`).
 - Lines: skip `No skills added. Optional.`; done `Your skills are up to date.` (own only: `Your own skills are ready.`); after Update now `{collection} is up to date.`;
   update failed `{collection} could not update. Choose Update now.`; out of date `{collection} has not updated for over 7 hours. Choose Update now.`;
   moved `{collection} no longer has skills where they were. Choose its folders again.` (card button **Choose folders**);
+  pinned with no skills `{collection} has no skills at its pinned version. Open All skill settings to change its folders or version.` (the pin is changed explicitly in Settings);
   too many `You follow {n} collections. The limit is 20. Remove {n-20}.`; own folder `agent-harness cannot open your own skills folder. Check that it exists.` Details.
 - Probe messages: not an address `Enter the address of a repository, like https://github.com/you/skills.` (never "The params are not skills.probe's");
   git missing `Git is not installed on {computer}. Install Git, then try again.` (from spawn ENOENT); private `This repository is private. Add a forge for {host} first.` **Go to Forges**; missing `agent-harness found no repository at this address.`;
   slow `{host} did not answer in time. Try again.`; none `No skill folders were found there.`; all with Details for git's words.
+  Git failing any other way: `agent-harness could not read this repository. Try again.` (#1855: the probe's fifth cause had no line).
+- Add refusals (#1855: the add's refusals reached the card in the environment's own words): already followed `You already follow
+  this collection.`; at the limit `You can follow up to 20 collections. Remove one first.`; a folder with no skills `There are no skills
+  in {the folder {folder} | this repository}.` or, when its skills have problems, `The skills in {…} cannot be used.`, then
+  `These folders have skills: {folders}.` when others do.
+- A new Look for skills result clears the folder ticks; Add selected only sends folders in that result.
+  During an add batch, Look for skills is disabled and Enter in the address field cannot start a new look, so the batch's refusal stays visible.
+- Update now with no collection to update: `There is no collection to update.` Choose folders looks for a branch-following collection's folders
+  again (`Found {n} skill folders:` …, **Cancel**); Add selected adds the chosen ones and removes the moved collection.
+  Cancel stays disabled while that batch is running, through its adds and removal. At
+  the limit, or when the original folder is selected again, it removes the moved collection first; when an add after that is refused, the card keeps
+  `{collection} was removed to make room for its new folders.` beside the refusal, after **Cancel** too. A refusal part way
+  (here or in Add from a link) puts `Added {collection}.` for each folder already added in front of it.
 - "Pull now" reads **Update now** everywhere in Set up.
 
 ### 5.10 Instructions (gui/src/instructions/*; environment/src/instructions/*)
