@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { SCOPES, STAGING_DIRECTORY, type ParamsOf } from "@agent-harness/contracts";
+import { SCOPES, STAGING_DIRECTORY, registry, type ParamsOf } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { unpackedServerArtefact } from "../../test/artefacts.js";
 import { useCleanups } from "../../test/cleanups.js";
@@ -64,6 +64,67 @@ const setUpdates = (client: WireClient, values: ParamsOf<"updates.settings.set">
 const buildReads = (fake: FakeReleaseSource) => fake.reads().filter((request) => /\.(pacman|exe)$/.test(request.path));
 
 describe("updates.desktop.stage", () => {
+  it.each(["done", "refused"] as const)("finishes an anonymous download (%s) after the environment closes without reading the closed log or reporting a handler failure, and stages again after restart", async (outcome) => {
+    const fake = await startFakeReleaseSource("github");
+    onCleanup(() => fake.forge.close());
+    fake.publish(release("0.5.0"));
+    const held = Promise.withResolvers<void>();
+    const released = Promise.withResolvers<void>();
+    const finished = Promise.withResolvers<void>();
+    const dataDir = tempDir();
+    const t = await startTestEnvironment({
+      dataDir,
+      harnessVersion: RUNNING,
+      releaseSource: fake.source,
+      forgeFetch: async (url, init) => {
+        const response = await fake.forge.fetch(url, init);
+        if (url.includes("/assets/") && await response.clone().text() === new TextDecoder().decode(buildBytes("0.5.0", "pacman"))) {
+          held.resolve();
+          await released.promise;
+          if (outcome === "refused") return new Response("Forbidden", { status: 403 });
+        }
+        return response;
+      },
+    });
+    onCleanup(() => t.close());
+    const served = t.env.methods.get("updates.desktop.stage");
+    if (served?.kind !== "query" || served.handler === undefined) throw new Error("Desktop staging has no handler.");
+    const { handler } = served;
+    t.env.methods.register(registry["updates.desktop.stage"], async (params, context) => {
+      try {
+        return registry["updates.desktop.stage"].result.parse(await handler(params, context));
+      } finally {
+        finished.resolve();
+      }
+    });
+    onCleanup(async () => {
+      released.resolve();
+      await finished.promise;
+    });
+    const said = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => said.mockRestore());
+    const asked = stage(await t.client(), { platform: "linux-x64", format: "pacman" }).catch(() => undefined);
+    await held.promise;
+
+    await t.env.close();
+    const read = vi.spyOn(t.env.log, "read");
+    onCleanup(() => read.mockRestore());
+    released.resolve();
+    await finished.promise;
+    // Let dispatch report the completed handler before checking its diagnostics.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await asked;
+
+    expect(said).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
+
+    const restarted = await startTestEnvironment({ dataDir, harnessVersion: RUNNING, releaseSource: fake.source, forgeFetch: fake.forge.fetch });
+    onCleanup(() => restarted.close());
+    const staged = await stage(await restarted.client(), { platform: "linux-x64", format: "pacman" });
+    expect(staged).toEqual({ path: join(dataDir, "desktop-builds", "0.5.0", "agent-harness-0.5.0.pacman"), version: "0.5.0", sha256: sha256Of(buildBytes("0.5.0", "pacman")) });
+    expect(new Uint8Array(readFileSync(staged.path))).toEqual(buildBytes("0.5.0", "pacman"));
+  });
+
   it("from a local client session, downloads the channel's newest build for the platform and format named into the data directory, verified, and answers its path, version and SHA-256", async () => {
     const { fake, t, client } = await withReleases();
     fake.publish(release("0.5.0"));

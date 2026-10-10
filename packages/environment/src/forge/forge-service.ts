@@ -1109,6 +1109,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     },
 
     close() {
+      missing.close();
       verifier.close();
       secrets.close();
       for (const release of held.values()) release();
