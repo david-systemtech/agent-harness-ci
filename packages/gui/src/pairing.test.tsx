@@ -5,12 +5,13 @@ import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
 /**
- * Pairing the window (docs/specs/gui.md, "The local environment, pairing and
- * updates"): a pasted link, an `agent-harness://` deep link or an address
- * and code, through `connections.add`; each typed failure in one line, in
- * the runtime's words; a revoked or expired connection paired again in
- * place; a blocked connection showing its action. Driven through the
- * harness over the scripted environments.
+ * Pairing the window (setup-copy.md §4.2; docs/specs/gui.md, "The local
+ * environment, pairing and updates"): a pasted link, an `agent-harness://`
+ * deep link or an address and code, through `connections.add`; each typed
+ * failure an alert in the runtime's plain words, the raw failure in Details;
+ * a revoked or expired connection paired again in place; a blocked
+ * connection showing its action. Driven through the harness over the
+ * scripted environments.
  */
 
 const OFF = { presentation: { runLocalEnvironment: false } } as const;
@@ -31,6 +32,24 @@ const typeInto = async (app: RenderedApp, field: HTMLElement, text: string) => {
   await app.user.keyboard(text);
 };
 
+/** Opens the fold Type an address and code instead in `place`, and its form. */
+const byCode = async (app: RenderedApp, place: HTMLElement) => {
+  act(() => within(place).getByRole("button", { name: "Type an address and code instead" }).focus());
+  await app.user.keyboard("{Enter}");
+  return within(place).getByRole("form", { name: "Pair by address and code" });
+};
+
+/** The pairing form's refusal in `place`, once it is said: an alert, its line first. */
+const refusalIn = (place: HTMLElement) =>
+  waitFor(() => {
+    const refusal = place.querySelector<HTMLElement>("[data-pairing-refusal]");
+    expect(refusal?.getAttribute("role")).toBe("alert");
+    return refusal as HTMLElement;
+  });
+
+/** A refusal's line, without the hidden "Error: " a screen reader reads first. */
+const lineOf = (refusal: HTMLElement) => refusal.querySelector("[data-pairing-line]")?.textContent?.replace(/^Error: /, "");
+
 /** Pastes `link` into the pairing form in `place` and sends it. */
 const pasteLink = async (app: RenderedApp, place: HTMLElement, link: string) => {
   const form = within(place).getByRole("form", { name: "Pair by link" });
@@ -44,14 +63,15 @@ const sidebar = () => screen.getByRole("navigation", { name: "Sessions", hidden:
 
 describe("pairing", () => {
   it("labels pairing fields above their actions and gives actions icons and key hints", async () => {
-    const { app } = await onPairing();
-    const form = screen.getByRole("form", { name: "Pair by address and code" });
+    const { app, pane } = await onPairing();
+    const form = await byCode(app, pane);
     expect(within(form).getByLabelText("Address").tagName).toBe("INPUT");
     expect(within(form).getByLabelText("Pairing code").tagName).toBe("INPUT");
-    const action = within(form).getByRole("button", { name: "Pair with the code" });
+    for (const field of within(form).getAllByRole("textbox")) expect(field.getAttribute("placeholder")).toBeNull();
+    const action = within(form).getByRole("button", { name: "Pair" });
     expect(action.querySelector("svg")).not.toBeNull();
     act(() => action.focus());
-    expect(await screen.findByRole("tooltip")).toHaveProperty("textContent", "Pair with the code · Enter");
+    expect(await screen.findByRole("tooltip")).toHaveProperty("textContent", "Pair · Enter");
     await app.user.keyboard("{Escape}");
   });
 
@@ -68,13 +88,25 @@ describe("pairing", () => {
   it("pairs from an address and a code, typed in the sidebar's pairing dialog", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }, { name: "laptop", reach: "unpaired" }] });
     await app.user.click(within(sidebar()).getByRole("button", { name: "Pair with an environment…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Pair with an environment" });
-    const form = within(dialog).getByRole("form", { name: "Pair by address and code" });
+    const dialog = await screen.findByRole("dialog", { name: "Connect to another computer" });
+    const form = await byCode(app, dialog);
     await typeInto(app, within(form).getByRole("textbox", { name: "Address" }), app.environment("laptop").wire.origin);
     await typeInto(app, within(form).getByRole("textbox", { name: "Pairing code" }), "k7q2m xh4rt");
-    await app.user.click(within(form).getByRole("button", { name: "Pair with the code" }));
-    expect(await within(dialog).findByText("Paired with laptop.")).toBeDefined();
+    await app.user.click(within(form).getByRole("button", { name: "Pair" }));
+    expect(await within(dialog).findByText("Connected to laptop.")).toBeDefined();
+    expect(within(dialog).getByText("Paste the pairing link from the other computer.")).toBeDefined();
     expect(within(sidebar()).getByRole("heading", { name: "laptop", hidden: true })).toBeDefined();
+  });
+
+  it("offers Set up on the computer once connected from the dialog, which closes it and opens Set up there", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }, { name: "laptop", reach: "unpaired", capabilities: ["setup"] }] });
+    await app.user.click(within(sidebar()).getByRole("button", { name: "Pair with an environment…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Connect to another computer" });
+    await pasteLink(app, dialog, app.environment("laptop").wire.link);
+    await app.user.click(await within(dialog).findByRole("button", { name: "Set up laptop" }));
+    const checklist = await screen.findByRole("region", { name: "Set up" });
+    expect(within(within(checklist).getByRole("combobox", { name: /^(Environment|Setting up)$/ })).getByRole("option", { selected: true }).textContent).toBe("laptop");
+    expect(screen.queryByRole("dialog", { name: "Connect to another computer" })).toBeNull();
   });
 
   it("says where macOS's Keychain prompt waits while pairing, and once it went unanswered offers Try again with the same code", async () => {
@@ -82,35 +114,30 @@ describe("pairing", () => {
     let unanswered!: (error: Error) => void;
     app.shell.answer("secrets.protection", () => new Promise((_resolve, reject) => { unanswered = reject; }));
     await app.user.click(within(sidebar()).getByRole("button", { name: "Pair with an environment…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Pair with an environment" });
-    const form = within(dialog).getByRole("form", { name: "Pair by address and code" });
+    const dialog = await screen.findByRole("dialog", { name: "Connect to another computer" });
+    const form = await byCode(app, dialog);
     await typeInto(app, within(form).getByRole("textbox", { name: "Address" }), app.environment("laptop").wire.origin);
     await typeInto(app, within(form).getByRole("textbox", { name: "Pairing code" }), "k7q2m xh4rt");
-    await app.user.click(within(form).getByRole("button", { name: "Pair with the code" }));
+    await app.user.click(within(form).getByRole("button", { name: "Pair" }));
     await waitFor(() => expect(app.shell.calls).toContainEqual(["secrets.protection"]));
 
     await act(async () => app.shell.changeSecretAccess("waiting"));
     expect(within(dialog).getByText("Pairing…")).toBeDefined();
     await act(async () => app.clock.advance(500));
-    expect(within(dialog).getByRole("status").textContent).toBe(
-      "macOS is asking to let agent-harness use its saved key. Look for the system dialog and choose Always Allow (it may ask for your Mac password).",
-    );
+    expect(within(dialog).getByRole("status").textContent).toBe("Your Mac is asking to use agent-harness's saved key. Find the Mac's dialog and choose Always Allow.");
 
     // The rejection as Electron's IPC hands it to a renderer that does not unwrap it: the form says its own words regardless.
     await act(async () => {
       unanswered(new Error(`Error invoking remote method 'shell:secrets.protection': Error: ${new CredentialAccessUnansweredError(30).message}`));
       app.shell.changeSecretAccess("denied");
     });
-    const status = within(dialog).getByRole("status");
-    expect(status.textContent).toContain(
-      "Not paired: macOS asked to let agent-harness use its saved key and had no answer. Look for the system dialog and choose Always Allow (it may ask for your Mac password), then Try again.",
-    );
-    expect(status.textContent).not.toMatch(/Error invoking remote method|shell:secrets/);
+    const status = await refusalIn(dialog);
+    expect(lineOf(status)).toBe("Your Mac's question was not answered, so pairing stopped. Choose Always Allow, then Try again.");
 
     app.shell.answer("secrets.protection", async () => "os");
     await act(async () => app.shell.changeSecretAccess(null));
     await app.user.click(within(status).getByRole("button", { name: "Try again" }));
-    expect(await within(dialog).findByText("Paired with laptop.")).toBeDefined();
+    expect(await within(dialog).findByText("Connected to laptop.")).toBeDefined();
     expect(within(sidebar()).getByRole("heading", { name: "laptop", hidden: true })).toBeDefined();
   });
 
@@ -118,16 +145,14 @@ describe("pairing", () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }, { name: "laptop", reach: "unpaired" }] });
     app.shell.answer("secrets.set", () => Promise.reject(new Error(new CredentialAccessUnansweredError(30).message)));
     await app.user.click(within(sidebar()).getByRole("button", { name: "Pair with an environment…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Pair with an environment" });
-    const form = within(dialog).getByRole("form", { name: "Pair by address and code" });
+    const dialog = await screen.findByRole("dialog", { name: "Connect to another computer" });
+    const form = await byCode(app, dialog);
     await typeInto(app, within(form).getByRole("textbox", { name: "Address" }), app.environment("laptop").wire.origin);
     await typeInto(app, within(form).getByRole("textbox", { name: "Pairing code" }), "k7q2m xh4rt");
-    await app.user.click(within(form).getByRole("button", { name: "Pair with the code" }));
+    await app.user.click(within(form).getByRole("button", { name: "Pair" }));
 
-    const status = within(dialog).getByRole("status");
-    await waitFor(() => expect(status.textContent).toBe(
-      "Not paired: macOS asked to let agent-harness use its saved key and had no answer. Look for the system dialog and choose Always Allow (it may ask for your Mac password), then pair with a new code: this one was used.",
-    ));
+    const status = await refusalIn(dialog);
+    expect(lineOf(status)).toBe("Your Mac's question was not answered, so pairing stopped. Choose Always Allow, then make a new code: this one was used.");
     expect(within(status).queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
@@ -135,8 +160,8 @@ describe("pairing", () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }, { name: "laptop", reach: "unpaired" }] });
     await within(sidebar()).findByRole("heading", { name: "desk" });
     app.shell.openDeepLink(pairingDeepLink(app.environment("laptop").wire.link));
-    const dialog = await screen.findByRole("dialog", { name: "Pair with an environment" });
-    expect(await within(dialog).findByText("Paired with laptop.")).toBeDefined();
+    const dialog = await screen.findByRole("dialog", { name: "Connect to another computer" });
+    expect(await within(dialog).findByText("Connected to laptop.")).toBeDefined();
     expect(within(sidebar()).getByRole("heading", { name: "laptop", hidden: true })).toBeDefined();
   });
 
@@ -147,42 +172,42 @@ describe("pairing", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  const failures: readonly (readonly [string, Partial<ScriptedEnvironment>, { readonly protocolVersion?: number }, RegExp])[] = [
-    ["expired-code", { pairing: "expired-code" }, {}, /^Not paired: The pairing code has expired/],
-    ["used-code", { pairing: "used-code" }, {}, /^Not paired: The pairing code has been used already/],
-    ["invalid-code", { pairing: "invalid-code" }, {}, /^Not paired: The environment issued no such pairing code/],
-    ["unreachable", { discovery: "nothing" }, {}, /^Not paired: Nothing answered at /],
-    ["unsupported-client", { protocolVersion: PROTOCOL_VERSION + 1 }, {}, /^Not paired: .*: update this client\.$/],
-    ["protocol-mismatch", {}, { protocolVersion: PROTOCOL_VERSION + 1 }, /^Not paired: .*: update the environment\.$/],
-    ["not-ready", { discovery: "starting" }, {}, /^Not paired: laptop is starting; try again once it is ready\.$/],
-    ["different-environment", { hello: { environmentId: "0199aa00-0000-7000-8000-0000000000ff" } }, {}, /^Not paired: .* not the one its address named\.$/],
+  const failures: readonly (readonly [string, Partial<ScriptedEnvironment>, { readonly protocolVersion?: number }, RegExp, RegExp])[] = [
+    ["expired-code", { pairing: "expired-code" }, {}, /^This code has run out\. Make a new code on the other computer\.$/, /pairing_expired/],
+    ["used-code", { pairing: "used-code" }, {}, /^This code was already used\. Make a new code on the other computer\.$/, /pairing_used/],
+    ["invalid-code", { pairing: "invalid-code" }, {}, /^The other computer does not know this code\. Check it, or make a new one\.$/, /pairing_invalid/],
+    ["unreachable", { discovery: "nothing" }, {}, /^Nothing answered at laptop\.test:\d+\. Check that the other computer is on and that both are connected to Tailscale\.$/, /Nothing answered at http:/],
+    ["unsupported-client", { protocolVersion: PROTOCOL_VERSION + 1 }, {}, /^This app and laptop run versions that cannot talk\. Update this app, then pair again\.$/, /update this client/],
+    ["protocol-mismatch", {}, { protocolVersion: PROTOCOL_VERSION + 1 }, /^This app and laptop run versions that cannot talk\. Update laptop, then pair again\.$/, /update the environment/],
+    ["not-ready", { discovery: "starting" }, {}, /^The other computer is still starting\. Try again in a moment\.$/, /laptop is starting/],
+    ["different-environment", { hello: { environmentId: "0199aa00-0000-7000-8000-0000000000ff" } }, {}, /^That address reaches a different computer than the one that made the code\. Make a new code and try again\.$/, /not the one its address named/],
   ];
 
-  it.each(failures)("says the %s failure in one line, and pairs nothing", async (_reason, laptop, options, words) => {
+  it.each(failures)("says the %s failure as an alert in plain words, the raw failure in Details, and pairs nothing", async (_reason, laptop, options, words, raw) => {
     const { app, pane } = await onPairing(laptop, options);
     await pasteLink(app, pane, app.environment("laptop").wire.link);
-    const status = await within(pane).findByRole("status");
-    await waitFor(() => expect(status.textContent).toMatch(/^Not paired: /));
-    expect(status.textContent).toMatch(words);
-    expect(status.textContent).not.toContain("\n");
+    const alert = await refusalIn(pane);
+    expect(lineOf(alert)).toMatch(words);
+    await app.user.click(within(alert).getByRole("button", { name: "Details" }));
+    expect(alert.querySelector("pre")?.textContent).toMatch(raw);
     expect(app.runtime.connections.list.read().map((record) => record.environmentId)).toEqual([LOCAL_PLACEHOLDER_ID]);
   });
 
-  it("says a link that is not a pairing link in one line, sending nothing", async () => {
+  it("says a link that is not a pairing link, sending nothing", async () => {
     const { app, pane, laptop } = await onPairing();
     await pasteLink(app, pane, `${laptop.wire.origin}/pair`);
-    expect(await within(pane).findByText("Not paired: That is not a pairing link: it looks like http://<address>/pair#<code>.")).toBeDefined();
+    expect(await within(pane).findByText("That is not a pairing link. A pairing link ends with /pair# and a code.")).toBeDefined();
     expect(laptop.wire.discoveries()).toBe(0);
   });
 
-  it("offers to pair an environment paired already again in place, and does on Pair again", async () => {
+  it("offers to connect a computer connected already again in place, and does on Connect again", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }, { name: "laptop", reach: "paired" }] });
     await app.user.click(within(sidebar()).getByRole("button", { name: "Pair with an environment…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Pair with an environment" });
+    const dialog = await screen.findByRole("dialog", { name: "Connect to another computer" });
     await pasteLink(app, dialog, app.environment("laptop").wire.link);
-    expect(await within(dialog).findByText("laptop is paired already. Pair it again in place?")).toBeDefined();
-    await app.user.click(within(dialog).getByRole("button", { name: "Pair again" }));
-    expect(await within(dialog).findByText("Paired with laptop.")).toBeDefined();
+    expect(await within(dialog).findByText("laptop is already connected. Connect again?")).toBeDefined();
+    await app.user.click(within(dialog).getByRole("button", { name: "Connect again" }));
+    expect(await within(dialog).findByText("Connected to laptop.")).toBeDefined();
     expect(app.runtime.connections.list.read().filter((record) => record.kind === "paired")).toHaveLength(1);
   });
 });
@@ -199,7 +224,7 @@ describe("a blocked connection", () => {
     await app.user.click(within(sidebar()).getByRole("button", { name: "Pair again" }));
     const dialog = await screen.findByRole("dialog", { name: "Pair laptop again" });
     await pasteLink(app, dialog, laptop.wire.link);
-    expect(await within(dialog).findByText("Paired with laptop.")).toBeDefined();
+    expect(await within(dialog).findByText("Connected to laptop.")).toBeDefined();
     await waitFor(() => expect(within(sidebar()).queryByText(line)).toBeNull());
     expect(app.runtime.connections.list.read().find((record) => record.environmentId === laptop.environmentId)).toMatchObject({ phase: "ready", blocked: null });
   });

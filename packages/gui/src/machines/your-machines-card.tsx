@@ -14,8 +14,6 @@ import { CHANNEL_WORDS } from "../updates/update-controls.js";
 import { useFollowed, useObservable, useRuntime } from "../window-context.js";
 import { AddAMachine } from "./add-a-machine.js";
 import { LOOK_COMMANDS, LookEditor } from "./look-editor.js";
-import { Part } from "./machine-card.js";
-import { PresetPairing } from "./preset-pairing.js";
 import { ReachVerdictLine, SetupNetworkSwitches, SwitchRow } from "./reachability.js";
 import { SetUpOffer } from "./set-up-offer.js";
 
@@ -88,13 +86,10 @@ const ThisComputer = ({ view }: { readonly view: EnvironmentView }) => {
       {answer === "also" && (
         <>
           <ReachVerdictLine view={view} restart={restart} />
-          <Part title="Add a device">
-            <PresetPairing view={view} writable={admits("access.pairings.create")} />
-          </Part>
           {addedViews.map((other) => (
             <SetUpOffer key={other.environmentId} view={other} decline={() => setAdded((now) => now.filter((id) => id !== other.environmentId))} />
           ))}
-          <AddAMachine added={(environmentId) => setAdded((now) => (now.includes(environmentId) ? now : [...now, environmentId]))} />
+          <AddAMachine forComputer={view} added={(environmentId) => setAdded((now) => (now.includes(environmentId) ? now : [...now, environmentId]))} />
         </>
       )}
       <MoreOptions step="your-machines">

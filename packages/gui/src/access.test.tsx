@@ -1,5 +1,4 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { clockTime } from "@agent-harness/client-runtime";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -232,24 +231,26 @@ describe("a program pairing", () => {
 
     await app.user.click(within(form).getByRole("checkbox", { name: "runs:drive" }));
     await app.user.selectOptions(within(form).getByRole("combobox", { name: "Ceiling" }), "plan");
-    const expiry = clockTime(new Date(app.clock.now().getTime() + 10 * 60_000).toISOString());
     await app.user.click(within(form).getByRole("button", { name: "Make a program's pairing code" }));
 
-    expect(await within(form).findByText("K7Q2M-XH4RV")).toBeDefined();
+    expect(await within(form).findByText(/\/pair#K7Q2MXH4RV$/)).toBeDefined();
     expect(within(form).getByText("Grants read and sessions:write, up to plan.")).toBeDefined();
-    expect(within(form).getByText(`Expires at ${expiry}, for one use.`)).toBeDefined();
+    // A program has no Connect to another computer to choose.
+    expect(within(form).queryByText(/^On the new device/)).toBeNull();
+    expect(within(form).getByRole("timer").textContent).toBe("This code works once, for 10 minutes. 10 min left.");
     expect(desk.requests("access.pairings.create").map((request) => request.params)).toEqual([expect.objectContaining({ scopes: ["read", "sessions:write"], ceiling: "plan" })]);
 
     // Shown once: gone once the pane is left, and gone at its expiry.
     await openAccess(app, "laptop");
     await openAccess(app, "desk");
-    expect(within(pane("Access")).queryByText("K7Q2M-XH4RV")).toBeNull();
+    expect(within(pane("Access")).queryByText(/\/pair#K7Q2MXH4RV$/)).toBeNull();
     const again = await within(part(pane("Access"), "Program pairings")).findByRole("group", { name: "Pair a program" });
     await app.user.click(within(again).getByRole("button", { name: "Make a program's pairing code" }));
-    expect(await within(again).findByText("K7Q2M-XH4RW")).toBeDefined();
+    expect(await within(again).findByText(/\/pair#K7Q2MXH4RW$/)).toBeDefined();
     act(() => app.clock.advance(10 * 60_000));
-    expect(within(again).queryByText("K7Q2M-XH4RW")).toBeNull();
-    expect(within(again).getByText(/^This code expired at \d\d:\d\d: make another\.$/)).toBeDefined();
+    expect(within(again).queryByText(/\/pair#K7Q2MXH4RW$/)).toBeNull();
+    expect(within(again).getByText("This code has run out.")).toBeDefined();
+    expect(within(again).getByRole("button", { name: "Make a new code" })).toBeDefined();
   });
 
   it("is not made with no scope ticked", async () => {
@@ -309,7 +310,7 @@ describe("the access log", () => {
 
     const programs = part(access, "Program pairings");
     await app.user.click(within(programs).getByRole("button", { name: "Make a program's pairing code" }));
-    await within(programs).findByText("K7Q2M-XH4RV");
+    await within(programs).findByText(/\/pair#K7Q2MXH4RV$/);
     await app.user.click(within(log).getByRole("button", { name: "Read again" }));
     await waitFor(async () => expect(await newest()).toMatch(/ A pairing code was made\. Grants read, sessions:write and runs:drive, up to acceptEdits\.$/));
   });

@@ -181,6 +181,11 @@ Field `Pairing link` (no example value as placeholder), button **Pair**; **Scan 
 | `Not paired: macOS asked … then Try again.` / `… this one was used.` | `Your Mac's question was not answered, so pairing stopped. Choose Always Allow, then Try again.` / `… then make a new code: this one was used.` |
 | `Not paired: {thrown}` / `Not scanned: {thrown}` | `Pairing did not work. Try again.` / `The QR code could not be read. Paste the link instead.` Details |
 | `{name} is this machine's local environment: it connects through its grant, with no code.` | `That link is for this computer. This app is already connected to it.` |
+| `That code is for {x}, not {y}.` (pairing {y} again) | `That code is for {x}, not {y}. Make a new code on {y}.` |
+| `This device cannot keep a client session token: the OS keeps no key for it now. Unlock or set up the system keychain, then pair again.` | `This device has no safe place to keep the connection. Unlock or set up its keychain, then pair again.` Details |
+| `Full access could not be confirmed. Use a full-access code made for Me. …` (Give this phone full access) | Unchanged. Details: what the code granted and what the new connection holds |
+| `The environment that answered is {x}, not the one its address named.` | `That address reaches a different computer than the one that made the code. Make a new code and try again.` Details |
+| `Use the environment's HTTPS pairing link or HTTPS address. HTTP connections are unavailable in the browser.` | `Use the other computer's HTTPS pairing link or HTTPS address. This page cannot connect over HTTP.` Details: the address |
 
 ### 4.3 Close dialog (gui/src/setup/checklist-window.tsx)
 Words stay: `Leave set up without an account?` / `You can look around, but you will need to sign in before starting a session. Set up will be waiting in Settings.` / **Keep setting up** / **Leave for now**. In the full checklist, it asks about the accounts on the computer shown in the header, matching the Account gate and Continue (#2018). On the introduction, which has no computer picker, it asks about the home computer's accounts.
@@ -404,19 +409,24 @@ quoted from the files named; a builder greps for them.
 - Part 1 `Connect a phone or computer to this one`. Question `Who is it for?`
   - `Me` (pre-selected) `Your own phone or computer. It can do everything you can do here.`
   - `A phone with limited access` `It can chat with agents and answer their questions. It cannot open terminals or change settings. Agents on it edit files but ask before anything else.`
-  - `A program or bot` `A tool such as a bot. It can start and follow sessions but not change settings.` + `How much may its agents do without asking?` (§5.10's four choices)
+  - `A program or bot` `A tool such as a bot. It can start and follow sessions but not change settings.` + `How much may its agents do without asking?` (§5.12's four choices)
   - More options › `Custom` with ticks `See sessions` / `Start and organise sessions` / `Run agents and answer their questions` / `Use terminals, files and changes` / `Change settings and sign in accounts` and the four choices.
+    With nothing ticked, beside the dimmed button: `Tick at least one thing it can do.`
   - **Make a pairing code** → `On the new device, open agent-harness and choose Connect to another computer. Scan this code or paste the link.`
     QR · `Pairing link` with Copy · fold `Type it instead`: `Address {host:port}` · `Code {CODE}` · `This code works once, for 10 minutes. {m} min left.`
     Expired: `This code has run out.` **Make a new code**.
     While this computer is reachable only from itself, above the button: `Other devices cannot reach this computer yet, so they cannot use a code made now. Set up Tailscale first.`
     and a code made anyway never offers a 127.0.0.1 link to another device; its line reads `This code only works on this computer.` A dimmed choice says why in words: `This app itself has limited access, so it cannot give more.`
+    A code that could not be made: `Something went wrong. Choose Make a pairing code to try again.` Details: the refusal. Before this computer has answered:
+    `This app has not reached agent-harness on this computer yet.`
 - Part 2 `Connect this app to another computer`: the pairing form of §4.2.
 - Part 3 `Install agent-harness on another computer`: numbered steps `1. On the other computer, open a terminal.` `2. Copy the line for its system and paste it.`
   `3. When it finishes, it shows a pairing link. Paste it in Part 2.` Lines `Mac or Linux`, `Windows (PowerShell)` with Copy; fold `Using Docker or Podman?`
   with: `1. Make a folder for it and open a terminal there.` `2. Copy this line and paste it.` `3. The pairing link appears in the container's log.`
-  `4. To keep it up to date, set up the host updater.` **How to set up the updater**. A token line, where the release needs one, goes in that fold.
-  Name field `Name for the new computer (optional)`.
+  `4. To keep it up to date, set up the host updater.` **How to set up the updater**. A private release's token line sits under the numbered steps,
+  above the lines, since every line reads the token: `This release is private. Before you paste a line, set AGENT_HARNESS_TOKEN to a token that can read it.`
+  Name field `Name for the new computer (optional)`. While the release is read: `Checking which version to install…`; when it cannot be:
+  `This app cannot tell which version to install yet.` Details: why.
 
 ### 5.6 Forges (gui/src/forges/*; environment/src/forge/*)
 - Title `Connect GitHub or another forge`. Why `Agents can then open pull requests and read your private code.`
