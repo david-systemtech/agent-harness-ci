@@ -115,7 +115,7 @@ export const promptGeometry = (kind: PromptKind): readonly SceneGeometry[] => [
   { selector: '[aria-label="Parked prompt"] kbd', height: 20 },
   ...(kind === "permission" ? [
     { selector: '[aria-label="Arguments"]', height: 224, viewport: 1400 },
-    { selector: '[aria-label="Arguments"]', visibleWithin: '[aria-label="Parked prompt"]' },
+    { selector: '[aria-label="Permission request"]', minimumHeight: 48, visibleWithin: '[aria-label="Parked prompt"]' },
     { selector: '[aria-label="Permission decision"]', visibleWithin: '[aria-label="Parked prompt"]' },
     { selector: '[aria-label="Permission decision"] textarea', visibleWithin: '[aria-label="Parked prompt"]', minimumHeight: 48 },
     { selector: '[aria-label="Permission decision"] button', visibleWithin: '[aria-label="Parked prompt"]' },
@@ -136,6 +136,7 @@ export const noticePermissionGeometry: readonly SceneGeometry[] = [
   { selector: '[aria-label="Notifications"] li', visibleWithin: "main", contentFits: true },
   { selector: '[aria-label="Transcript"]', minimumHeight: 112, visibleWithin: '[aria-label="Session pane"]' },
   { selector: '[aria-label="Parked prompt"]', visibleWithin: '[aria-label="Session pane"]', contentFits: true },
+  { selector: '[aria-label="Permission request"]', minimumHeight: 48, visibleWithin: '[aria-label="Parked prompt"]' },
   { selector: '[aria-label="Permission decision"]', visibleWithin: '[aria-label="Parked prompt"]', contentFits: true },
   { selector: '[aria-label="Permission decision"] textarea', minimumHeight: 48, visibleWithin: '[aria-label="Parked prompt"]' },
   { selector: '[aria-label="Permission decision"] button, [aria-label="Hide request"]', visibleWithin: '[aria-label="Parked prompt"]', hitTestable: true },

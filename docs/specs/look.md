@@ -660,7 +660,11 @@ bound: reserve the caption, composer, status and three transcript lines plus
 their padding from the actual pane height after top notices. Tight cards retain
 28px decision controls and a bounded 48px note well; action explanations stay in
 tooltips and accessible descriptions when their inline copies would consume the
-request well. Request details scroll inside that allocation. The plan well shrinks within that
+request well. In a tight permission card, the labelled note and decisions share
+a row, and Message shares a row with attachment and Stop controls. The redundant
+note caption and shortcut hint yield to a request scrollport of at least 48px;
+the note keeps its accessible name and shortcuts remain in control tooltips.
+Request details scroll inside that allocation. The plan well shrinks within that
 bound to keep the note, delivery error and decision footer visible without
 scrolling the card; only the plan and a long note scroll. Keep draft/choices keyed by prompt
 identity across collapse and failed delivery. Busy disables duplicate decisions;

@@ -11,3 +11,16 @@
 [data-prompt-space="compact"] [data-prompt-choice] > span { display: none; }
 /* One request scrollport keeps even a one-line command readable when summary and reason fill its well. */
 [data-prompt-space="compact"] [aria-label="Arguments"] { max-height: none; flex-shrink: 0; overflow: visible; }
+/* Keep a readable scrollport even when the note and the answer buttons must fit a short window. */
+[data-prompt-space="compact"] [aria-label="Permission request"] { min-height: 48px; }
+[data-prompt-space="compact"] [aria-label="Permission decision"] { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(0, 3fr); align-items: center; }
+[data-prompt-space="compact"] [aria-label="Permission decision"] > label,
+[data-prompt-space="compact"] [aria-label="Permission decision"] > [data-prompt-keys] { display: none; }
+[data-prompt-space="compact"] [aria-label="Permission decision"] > textarea { grid-column: 1; grid-row: 1; }
+[data-prompt-space="compact"] [aria-label="Permission decision"] > [data-prompt-actions] { grid-column: 2; grid-row: 1; }
+[data-prompt-space="compact"] [aria-label="Permission decision"] > [role="status"] { grid-column: 1 / -1; }
+/* Message, attachment and Stop share a row rather than taking another line from the request. */
+[data-composer-column]:has([data-prompt-space="compact"] [aria-label="Permission decision"]) [data-composer-card] { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+[data-composer-column]:has([data-prompt-space="compact"] [aria-label="Permission decision"]) [aria-label="Attachments"] { grid-column: 1 / -1; }
+[data-composer-column]:has([data-prompt-space="compact"] [aria-label="Permission decision"]) [data-composer-actions] { padding: 4px 8px; }
+[data-composer-column]:has([data-prompt-space="compact"] [aria-label="Permission decision"]) [data-composer-actions] > span { display: none; }
