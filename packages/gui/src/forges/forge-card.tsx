@@ -17,10 +17,10 @@ import {
 } from "@agent-harness/client-runtime";
 import type { ForgeAccountRecord } from "@agent-harness/contracts";
 import { useId, useState } from "react";
-import { MoveToKeyManager } from "../key-managers/move-card.js";
 import { CopyDialog } from "../settings/copy-dialog.js";
 import { Dialog, DialogClose, DialogContent, Fact, ToneBadge } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
+import { KeepInKeyManager } from "./keep-in-key-manager.js";
 
 export interface ForgeCardProps {
   readonly environmentId: string;
@@ -37,9 +37,10 @@ export interface ForgeCardProps {
  * cache holds it: its origin, kind, who it answers as, where its credential
  * comes from, its status with when it last changed and the environment's
  * line, what it can do, whether it is primary and where it was copied from;
- * then Make primary, Verify now, Remove (confirmed) and Copy to other
- * environments; and on a stored token, Move to your key manager, which opens
- * the Key manager step's Move stored tokens (#590).
+ * then Make main, Verify now, Remove (confirmed) and Copy to other
+ * environments; and on a stored token, while a key manager is connected,
+ * Keep this token in your key manager, which opens the Key manager step's
+ * Move stored tokens (#590, #1849).
  */
 export const ForgeCard = ({ environmentId, account, writable, say }: ForgeCardProps) => {
   const runtime = useRuntime();
@@ -57,7 +58,7 @@ export const ForgeCard = ({ environmentId, account, writable, say }: ForgeCardPr
         <ToneBadge tone={account.problem === null && account.capabilities.readRepository.state === "verified" ? "success" : "warning"}>
           <ShieldCheck aria-hidden="true" />{account.problem === null && account.capabilities.readRepository.state === "verified" ? "Verified" : "Not verified"}
         </ToneBadge>
-        {account.primary && <span role="img" aria-label="Primary forge" className="inline-flex items-center gap-1 text-xs text-amber"><Star aria-hidden="true" className="size-3" />Primary</span>}
+        {account.primary && <span className="inline-flex items-center gap-1 text-xs text-amber"><Star aria-hidden="true" className="size-3" />Main forge</span>}
       </header>
       <dl className="grid grid-cols-[minmax(0,112px)_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
         <Fact name="Kind">{FORGE_KIND_WORDS[account.kind]}</Fact>
@@ -72,8 +73,8 @@ export const ForgeCard = ({ environmentId, account, writable, say }: ForgeCardPr
       {account.problem !== null && <p className="text-sm text-amber">{account.problem.message}</p>}
       <div className="flex flex-wrap gap-2">
         {!account.primary && (
-          <Button icon={Star} label="Make primary" disabled={!writable || sending} onClick={() => send(() => setPrimaryForge(sender, environmentId, account))}>
-            Make primary
+          <Button icon={Star} label="Make main" disabled={!writable || sending} onClick={() => send(() => setPrimaryForge(sender, environmentId, account))}>
+            Make main
           </Button>
         )}
         <Button icon={RefreshCw} label="Verify now" disabled={!writable || sending} onClick={() => send(() => verifyForge(runtime, environmentId, account))}>
@@ -83,7 +84,7 @@ export const ForgeCard = ({ environmentId, account, writable, say }: ForgeCardPr
           Remove
         </Button>
         <Button icon={Copy} label="Copy to other environments" onClick={() => setOpen("copy")}>Copy to other environments</Button>
-        {account.credential.kind === "stored" && <MoveToKeyManager environmentId={environmentId} />}
+        {account.credential.kind === "stored" && <KeepInKeyManager environmentId={environmentId} />}
       </div>
       {open === "remove" && <ConfirmRemove environmentId={environmentId} account={account} close={close} say={say} />}
       {open === "copy" && (

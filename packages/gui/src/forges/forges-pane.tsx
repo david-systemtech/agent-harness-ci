@@ -11,6 +11,7 @@ import { usePickedEnvironment } from "../settings/settings-window.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { AddForge, type AddForgeGh } from "./add-forge.js";
 import { ForgeCard, type ForgeCardProps } from "./forge-card.js";
+import { GhRoutes } from "./gh-routes.js";
 
 /**
  * The Forges row, `access.forges` (forge spec, "The Forges step" and "Wire
@@ -52,7 +53,8 @@ export interface ForgesListProps {
 
 /**
  * The forge accounts on an environment and Add a forge, as the Forges row
- * and the Forges step's card both draw them: `forge.accounts.list` from the
+ * and the Forges step's card both draw them: the `gh` paths first
+ * (setup-copy.md §5.6), then Add a forge, `forge.accounts.list` from the
  * request cache, each drawn as `Account`, and the line the last command
  * said. Without the `forge` flag it holds the flag's line alone.
  */
@@ -69,6 +71,9 @@ export const ForgesList = ({ view, Account, gh }: ForgesListProps) => {
   const ready = view.phase === "ready";
   const admin = runtime.capability(environmentId, "forge.accounts.add");
   const writable = admin.status === "present";
+  const name = nameOf(view);
+  // Where a token or gh is, as a line names it.
+  const computer = view.kind === "local" ? "this computer" : name;
   return (
     <>
       {!ready && (
@@ -77,6 +82,7 @@ export const ForgesList = ({ view, Account, gh }: ForgesListProps) => {
         </p>
       )}
       {ready && admin.status === "absent" && <AccessUnavailable environmentId={view.environmentId} answer={admin}><p className="text-sm text-amber">Read-only: {admin.message}</p></AccessUnavailable>}
+      {ready && writable && <GhRoutes environmentId={environmentId} environmentName={name} computer={computer} paths={gh} writable={writable} say={say} addToken={() => setAdding(true)} />}
       {!adding && (
         <div className="flex flex-wrap gap-2">
           <Button ref={trigger} icon={Plus} label="Add a forge" variant="default" disabled={!writable} onClick={() => setAdding(true)}>
@@ -84,7 +90,7 @@ export const ForgesList = ({ view, Account, gh }: ForgesListProps) => {
           </Button>
         </div>
       )}
-      {adding && <AddForge environmentId={environmentId} environmentName={nameOf(view)} close={() => setAdding(false)} say={say} gh={gh} />}
+      {adding && <AddForge environmentId={environmentId} environmentName={name} computer={computer} close={() => setAdding(false)} say={say} />}
       {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}
       {accounts === null
         ? ready && <p className="text-sm text-ink-faint">{listed.error === null ? "Reading the forge accounts…" : `The forge accounts could not be read: ${listed.error.message}`}</p>

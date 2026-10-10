@@ -1,6 +1,6 @@
 import { DEFAULT_THEME, CATALOGUE, CATALOGUE_SEED_INSTRUCTION_ID, type BankJoinPreview, type CarryOverInventory, type CarryOverReport, type ContainmentReport, type EnvironmentBinding, type ResultOf, type StepId, type StepResult } from "@agent-harness/contracts";
 import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
-import type { EnvironmentHandle, ScriptedEnvironment, ScriptedSetup } from "@agent-harness/client-runtime/testing/scripted-environment";
+import type { EnvironmentHandle, ScriptedEnvironment, ScriptedForges, ScriptedSetup } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { LadderName } from "@agent-harness/theme";
 import { useEffect, useState } from "react";
 import { App } from "../src/app.js";
@@ -26,7 +26,7 @@ export const joinPreview: BankJoinPreview = {
 /** A step's status at the head of its card (setup-copy.md §3; #1840): done, needing a fix with Details open, a check that could not run, and the environment out of reach. */
 type StatusRegion = "status-done" | "status-fix" | "status-could-not-check" | "status-unreachable";
 
-type SetupRegion = StepId | "appearance-default" | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "sign-in-refused" | "host-updater" | "carry-over-nothing" | "carry-over-after" | "rail-states" | "instructions-unread" | "permissions-sandbox" | "permissions-sandbox-paired" | StatusRegion | AccountRegion | KeyManagerRegion | BrowserRegion | "machines-tailscale" | "machines-unreachable";
+type SetupRegion = StepId | "appearance-default" | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "sign-in-refused" | "host-updater" | "carry-over-nothing" | "carry-over-after" | "rail-states" | "instructions-unread" | "permissions-sandbox" | "permissions-sandbox-paired" | StatusRegion | ForgesRegion | AccountRegion | KeyManagerRegion | BrowserRegion | "machines-tailscale" | "machines-unreachable";
 
 const isSandbox = (kind: SetupRegion): boolean => kind === "permissions-sandbox" || kind === "permissions-sandbox-paired";
 
@@ -90,6 +90,25 @@ const BROWSER_RESULTS: { readonly [Kind in BrowserRegion]: Partial<StepResult> }
   "browser-code": { state: "skipped", reason: "Chrome is not connected. Optional." },
   "browser-closed": { state: "needs-attention", reason: "Chrome is closed, so agents cannot use it. Open Chrome. This updates by itself.", failing: ["browser.chrome-connected"], actions: ["check-again"] },
 };
+
+/** setup-copy.md §5.6's Forges states (#1849): gh offered first, the add form at its token steps, and a site detection cannot recognise. */
+type ForgesRegion = "forges-gh" | "forges-add" | "forges-unknown";
+
+/** What each Forges state's environment holds of forges; every value is invented. */
+const FORGES: { readonly [Region in ForgesRegion]: ScriptedForges } = {
+  "forges-gh": {
+    login: "maintainer",
+    accounts: [{ origin: "https://git.example.test", kind: "forgejo" }],
+    gh: { installed: true, version: "2.63.2", meetsMinimum: true, accounts: [{ host: "github.com", login: "maintainer", active: true, tokenKind: "oauth", scopes: ["repo", "read:org"] }] },
+  },
+  "forges-add": { login: "maintainer" },
+  "forges-unknown": { login: "maintainer", detect: { "https://code.example.test": "not_a_forge" } },
+};
+
+/** The address each add-form state types, as a person would. */
+const TYPED: Partial<Record<SetupRegion, string>> = { "forges-add": "https://git.example.test/team/project", "forges-unknown": "https://code.example.test/team/project" };
+
+const isForges = (kind: SetupRegion): kind is ForgesRegion => kind in FORGES;
 
 /** setup-copy.md §5.4: a container no host updater has polled, its line offering How to set it up (#1883). */
 const NEVER_POLLED: Partial<StepResult> = {
@@ -180,13 +199,14 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
   const signIn = kind === "sign-in" || kind === "sign-in-refused";
-  const target: StepId = kind === "appearance-default" ? "appearance" : kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || signIn || ACCOUNT_REGIONS.has(kind) ? "account" : kind === "host-updater" || kind === "machines-tailscale" || kind === "machines-unreachable" ? "your-machines" : kind === "carry-over-nothing" || kind === "carry-over-after" ? "carry-over" : kind === "rail-states" || showsKeyManagers(kind) ? "key-manager" : kind === "instructions-unread" ? "instructions" : isSandbox(kind) ? "permissions" : isStatus(kind) ? "skills" : isBrowserRegion(kind) ? "browser" : kind as StepId;
+  const target: StepId = kind === "appearance-default" ? "appearance" : kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || signIn || ACCOUNT_REGIONS.has(kind) ? "account" : kind === "host-updater" || kind === "machines-tailscale" || kind === "machines-unreachable" ? "your-machines" : kind === "carry-over-nothing" || kind === "carry-over-after" ? "carry-over" : kind === "rail-states" || showsKeyManagers(kind) ? "key-manager" : kind === "instructions-unread" ? "instructions" : isSandbox(kind) ? "permissions" : isStatus(kind) ? "skills" : isBrowserRegion(kind) ? "browser" : isForges(kind) ? "forges" : kind as StepId;
   const keyManagerRegion = showsKeyManagers(kind);
   const status = isStatus(kind) ? STATUS_RESULTS[kind] : undefined;
   const binding = MACHINES_BINDING[kind];
   const accountState = kind in ACCOUNT_STATES ? ACCOUNT_STATES[kind as AccountRegion] : undefined;
   const prepared = await prepareWorld({ environments: [{
-    name: "desk", reach: kind === "permissions-sandbox-paired" ? "paired" : "local", capabilities: ["setup", "banks", "browser", "workspaceChecks", ...(keyManagerRegion ? ["keyManagers", "managedTools"] as const : [])],
+    name: "desk", reach: kind === "permissions-sandbox-paired" ? "paired" : "local", capabilities: ["setup", "banks", "browser", "workspaceChecks", ...(keyManagerRegion ? ["keyManagers", "managedTools"] as const : []), ...(isForges(kind) ? ["forge"] as const : [])],
+    ...(isForges(kind) && { forges: FORGES[kind] }),
     ...(accountState !== undefined && { ambient: accountState.ambient }),
     accounts: accountState !== undefined ? accountState.accounts : kind === "account" || kind === "close-confirmation" ? [] : signIn
       ? [{ label: "Project", directory: { kind: "owned", path: "/accounts/project" }, status: { state: "expired", checkedAt: null, detail: null } }]
@@ -302,6 +322,23 @@ export function setupRegionScene(kind: SetupRegion) {
         if (kind === "carry-over-after") {
           const bring = [...document.querySelectorAll<HTMLButtonElement>("[data-setup-scroll] button")].find((button) => button.textContent === "Bring them over");
           if (!finished && bring !== undefined && !bring.disabled) { finished = true; bring.click(); }
+          return;
+        }
+        const typed = TYPED[kind];
+        if (typed !== undefined) {
+          // Add a forge, the address typed as a person types it, then Check address once it can be pressed.
+          const scroll = document.querySelector("[data-setup-scroll]");
+          if (finished || scroll === null) return;
+          const buttons = [...scroll.querySelectorAll<HTMLButtonElement>("button")];
+          const field = scroll.querySelector<HTMLInputElement>('form input[placeholder="https://github.com/you/project"]');
+          if (field === null) { buttons.find((button) => button.textContent === "Add a forge" && !button.disabled)?.click(); return; }
+          if (field.value !== typed) {
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(field, typed);
+            field.dispatchEvent(new Event("input", { bubbles: true }));
+            return;
+          }
+          const check = buttons.find((button) => button.textContent === "Check address");
+          if (check !== undefined && !check.disabled) { finished = true; check.click(); }
           return;
         }
         if (MACHINES_BINDING[kind] !== undefined) {
