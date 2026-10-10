@@ -63,8 +63,10 @@ export const SessionRowView = ({ line, environment, current, drop, open }: Sessi
   const [editing, setEditing] = useState(false);
   const dragging = useDragRow(row);
   const target = useDropTarget(drop);
+  // The 50px button holds an 18px title, 1rem metadata and a 0.125rem gap.
+  // Cap scaled padding at half the remaining height; neither line may shrink.
   return (
-    <li data-sidebar-item {...target.handlers} className={classes("relative h-[54px] shrink-0 px-2 py-0.5", narrow && "flex min-w-0 items-center", target.over && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-beam")}>
+    <li data-sidebar-item {...target.handlers} className={classes("relative h-[54px] shrink-0 px-2 py-[2px]", narrow && "flex min-w-0 items-center", target.over && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-beam")}>
       {editing ? (
         <RenameField
           label={`Rename ${quoted(summary.title)}`}
@@ -88,7 +90,7 @@ export const SessionRowView = ({ line, environment, current, drop, open }: Sessi
                 aria-current={current ? "true" : undefined}
                 title={line.dim ? `Cached: ${name} is not answering.` : undefined}
                 className={classes(
-                  "flex h-full w-full min-w-0 flex-col items-start justify-center gap-0.5 rounded-md px-2 py-1.5 text-left font-normal outline-none hover:bg-wash focus-visible:outline-2 focus-visible:outline-beam",
+                  "flex h-full w-full min-w-0 flex-col items-start justify-center gap-0.5 rounded-md px-2 py-[min(0.375rem,calc((50px-18px-1.125rem)/2))] text-left font-normal outline-none hover:bg-wash focus-visible:outline-2 focus-visible:outline-beam",
                   narrow && "flex-1",
                   line.dim ? "text-ink-faint" : "text-ink",
                   current && "bg-wash-strong",
@@ -98,9 +100,9 @@ export const SessionRowView = ({ line, environment, current, drop, open }: Sessi
                 <span className="flex w-full min-w-0 shrink-0 items-center gap-1.5 text-xs leading-[18px]">
                   <ActivityMark activity={line.activity} />
                   <span data-sidebar-title className="min-w-0 flex-1 truncate">{summary.title}</span>
-                  <span className="ml-auto shrink-0 pl-1 font-mono text-2xs text-ink-faint">{age}</span>
+                  <span className="ml-auto shrink-0 pl-1 font-mono text-2xs leading-[18px] text-ink-faint">{age}</span>
                 </span>
-                <span data-sidebar-details className="flex w-full min-w-0 items-center gap-1.5 overflow-hidden font-mono text-2xs text-ink-faint">
+                <span data-sidebar-details className="flex w-full min-w-0 shrink-0 items-center gap-1.5 overflow-hidden font-mono text-2xs text-ink-faint">
                   {"branch" in summary.workspace && <span className="flex min-w-0 items-center gap-1"><GitBranch aria-hidden="true" className="size-2.5 shrink-0" /><span className="truncate">{summary.workspace.branch}</span></span>}
                   <EnvironmentGlyph view={environment} label={name} />
                   {account !== undefined && <span className="flex min-w-0 items-center gap-1"><span aria-hidden="true" className={classes("size-2 shrink-0 rounded-[3px]", accountSwatch(account.id))} /><span className="max-w-[176px] truncate">{account.label}</span></span>}
