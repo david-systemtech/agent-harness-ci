@@ -17,7 +17,7 @@ interface Peer {
 const script = pathToFileURL(join(import.meta.dirname, "..", "scripts", "macos-desktop-update-smoke.mjs")).href;
 const { createCdpEvaluator } = await import(script) as {
   createCdpEvaluator: (peer: Peer, options?: { onTimeout?: (error: Error) => Promise<void>; redact?: (text: string) => string }) => {
-    evaluate: (expression: string, stage: string) => Promise<unknown>;
+    evaluate: (expression: string, stage: string, milliseconds?: number, options?: { expectDisconnect: boolean }) => Promise<unknown>;
     diagnostic: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
     enableDiagnostics: () => Promise<unknown>;
     errors: () => unknown[];
@@ -47,6 +47,21 @@ const { collectRendererSmokeDiagnostics, collectMacosSmokeDiagnostics, executeDi
 afterEach(() => { vi.useRealTimers(); });
 
 describe("packaged macOS timeout evidence", () => {
+  it("rejects unrelated work on an expected quit and identifies unexpected disconnects without credentials", async () => {
+    const peer: Peer = { send: () => {}, close: () => {} };
+    const cdp = createCdpEvaluator(peer, { redact: text => redactDiagnostic(text, ["token-for-tests-kept"]) });
+    const credential = cdp.evaluate("secrets.get('token-for-tests-kept')", "read replacement credential").catch((error: unknown) => error);
+    const quitting = cdp.evaluate("window.desktopShell.window.close()", "close replacement", 10_000, { expectDisconnect: true });
+    peer.onclose?.();
+    await expect(quitting).resolves.toBeUndefined();
+    expect(await credential).toMatchObject({ smokeDisconnected: true, stage: "read replacement credential",
+      expression: "secrets.get('<REDACTED>')", message: expect.stringContaining("read replacement credential") });
+    expect(String(await credential)).not.toContain("token-for-tests-kept");
+    // A later request cannot hang on a socket that already closed, even if it asks to quit.
+    await expect(cdp.evaluate("window.desktopShell.window.close()", "stale page quit", 10_000, { expectDisconnect: true }))
+      .rejects.toMatchObject({ smokeDisconnected: true, stage: "stale page quit" });
+  });
+
   it("records renderer errors without retaining credentials and bounds diagnostics without recursive timeout collection", async () => {
     vi.useFakeTimers();
     const collected: string[] = [];
@@ -65,6 +80,23 @@ describe("packaged macOS timeout evidence", () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(await outcome).toMatchObject({ smokeTimeout: true });
     expect(collected).toEqual([]);
+  });
+
+  it("keeps an expected quit bounded and rejects page errors before shutdown", async () => {
+    vi.useFakeTimers();
+    const peer: Peer = { close: () => {}, send: message => {
+      const request = JSON.parse(message) as { id: number; params: { expression: string } };
+      if (request.params.expression === "pendingQuit()") return;
+      peer.onmessage?.({ data: JSON.stringify({ id: request.id, result: { exceptionDetails: {
+        text: "The prior credential read is no longer pending",
+      } } }) });
+    } };
+    const cdp = createCdpEvaluator(peer);
+    await expect(cdp.evaluate("invalidQuit()", "pending-access quit", 10_000, { expectDisconnect: true }))
+      .rejects.toThrow(/prior credential read is no longer pending/);
+    const stalled = cdp.evaluate("pendingQuit()", "pending-access quit", 10_000, { expectDisconnect: true }).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await stalled).toMatchObject({ smokeTimeout: true, stage: "pending-access quit" });
   });
 
   it("captures window text, names, machine phases, notices, console errors and a sanitized CDP screenshot", async () => {

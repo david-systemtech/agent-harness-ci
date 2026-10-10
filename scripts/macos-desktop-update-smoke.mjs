@@ -29,10 +29,9 @@ export function checkPackagedUpdateCleanup(installed, expectedArchive) {
 
 /** Starts the same packaged shell path as Restart to update without awaiting an IPC reply across quit. */
 export async function restartPackagedDesktop(evaluate, staged) {
-  assert.equal(await evaluate(`(() => {
+  await evaluate(`(() => {
     void window.desktopShell.update.apply(${JSON.stringify(staged)}, 'now');
-    return true;
-  })()`, "restart the packaged desktop with its real archive"), true);
+  })()`, "restart the packaged desktop with its real archive", 30_000, { expectDisconnect: true });
 }
 
 /** Observe only the executable paths, never process arguments or environment. */
@@ -157,13 +156,12 @@ export async function pendingPackagedCredential(evaluate) {
 
 /** Rechecks after the access query, in the same page turn that sends close. */
 export async function quitWithPendingPackagedCredential(evaluate) {
-  assert.equal(await evaluate(`(async () => {
+  await evaluate(`(async () => {
     const access = await window.desktopShell.secrets.access();
     const check = window.__packagedCredentialCheck;
     if (!check || check.settled || access !== 'waiting') throw new Error('The prior credential read is no longer pending');
     window.desktopShell.window.close();
-    return true;
-  })()`, "quit with native credential access pending"), true);
+  })()`, "quit with native credential access pending", 10_000, { expectDisconnect: true });
 }
 
 /** Native hosted observation of this desktop's helpers; comm contains the executable, never its arguments. */
@@ -402,6 +400,7 @@ export function smokeTimeout(stage, expression) {
 /** The packaged page evaluation boundary, independent of target discovery. */
 export function createCdpEvaluator(socket, { onTimeout = async () => {}, redact = (text) => text } = {}) {
   let id = 0;
+  let disconnected = false;
   const pending = new Map();
   const errors = [];
   const record = (type, text) => {
@@ -423,11 +422,21 @@ export function createCdpEvaluator(socket, { onTimeout = async () => {}, redact 
     }
     else answer.resolve(frame.result);
   };
+  const disconnectError = (stage, expression) => Object.assign(
+    new Error(redact(`The packaged window disconnected at ${stage}; expression/check: ${expression}`)),
+    { smokeDisconnected: true, stage: redact(stage), expression: redact(expression) },
+  );
   socket.onclose = () => {
-    for (const answer of pending.values()) answer.reject(new Error("The packaged window disconnected"));
+    disconnected = true;
+    for (const answer of pending.values()) {
+      // Only the request that deliberately quits may lose its reply. All native exit checks still run.
+      if (answer.expectDisconnect) answer.resolve({ result: {} });
+      else answer.reject(disconnectError(answer.stage, answer.expression));
+    }
     pending.clear();
   };
-  const request = (method, params, stage, expression, milliseconds, collect) => new Promise((resolve, reject) => {
+  const request = (method, params, stage, expression, milliseconds, collect, expectDisconnect = false) => new Promise((resolve, reject) => {
+      if (disconnected) { reject(disconnectError(stage, expression)); return; }
       const next = ++id;
       const timeout = globalThis.setTimeout(() => {
         pending.delete(next);
@@ -435,13 +444,13 @@ export function createCdpEvaluator(socket, { onTimeout = async () => {}, redact 
         if (collect) Promise.resolve().then(() => onTimeout(error)).catch(() => {}).finally(() => reject(error));
         else reject(error);
       }, milliseconds);
-      pending.set(next, { stage, expression, resolve: (value) => { globalThis.clearTimeout(timeout); resolve(value); }, reject: (error) => { globalThis.clearTimeout(timeout); reject(error); } });
+      pending.set(next, { stage, expression, expectDisconnect, resolve: (value) => { globalThis.clearTimeout(timeout); resolve(value); }, reject: (error) => { globalThis.clearTimeout(timeout); reject(error); } });
       try { socket.send(JSON.stringify({ id: next, method, params })); }
       catch (error) { pending.delete(next); globalThis.clearTimeout(timeout); reject(error); }
     });
   return {
-    evaluate: (expression, stage = "packaged page evaluation", milliseconds = 120_000) =>
-      request("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }, stage, expression, milliseconds, true).then(answer => answer.result.value),
+    evaluate: (expression, stage = "packaged page evaluation", milliseconds = 120_000, { expectDisconnect = false } = {}) =>
+      request("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }, stage, expression, milliseconds, true, expectDisconnect).then(answer => answer.result.value),
     // Evidence has its own short deadline and cannot trigger its own collection recursively.
     diagnostic: (method, params = {}) => request(method, params, "renderer diagnostic " + method, JSON.stringify(params), 5000, false),
     enableDiagnostics: () => request("Runtime.enable", {}, "enable renderer diagnostics", "Runtime.enable", 5000, false),
@@ -587,7 +596,8 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
     const credentialHelpers = credentialHelperPids(desktop.pid, executable(installed));
     assert.notEqual(credentialHelpers.length, 0, 'The desktop must own a native credential helper during pending access');
     await quitWithPendingPackagedCredential(cdp.evaluate);
-    await until(() => desktop.exitCode !== null, "The replacement did not quit during pending Keychain access", 10_000);
+    await until(() => desktop.exitCode !== null || desktop.signalCode !== null, "The replacement did not quit during pending Keychain access", 10_000);
+    assert.equal(desktop.exitCode, 0, "The pending-access quit must exit successfully");
     await waitForCredentialHelpersExit(credentialHelpers);
     cdp.close();
     assert.deepEqual(readFileSync(join(secrets, `${credentialName}.secret`)), kept);
@@ -624,7 +634,8 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
       path: replacementZip, version,
       sha256: createHash("sha256").update(readFileSync(replacementZip)).digest("hex"),
     });
-    await until(() => desktop.exitCode !== null, "The updating desktop did not quit", 30_000);
+    await until(() => desktop.exitCode !== null || desktop.signalCode !== null, "The updating desktop did not quit", 30_000);
+    assert.equal(desktop.exitCode, 0, "The updating desktop must exit successfully");
     cdp.close();
     relaunchedPid = await until(() => installedDesktopPid(executable(installed)), "The updated desktop did not restart", 30_000);
     cdp = await connectCdp(port, { onTimeout: capture, redact: text => redactDiagnostic(text, secretsToRedact) });
@@ -632,7 +643,7 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
     await openPackagedSettings(cdp.evaluate);
     await cdp.evaluate("window.desktopShell.update.current()", "wait for deferred bundle cleanup");
     checkPackagedUpdateCleanup(installed, archiveDigest);
-    await cdp.evaluate("window.desktopShell.window.close()", "close restarted replacement window");
+    await cdp.evaluate("window.desktopShell.window.close()", "close restarted replacement window", 10_000, { expectDisconnect: true });
     await until(() => !processRunning(relaunchedPid), "The restarted replacement window did not quit", 10_000);
     console.log(`Packaged replacement proved ${outcome} credential recovery and upgraded ${baseline} to ${version}`);
   } catch (error) {
@@ -640,8 +651,8 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
     logFailure("Packaged replacement failed before cleanup:", error);
     try { persistSmokeFailure(diagnostics, error, secretsToRedact); }
     catch (recordError) { logFailure("Failure persistence failed:", recordError); }
-    if (error.smokeTimeout) {
-      try { await capture(error); } catch (collectionError) { logFailure("Timeout evidence collection failed:", collectionError); }
+    if (error.smokeTimeout || error.smokeDisconnected) {
+      try { await capture(error); } catch (collectionError) { logFailure("Failure evidence collection failed:", collectionError); }
     }
   } finally {
     await finishSmoke(failure, [
