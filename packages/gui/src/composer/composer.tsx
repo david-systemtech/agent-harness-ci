@@ -37,6 +37,8 @@ import { useWorkspaceChecks, WorkspaceCheck, WorkspaceRow } from "./workspace-ch
 import { useComposition } from "./composition.js";
 import "./phone-conversation.css";
 import { StatusLine } from "../status/status-line.js";
+import "./prompt-space.css";
+import { usePromptSpace } from "./prompt-space.js";
 import { PromptCard } from "../prompt-card/prompt-card.js";
 import { usePromptWalk } from "./walk.js";
 
@@ -104,6 +106,8 @@ export const Composer = ({ environmentId, sessionId, authoring = false }: Compos
   const box = useBox();
   const { composing, ...composition } = useComposition();
   const above = useRef<HTMLDivElement>(null);
+  // Web docks retain their own bounded scroller, independent of the outer viewport width.
+  usePromptSpace(above, shell !== undefined && !narrow && !authoring);
   useSessionDraft(environmentId, sessionId, projection, box);
   const sendKey = useFirstKey("composer.send");
   const newlineKey = useFirstKey("composer.newline");
@@ -311,7 +315,7 @@ export const Composer = ({ environmentId, sessionId, authoring = false }: Compos
                   <Paperclip aria-hidden="true" />
                 </IconButton>
                 <AttachmentPicker attachments={attachments} />
-                {!narrow && <span className="ml-auto text-2xs text-ink-faint">{sendKey === undefined ? "Send" : `${sendKey} send`} · {newlineKey === undefined ? "New line" : `${newlineKey} newline`}</span>}
+                {!narrow && <span data-composer-shortcut-hint className="ml-auto text-2xs text-ink-faint">{sendKey === undefined ? "Send" : `${sendKey} send`} · {newlineKey === undefined ? "New line" : `${newlineKey} newline`}</span>}
                 <SendOrStop
                   stops={live && box.text.trim().length === 0 && attachments.list.length === 0}
                   sends={!lock.locked && box.text.trim().length > 0}

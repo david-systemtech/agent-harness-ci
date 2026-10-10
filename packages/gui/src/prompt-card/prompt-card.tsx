@@ -214,7 +214,7 @@ const ParkedCard = ({ environmentId, parked, place, repeat, capability, fields, 
 
   const request = <PromptBody prompt={prompt} repeat={repeat} fields={fields} setFields={setFields} full={phone} />;
 
-  const actions = <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+  const actions = <div data-prompt-actions className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
     {prompt.kind === "question" ? <>
       <Answer dim={dim} keys={denyKey} hint={dim ? capability.message : undefined} onClick={deny}>Skip</Answer>
       <Answer dim={dim} approves keys={allowKey} hint={dim ? capability.message : undefined} onClick={allow}>
@@ -252,9 +252,10 @@ const ParkedCard = ({ environmentId, parked, place, repeat, capability, fields, 
         ref={self}
         {...{ onCompositionStart, onCompositionEnd, onKeyDownCapture }}
         aria-label="Parked prompt"
+        style={shell === undefined ? undefined : { maxHeight: "min(60dvh, var(--session-prompt-height, 60dvh))" }}
         tabIndex={-1}
         className={classes(
-          "mx-3 flex min-h-0 max-h-[60dvh] shrink flex-col gap-2 rounded-lg border px-3 py-2.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-beam/50",
+          "mx-3 flex min-h-0 shrink flex-col gap-2 rounded-lg border px-3 py-2.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-beam/50",
           pinnedDecision ? "overflow-hidden" : "overflow-y-auto",
           dim ? "border-line bg-panel text-ink-muted" : classes("text-ink", EDGES[prompt.kind]),
         )}
@@ -394,7 +395,7 @@ const CardKeys = ({ allow, deny, offer, escape = true }: { readonly allow: () =>
 const KeysHint = ({ kind }: { readonly kind: PromptKind }) => {
   const deny = useFirstKey("permission.deny");
   const allow = useFirstKey("permission.allow");
-  return <p className="flex flex-wrap items-center gap-1 text-xs text-ink-faint">
+  return <p data-prompt-keys className="flex flex-wrap items-center gap-1 text-xs text-ink-faint">
     {deny !== undefined && <><Kbd>{deny}</Kbd>{KEY_WORDS[kind].deny}</>}
     {allow !== undefined && <><Kbd>{allow}</Kbd>{KEY_WORDS[kind].allow}</>}
   </p>;

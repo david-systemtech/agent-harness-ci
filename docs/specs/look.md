@@ -655,7 +655,16 @@ Tinted bubbles derive their fill from beam: lightness 0.93/chroma ×0.16 in ligh
 Cards lg, semantic 45% border, semantic fill and 14px icon, x 12/y 10/gap 8;
 shared focus beam/50, pending answer controls 28px and notes min 48px/rows 2.
 Arguments square mono max 224px; plan max 416px with bottom clipping fade and
-scroll hint; parked-card stack max 60vh. The plan well shrinks within that
+scroll hint; parked-card stack max 60vh. In a session pane this is only an upper
+bound: reserve the caption, composer, status and three transcript lines plus
+their padding from the actual pane height after top notices. Tight cards retain
+28px decision controls and a bounded 48px note well; action explanations stay in
+tooltips and accessible descriptions when their inline copies would consume the
+request well. In a tight permission card, the labelled note and decisions share
+a row, and Message shares a row with attachment and Stop controls. The redundant
+note caption and shortcut hint yield to a request scrollport of at least 48px;
+the note keeps its accessible name and shortcuts remain in control tooltips.
+Request details scroll inside that allocation. The plan well shrinks within that
 bound to keep the note, delivery error and decision footer visible without
 scrolling the card; only the plan and a long note scroll. Keep draft/choices keyed by prompt
 identity across collapse and failed delivery. Busy disables duplicate decisions;
@@ -663,6 +672,9 @@ failure one sentence inside the card, retaining the request and what was typed.
 Permission cards keep the header and decision footer (note, refusal and actions)
 visible within that bound; arguments scroll and shrink below their 224px cap
 when the viewport leaves less room.
+If a desktop pane cannot fit even the fixed controls and a 48px request well,
+its bounded dock scrolls to keep decisions reachable. Web docks retain their
+existing scroll allocation independently of the outer viewport size.
 On the phone conversation dock, replace the expanded parked card with a compact
 pending summary and a 44px Details control. Details opens the full request in a
 sheet bounded by the shared visible web frame, with Close in its header and

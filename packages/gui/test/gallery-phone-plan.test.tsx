@@ -183,3 +183,12 @@ it("checks the authoring dialog's full usage in both themes at laptop sizes", ()
     ["settings-bank-authoring-usage-narrow.dark", { width: 1024, height: 768 }, undefined],
   ]);
 });
+
+it("probes short and long permissions with wrapped notices at text size 20 in both laptop heights", () => {
+  for (const scene of ["window-scale-20", "prompt-permission"]) {
+    const captures = capturePlan([scene]).captures;
+    expect(captures.find(c => c.ladder === "dark" && c.viewport.width === 1400)?.probes).toEqual([
+      { width: 1280, height: 800 }, { width: 1280, height: 700 },
+    ]);
+  }
+});

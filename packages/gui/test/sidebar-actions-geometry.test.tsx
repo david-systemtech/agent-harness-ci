@@ -23,7 +23,7 @@ it.each([1400, 1024])("covers action text and shortcut bounds in the 20px scene 
     expect(checks).toContainEqual({ selector: "[data-window-header]", height: 44 });
     const content = checks.filter((check) => check.contentFits);
     for (const check of content) {
-      expect(root.querySelectorAll(check.selector).length).toBeGreaterThan(0);
+      expect((check.selector === "html" ? document : root).querySelectorAll(check.selector).length, check.selector).toBeGreaterThan(0);
     }
     // The text must fit its action, even if overflow still lands within the wider sidebar card.
     const labelCheck = content.find((check) => check.selector.endsWith("span span"))!;

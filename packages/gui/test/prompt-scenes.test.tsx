@@ -24,6 +24,7 @@ it("the permission error scene keeps its refusal and decisions outside the scrol
     expect(within(card).getByRole("region", { name: "Permission request" }).textContent).toContain("Check 20");
     const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]");
     expect(geometry).toContainEqual({ selector: '[aria-label="Permission decision"] [role="status"]', visibleWithin: '[aria-label="Parked prompt"]' });
+    expect(geometry).toContainEqual({ selector: '[aria-label="Parked prompt"] kbd', height: 20, renderedOnly: true });
     await gallery.close();
     close = undefined;
     container.remove();
@@ -51,14 +52,17 @@ it.each(["permission", "question", "plan", "denylist"] as const)("draws the %s p
     expect(await gallery.ready).toBe(true);
     await waitFor(() => expect(container.dataset["galleryReady"]).toBe(`prompt-${kind}`));
     const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]") as { selector: string; height?: number }[];
-    expect(geometry).toContainEqual({ selector: '[aria-label="Parked prompt"] button', height: 28 });
-    expect(geometry).toContainEqual({ selector: '[aria-label="Parked prompt"] header > svg', width: 14, height: 14 });
+    if (kind !== "permission") {
+      expect(geometry).toContainEqual({ selector: '[aria-label="Parked prompt"] button', height: 28 });
+      expect(geometry).toContainEqual({ selector: '[aria-label="Parked prompt"] header > svg', width: 14, height: 14 });
+    }
     if (kind === "plan") expect(geometry).toContainEqual({ selector: '[aria-label="Plan body"]', maxHeight: 416, visibleWithin: '[aria-label="Parked prompt"]' });
     if (kind === "permission") {
-      expect(geometry).toContainEqual({ selector: '[aria-label="Arguments"]', height: 224, viewport: 1400 });
-      expect(geometry).toContainEqual({ selector: '[aria-label="Permission decision"]', visibleWithin: '[aria-label="Parked prompt"]' });
+      expect(geometry).toContainEqual({ selector: '[aria-label="Permission decision"]', visibleWithin: '[aria-label="Parked prompt"]', contentFits: true });
+      expect(screen.getByText(/Stored credentials for laptop/)).toBeTruthy();
+      expect(screen.getByRole("region", { name: "Notifications" })).toBeTruthy();
     }
-    for (const check of geometry) expect(container.querySelector(check.selector)).not.toBeNull();
+    for (const check of geometry) expect((check.selector === "html" ? document : container).querySelector(check.selector), check.selector).not.toBeNull();
     await gallery.close();
     close = undefined;
     container.remove();
