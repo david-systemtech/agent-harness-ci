@@ -46,6 +46,9 @@ it("leaves embedded web permission decisions to the dock scroller, even under a 
     const above = prompt.closest<HTMLElement>("[data-composer-above]")!;
     expect(above.style.getPropertyValue("--session-prompt-height")).toBe("");
     expect(above.dataset["promptSpace"]).toBeUndefined();
+    expect(prompt.style.maxHeight).toBe("");
+    const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]");
+    expect(geometry).toContainEqual({ selector: '[aria-label="Permission request"]', minimumHeight: 48, contentFits: true });
   } finally { await gallery.close(); container.remove(); vi.unstubAllGlobals(); }
 });
 
