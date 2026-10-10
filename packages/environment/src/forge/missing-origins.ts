@@ -63,28 +63,39 @@ export interface MissingOrigins {
   answered(origin: ForgeOrigin, operation: string, repository: string): void;
   /** The missing origins that count now: recorded within seven days, and served by no forge account. */
   counted(): MissingOrigin[];
+  /** Stops hearing operation completions before the environment closes the log. */
+  close(): void;
 }
 
-export const createMissingOrigins = ({ log, clock, stream, reader, accounts }: MissingOriginsOptions): MissingOrigins => ({
-  record(origin, operation, repository) {
-    // Read and appended in one transaction, so two refusals at once record one.
-    log.atomically((tx) => {
-      const last = missingOrigins(reader).find((missing) => missing.origin === origin);
-      if (last !== undefined && clock.now().getTime() - Date.parse(last.recordedAt) < MISSING_ORIGIN_RECORD_MS) return;
-      log.append(stream, [{ type: "forge.origin-missing", payload: { origin, operation, ...(repository !== undefined && { repository }) } }], { tx, actor: FORGE_ACTOR });
-    });
-  },
-  answered(origin, operation, repository) {
-    const recorded = (): boolean => missingOn(reader, origin, operation, repository);
-    // Nearly every anonymous read finds no record, and takes no transaction; one that does is checked again in it.
-    if (!recorded()) return;
-    log.atomically((tx) => {
-      if (recorded()) log.append(stream, [{ type: "forge.origin-answered", payload: { origin, operation, repository } }], { tx, actor: FORGE_ACTOR });
-    });
-  },
-  counted() {
-    const held = accounts();
-    const now = clock.now().getTime();
-    return missingOrigins(reader).filter((missing) => !coversOrigin(held, missing.origin) && now - Date.parse(missing.recordedAt) < MISSING_ORIGIN_COUNTS_MS);
-  },
-});
+export const createMissingOrigins = ({ log, clock, stream, reader, accounts }: MissingOriginsOptions): MissingOrigins => {
+  // A download or git read may finish after ForgeService closes, and the event log with it.
+  let closed = false;
+  return {
+    record(origin, operation, repository) {
+      if (closed) return;
+      // Read and appended in one transaction, so two refusals at once record one.
+      log.atomically((tx) => {
+        const last = missingOrigins(reader).find((missing) => missing.origin === origin);
+        if (last !== undefined && clock.now().getTime() - Date.parse(last.recordedAt) < MISSING_ORIGIN_RECORD_MS) return;
+        log.append(stream, [{ type: "forge.origin-missing", payload: { origin, operation, ...(repository !== undefined && { repository }) } }], { tx, actor: FORGE_ACTOR });
+      });
+    },
+    answered(origin, operation, repository) {
+      if (closed) return;
+      const recorded = (): boolean => missingOn(reader, origin, operation, repository);
+      // Nearly every anonymous read finds no record, and takes no transaction; one that does is checked again in it.
+      if (!recorded()) return;
+      log.atomically((tx) => {
+        if (recorded()) log.append(stream, [{ type: "forge.origin-answered", payload: { origin, operation, repository } }], { tx, actor: FORGE_ACTOR });
+      });
+    },
+    counted() {
+      const held = accounts();
+      const now = clock.now().getTime();
+      return missingOrigins(reader).filter((missing) => !coversOrigin(held, missing.origin) && now - Date.parse(missing.recordedAt) < MISSING_ORIGIN_COUNTS_MS);
+    },
+    close() {
+      closed = true;
+    },
+  };
+};
