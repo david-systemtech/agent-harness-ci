@@ -672,6 +672,9 @@ failure one sentence inside the card, retaining the request and what was typed.
 Permission cards keep the header and decision footer (note, refusal and actions)
 visible within that bound; arguments scroll and shrink below their 224px cap
 when the viewport leaves less room.
+If a desktop pane cannot fit even the fixed controls and a 48px request well,
+its bounded dock scrolls to keep decisions reachable. Web docks retain their
+existing scroll allocation independently of the outer viewport size.
 On the phone conversation dock, replace the expanded parked card with a compact
 pending summary and a 44px Details control. Details opens the full request in a
 sheet bounded by the shared visible web frame, with Close in its header and

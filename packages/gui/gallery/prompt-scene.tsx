@@ -112,7 +112,7 @@ export const promptGeometry = (kind: PromptKind): readonly SceneGeometry[] => [
   PANE_CARD_UNSCROLLABLE,
   { selector: '[aria-label="Parked prompt"] button', height: 28 },
   { selector: '[aria-label="Parked prompt"] header > svg', width: 14, height: 14 },
-  { selector: '[aria-label="Parked prompt"] kbd', height: 20 },
+  { selector: '[aria-label="Parked prompt"] kbd', height: 20, renderedOnly: true },
   ...(kind === "permission" ? [
     { selector: '[aria-label="Arguments"]', height: 224, viewport: 1400 },
     { selector: '[aria-label="Permission request"]', minimumHeight: 48, visibleWithin: '[aria-label="Parked prompt"]' },

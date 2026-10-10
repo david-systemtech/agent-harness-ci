@@ -23,4 +23,9 @@
 [data-composer-column]:has([data-prompt-space="compact"] [aria-label="Permission decision"]) [data-composer-card] { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
 [data-composer-column]:has([data-prompt-space="compact"] [aria-label="Permission decision"]) [aria-label="Attachments"] { grid-column: 1 / -1; }
 [data-composer-column]:has([data-prompt-space="compact"] [aria-label="Permission decision"]) [data-composer-actions] { padding: 4px 8px; }
-[data-composer-column]:has([data-prompt-space="compact"] [aria-label="Permission decision"]) [data-composer-actions] > span { display: none; }
+[data-composer-column]:has([data-prompt-space="compact"] [aria-label="Permission decision"]) [data-composer-shortcut-hint] { display: none; }
+/* When even the fixed decisions cannot fit, retain them in a bounded dock scroller. */
+[data-composer-column]:has([data-prompt-overflow]) { min-height: 0; max-height: 100%; flex-shrink: 1; overflow-y: auto; overscroll-behavior: contain; }
+/* Override the inline viewport cap only for this insufficient-space fallback. */
+[data-prompt-overflow] [aria-label="Parked prompt"] { max-height: none !important; }
+[data-prompt-overflow] [aria-label="Arguments"] { max-height: 224px; flex-shrink: 1; overflow: auto; }

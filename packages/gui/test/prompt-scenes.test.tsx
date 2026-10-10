@@ -24,6 +24,7 @@ it("the permission error scene keeps its refusal and decisions outside the scrol
     expect(within(card).getByRole("region", { name: "Permission request" }).textContent).toContain("Check 20");
     const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]");
     expect(geometry).toContainEqual({ selector: '[aria-label="Permission decision"] [role="status"]', visibleWithin: '[aria-label="Parked prompt"]' });
+    expect(geometry).toContainEqual({ selector: '[aria-label="Parked prompt"] kbd', height: 20, renderedOnly: true });
     await gallery.close();
     close = undefined;
     container.remove();

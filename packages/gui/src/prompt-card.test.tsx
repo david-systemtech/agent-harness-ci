@@ -152,6 +152,22 @@ describe("an approval", () => {
       paneHeight = 800;
       resize();
       expect(above.dataset["promptSpace"]).toBe("bounded");
+      prompt.style.padding = "8px";
+      prompt.style.rowGap = "8px";
+      vi.spyOn(prompt.querySelector("header")!, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 1000, 28));
+      const decisions = within(prompt).getByRole("group", { name: "Permission decision" });
+      decisions.parentElement!.style.rowGap = "8px";
+      vi.spyOn(decisions, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 1000, 80));
+      // A bounded dock's rectangle is smaller than its contents: account for the contents when scrolling.
+      vi.mocked(column.getBoundingClientRect).mockReturnValue(new DOMRect(0, 0, 1000, 300));
+      vi.spyOn(column, "scrollHeight", "get").mockReturnValue(800);
+      paneHeight = 100;
+      resize();
+      expect(above.style.getPropertyValue("--session-prompt-height")).toBe("188px");
+      expect(above.hasAttribute("data-prompt-overflow")).toBe(true);
+      paneHeight = 800;
+      resize();
+      expect(above.hasAttribute("data-prompt-overflow")).toBe(false);
     } finally { vi.restoreAllMocks(); vi.unstubAllGlobals(); }
   });
 
