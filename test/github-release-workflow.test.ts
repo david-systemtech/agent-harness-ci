@@ -261,7 +261,7 @@ esac
       expect(body).toContain(`build-desktop --platform ${platform} --tag "$TAG" --server server/agent-harness-${platform}.${format === "nsis" ? "zip" : "tar.gz"}`);
       expect(body).toContain(`path: desktop/${filename}`);
       expect(body).toContain(`name: desktop-${platform}`);
-      expect(needs(name ?? "")).toEqual(["prepare", "image"]);
+      expect(needs(name ?? "")).toEqual(name === "desktop-windows" ? ["prepare", "image", "windows-pty"] : ["prepare", "image"]);
     }
     expect(job("desktop-windows").join("\n")).toContain("electronuserland/builder:24-wine-");
     // GitHub mounts its own HOME into container jobs, owned by the runner's user, and wine refuses
@@ -273,6 +273,19 @@ esac
     expect(job("desktop-arch").join("\n")).toContain('grep -qx "depend = polkit" unpacked/.PKGINFO');
     expect(step("release", "The desktop jobs' builds")).toContain("merge-multiple: true");
     expect(job("release")).toContain("    needs: [prepare, verify, suite, image-push, desktop-macos, desktop-windows, desktop-arch, smoke-windows, smoke-macos, smoke-linux]");
+  });
+
+  it("builds patched Windows native code on Windows and supplies it to both cross-platform packaging jobs", () => {
+    expect(job("windows-pty")).toContain("    runs-on: windows-latest");
+    const compile = step("windows-pty", "Compile the patched Windows node-pty runtime");
+    expect(compile).toContain("pnpm rebuild node-pty");
+    expect(compile).toContain("packages/cli/scripts/export-windows-pty.ts windows-pty");
+    expect(needs("desktop-windows")).toContain("windows-pty");
+    for (const name of ["desktop-windows", "release"]) {
+      expect(step(name, "The repaired Windows native payload")).toContain("name: windows-pty");
+      expect(job(name).join("\n")).toContain("--windows-pty-build windows-pty");
+      expect(waitsFor(name).has("windows-pty")).toBe(true);
+    }
   });
 
   it("builds and smokes from the prepared run alone, beside the suite, which starts with the run", () => {
@@ -294,7 +307,7 @@ esac
     expect(job("prepare").join("\n")).not.toMatch(/pnpm (typecheck|lint|test)/);
     expect(needs("image")).toEqual(["prepare"]);
     for (const [smoke, build] of [["smoke-windows", "desktop-windows"], ["smoke-macos", "desktop-macos"], ["smoke-linux", "desktop-arch"]] as const) {
-      expect(needs(build)).toEqual(["prepare", "image"]);
+      expect(needs(build)).toEqual(build === "desktop-windows" ? ["prepare", "image", "windows-pty"] : ["prepare", "image"]);
       expect(needs(smoke)).toEqual(["prepare", build]);
     }
     for (const build of ["image", "desktop-macos", "desktop-windows", "desktop-arch", "smoke-windows", "smoke-macos", "smoke-linux"]) {
@@ -408,8 +421,8 @@ esac
       IMAGE_REFERENCE: "ghcr.io/david-systemtech/agent-harness:1.2.3-beta.2", IMAGE_DIGEST: `sha256:${"0".repeat(64)}`,
     } });
     const args = readFileSync(log, "utf8").trim().split("\n");
-    expect(args.slice(0, 11)).toEqual(["--filter", "agent-harness", "build-artefacts", "--tag", "v1.2.3-beta.2", "--out", "release-assets", "--image-reference", "ghcr.io/david-systemtech/agent-harness:1.2.3-beta.2", "--image-digest", `sha256:${"0".repeat(64)}`]);
-    expect(args.slice(11)).toEqual([
+    expect(args.slice(0, 13)).toEqual(["--filter", "agent-harness", "build-artefacts", "--tag", "v1.2.3-beta.2", "--out", "release-assets", "--windows-pty-build", "windows-pty", "--image-reference", "ghcr.io/david-systemtech/agent-harness:1.2.3-beta.2", "--image-digest", `sha256:${"0".repeat(64)}`]);
+    expect(args.slice(13)).toEqual([
       "--asset", "schema=packages/contracts/schema", "--asset", "install-script=scripts/install.sh",
       "--asset", "install-script=scripts/install.ps1", "--asset", "compose=scripts/compose.yaml",
       "--asset", "host-updater=scripts/host-updater.sh",

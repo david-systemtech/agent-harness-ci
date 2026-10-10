@@ -33,6 +33,8 @@ export interface BuildOptions {
   readonly image: ReleaseImage;
   /** The platforms to build, preset every platform a release publishes. */
   readonly platforms?: readonly string[];
+  /** The same run's Windows x64 native payload, built from the pinned patched node-pty source. */
+  readonly windowsPtyBuild?: string;
   /** The release's other assets, listed in the manifest after the artefacts in this order; preset none. */
   readonly assets?: readonly OtherAsset[];
 }
@@ -126,7 +128,7 @@ export const buildRelease = async (options: BuildOptions, seams: BuildSeams = {}
       const archive = nodeArchive(runtime, target);
       const node = { file: await fetchNodeArchive(archive, join(work, "nodejs.org"), seams.download ?? fetchDownload), archive };
       const root = join(work, target.platform);
-      await stageArtefact({ repoRoot, packages, target, version, root, onHost: target.platform === host, installDependencies: seams.installDependencies ?? pnpmInstall, node });
+      await stageArtefact({ repoRoot, packages, target, version, root, onHost: target.platform === host, installDependencies: seams.installDependencies ?? pnpmInstall, node, ...(options.windowsPtyBuild !== undefined && { windowsPtyBuild: options.windowsPtyBuild }) });
       const asset = join(options.out, target.name);
       if (target.format === "zip") packZip(root, asset);
       else await packTarGz(root, asset);

@@ -200,6 +200,7 @@ export const fixtureInstall = async ({ repoRoot, workspace, packages, target, ru
   write(join(modules, "zod", "package.json"), json({ name: "zod", version: "4.6.5" }));
   const pty = join(modules, "node-pty");
   write(join(pty, "package.json"), json({ name: "node-pty", version: "1.1.0", main: "./lib/index.js" }));
+  write(join(pty, "src/win/conpty.cc"), "patched native console ownership\n");
   write(join(pty, "lib", "index.js"), "module.exports = {};\n");
   write(join(pty, "prebuilds", "darwin-arm64", "pty.node"), "mach-o pty\n");
   // node-pty's npm package ships the helper without its execute bit.
@@ -327,7 +328,22 @@ export const fixtureBuild = ({ host = "linux-x64", runHostArtefact = false, quir
       return state.downloaded;
     },
     seams,
-    options: (overrides = {}) => ({ tag: "v0.5.0", out, image: FIXTURE_IMAGE, ...overrides }),
+    options: (overrides = {}) => ({ tag: "v0.5.0", out, image: FIXTURE_IMAGE, windowsPtyBuild: fixtureWindowsPty(join(base, "windows-native")), ...overrides }),
     remove: () => rmSync(base, { recursive: true, force: true }),
   };
+};
+
+/** A repaired Windows native build supplied by the same run, with independently stamped fixture provenance. */
+export const fixtureWindowsPty = (folder: string): string => {
+  const files: Record<string, string> = {};
+  for (const name of ["pty.node", "conpty.node", "conpty_console_list.node", "winpty-agent.exe", "winpty.dll", "conpty/conpty.dll", "conpty/OpenConsole.exe"]) {
+    const binary = Buffer.alloc(160);
+    binary.write("MZ"); binary.writeUInt32LE(64, 60); binary.write("PE\0\0", 64); binary.writeUInt16LE(0x8664, 68);
+    binary.write(`repaired ${name}`, 80);
+    mkdirSync(dirname(join(folder, "Release", name)), { recursive: true });
+    writeFileSync(join(folder, "Release", name), binary);
+    files[name] = createHash("sha256").update(binary).digest("hex");
+  }
+  write(join(folder, "manifest.json"), json({ platform: "win32-x64", version: "1.1.0", sourceSha256: createHash("sha256").update("patched native console ownership\n").digest("hex"), files }));
+  return folder;
 };

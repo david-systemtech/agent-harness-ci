@@ -4,7 +4,7 @@ import { basename, join, relative } from "node:path";
 import { LAUNCHER_PROTOCOL, PROTOCOL_VERSION, ReleaseManifest } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { declaredVersion } from "../../src/launch/versions.js";
-import { FIXTURE_IMAGE, fixtureBuild, fixtureInstall, fixtureReport, type FixtureBuild } from "../../test/release-fixtures.js";
+import { FIXTURE_IMAGE, fixtureBuild, fixtureInstall, fixtureReport, fixtureWindowsPty, type FixtureBuild } from "../../test/release-fixtures.js";
 import { buildOptionsOf } from "./arguments.js";
 import type { OtherAsset } from "./assets.js";
 import { buildRelease } from "./build.js";
@@ -49,6 +49,37 @@ const executable = (path: string): boolean => (statSync(path).mode & 0o111) !== 
 const BUILD_MS = 120_000;
 
 describe("the release build", { timeout: BUILD_MS }, () => {
+  it("stages the repaired Windows native payload in the cross-built archive instead of the upstream prebuild", async () => {
+    build = fixtureBuild();
+    const native = fixtureWindowsPty(join(build.out, "..", "windows-native"));
+    await buildRelease({ ...build.options({ platforms: ["linux-x64", "win32-x64"] }), windowsPtyBuild: native }, build.seams);
+    const pty = join(unpack("agent-harness-win32-x64.zip"), "node_modules", "node-pty");
+    expect(readFileSync(join(pty, "build/Release/conpty.node"))).toEqual(readFileSync(join(native, "Release/conpty.node")));
+    expect(readFileSync(join(pty, "build/Release/conpty_console_list.node"))).toEqual(readFileSync(join(native, "Release/conpty_console_list.node")));
+    expect(existsSync(join(pty, "build/Release/conpty/conpty.dll"))).toBe(true);
+    expect(existsSync(join(pty, "prebuilds"))).toBe(false);
+    expect(links(pty)).toEqual([]);
+  });
+
+  it("refuses to cross-stage a Windows archive without a repaired native payload", async () => {
+    build = fixtureBuild();
+    const { tag, out, image } = build.options();
+    await expect(buildRelease({ tag, out, image, platforms: ["linux-x64", "win32-x64"] }, build.seams)).rejects.toThrow(/require --windows-pty-build/);
+    expect(existsSync(join(out, "agent-harness-win32-x64.zip"))).toBe(false);
+  });
+
+  it("refuses a Windows native payload built from a different source", async () => {
+    build = fixtureBuild();
+    await expect(buildRelease(build.options({ platforms: ["linux-x64", "win32-x64"] }), {
+      ...build.seams,
+      installDependencies: async (request) => {
+        await fixtureInstall(request);
+        if (request.target.os === "win32") writeFileSync(join(request.workspace, "node_modules/node-pty/src/win/conpty.cc"), "old console ownership");
+      },
+    })).rejects.toThrow(/does not match the installed pinned source/);
+    expect(existsSync(join(build.out, "agent-harness-win32-x64.zip"))).toBe(false);
+  });
+
   it("ships the module imported by the packaged macOS ownership smoke", async () => {
     build = fixtureBuild({ host: "darwin-arm64" });
     const workflow = releaseWorkflowInput(join(import.meta.dirname, "..", "..", "..", "..")).hosted;
@@ -168,7 +199,7 @@ describe("the release build", { timeout: BUILD_MS }, () => {
     expect(executable(join(root, "bin", "agent-harness"))).toBe(true);
   });
 
-  it("builds the win32-x64 artefact on a Linux runner as agent-harness-win32-x64.zip: node\\node.exe, bin\\agent-harness.cmd, node-pty's win32-x64 prebuild without its debug symbols, the SDK's claude.exe, and no link", async () => {
+  it("builds the win32-x64 artefact on a Linux runner as agent-harness-win32-x64.zip: node\\node.exe, bin\\agent-harness.cmd, the repaired Windows native runtime, the SDK's claude.exe, and no link", async () => {
     build = fixtureBuild();
     await buildRelease(build.options({ platforms: ["linux-x64", "win32-x64"] }), build.seams);
     expect(readdirSync(build.out)).toContain("agent-harness-win32-x64.zip");
@@ -182,8 +213,8 @@ describe("the release build", { timeout: BUILD_MS }, () => {
       '@echo off\r\nrem agent-harness: this release\'s CLI on its own Node, from wherever the artefact is unpacked.\r\n"%~dp0..\\node\\node.exe" "%~dp0..\\packages\\cli\\dist\\main.js" %*\r\nexit /b %ERRORLEVEL%\r\n',
     );
     const pty = join(root, "node_modules", "node-pty");
-    expect(readdirSync(join(pty, "prebuilds", "win32-x64"), { recursive: true }).sort()).toEqual(["conpty", "conpty/conpty.dll", "pty.node"]);
-    expect(readdirSync(join(pty, "prebuilds"))).toEqual(["win32-x64"]);
+    expect(readFileSync(join(pty, "build/Release/conpty.node")).toString()).toContain("repaired conpty.node");
+    expect(existsSync(join(pty, "prebuilds"))).toBe(false);
     expect(readdirSync(join(root, "node_modules", "@anthropic-ai")).sort()).toEqual(["claude-agent-sdk", "claude-agent-sdk-win32-x64"]);
     expect(existsSync(join(root, "node_modules", "@anthropic-ai", "claude-agent-sdk-win32-x64", "claude.exe"))).toBe(true);
     expect(declaredVersion(root)).toEqual({ version: "0.5.0", launcherProtocol: LAUNCHER_PROTOCOL });

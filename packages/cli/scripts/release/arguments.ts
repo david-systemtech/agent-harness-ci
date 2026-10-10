@@ -6,7 +6,7 @@ import type { ReleaseRepository } from "./publish.js";
 
 /** How the release build is run, for its usage line. */
 export const BUILD_USAGE =
-  "usage: pnpm --filter agent-harness build-artefacts --tag v<version> --out <folder> --image-reference <reference> --image-digest sha256:<hex> [--platform <os>-<arch>]... [--asset <kind>[:<platform>:<format>]=<path>]...";
+  "usage: pnpm --filter agent-harness build-artefacts --tag v<version> --out <folder> --image-reference <reference> --image-digest sha256:<hex> [--windows-pty-build <folder>] [--platform <os>-<arch>]... [--asset <kind>[:<platform>:<format>]=<path>]...";
 
 /** Arguments the build cannot take: the message says which. */
 export class ArgumentsError extends Error {
@@ -42,6 +42,7 @@ export const buildOptionsOf = (args: readonly string[], cwd: string): BuildOptio
       options: {
         tag: { type: "string" },
         out: { type: "string" },
+        "windows-pty-build": { type: "string" },
         "image-reference": { type: "string" },
         "image-digest": { type: "string" },
         platform: { type: "string", multiple: true },
@@ -60,6 +61,7 @@ export const buildOptionsOf = (args: readonly string[], cwd: string): BuildOptio
     tag,
     out: resolve(cwd, out),
     image: { reference, digest },
+    ...(values["windows-pty-build"] !== undefined && { windowsPtyBuild: resolve(cwd, values["windows-pty-build"]) }),
     ...(platform !== undefined && { platforms: platform }),
     ...(asset !== undefined && { assets: asset.map((argument) => otherAssetOf(argument, cwd)) }),
   };
