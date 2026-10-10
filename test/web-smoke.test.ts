@@ -40,6 +40,7 @@ it.skipIf(!hosted)("the served production client completes the phone conversatio
     expect(result.stdout).toContain("PHONE-INSTALL PASS chromium");
     expect(result.stdout).toContain("PHONE-INSTALL PASS webkit");
     expectFrameChecks(result.stdout);
+    expectSessionRouteChecks(result.stdout);
     for (const engine of ["chromium", "webkit"]) {
       for (const regression of ["PHONE-PANES", "PHONE-FALLBACK"]) {
         expect(result.stdout).toContain(`${regression} PASS ${engine}`);
@@ -73,4 +74,18 @@ it.each(frameOutput)("rejects hosted stdout missing $path", ({ path }) => {
   expectFrameChecks(frameOutput.map(output => output.line).join("\n"));
   const incomplete = frameOutput.filter(output => output.path !== path).map(output => output.line).join("\n");
   expect(() => expectFrameChecks(incomplete)).toThrow();
+});
+
+function expectSessionRouteChecks(stdout: string) {
+  for (const engine of ["chromium", "webkit"]) {
+    for (const grant of [engine, `${engine} live run`, `${engine} full grant`]) {
+      expect(stdout).toContain(`WEB-SESSION-ROUTE PASS ${grant}:`);
+    }
+  }
+}
+
+const routeOutput = ["chromium", "webkit"].flatMap(engine => [engine, `${engine} live run`, `${engine} full grant`]);
+it.each(routeOutput)("rejects hosted stdout missing the same-document session route check for %s", missing => {
+  expectSessionRouteChecks(routeOutput.map(path => `WEB-SESSION-ROUTE PASS ${path}:`).join("\n"));
+  expect(() => expectSessionRouteChecks(routeOutput.filter(path => path !== missing).map(path => `WEB-SESSION-ROUTE PASS ${path}:`).join("\n"))).toThrow();
 });
