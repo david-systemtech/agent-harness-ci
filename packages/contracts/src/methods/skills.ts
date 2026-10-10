@@ -183,7 +183,7 @@ export const skillsSetEnabled = defineMethod({
  * link leading out of the checkout is followed. A URL failing the source
  * URL rule is `invalid_params`. A repository it cannot reach is `conflict`,
  * reason `unreachable` (`SkillProbeUnreachable`: the problem
- * `authentication`, `not_found`, `network` or `git_failed`, what git said,
+ * `authentication`, `not_found`, `network`, `git_missing` or `git_failed`, what git said,
  * and the origin). The checkout lies under the data directory and is kept
  * thirty minutes for `skills.sources.add` to reuse by the probe's id, then
  * removed.

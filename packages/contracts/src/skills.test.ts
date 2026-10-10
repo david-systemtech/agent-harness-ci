@@ -480,8 +480,8 @@ describe("skills.probe", () => {
     expect(validate({ ...probe, identity: "git@github.com:mattpocock/skills.git" })).toBe(false);
   });
 
-  it("names what kept it from the repository: authentication, not_found, network or git_failed, with what git said and the origin", () => {
-    expect(SKILL_PROBE_PROBLEMS).toEqual(["authentication", "not_found", "network", "git_failed"]);
+  it("names what kept it from the repository: authentication, not_found, network, git_missing or git_failed, with what git said and the origin", () => {
+    expect(SKILL_PROBE_PROBLEMS).toEqual(["authentication", "not_found", "network", "git_missing", "git_failed"]);
     const data = { reason: "unreachable", problem: "git_failed", line: "fatal: bad object", origin: "https://github.com" } as const;
     expect(roundTrip(SkillProbeUnreachable, data)).toEqual(data);
     expect(published("skills/probe-unreachable.json")(data)).toBe(true);

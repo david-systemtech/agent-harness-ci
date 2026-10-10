@@ -578,7 +578,8 @@ export const STEP_REGISTRY = [
     stateChecks: [
       { id: "skills.present", holds: "Skill sources are tracked, or the own directory is nonempty or unreadable.", actions: [] },
       { id: "skills.sources-synced", holds: "Every unpinned source's last attempt succeeded within seven hours.", actions: ["pull-now"] },
-      { id: "skills.sources-yield", holds: "Every source yields skills.", actions: ["pull-now"] },
+      // A source whose folders moved is chosen again, not pulled (setup-copy.md §5.9; #1855).
+      { id: "skills.sources-yield", holds: "Every source yields skills.", actions: ["choose-folders"] },
       { id: "skills.source-limit", holds: "At most twenty skill sources are tracked.", actions: [] },
       { id: "skills.own-directory", holds: "The own skills directory is readable.", actions: [] },
     ],

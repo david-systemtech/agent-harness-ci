@@ -21,7 +21,7 @@ import type { Clock } from "../serve/clock.js";
 import { lanAddressHeld } from "../serve/interfaces.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { readSettings } from "../settings/settings-store.js";
-import { skillsStateChecks, type SkillsStateChecksOptions } from "../skills/step-checks.js";
+import { skillsDoneLine, skillsStateChecks, type SkillsStateChecksOptions } from "../skills/step-checks.js";
 import type { DoneLines, Finding, StateChecker, StateCheckers } from "./check.js";
 
 /**
@@ -208,6 +208,7 @@ export const environmentDoneLines = (options: StateChecksOptions): DoneLines => 
     forges: () => forgesLine(options.forge.list()),
     "key-manager": () => keyManagersLine(options.keyManagerConnections.list()),
     "memory-bank": () => notebooksLine(options.banks.list()),
+    skills: skillsDoneLine(options.skills),
     instructions: instructionsDoneLine(options.accounts),
     permissions: () =>
       permissionsLine(

@@ -25,13 +25,19 @@ export interface PlanSkillsOptions {
   readonly forgeAccounts: () => Parameters<typeof repositoryIdentityOf>[1];
 }
 
+/** The Skills owner's plain refusal and the git line it keeps separately for Details. */
+const refusalDetails = (refusal: ContractError): string[] => {
+  const line = refusal.data["line"];
+  return [refusal.message, ...(typeof line === "string" && line !== refusal.message ? [line] : [])];
+};
+
 /** A tracked source's failure that its forge fixes: connect one for the host, or check the token of the one connected (setup-copy.md §5.3). */
 const forgeFix = (origin: string, connected: boolean, refusal: ContractError): ItemFailure => {
   const host = forgeOriginHost(origin);
   return new ItemFailure({
     message: connected ? `Your forge ${host} could not open this skill collection. Check its token in Forges.` : `Connect a forge for ${host}.`,
     step: "forges",
-    details: [refusal.message],
+    details: refusalDetails(refusal),
   });
 };
 
@@ -45,7 +51,7 @@ const VERSION_NOT_FOUND = /Remote branch .+ not found|couldn't find remote ref|n
  */
 const unaddable = (refusal: ContractError, origin: string | undefined): ItemFailure => {
   const problem = refusal.data["reason"] === "unreachable" ? refusal.data["problem"] : undefined;
-  const details = [refusal.message];
+  const details = refusalDetails(refusal);
   if (problem === "not_found") {
     const missing = "agent-harness found no such repository or branch.";
     return new ItemFailure(origin === undefined ? { message: missing, details }
@@ -112,7 +118,7 @@ export const planSkills = async (records: SourceSkills, options: PlanSkillsOptio
           const line = error.data["line"];
           // The probe's not found also covers a branch or pin the opened repository no longer holds: no forge fixes that.
           if (error.data["problem"] === "not_found" && typeof line === "string" && VERSION_NOT_FOUND.test(line)) {
-            throw new ItemFailure({ message: "Its branch or pinned version is no longer there.", details: [error.message] });
+            throw new ItemFailure({ message: "Its branch or pinned version is no longer there.", details: refusalDetails(error) });
           }
           const problem = error.data["problem"];
           const remote = problem === "authentication" || problem === "not_found" ? normaliseRemote(parsed.data.url) : null;
@@ -125,8 +131,7 @@ export const planSkills = async (records: SourceSkills, options: PlanSkillsOptio
               const host = /^ssh:\/\//i.test(parsed.data.url) ? new URL(parsed.data.url).hostname : parsed.data.url.replace(/^(?:[^@/]*@)?(\[[^\]]+\]|[^:]+):.*$/s, "$1");
               throw new ItemFailure({
                 message: `${host} did not let this computer in over SSH. Check this computer's SSH key and its known-hosts entry for ${host}.`,
-                // The refusal's message already ends with git's line.
-                details: [error.message, "The source's own SSH port is used."],
+                details: [...refusalDetails(error), "The source's own SSH port is used."],
               });
             }
             if (problem === "authentication") throw forgeFix(account?.origin ?? remote.origin, account !== null, error);
