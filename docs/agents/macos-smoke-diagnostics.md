@@ -1,7 +1,12 @@
 # Native macOS smoke diagnostics
 
 The release replacement smoke captures its stage, expression, desktop output,
-main-process sample, window list and a screenshot on a timeout. Only sanitized
+main-process sample, window list and a screenshot on a timeout or unexpected
+CDP disconnect. Disconnect failures include the active stage and expression;
+requests on an already closed page fail immediately. Only the smoke's explicit
+pending-access quit, update restart and final window close accept a disconnect
+before their evaluation reply. Native desktop/helper exit checks still run, and
+all credential/navigation evaluations require a reply. Only sanitized
 files enter the uploaded `macos-update-diagnostics` artifact; raw images stay
 private and are removed after redaction. Failed collectors leave an error file
 while the other evidence and original failure survive. Screenshot failure files

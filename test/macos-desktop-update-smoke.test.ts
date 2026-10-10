@@ -11,7 +11,13 @@ import { buildRelease } from "../packages/cli/scripts/release/build.js";
 import { fixtureBuild } from "../packages/cli/test/release-fixtures.js";
 
 const script = pathToFileURL(join(import.meta.dirname, "..", "scripts", "macos-desktop-update-smoke.mjs")).href;
-const { restartPackagedDesktop, checkPackagedUpdateCleanup, checkQuietPackagedNavigation, checkPackagedCredentialRepair, checkReplacedPackagedCredential, waitForCredentialHelpersExit, quitWithPendingPackagedCredential, startUnavailablePackagedCredential, credentialHelperPids, checkUnavailablePackagedCredential, checkFreshPackagedCredential, askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer, copyPackagedDesktop, prepareCredentialFixture } = await import(script) as {
+const { createCdpEvaluator, restartPackagedDesktop, checkPackagedUpdateCleanup, checkQuietPackagedNavigation, checkPackagedCredentialRepair, checkReplacedPackagedCredential, waitForCredentialHelpersExit, quitWithPendingPackagedCredential, startUnavailablePackagedCredential, credentialHelperPids, checkUnavailablePackagedCredential, checkFreshPackagedCredential, askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer, copyPackagedDesktop, prepareCredentialFixture } = await import(script) as {
+  createCdpEvaluator: (peer: {
+    send: (frame: string) => void;
+    close: () => void;
+    onmessage?: (event: { data: string }) => void;
+    onclose?: () => void;
+  }) => { evaluate: (expression: string, stage?: string, milliseconds?: number, options?: { expectDisconnect: boolean }) => Promise<unknown> };
   restartPackagedDesktop: (evaluate: (expression: string) => Promise<unknown>, staged: { path: string; version: string; sha256: string }) => Promise<void>;
   checkPackagedUpdateCleanup: (installed: string, expectedArchive: string) => void;
   checkQuietPackagedNavigation: (evaluate: (expression: string, stage?: string, milliseconds?: number) => Promise<unknown>) => Promise<void>;
@@ -82,12 +88,27 @@ describe("the packaged macOS update smoke", () => {
     } finally { rmSync(work, { recursive: true, force: true }); }
   });
 
-  it("hands the verified ZIP to the packaged Restart to update path", async () => {
+  it.each(["reply", "disconnect"])("hands the verified ZIP to Restart to update when CDP delivers %s first", async (first) => {
     const applied: unknown[] = [];
     const staged = { path: "/fixture/replacement.zip", version: "0.2.0", sha256: "digest-for-tests" };
-    await restartPackagedDesktop(async expression => await runInNewContext(expression, {
-      window: { desktopShell: { update: { apply: async (...args: unknown[]) => { applied.push(args); return { outcome: "applied" }; } } } },
-    }) as unknown, staged);
+    const peer: Parameters<typeof createCdpEvaluator>[0] = {
+      close: () => {},
+      send: message => {
+        const request = JSON.parse(message) as { id: number; params: { expression: string } };
+        const value: unknown = runInNewContext(request.params.expression, {
+          window: { desktopShell: { update: { apply: async (...args: unknown[]) => {
+            applied.push(args);
+            if (first === "disconnect") peer.onclose?.();
+            return { outcome: "applied" };
+          } } } },
+        });
+        if (first === "reply") {
+          peer.onmessage?.({ data: JSON.stringify({ id: request.id, result: { result: { value } } }) });
+          peer.onclose?.();
+        }
+      },
+    };
+    await restartPackagedDesktop(createCdpEvaluator(peer).evaluate, staged);
     expect(applied).toEqual([[staged, "now"]]);
   });
 
@@ -214,6 +235,27 @@ describe("the packaged macOS update smoke", () => {
     const evaluate = async (expression: string) => await runInNewContext(expression, { window, document }) as unknown;
     await startUnavailablePackagedCredential(evaluate);
     await quitWithPendingPackagedCredential(evaluate);
+    expect(closed).toBe(true);
+  });
+
+  it("accepts the pending-access quit when the page closes before its CDP reply", async () => {
+    let closed = false;
+    const window = { __packagedCredentialCheck: { settled: false }, desktopShell: {
+      secrets: { access: async () => "waiting" },
+      window: { close: () => { closed = true; peer.onclose?.(); } },
+    } };
+    const peer: Parameters<typeof createCdpEvaluator>[0] = {
+      close: () => {},
+      send: message => {
+        const request = JSON.parse(message) as { id: number; params: { expression: string } };
+        void Promise.resolve(runInNewContext(request.params.expression, { window })).then(value => {
+          // Electron has already destroyed the page: no reply can cross this boundary.
+          if (!closed) peer.onmessage?.({ data: JSON.stringify({ id: request.id, result: { result: { value } } }) });
+        });
+      },
+    };
+    const cdp = createCdpEvaluator(peer);
+    await expect(quitWithPendingPackagedCredential(cdp.evaluate)).resolves.toBeUndefined();
     expect(closed).toBe(true);
   });
 
