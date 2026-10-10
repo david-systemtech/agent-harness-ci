@@ -1,9 +1,9 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { SKILL_SOURCE_LIMIT, type SkillsViewSource, type SetupTarget } from "@agent-harness/contracts";
+import { CATALOGUE, PRODUCT_NAME, SKILL_SOURCE_LIMIT, skillCollectionName, type SetupAction, type SkillsViewSource, type SetupTarget } from "@agent-harness/contracts";
 import type { StateCheckAnswer } from "../permissions/step-checks.js";
 import type { Clock } from "../serve/clock.js";
-import type { StateCheckers } from "../setup/check.js";
+import type { DoneLine, StateCheckers } from "../setup/check.js";
 
 /** Local state reads for the Skills step (ADR 0029; #514); a check never fetches a source. */
 export interface SkillsStateChecksOptions {
@@ -14,8 +14,11 @@ export interface SkillsStateChecksOptions {
 
 /** Seven hours allows the six-hour source sync its grace (skills-instructions spec). */
 const SOURCE_GRACE_MS = 7 * 60 * 60_000;
-const sourceLabel = (source: SkillsViewSource): string => `${source.url} (${source.folder})`;
-const pullTarget = (source: SkillsViewSource): SetupTarget => ({ action: "pull-now", kind: "skill-source", id: source.id, label: sourceLabel(source) });
+/** A source as the step's lines name it: its collection (setup-copy.md §5.9). */
+const collectionOf = (source: SkillsViewSource): string => skillCollectionName(source, CATALOGUE.skills);
+/** A source's address and folder, for details. */
+const addressOf = (source: SkillsViewSource): string => `${collectionOf(source)}: ${source.url} (${source.folder})`;
+const targetOf = (action: SetupAction, source: SkillsViewSource): SetupTarget => ({ action, kind: "skill-source", id: source.id, label: collectionOf(source) });
 
 /** Reading both content folders distinguishes an empty directory from an unreadable one. */
 const ownEntries = async (path: string): Promise<string[]> => {
@@ -23,11 +26,18 @@ const ownEntries = async (path: string): Promise<string[]> => {
   return [...root.filter((entry) => entry !== "skills" && entry !== "commands"), ...skills, ...commands];
 };
 
+/** Whether a source's folders moved, or it yields nothing: its folders are chosen again rather than pulled. */
+const yieldsNothing = (source: SkillsViewSource): boolean => source.skillCount === 0 || source.sync.outcome === "layout_moved";
+
+/**
+ * The Skills step's checks, each line in setup-copy.md §5.9's words (#1855): a failed update and one out of date told
+ * apart, each with Update now; a moved layout with Choose folders; the raw addresses and git's words in details.
+ */
 export const skillsStateChecks = (options: SkillsStateChecksOptions): Pick<StateCheckers, "skills.present" | "skills.sources-synced" | "skills.sources-yield" | "skills.source-limit" | "skills.own-directory"> => ({
   "skills.present": async () => {
     if (options.sources().length > 0) return true;
     try {
-      return (await ownEntries(options.ownPath)).length > 0 || { reason: "No skill source is tracked and the own directory is empty." };
+      return (await ownEntries(options.ownPath)).length > 0 || { reason: "No skills added. Optional." };
     } catch {
       // An unreadable directory needs its health check; it must never cause a skip.
       return true;
@@ -36,23 +46,32 @@ export const skillsStateChecks = (options: SkillsStateChecksOptions): Pick<State
   "skills.sources-synced": () => {
     const now = options.clock.now().getTime();
     const stale = options.sources().filter((source) =>
-      source.follow.kind !== "pinned" && (source.sync.outcome !== "ok" || source.attemptedAt === null || now - Date.parse(source.attemptedAt) > SOURCE_GRACE_MS),
+      source.follow.kind !== "pinned" && !yieldsNothing(source) && (source.sync.outcome === "failed" || source.attemptedAt === null || now - Date.parse(source.attemptedAt) > SOURCE_GRACE_MS),
     );
     return stale.length === 0 || {
-      reason: stale.map((source) => `${sourceLabel(source)}: the last attempt failed or is older than seven hours; Pull now.`).join(" "),
-      targets: stale.map(pullTarget),
+      reason: stale.map((source) =>
+        source.sync.outcome === "failed" ? `${collectionOf(source)} could not update. Choose Update now.` : `${collectionOf(source)} has not updated for over 7 hours. Choose Update now.`,
+      ).join(" "),
+      details: stale.map((source) => `${addressOf(source)}: ${source.sync.outcome === "failed" ? source.sync.line : `last tried ${source.attemptedAt ?? "never"}`}`),
+      targets: stale.map((source) => targetOf("pull-now", source)),
     };
   },
   "skills.sources-yield": () => {
-    const empty = options.sources().filter((source) => source.skillCount === 0 || source.sync.outcome === "layout_moved");
+    const empty = options.sources().filter(yieldsNothing);
+    // The chooser probes branches; a pinned version must be changed explicitly in Settings.
+    const movable = empty.filter((source) => source.follow.kind === "branch");
     return empty.length === 0 || {
-      reason: empty.map((source) => `${sourceLabel(source)} yields no skills${source.sync.outcome === "layout_moved" ? `; the layout moved; folders found: ${source.sync.folders.join(", ") || "none"}` : ""}; Pull now.`).join(" "),
-      targets: empty.map(pullTarget),
+      reason: empty.map((source) => source.follow.kind === "pinned"
+        ? `${collectionOf(source)} has no skills at its pinned version. Open All skill settings to change its folders or version.`
+        : `${collectionOf(source)} no longer has skills where they were. Choose its folders again.`).join(" "),
+      details: empty.map((source) => `${addressOf(source)}: ${source.sync.outcome === "layout_moved" ? `the layout moved; folders found: ${source.sync.folders.join(", ") || "none"}` : "yields no skills"}`),
+      actions: movable.length > 0 ? ["choose-folders"] : [],
+      targets: movable.map((source) => targetOf("choose-folders", source)),
     };
   },
   "skills.source-limit": () => {
     const count = options.sources().length;
-    return count <= SKILL_SOURCE_LIMIT || { reason: `${count} skill sources are tracked, above the limit of ${SKILL_SOURCE_LIMIT}. Remove sources to stay within the limit.` };
+    return count <= SKILL_SOURCE_LIMIT || { reason: `You follow ${count} collections. The limit is ${SKILL_SOURCE_LIMIT}. Remove ${count - SKILL_SOURCE_LIMIT}.` };
   },
   "skills.own-directory": async (): Promise<StateCheckAnswer> => {
     try {
@@ -60,7 +79,11 @@ export const skillsStateChecks = (options: SkillsStateChecksOptions): Pick<State
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return { reason: `The own skills directory ${options.ownPath} cannot be read: ${message.replace(/[\r\n]+/g, " ")}.` };
+      return { reason: `${PRODUCT_NAME} cannot open your own skills folder. Check that it exists.`, details: [`${options.ownPath}: ${message.replace(/[\r\n]+/g, " ")}`] };
     }
   },
 });
+
+/** The Skills step's line when done (setup-copy.md §5.9): with no collection followed, the own skills are what is ready; else the registry's. */
+export const skillsDoneLine = (options: Pick<SkillsStateChecksOptions, "sources">): DoneLine => () =>
+  options.sources().length === 0 ? { reason: "Your own skills are ready." } : undefined;

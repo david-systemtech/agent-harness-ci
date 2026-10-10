@@ -119,7 +119,7 @@ describe("Windows native payloads for the Forgejo build callers", () => {
       expect(windows[build]).toContain("--windows-pty-build windows-pty");
     }
     const hosted = readFileSync(join(import.meta.dirname, "../../../../.forgejo/github-workflows/windows-pty.yml"), "utf8");
-    expect(hosted).toContain("runs-on: windows-latest");
+    expect(hosted).toContain("runs-on: windows-2022");
     expect(hosted).toContain("ref: ${{ github.event.client_payload.sha }}");
     expect(hosted).toContain("pnpm --filter @agent-harness/environment rebuild node-pty");
     expect(hosted).toContain("packages/cli/scripts/export-windows-pty.ts windows-pty");

@@ -324,8 +324,9 @@ describe("an import that stops part way", () => {
     expect((await after.request("instructions.list", {})).instructions.map((instruction) => instruction.title)).toEqual(["Prompt p1"]);
     const stopped = await checkCarryOver(after);
     expect(stopped).toMatchObject({ state: "needs-attention", failing: ["carry-over.last-import"], actions: ["import-again"] });
-    expect(stopped.targets).toEqual([{ action: "import-again", kind: "environment", id: restarted.env.id, label: "The state import" }]);
-    expect(stopped.reason).toContain(`The state import from ${realpathSync(dataFolder ?? "")} stopped before it finished: Import again to carry the rest.`);
+    expect(stopped.targets).toEqual([{ action: "import-again", kind: "environment", id: restarted.env.id, label: "Your earlier work" }]);
+    expect(stopped.reason).toContain("Bringing over your earlier work stopped before the end. Choose Continue bringing it over.");
+    expect(stopped.details).toContain(`Folder: ${realpathSync(dataFolder ?? "")}`);
 
     expect((await run(after, false)).result).toMatchObject({ carried: carried({ instructions: 2 }), failed: [] });
     expect((await after.request("instructions.list", {})).instructions.map((instruction) => instruction.title)).toEqual(["Prompt p1", "Prompt p2", "Prompt p3"]);
@@ -365,7 +366,8 @@ describe("an import that stops part way", () => {
     });
     const failing = await checkCarryOver(client);
     expect(failing).toMatchObject({ state: "needs-attention", failing: ["carry-over.last-import"] });
-    expect(failing.reason).toContain(`The last state import failed part way: Instruction "Too long": Its text is longer than an instruction's body may be, 20000 characters. Import again to retry what failed.`);
+    expect(failing.reason).toContain("1 item from your earlier work did not come over. See what to do below each one.");
+    expect(failing.details).toContain(`Instruction "Too long": Its text is longer than an instruction's body may be, 20000 characters.`);
     await run(client, true);
     expect((await checkCarryOver(client)).state).toBe("needs-attention");
 

@@ -276,7 +276,8 @@ esac
   });
 
   it("builds patched Windows native code on Windows and supplies it to both cross-platform packaging jobs", () => {
-    expect(job("windows-pty")).toContain("    runs-on: windows-latest");
+    // node-gyp 11.5.0 recognizes Visual Studio 2022, supplied by this runner (#2054).
+    expect(job("windows-pty")).toContain("    runs-on: windows-2022");
     const compile = step("windows-pty", "Compile the patched Windows node-pty runtime");
     expect(compile).toContain("pnpm --filter @agent-harness/environment rebuild node-pty");
     expect(compile).toContain("packages/cli/scripts/export-windows-pty.ts windows-pty");

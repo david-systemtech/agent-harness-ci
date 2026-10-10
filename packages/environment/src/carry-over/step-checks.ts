@@ -1,4 +1,4 @@
-import { defaultAccountRepair, deferredDefaults } from "../state-import/default-account.js";
+import { deferredDefaults } from "../state-import/default-account.js";
 import { readdir } from "node:fs/promises";
 import {
   CarryOverImportedPayload,
@@ -41,7 +41,9 @@ import { listAccountSessions } from "./sessions.js";
  * (`state-import.finished` naming what failed), or when it started and never
  * finished, the environment having stopped under it, until a re-run
  * finishes. A deferred default Account is this step's sign-in action;
- * other Re-enter items belong to their owning steps.
+ * other Re-enter items belong to their owning steps. Each line reads
+ * setup-copy.md §5.3: an account by its label, what failed counted, and the
+ * paths, ids and errors behind it in details (#1844).
  */
 
 /** The Carry over step's state checks, by id. */
@@ -60,9 +62,6 @@ export interface CarryOverStateChecksOptions {
   readonly stateImport: { readonly environmentId: string; readonly underWay: () => string | null };
 }
 
-/** The most failures of an import a line names; the rest are counted. */
-const FAILURES_NAMED = 3;
-
 /** What a look at an adopted account's directory found: not there, there but unreadable, or readable. */
 type Look = { readonly kind: "gone" } | { readonly kind: "unreadable"; readonly why: string } | { readonly kind: "readable" };
 
@@ -80,15 +79,25 @@ const look = async (directory: string): Promise<Look> => {
 /** The account `action` applies to. */
 const accountTarget = (action: SetupAction, account: AccountRecord): SetupTarget => ({ action, kind: "account", id: account.id, label: account.label });
 
-/** One account's failure of a check: its line, and the account its action applies to. */
+/** One account's failure of a check: its line, the facts behind it for details, and the account its action applies to. */
 interface Finding {
   readonly line: string;
+  readonly details?: readonly string[];
   readonly target: SetupTarget;
 }
 
 /** A check's answer from its findings: it holds with none. */
-const answerOf = (findings: readonly Finding[]): StateCheckAnswer =>
-  findings.length === 0 ? true : { reason: findings.map((finding) => finding.line).join(" "), targets: findings.map((finding) => finding.target) };
+const answerOf = (findings: readonly Finding[]): StateCheckAnswer => {
+  if (findings.length === 0) return true;
+  const details = findings.flatMap((finding) => finding.details ?? []);
+  return { reason: findings.map((finding) => finding.line).join(" "), ...(details.length > 0 && { details }), targets: findings.map((finding) => finding.target) };
+};
+
+/** `count` items, in words: "1 item", "3 items". */
+const itemsWord = (count: number): string => `${count} ${count === 1 ? "item" : "items"}`;
+
+/** A failure's message as a line of details: one full stop at its end. */
+const sentence = (message: string): string => message.replace(/\.?$/, ".");
 
 export const carryOverStateChecks = (options: CarryOverStateChecksOptions): { readonly [Id in CarryOverStateCheckId]: StateChecker } => {
   /** The accounts whose directory is adopted in place: the only ones with anything to carry. */
@@ -130,17 +139,16 @@ export const carryOverStateChecks = (options: CarryOverStateChecksOptions): { re
       ENVIRONMENT_STREAM_KIND,
     );
     if (row === undefined) return null;
-    const target: SetupTarget = { action: "import-again", kind: "environment", id: options.stateImport.environmentId, label: "The state import" };
+    const target: SetupTarget = { action: "import-again", kind: "environment", id: options.stateImport.environmentId, label: "Your earlier work" };
     if (row.stream_kind === STATE_IMPORT_STREAM_KIND) {
       const started = StateImportStartedPayload.parse(JSON.parse(row.payload));
       if (started.importId === options.stateImport.underWay()) return null;
-      return { line: `The state import from ${started.sourceKey} stopped before it finished: Import again to carry the rest.`, target };
+      return { line: "Bringing over your earlier work stopped before the end. Choose Continue bringing it over.", details: [`Folder: ${started.sourceKey}`], target };
     }
     const { failed } = StateImportFinishedPayload.parse(JSON.parse(row.payload));
     if (failed.length === 0) return null;
-    const named = failed.slice(0, FAILURES_NAMED).map((failure) => `${failure.label}: ${failure.message.replace(/\.?$/, ".")}`);
-    const more = failed.length - named.length;
-    return { line: ["The last state import failed part way:", ...named, ...(more > 0 ? [`${more} more failed.`] : []), "Import again to retry what failed."].join(" "), target };
+    const line = `${itemsWord(failed.length)} from your earlier work did not come over. See what to do below each one.`;
+    return { line, details: failed.map((failure) => `${failure.label}: ${sentence(failure.message)}`), target };
   };
 
   const present = async (): Promise<StateCheckAnswer> => {
@@ -153,9 +161,7 @@ export const carryOverStateChecks = (options: CarryOverStateChecksOptions): { re
     const { dataFolder, terminalFolder } = await options.detect();
     return (
       dataFolder !== null ||
-      terminalFolder !== null || {
-        reason: "No adopted account's directory holds anything to carry, and no source data folder or terminal-client state folder is on this machine.",
-      }
+      terminalFolder !== null || { reason: "Nothing to bring over from this computer." }
     );
   };
 
@@ -164,8 +170,8 @@ export const carryOverStateChecks = (options: CarryOverStateChecksOptions): { re
     for (const account of adopted()) {
       const found = await look(account.directory.path);
       if (found.kind !== "unreadable") continue;
-      const line = `The directory of ${account.label}, ${account.directory.path}, cannot be read (${found.why}): Check again once it can.`;
-      findings.push({ line, target: accountTarget("check-again", account) });
+      const line = `agent-harness cannot open ${account.label}'s Claude Code folder. Check that it still exists, then choose Check again.`;
+      findings.push({ line, details: [`Folder: ${account.directory.path}`, `Error: ${found.why}`], target: accountTarget("check-again", account) });
     }
     return answerOf(findings);
   };
@@ -178,20 +184,13 @@ export const carryOverStateChecks = (options: CarryOverStateChecksOptions): { re
       const last = imports.get(account.id);
       if (last === undefined) {
         if (!(await holdsSomething(account))) continue;
-        const line = `Nothing has been imported yet from the directory of ${account.label}: Import again to import it.`;
+        const line = `${account.label} has past chats to bring over. Choose Bring them over.`;
         findings.push({ line, target: accountTarget("import-again", account) });
         continue;
       }
       if (last.failed.length === 0) continue;
-      const named = last.failed.slice(0, FAILURES_NAMED).map((failure) => failure.message.replace(/\.?$/, "."));
-      const more = last.failed.length - named.length;
-      const line = [
-        `The last import from the directory of ${account.label} failed part way:`,
-        ...named,
-        ...(more > 0 ? [`${more} more failed.`] : []),
-        "Import again to retry what failed.",
-      ].join(" ");
-      findings.push({ line, target: accountTarget("import-again", account) });
+      const details = last.failed.map((failure) => `${failure.providerSessionId ?? failure.folder ?? account.directory.path}: ${sentence(failure.message)}`);
+      findings.push({ line: `${itemsWord(last.failed.length)} from ${account.label} did not come over. Choose Try again.`, details, target: accountTarget("import-again", account) });
     }
     const stateImport = lastStateImport();
     return answerOf(stateImport === null ? findings : [...findings, stateImport]);
@@ -202,7 +201,8 @@ export const carryOverStateChecks = (options: CarryOverStateChecksOptions): { re
     for (const choice of deferredDefaults(options.reader)) {
       const [mapping] = options.reader.all<{ target_id: string }>("SELECT target_id FROM state_import_items WHERE source_key = ? AND store = 'profiles' AND source_id = ?", choice.sourceKey, choice.sourceId);
       const account = options.accounts().find((entry) => entry.id === mapping?.target_id);
-      findings.push({ line: `${defaultAccountRepair(account?.label ?? choice.label).label}. Open Accounts.`, target: account === undefined
+      const label = account?.label ?? choice.label;
+      findings.push({ line: `Your default account waits for ${label} to sign in. Choose Sign in ${label}.`, target: account === undefined
         ? { action: "sign-in-again", kind: "environment", id: options.stateImport.environmentId, label: "Accounts" }
         : accountTarget("sign-in-again", account) });
     }

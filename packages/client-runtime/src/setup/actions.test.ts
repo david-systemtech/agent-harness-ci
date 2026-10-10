@@ -44,6 +44,14 @@ describe("Set up actions on named items", () => {
     expect(planSetupAction(skills, "how-to-set-up")).toEqual({ kind: "row", row: "knowledge.skills" });
   });
 
+  it("offers Choose folders for each collection whose folders moved, one button each, opening Skills where no card carries it out (#1855)", () => {
+    const moved = sources.map((source) => ({ ...source, action: "choose-folders" as const }));
+    expect(setupActions(skills, { actions: ["choose-folders"], targets: moved })).toMatchObject([
+      { key: "choose-folders skill-source source-team", words: "Choose folders: team-skills", targets: [moved[0]], plan: { kind: "row", row: "knowledge.skills" } },
+      { key: "choose-folders skill-source source-house", words: "Choose folders: house-skills", targets: [moved[1]], plan: { kind: "row", row: "knowledge.skills" } },
+    ]);
+  });
+
   it("names the Permissions step's Restore Restore them, whatever lists it names, and offers Turn the sandbox off, which the step's card writes (#1858)", () => {
     const permissions = { id: "permissions", home: "access.permissions" } as const;
     const targets = [

@@ -179,14 +179,14 @@ describe("a folder that yields no skill", () => {
     for (const folder of [".", "docs", "skills/absent"]) {
       const refused = rejection(await send(client, url, { folder }));
       expect(refused, folder).toMatchObject({ reason: "conflict", data: { reason: "no_skills", folders: ["skills/engineering", "skills/misc"] } });
-      expect(refused.message).toContain("skills/engineering, skills/misc");
+      expect(refused.message).toBe(`There are no skills in ${folder === "." ? "this repository" : `the folder ${folder}`}. These folders have skills: skills/engineering, skills/misc.`);
     }
     // A folder whose members are all invalid yields none either.
     forge.commit("david/broken", { "skills/Bad_Name/SKILL.md": "---\ndescription: No name passes.\n---\n" });
     const broken = rejection(await send(client, `${SKILLS_HOST}david/broken`, { folder: "skills" }));
     expect(broken.data).toEqual({ reason: "no_skills", folders: ["skills"] });
     // The walk finds the refused folder itself, so the message says its skills are invalid rather than naming it as one that would do.
-    expect(broken.message).toMatch(/^The folder skills holds no valid skill at [0-9a-f]{7}\. Every skill in it is invalid\. No other folder in the repository holds a skill\.$/);
+    expect(broken.message).toBe("The skills in the folder skills cannot be used.");
 
     expect(skillsEvents(t)).toEqual([]);
     expect(updates(t)).toBe(0);
@@ -292,7 +292,7 @@ describe("the source limits", () => {
 
     for (let index = 1; index <= 20; index += 1) await add(client, url, { folder: `s${String(index).padStart(2, "0")}`, probeId });
     const refused = rejection(await send(client, url, { folder: "s21", probeId }));
-    expect(refused).toMatchObject({ reason: "conflict", data: { reason: "source_limit", limit: 20 } });
+    expect(refused).toMatchObject({ reason: "conflict", message: "You can follow up to 20 collections. Remove one first.", data: { reason: "source_limit", limit: 20 } });
     expect((await view(client)).sources.map((source) => source.position)).toEqual(Array.from({ length: 20 }, (_, index) => index + 1));
     expect(skillsEvents(t)).toHaveLength(40);
   });
@@ -305,6 +305,7 @@ describe("the source limits", () => {
 
     expect(rejection(await send(client, `${SKILLS_HOST}mattpocock/skills.git`, { folder: "skills/engineering/" }))).toMatchObject({
       reason: "conflict",
+      message: "You already follow this collection.",
       data: { reason: "duplicate", sourceId: first.id },
     });
     expect(await add(client, `${SKILLS_HOST}mattpocock/skills.git`, { folder: "skills/misc" })).toMatchObject({ identity: first.identity, position: 2 });

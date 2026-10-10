@@ -100,6 +100,9 @@ export interface CarryOverOptions {
  */
 const IMPORT_CHECKS: SessionCreationChecks = { validateRunParameters: acceptAnyRunParameters, clampMode: (mode) => mode };
 
+/** The words of `import_in_progress`, the account in its data (setup-copy.md §5.3). */
+const IMPORT_UNDER_WAY = "Bringing over past work is under way already. Wait for it to finish.";
+
 /** The adopted account an import reads, as its adapter is handed it, with that adapter and the directory it adopted. */
 type Source = AccountSource & { readonly directory: string };
 
@@ -211,7 +214,7 @@ export const createCarryOver = (options: CarryOverOptions): CarryOverService => 
     if ("code" in owning) return refused(owning);
     const source = importedSource === undefined ? owning : { ...owning, directory: importedSource.directory, account: { ...owning.account, directory: importedSource.directory } };
     if (importing.has(accountId)) {
-      return refused({ code: "conflict", message: `An import of the account ${accountId} is under way.`, data: { reason: "import_in_progress", accountId } });
+      return refused({ code: "conflict", message: IMPORT_UNDER_WAY, data: { reason: "import_in_progress", accountId } });
     }
     importing.add(accountId);
     const prepared = async (): Promise<MethodHandler<"carryOver.run">> => {
@@ -301,7 +304,7 @@ export const createCarryOver = (options: CarryOverOptions): CarryOverService => 
   };
 
   const run: PreparedCommand<"carryOver.run"> = {
-    prepare: (params, context) => options.coordinator.exclusive(params.commandId, params.dryRun, () => prepareRun(params, context)) ?? (() => ({ aggregate: environmentStream, rejected: { code: "conflict", message: "An import is under way; retry once it finishes.", data: { reason: "import_in_progress", accountId: params.accountId } } })),
+    prepare: (params, context) => options.coordinator.exclusive(params.commandId, params.dryRun, () => prepareRun(params, context)) ?? (() => ({ aggregate: environmentStream, rejected: { code: "conflict", message: IMPORT_UNDER_WAY, data: { reason: "import_in_progress", accountId: params.accountId } } })),
   };
 
   const assignMemory: PreparedCommand<"carryOver.assignMemory"> = {
@@ -310,7 +313,7 @@ export const createCarryOver = (options: CarryOverOptions): CarryOverService => 
       const source = sourceOf(accountId);
       if ("code" in source) return refused(source);
       if (importing.has(accountId)) {
-        return refused({ code: "conflict", message: `An import of the account ${accountId} is under way.`, data: { reason: "import_in_progress", accountId } });
+        return refused({ code: "conflict", message: IMPORT_UNDER_WAY, data: { reason: "import_in_progress", accountId } });
       }
       importing.add(accountId);
       const prepared = async (): Promise<MethodHandler<"carryOver.assignMemory">> => {

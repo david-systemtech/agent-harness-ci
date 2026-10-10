@@ -25,7 +25,7 @@ it("reports a signed-out default as Re-enter, links Accounts, and follows sign-i
   expect(await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).toMatchObject({ result: { carried: { accounts: 1 }, failed: [], reEnter: [repair] } });
   const { accounts } = await client.request("accounts.list", {});
   const id = accounts[0]!.id;
-  expect(await client.request("setup.check", { step: "carry-over" })).toMatchObject({ results: [{ state: "needs-attention", reason: expect.stringContaining(repair.label), targets: [{ action: "sign-in-again", kind: "account", id, label: "Work" }] }] });
+  expect(await client.request("setup.check", { step: "carry-over" })).toMatchObject({ results: [{ state: "needs-attention", reason: "Your default account waits for Work to sign in. Choose Sign in Work.", targets: [{ action: "sign-in-again", kind: "account", id, label: "Work" }] }] });
   expect(await client.request("settings.get", { keys: ["accounts.defaultAccount"] })).toEqual({ values: { "accounts.defaultAccount": null } });
   signedIn = true;
   await client.request("accounts.refresh", { accountId: id });

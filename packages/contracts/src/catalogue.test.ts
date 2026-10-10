@@ -12,6 +12,7 @@ import {
   CatalogueSkillEntry,
   approximateTokens,
   catalogueTickStates,
+  skillCollectionName,
   type Catalogue as CatalogueType,
   type CatalogueInstructionEntry as CatalogueInstructionEntryType,
   type CatalogueSkillEntry as CatalogueSkillEntryType,
@@ -289,6 +290,13 @@ describe("the tick state", () => {
 
   it("leaves an entry unticked when a source has its repository at another folder", () => {
     expect(catalogueTickStates(CATALOGUE.skills, [pocockSkills]).map((tick) => tick.state)).toEqual(["untracked", "untracked", "untracked", "untracked", "untracked"]);
+  });
+
+  it("names a source by the title of the entry it tracks, else by its repository's path and the folder it reads below the root", () => {
+    expect(skillCollectionName(pocockEngineering, CATALOGUE.skills)).toBe("Matt Pocock — engineering");
+    expect(skillCollectionName(unslopRoot, CATALOGUE.skills)).toBe("Unslop");
+    expect(skillCollectionName(pocockSkills, CATALOGUE.skills)).toBe("mattpocock/skills (skills)");
+    expect(skillCollectionName({ identity: "https://git.example.test/team/procedures", folder: "." }, CATALOGUE.skills)).toBe("team/procedures");
   });
 
   it("names the first source given when two have the entry's identity and folder", () => {

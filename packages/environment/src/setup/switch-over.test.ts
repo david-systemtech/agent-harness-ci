@@ -219,7 +219,7 @@ describe("Carry over's import findings on the subscribed Environment", () => {
     }
     const finding = await changed("carry-over");
     expect(finding).toMatchObject({ state: "needs-attention", failing: ["carry-over.last-import"], actions: ["import-again"] });
-    expect(finding.reason).toContain(kind === "unfinished" ? "stopped before it finished" : "failed part way");
+    expect(finding.reason).toContain(kind === "unfinished" ? "stopped before the end" : "did not come over");
     expect((await snapshot(t, client)).setup!.find((result) => result.step === "carry-over")).toEqual(finding);
     await t.close();
     writeSourceFolder(source, { prompts: [sourcePrompt("one"), sourcePrompt("two")] });

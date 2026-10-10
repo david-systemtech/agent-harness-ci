@@ -1308,6 +1308,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     clock,
     git: skillsGit === undefined ? forgeGit : (request) => skillsGit(request, forgeGit),
     forgeAccounts: () => verifiedOrigins(forge.list()),
+    environmentName: () => look.read().name,
   });
   closers.push(() => skillProbes.close());
   // The skill sources (#498): a folder added from a probe's checkout, or a fetch, exported at its commit into a snapshot.
