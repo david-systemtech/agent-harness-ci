@@ -8,6 +8,7 @@ import { PairingRefusal } from "../connections/pairing.js";
 import { nameOf } from "../connections/words.js";
 import { Button, Fold } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
+import "./pairing-code.css";
 
 /** The quiet zone around a QR code, in modules: the four the standard asks for, so a camera finds its edge. */
 const QUIET_ZONE = 4;
@@ -136,7 +137,7 @@ export const PairingCode = ({ view, writable, grant, action = "Make a pairing co
       {live !== undefined && (
         <div role="group" aria-label="Pairing code" className="flex flex-wrap items-start gap-4">
           {!local && <PairingQr link={live.pairing.link} />}
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5 text-sm text-ink">
+          <div className="pairing-code-details flex min-w-0 flex-col gap-1.5 text-sm text-ink">
             {local ? <p className="text-amber">{ONLY_HERE}</p> : forDevice && <p className="text-ink">{HOW_TO_USE}</p>}
             {!local && <CopyLine label="Pairing link" text={live.pairing.link} copyLabel="Copy pairing link" />}
             <Fold summary="Type it instead" open={manual} onOpenChange={setManual}>

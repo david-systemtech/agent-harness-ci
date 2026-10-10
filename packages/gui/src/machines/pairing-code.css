@@ -1,0 +1,5 @@
+/* Wrap beside the QR only when the details have a reading width. A basis,
+ * rather than a minimum, still lets a lone column fit a narrower container. */
+.pairing-code-details {
+  flex: 1 1 18rem;
+}
