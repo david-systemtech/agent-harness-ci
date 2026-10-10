@@ -278,7 +278,7 @@ esac
   it("builds patched Windows native code on Windows and supplies it to both cross-platform packaging jobs", () => {
     expect(job("windows-pty")).toContain("    runs-on: windows-latest");
     const compile = step("windows-pty", "Compile the patched Windows node-pty runtime");
-    expect(compile).toContain("pnpm rebuild node-pty");
+    expect(compile).toContain("pnpm --filter @agent-harness/environment rebuild node-pty");
     expect(compile).toContain("packages/cli/scripts/export-windows-pty.ts windows-pty");
     expect(needs("desktop-windows")).toContain("windows-pty");
     for (const name of ["desktop-windows", "release"]) {

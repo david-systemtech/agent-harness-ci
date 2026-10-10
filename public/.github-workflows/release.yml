@@ -394,7 +394,7 @@ jobs:
           corepack prepare --activate
           pnpm install --frozen-lockfile --ignore-scripts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm rebuild node-pty
+          pnpm --filter @agent-harness/environment rebuild node-pty
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pnpm exec tsx packages/cli/scripts/export-windows-pty.ts windows-pty
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
