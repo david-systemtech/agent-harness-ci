@@ -38,11 +38,11 @@ it("explains an account held on another environment and opens Forges on the bank
   expect((within(pane).getByRole("combobox", { name: "Environment" }) as HTMLSelectElement).value).toBe(app.environment("desk").environmentId);
   await app.user.click(within(pane).getByRole("button", { name: "Add a forge" }));
   const add = await screen.findByRole("region", { name: "Add a forge on desk" });
-  await app.user.type(within(add).getByRole("textbox", { name: "URL" }), origin);
-  await app.user.click(within(add).getByRole("button", { name: "Find the forge" }));
-  await within(add).findByRole("region", { name: "The forge found" });
+  await app.user.type(within(add).getByRole("textbox", { name: "Address of the site or of one of your repositories" }), origin);
+  await app.user.click(within(add).getByRole("button", { name: "Check address" }));
+  await within(add).findByRole("list", { name: "Token steps" });
   await app.user.type(within(add).getByLabelText("Token"), "token-for-tests");
-  await app.user.click(within(add).getByRole("button", { name: "Add" }));
+  await app.user.click(within(add).getByRole("button", { name: "Add forge.example.test:5526" }));
   await waitFor(() => expect(screen.queryByRole("region", { name: "Add a forge on desk" })).toBeNull());
   expect(app.environment("desk").forgeAccounts()).toHaveLength(1);
   expect(app.environment("server").requests("forge.accounts.add")).toHaveLength(0);

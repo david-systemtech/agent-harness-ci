@@ -30,8 +30,8 @@ export interface Forges {
    * once, reading nothing, while the environment cannot take the add
    * (`unreachable`, `unsupported`, `scope`), without a shell `gh`
    * (`no-shell`, the terminal UI and a browser tab) and for a URL that is
-   * no forge's (`invalid_params`); fails `gh-unavailable`, sending nothing,
-   * when `gh` gives no token for the host.
+   * no forge's (`invalid_params`); fails, sending nothing, `gh-unavailable`
+   * when `gh` gives no token for the host and `gh-failed` when reading it fails.
    */
   handOverGh(environmentId: string, params: HandOverParams): Promise<RequestAnswer<"forge.accounts.add">>;
   /**
@@ -83,7 +83,7 @@ export const createForges = (host: ForgesHost): Forges => ({
     try {
       token = await gh.token(forgeHost);
     } catch (error) {
-      return failed("gh-unavailable", `The gh on this computer could not be read: ${error instanceof Error ? error.message : String(error)}`);
+      return failed("gh-failed", `The gh on this computer could not be read: ${error instanceof Error ? error.message : String(error)}`);
     }
     if (token === undefined) return failed("gh-unavailable", `The gh on this computer is not signed in to ${forgeHost}: run gh auth login --hostname ${forgeHost} here, or paste a token.`);
     return host.call(environmentId, "forge.accounts.add", {

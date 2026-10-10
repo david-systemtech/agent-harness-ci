@@ -1,17 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { GH_MINIMUM_VERSION, type GhProbe, type KeyManagerConnectionRecord, type Scope } from "@agent-harness/contracts";
+import { GH_MINIMUM_VERSION, forgeTokenPages, type GhProbe, type KeyManagerConnectionRecord, type Scope } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { noticeEvent } from "../test/events.js";
 import { usePaired } from "../test/paired.js";
 import { subscription } from "../test/scripted.js";
 import { forgeEventPayload, forgeProblem, forgeRecord } from "../test/forges.js";
 import { keyManagerRecord, listedConnection, toolRow, toolsUpdatedPayload } from "../test/key-managers.js";
-import { addForgeAlias } from "./forges/actions.js";
-import { forgeProblemAction, forgeRowProblem, machineGhAbsence, machineGhLogin } from "./forges/words.js";
+import { addForgeAlias, addPastedForge, detectForge } from "./forges/actions.js";
+import { capabilityName, capabilityStateWords, forgeProblemAction, forgeRefusal, forgeRowProblem, forgeRowState, ghRoute, machineGhLogin, tokenPermissionWords } from "./forges/words.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import type { Shell } from "./shell.js";
 import { fakeWire, flush, type FakeWire } from "./testing/fake-wire.js";
-import { fakeShell, inMemoryPlatform, manualClock } from "./testing/in-memory-platform.js";
+import { MANUAL_CLOCK_START, fakeShell, inMemoryPlatform, manualClock } from "./testing/in-memory-platform.js";
 
 /**
  * Forges in the client runtime (#320; forge spec, "Modules" and "Events";
@@ -435,7 +435,7 @@ describe("handing this computer's gh over", () => {
     });
     expect(await runtime.forges.handOverGh(env, { url: "https://github.com" })).toEqual({
       ok: false,
-      error: { code: "gh-unavailable", message: "The gh on this computer could not be read: gh exited with status 4" },
+      error: { code: "gh-failed", message: "The gh on this computer could not be read: gh exited with status 4" },
     });
     shell.answer("gh.token", async () => TOKEN);
     expect(await runtime.forges.handOverGh(env, { url: "/home/david/bank" })).toMatchObject({ ok: false, error: { code: "invalid_params" } });
@@ -676,14 +676,19 @@ describe("the Forges step's row (#589)", () => {
     expect(forgeRowProblem(forgeRecord({ problem: forgeProblem("unreachable") }))).toMatchObject({ kind: "unreachable" });
   });
 
-  it("offers the environment's own gh once it is installed at the minimum and signed in, reading the host's active login", () => {
+  it("offers the environment's own gh first once it is installed at the minimum and signed in, reading the host's active login; else Install gh, Update gh or how to sign it in (#1849)", () => {
     const probe = (fields: Partial<GhProbe>): GhProbe => ({ installed: true, version: "2.63.2", minimum: GH_MINIMUM_VERSION, meetsMinimum: true, accounts: [], ...fields });
     const account = (host: string, login: string, active: boolean) => ({ host, login, active, tokenKind: "oauth" as const, scopes: ["repo"] });
-    expect(machineGhAbsence(probe({ installed: false, version: null, meetsMinimum: false }), "desk")).toBe("desk has no gh to read a token from.");
-    expect(machineGhAbsence(probe({ version: null, meetsMinimum: false }), "desk")).toBe("The gh on desk is of a version it does not say, older than 2.40.0, the oldest a forge account reads.");
-    expect(machineGhAbsence(probe({}), "desk")).toBe("The gh on desk is signed in to no host: run gh auth login there, or paste a token.");
-    const signedIn = probe({ accounts: [account("github.com", "milo", false), account("github.com", "david", true), account("ghe.example.test:8443", "dvd", false)] });
-    expect(machineGhAbsence(signedIn, "desk")).toBeNull();
+    expect(ghRoute(probe({ installed: false, version: null, meetsMinimum: false }), "this computer")).toEqual({
+      kind: "install", line: "The gh tool is not installed. Install it to use your GitHub sign-in.", details: ["Needs gh 2.40.0 or later."],
+    });
+    expect(ghRoute(probe({ version: "2.30.0", meetsMinimum: false }), "this computer")).toEqual({ kind: "update", line: "The gh tool is out of date.", details: ["gh 2.30.0 (needs 2.40.0 or later)"] });
+    expect(ghRoute(probe({}), "laptop")).toEqual({
+      kind: "signed-out", line: "The gh tool is not signed in to github.com. Run gh auth login on laptop, or add a token instead.", details: ["gh auth login --hostname github.com"],
+    });
+    const signedIn = probe({ accounts: [account("ghe.example.test:8443", "dvd", true), account("github.com", "milo", false), account("github.com", "david", true)] });
+    expect(ghRoute(signedIn, "this computer")).toEqual({ kind: "use", host: "github.com", login: "david", line: "Use your GitHub sign-in from the gh tool (david)" });
+    expect(ghRoute(probe({ accounts: [account("ghe.example.test:8443", "dvd", false)] }), "this computer")).toMatchObject({ kind: "use", host: "ghe.example.test:8443", login: "dvd" });
     expect(machineGhLogin(signedIn, "github.com")).toBe("david");
     expect(machineGhLogin(signedIn, "ghe.example.test:8443")).toBe("dvd");
     expect(machineGhLogin(signedIn, "git.example.test")).toBeNull();
@@ -707,7 +712,87 @@ describe("the Forges step's row (#589)", () => {
     expect(held.aliases.map((alias) => alias.origin)).toEqual(["http://forge.tail.test:3000", "http://forge.lan.test:3000"]);
 
     // One the environment holds already is refused, sending no update, though the row's record does not list it yet.
-    expect(await addForgeAlias(sender, env, shown, "http://forge.tail.test:3000")).toEqual({ ok: false, line: "Not added: http://forge.tail.test:3000 is an alias of it already." });
+    expect(await addForgeAlias(sender, env, shown, "http://forge.tail.test:3000")).toEqual({ ok: false, line: "forge.tail.test:3000 is already another address for this site.", details: [] });
     expect(wire.server.received().filter((frame) => frame.type === "request" && frame.method === "forge.accounts.update")).toHaveLength(2);
+  });
+});
+
+describe("the Forges card's words (#1849)", () => {
+  it("names each capability and where it stands in words, with no HTTP status", () => {
+    expect(["readRepository", "pullRequests", "writeIssues", "createRepository", "readReleases"].map((name) => capabilityName(name as "readRepository"))).toEqual([
+      "Read code", "Open pull requests", "Write issues", "Create repositories", "Read releases",
+    ]);
+    expect(capabilityStateWords({ state: "verified" })).toBe("Works");
+    expect(capabilityStateWords({ state: "failed" })).toBe("Not allowed");
+    expect(capabilityStateWords({ state: "unknown" })).toBe("Not checked yet");
+  });
+
+  it("gives a row a state word: needing a fix with a problem it draws, checking until its code is read, else done", () => {
+    const unread = forgeRecord();
+    const read = forgeRecord({ capabilities: { ...unread.capabilities, readRepository: { state: "verified", verifiedAt: MANUAL_CLOCK_START, status: null } } });
+    expect(forgeRowState(read)).toBe("done");
+    expect(forgeRowState({ ...read, problem: forgeProblem("credential-rejected") })).toBe("needs-attention");
+    expect(forgeRowState({ ...read, problem: forgeProblem("expiring") })).toBe("done");
+    expect(forgeRowState(unread)).toBe("pending");
+  });
+
+  it("says the permissions to give a token in the words its page shows", () => {
+    const [fineGrained, classic] = forgeTokenPages("github", "https://github.com");
+    expect(tokenPermissionWords(fineGrained!)).toBe("All repositories, with Contents: Read and write, Issues: Read and write, Pull requests: Read and write and Administration: Read and write");
+    expect(tokenPermissionWords(classic!)).toBe("repo and read:org");
+    expect(tokenPermissionWords(forgeTokenPages("forgejo", "https://git.example.test")[0]!)).toBe("User: Read, Repository: Read and write, Issue: Read and write and Organization: Read and write");
+  });
+
+  it("words the forge's refusals as setup-copy.md §5.6 says, naming the site, and every other through the refusal mapper, the raw words in details", () => {
+    const site = "code.example.test";
+    const line = (code: string, data?: Record<string, unknown>) => forgeRefusal({ code, message: "raw words", ...(data !== undefined && { data }) }, site, "Add code.example.test").line;
+    expect(line("kind_unsupported", { origin: "https://gitlab.com", kind: "gitlab" })).toBe("GitLab is not supported yet.");
+    expect(line("not_a_forge", { origin: "https://code.example.test" })).toBe("agent-harness does not recognise this site. Choose what it runs.");
+    expect(line("unreachable", { origin: "https://code.example.test" })).toBe("agent-harness could not reach code.example.test. Check the address and the internet connection.");
+    expect(line("conflict", { reason: "origin_held" })).toBe("code.example.test is already connected.");
+    expect(line("verification_failed", { origin: "https://code.example.test", status: 401 })).toBe("code.example.test did not accept this token. Check that you copied all of it, or create a new one.");
+    expect(line("gh-unavailable")).toBe("The gh tool is not signed in to code.example.test.");
+    // A gh that is signed in but fails to give its token is not told to sign in; its own cause is in Details.
+    expect(line("gh-failed")).toBe("The gh tool did not give a token for code.example.test.");
+    expect(forgeRefusal({ code: "gh-failed", message: "The gh on this computer could not be read: gh exited with status 4" }, site, "Use gh").details).toEqual([
+      "gh-failed: The gh on this computer could not be read: gh exited with status 4",
+    ]);
+    expect(line("identity_mismatch", { expected: { login: "david", userId: "42" }, found: { login: "milo", userId: "7" } })).toBe("This token belongs to milo, not david. Add a token for david.");
+    expect(line("alias_identity_mismatch", { expected: { login: "david", userId: "42" }, found: null, status: 401 })).toBe(
+      "code.example.test did not accept the token for david, so it is not another address for this site. Nothing was changed.",
+    );
+    // The lost connection is this client's own unreachable, and an unknown refusal says to try again.
+    expect(line("unreachable")).toBe("This app cannot reach that computer right now. Choose Add code.example.test to try again.");
+    expect(line("conflict", { reason: "slug_taken" })).toBe("This cannot be done right now. Wait a moment, then choose Add code.example.test.");
+    expect(line("mystery", {})).toBe("Something went wrong. Choose Add code.example.test to try again.");
+    expect(forgeRefusal({ code: "verification_failed", message: "refused", data: { status: 401, details: ["HTTP 401 Bad credentials"] } }, site, "Add").details).toEqual([
+      "verification_failed: refused", "HTTP 401 Bad credentials",
+    ]);
+  });
+
+  it("says a detection that answered as no forge it knows as unrecognised, so the person names the kind, and sends the kind they named with the add", async () => {
+    const { runtime, clock, wire, env } = await paired();
+    wire.answer("forge.detect", () => ({ error: { code: "not_a_forge", message: "agent-harness does not recognise this site. Choose what it runs.", data: { origin: "https://code.example.test" } } }));
+    let sent: Record<string, unknown> | undefined;
+    wire.answer("forge.accounts.add", (params) => {
+      sent = params;
+      return { result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: { account: forgeRecord({ origin: "https://code.example.test", kind: "gitea" }) } } };
+    });
+    expect(await detectForge(runtime, env, "https://code.example.test/team/project")).toMatchObject({ ok: false, unrecognised: true, line: "agent-harness does not recognise this site. Choose what it runs." });
+    expect(await addPastedForge({ runtime, clock }, env, { url: "https://code.example.test/team/project", kind: "gitea", token: TOKEN })).toMatchObject({ ok: true, line: "david on code.example.test is connected." });
+    expect(sent).toMatchObject({ url: "https://code.example.test/team/project", kind: "gitea" });
+  });
+
+  it("says an address that names no site in the field's own words and sends no lookup", async () => {
+    const { runtime, wire, env } = await paired();
+    let asked = 0;
+    wire.answer("forge.detect", () => {
+      asked += 1;
+      return { error: { code: "invalid_params", message: "The URL names no forge.", data: {} } };
+    });
+    for (const typed of ["github.com/you/project", "hello", "  "]) {
+      expect(await detectForge(runtime, env, typed)).toEqual({ ok: false, unrecognised: false, line: "Enter an address like https://github.com/you/project.", details: [] });
+    }
+    expect(asked).toBe(0);
   });
 });
