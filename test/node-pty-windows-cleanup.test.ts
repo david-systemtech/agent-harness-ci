@@ -15,10 +15,15 @@ function terminal() {
   const events: string[] = [];
   const resources = new Set<string>();
   let forks = 0;
+  let nativeRegistered = true;
+  let shellExited = false;
   let exit: (code: number) => void = () => { throw new Error("Native exit callback was not registered"); };
   const helper = Object.assign(new EventEmitter(), { kill: () => events.push("helper killed") });
-  const native = { startProcess: () => ({ pty: 1, conin: "input" }), connect: (...args: unknown[]) => { exit = args[5] as (code: number) => void; return { pid: 123 }; },
-    kill: () => events.push("console closed") };
+  const native = { startProcess: () => { resources.add("console"); return { pty: 1, conin: "input" }; }, connect: (...args: unknown[]) => { exit = args[5] as (code: number) => void; return { pid: 123 }; },
+    kill: () => {
+      if (nativeRegistered && resources.delete("console")) events.push("console closed");
+      if (shellExited) nativeRegistered = false;
+    } };
   const exports = {} as { WindowsPtyAgent: new (...args: unknown[]) => { kill(): void } };
   runInNewContext(source("windowsPtyAgent"), {
     exports, __dirname: "/dependency/lib", setTimeout, clearTimeout,
@@ -47,7 +52,7 @@ function terminal() {
     },
   });
   const pty = new exports.WindowsPtyAgent("cmd.exe", [], [], "/work", 80, 24, false, true, false, false);
-  return { pty, helper, events, resources, get forks() { return forks; }, exit: (code: number) => exit(code) };
+  return { pty, helper, events, resources, get forks() { return forks; }, exit: (code: number) => { shellExited = true; if (!resources.has("console")) nativeRegistered = false; exit(code); } };
 }
 
 it("captures and kills the console's processes before closing it, even when kill is repeated", async () => {
@@ -122,10 +127,10 @@ it("keeps genuine helper errors actionable and settles cleanup just once", async
 
 it("releases a naturally exited console after its final output drains, so the environment can exit", async () => {
   const { resources, exit } = terminal();
-  expect([...resources].sort()).toEqual(["input socket", "output socket", "output worker"]);
+  expect([...resources].sort()).toEqual(["console", "input socket", "output socket", "output worker"]);
   exit(0);
   await vi.advanceTimersByTimeAsync(999);
-  expect(resources.size).toBe(3);
+  expect(resources.size).toBe(4);
   await vi.advanceTimersByTimeAsync(1);
   expect([...resources]).toEqual([]);
   expect(vi.getTimerCount()).toBe(0);

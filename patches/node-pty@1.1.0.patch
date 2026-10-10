@@ -114,3 +114,101 @@ index a358ffb177357e177661033c1b092f9c9d0e5f5a..90db34abb133ff70164a6b172090ca7a
          this._outSocket.readable = false;
          this._outSocket.destroy();
      };
+diff --git a/scripts/prebuild.js b/scripts/prebuild.js
+index 17f1d980e62e017d77058627a7a15c4c29f9470c..fc8e528a8b3345c78959ae981d7fcc3ee0e69c42 100644
+--- a/scripts/prebuild.js
++++ b/scripts/prebuild.js
+@@ -17,9 +17,10 @@ const path = require('path');
+ const PREBUILDS_ROOT = path.join(__dirname, '..', 'prebuilds');
+ const PREBUILD_DIR = path.join(__dirname, '..', 'prebuilds', `${process.platform}-${process.arch}`);
+
+-// Do not use prebuilds when npm_config_build_from_source is set
+-if (process.env.npm_config_build_from_source === 'true') {
+-  console.log('\x1b[33m> Removing prebuilds and rebuilding because npm_config_build_from_source is set\x1b[0m');
++// Windows must compile the repaired console ownership lifecycle (#2052).
++// Remove stale prebuilds so a failed build cannot fall back to the old addon.
++if (process.platform === 'win32' || process.env.npm_config_build_from_source === 'true') {
++  console.log('\x1b[33m> Removing prebuilds and rebuilding because a source build is required\x1b[0m');
+   fs.rmSync(PREBUILDS_ROOT, { recursive: true, force: true });
+   process.exit(1);
+ }
+diff --git a/src/win/conpty.cc b/src/win/conpty.cc
+index 7b286d3d644c26141df516929703aa6e129df4b2..62fc5b4e21333203ba020f5b9c011e50b4f4bce6 100644
+--- a/src/win/conpty.cc
++++ b/src/win/conpty.cc
+@@ -46,7 +46,7 @@ struct pty_baton {
+
+   HANDLE hShell;
+
+-  pty_baton(int _id, HANDLE _hIn, HANDLE _hOut, HPCON _hpc) : id(_id), hIn(_hIn), hOut(_hOut), hpc(_hpc) {};
++  pty_baton(int _id, HANDLE _hIn, HANDLE _hOut, HPCON _hpc) : id(_id), hIn(_hIn), hOut(_hOut), hpc(_hpc), hShell(nullptr) {};
+ };
+
+ static std::vector<std::unique_ptr<pty_baton>> ptyHandles;
+@@ -74,6 +74,7 @@ static bool remove_pty_baton(int id) {
+ }
+
+ struct ExitEvent {
++  int pty_id;
+   int exit_code = 0;
+ };
+
+@@ -92,18 +93,24 @@ void SetupExitCallback(Napi::Env env, Napi::Function cb, pty_baton* baton) {
+       });
+   *th = std::thread([tsfn = std::move(tsfn), baton] {
+     auto callback = [](Napi::Env env, Napi::Function cb, ExitEvent *exit_event) {
++      // All ownership transitions run on the JavaScript thread. Keep the console
++      // registered until PtyKill closes it after the output-flush window (#2052).
++      auto* handle = get_pty_baton(exit_event->pty_id);
++      if (handle != nullptr) {
++        CloseHandle(handle->hShell);
++        handle->hShell = nullptr;
++        if (handle->hpc == nullptr) remove_pty_baton(handle->id);
++      }
+       cb.Call({Napi::Number::New(env, exit_event->exit_code)});
+       delete exit_event;
+     };
+
+     ExitEvent *exit_event = new ExitEvent;
++    exit_event->pty_id = baton->id;
+     // Wait for process to complete.
+     WaitForSingleObject(baton->hShell, INFINITE);
+     // Get process exit code.
+     GetExitCodeProcess(baton->hShell, (LPDWORD)(&exit_event->exit_code));
+-    // Clean up handles
+-    CloseHandle(baton->hShell);
+-    assert(remove_pty_baton(baton->id));
+
+     auto status = tsfn.BlockingCall(exit_event, callback); // In main thread
+     switch (status) {
+@@ -544,9 +551,9 @@ static Napi::Value PtyKill(const Napi::CallbackInfo& info) {
+   int id = info[0].As<Napi::Number>().Int32Value();
+   const bool useConptyDll = info[1].As<Napi::Boolean>().Value();
+
+-  const pty_baton* handle = get_pty_baton(id);
++  pty_baton* handle = get_pty_baton(id);
+
+-  if (handle != nullptr) {
++  if (handle != nullptr && handle->hpc != nullptr) {
+     HANDLE hLibrary = LoadConptyDll(info, useConptyDll);
+     bool fLoadedDll = hLibrary != nullptr;
+     if (fLoadedDll)
+@@ -557,11 +564,17 @@ static Napi::Value PtyKill(const Napi::CallbackInfo& info) {
+       if (pfnClosePseudoConsole)
+       {
+         pfnClosePseudoConsole(handle->hpc);
++        handle->hpc = nullptr;
++      } else {
++        throw errorWithCode(info, "Failed to find pseudoconsole close function");
+       }
++    } else {
++      throw errorWithCode(info, "Failed to load pseudoconsole library");
+     }
+-    if (useConptyDll) {
++    if (useConptyDll && handle->hShell != nullptr) {
+       TerminateProcess(handle->hShell, 1);
+     }
++    if (handle->hShell == nullptr) remove_pty_baton(id);
+   }
+
+   return env.Undefined();

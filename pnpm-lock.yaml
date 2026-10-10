@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   node-pty@1.1.0:
-    hash: e9fa0dd0755f3e8b15de99892d46a1c2e28aa3efba06f54e6e712c8cbbea6884
+    hash: 3c3e50cd8aa87f1bae2bfcd6f7ca5cec0df07e6ffd2d9af7e78d59180795176c
     path: patches/node-pty@1.1.0.patch
 
 importers:
@@ -216,7 +216,7 @@ importers:
         version: 2.1.0
       node-pty:
         specifier: 1.1.0
-        version: 1.1.0(patch_hash=e9fa0dd0755f3e8b15de99892d46a1c2e28aa3efba06f54e6e712c8cbbea6884)
+        version: 1.1.0(patch_hash=3c3e50cd8aa87f1bae2bfcd6f7ca5cec0df07e6ffd2d9af7e78d59180795176c)
 
   packages/extension:
     dependencies:
@@ -8842,7 +8842,7 @@ snapshots:
 
   node-int64@0.4.0: {}
 
-  node-pty@1.1.0(patch_hash=e9fa0dd0755f3e8b15de99892d46a1c2e28aa3efba06f54e6e712c8cbbea6884):
+  node-pty@1.1.0(patch_hash=3c3e50cd8aa87f1bae2bfcd6f7ca5cec0df07e6ffd2d9af7e78d59180795176c):
     dependencies:
       node-addon-api: 7.1.1
     optional: true
