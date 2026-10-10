@@ -529,11 +529,11 @@ describe("canUseTool on the broker seam", () => {
     expect(input.annotations).toEqual({ "Which scope?": { preview: "Local preview" } });
   });
 
-  it.each([
+  it.each<[string, Record<string, unknown>, Partial<PromptDecision>]>([
     ["Bash", { command: "ls" }, { updatedInput: { command: "ls -a" }, remember: "session" }],
     ["ExitPlanMode", { plan: "Read the receipts" }, { mode: "acceptEdits" }],
     ["AskUserQuestion", { questions: [] }, {}],
-  ] satisfies [string, Record<string, unknown>, Partial<PromptDecision>][])("delivers an allowed %s Note through the matching tool's completion hook", async (toolName, input, fields) => {
+  ])("delivers an allowed %s Note through the matching tool's completion hook", async (toolName, input, fields) => {
     const adapter = adapterWith();
     const context = contextWith(async () => ({ decision: "allow", message: "ALLOW_NOTE_2091: report only.", ...fields }));
     adapter.createRun(runInput(), context);

@@ -56,10 +56,11 @@ describe("a question Note reaching the model", () => {
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     const asked: string[] = [];
+    const executable = bundledExecutable();
     const made = query({
       prompt: "Ask which scope to use.",
       options: {
-        cwd: root, pathToClaudeCodeExecutable: bundledExecutable() ?? undefined,
+        cwd: root, ...(executable === null ? {} : { pathToClaudeCodeExecutable: executable }),
         model: "claude-sonnet-4-6", tools: ["AskUserQuestion"], settingSources: [], persistSession: false,
         env: { PATH: process.env["PATH"] ?? "", HOME: root, CLAUDE_CONFIG_DIR: root, ANTHROPIC_API_KEY: "token-for-tests", ANTHROPIC_BASE_URL: origin, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" },
         canUseTool: async (tool, input, { toolUseID }) => {
