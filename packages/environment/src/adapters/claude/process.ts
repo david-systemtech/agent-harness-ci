@@ -189,7 +189,8 @@ export const questionsOf = (input: Record<string, unknown>): PromptQuestion[] =>
 /**
  * What an allowed prompt hands the CLI (permissions spec, the Claude
  * mapping): the input as edited, with a question's answers under `answers`
- * as `AskUserQuestion` reads them; an approved plan's mode through a
+ * as `AskUserQuestion` reads them, and its Note in each answered question's
+ * annotations; an approved plan's mode through a
  * `setMode` for the session; and `remember: 'session'` as the CLI's own
  * suggestions for the session (or, with none, an allow rule for the tool),
  * never written to a settings file.
@@ -202,7 +203,18 @@ export const allowedResult = (
   toolUseID: string,
 ): PermissionResult => {
   const edited = decision.updatedInput ?? input;
-  const updatedInput = decision.answers === undefined ? edited : { ...edited, answers: { ...decision.answers } };
+  const updatedInput: Record<string, unknown> = decision.answers === undefined ? { ...edited } : { ...edited, answers: { ...decision.answers } };
+  if (toolName === "AskUserQuestion" && decision.message !== undefined && decision.answers !== undefined) {
+    const annotations = isRecord(edited["annotations"]) ? edited["annotations"] : {};
+    updatedInput["annotations"] = {
+      ...annotations,
+      ...Object.fromEntries(Object.keys(decision.answers).map((question) => {
+        const annotation = isRecord(annotations[question]) ? annotations[question] : {};
+        const earlier = textOf(annotation["notes"]);
+        return [question, { ...annotation, notes: earlier === null ? decision.message : `${earlier}\n\n${decision.message}` }];
+      })),
+    };
+  }
   const updatedPermissions: PermissionUpdate[] = [];
   if (decision.mode !== undefined) updatedPermissions.push({ type: "setMode", mode: decision.mode, destination: "session" });
   if (decision.remember === "session") {
@@ -425,6 +437,8 @@ export class ClaudeProcess implements TurnControl {
     (message) => this.#deps.diagnostic(`Claude (session ${this.sessionId}): ${message}`),
   );
   /** The permission table: prompts parked on the broker, by prompt id, answerable here too, with the turn that asked. */
+  /** Notes for allowed calls whose tools must finish before the model reads them. */
+  readonly #answerNotes = new Map<string, { readonly toolName: string; readonly message: string }>();
   readonly #permissions = new Map<string, { readonly answer: (decision: PromptDecision) => void; readonly turn: ClaudeTurn }>();
 
   /** Live background tasks by id, from the level alone (retention reads the level, never the ledger), each held on the port. */
@@ -684,6 +698,7 @@ export class ClaudeProcess implements TurnControl {
         preToolUse: this.#preToolUse,
         fileTools: this.#fileTools.hooks,
         onStop: this.#onStop,
+        onToolResult: this.#onToolResult,
         spawnProcess: this.#spawnProcess,
         abortController: this.#abort,
         stderr: (data) => this.#deps.diagnostic(`Claude (session ${this.sessionId}): ${data.trimEnd()}`),
@@ -1114,7 +1129,8 @@ export class ClaudeProcess implements TurnControl {
    * CLI runs before its own evaluation of every tool call, in every mode,
    * bypass included, a subagent's calls and a call between the CLI's turns
    * too. A denial is the hook's `deny`, with the gate's message for the
-   * model. An allow says nothing, so the call goes on to the mode, the rules
+   * model. An allow may add the person's Note as context, leaving the
+   * permission decision unset, so the call goes on to the mode, the rules
    * and the provider's own prompt: the hook never allows on their behalf.
    * A denylist match is put to the person inside the gate and waited on
    * here (the verify-first fallback #132 chose, which holds in bypass): the
@@ -1140,7 +1156,7 @@ export class ClaudeProcess implements TurnControl {
         if (this.#hookGated.size <= HOOK_GATED_KEPT) break;
         this.#hookGated.delete(oldest);
       }
-      return {};
+      return ruling.message === undefined ? {} : { hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: ruling.message } };
     } catch (error) {
       return gateDenial(gateFailed(error));
     }
@@ -1168,7 +1184,10 @@ export class ClaudeProcess implements TurnControl {
   async #networkAsk(input: Record<string, unknown>, toolUseID: string, signal: AbortSignal): Promise<PermissionResult> {
     try {
       const ruling = await this.#context.gate.check(claudeGatedCall(SANDBOX_NETWORK_TOOL, input, toolUseID === "" ? randomUUID() : toolUseID), signal);
-      return ruling.decision === "deny" ? { behavior: "deny", message: ruling.message, toolUseID } : { behavior: "allow", updatedInput: input, toolUseID };
+      if (ruling.decision === "deny") return { behavior: "deny", message: ruling.message, toolUseID };
+      // A network ask is not a tool: neither question annotations nor a tool-result hook can deliver its Note.
+      if (ruling.message !== undefined) return { behavior: "deny", message: `The network request was refused because its attached Note cannot be delivered with an allowed network response. Note: ${ruling.message}`, toolUseID };
+      return { behavior: "allow", updatedInput: input, toolUseID };
     } catch (error) {
       return { behavior: "deny", message: gateFailed(error), toolUseID };
     }
@@ -1191,6 +1210,7 @@ export class ClaudeProcess implements TurnControl {
     this.#settleTimer?.cancel();
     this.#openTimer?.cancel();
     this.#prompts.close();
+    this.#answerNotes.clear();
     try {
       this.#query?.close();
     } catch {
@@ -1263,9 +1283,11 @@ export class ClaudeProcess implements TurnControl {
       // The gate before anyone is asked, unless the hook ruled on the call as it is: a containment denial is final, and the
       // model is told why (#133); a denylist match is put to the person first, and only an allowed call comes on to the
       // provider's own prompt (#132). The SDK's signal goes with it: a request the CLI withdraws closes a prompt the gate parked.
+      let gateNote: string | undefined;
       if (!this.#gatedByHook(toolUseID, input)) {
         const ruling = await this.#context.gate.check(claudeGatedCall(toolName, input, promptId, { title: options.title, servers: this.#toolServers }), options.signal);
         if (ruling.decision === "deny") return { behavior: "deny", message: ruling.message, toolUseID };
+        gateNote = ruling.message;
       }
       const kind = PROMPT_KINDS[toolName] ?? "permission";
       // The CLI's request on the harness's fields: its title is the one-line summary, its reason the provider's.
@@ -1283,7 +1305,8 @@ export class ClaudeProcess implements TurnControl {
       };
       // The permission table's id is the prompt's: an answer through the host's `deliverAnswer` names the same prompt.
       const asked = this.#context.broker.request({ sessionId: this.sessionId, runId, kind, detail, promptId, signal: options.signal });
-      return this.#result(await Promise.race([answered, asked]), toolName, input, options.suggestions ?? [], toolUseID);
+      const decision = await Promise.race([answered, asked]);
+      return this.#result(gateNote === undefined ? decision : { ...decision, message: [gateNote, decision.message].filter((note) => note !== undefined).join("\n\n") }, toolName, input, options.suggestions ?? [], toolUseID);
     } catch (error) {
       return { behavior: "deny", message: `The request could not be asked: ${describe(error)}`, toolUseID };
     } finally {
@@ -1298,8 +1321,21 @@ export class ClaudeProcess implements TurnControl {
     // An approved plan's mode (clamped by the host) is set on the CLI by the result's `setMode`: the record follows it, so a
     // later run's move and a live change read the mode the CLI is in (#140).
     if (decision.mode !== undefined) this.#applied = { ...this.#applied, mode: claudeMode(decision.mode) };
+    // Questions with selected answers carry notes in their supported annotations. Other tools have no allow-message
+    // field: their completion hook adds the note to model context without changing the tool's executable input.
+    if (decision.message !== undefined && !(toolName === "AskUserQuestion" && Object.keys(decision.answers ?? {}).length > 0)) {
+      this.#answerNotes.set(toolUseID, { toolName, message: decision.message });
+    }
     return allowedResult(toolName, input, decision, suggestions, toolUseID);
   }
+
+  readonly #onToolResult: HookCallback = async (input) => {
+    if (input.hook_event_name !== "PostToolUse" && input.hook_event_name !== "PostToolUseFailure") return {};
+    const note = this.#answerNotes.get(input.tool_use_id);
+    if (note === undefined || note.toolName !== input.tool_name) return {};
+    this.#answerNotes.delete(input.tool_use_id);
+    return { hookSpecificOutput: { hookEventName: input.hook_event_name, additionalContext: note.message } };
+  };
 
   /** A turn carrying only a subagent's prompts ends once none of them is parked: no result of the CLI's will end it. */
   #endPromptTurn(turn: ClaudeTurn, end: Omit<RunEnd, "type"> = { reason: "completed" }): void {

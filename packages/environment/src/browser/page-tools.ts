@@ -628,8 +628,13 @@ export const pageTools = (kind: PageDriverKind, options: PageToolsOptions): Host
       let result: PageResult<PageVerb>;
       let resultVerb: PageVerb;
       let answerInput = input;
+      let notes: readonly string[] = [];
+      const withNotes = (answer: HostToolResult): HostToolResult => notes.length === 0 ? answer : {
+        ...answer,
+        text: [answer.text, ...notes.map((note) => `Note from the person: ${redactTokens(note)}`)].join("\n"),
+      };
       try {
-        const { result: performed, command } = await performBrowserCall(driver, { pageKey, command: { verb: spec.verb, args } } as PageCallOf<PageVerb>, {
+        const { result: performed, command, notes: receivedNotes } = await performBrowserCall(driver, { pageKey, command: { verb: spec.verb, args } } as PageCallOf<PageVerb>, {
           call,
           tool: `mcp__browser__${name}`,
           input,
@@ -637,18 +642,19 @@ export const pageTools = (kind: PageDriverKind, options: PageToolsOptions): Host
           ...("snapshot" in args && args.snapshot !== undefined && { snapshot: args.snapshot }),
         });
         result = performed;
+        notes = receivedNotes;
         resultVerb = command.verb;
         if (command.verb === "navigate" && "url" in command.args && typeof command.args.url === "string") answerInput = { ...input, address: command.args.url };
       } catch (error) {
-        return refused(`The browser failed: ${error instanceof Error ? error.message : String(error)}.`);
+        return withNotes(refused(`The browser failed: ${error instanceof Error ? error.message : String(error)}.`));
       }
-      if (!result.ok) return refused(result.reason);
+      if (!result.ok) return withNotes(refused(result.reason));
       // A value from another machine (the extension, a relayed client) is checked against the verb here, where the call is known.
       const value = PAGE_VERB_SCHEMAS[resultVerb].value.safeParse(result.value);
-      if (!value.success) return refused(`The browser answered ${name} with a value it does not give: ${value.error.issues[0]?.message ?? "not valid"}.`);
+      if (!value.success) return withNotes(refused(`The browser answered ${name} with a value it does not give: ${value.error.issues[0]?.message ?? "not valid"}.`));
       const outcome = { verb: resultVerb, value: value.data } as Outcome;
       const notice = result.notice === undefined ? undefined : redactTokens(result.notice);
-      return answerOf(outcome, { kind: driver.kind, input: answerInput, notice });
+      return withNotes(answerOf(outcome, { kind: driver.kind, input: answerInput, notice }));
     };
 
     return {

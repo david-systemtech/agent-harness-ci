@@ -267,6 +267,7 @@ export const createToolGate =
           console.error(`Recording the gate's denial of ${call.tool} (${call.toolCallId}) in run ${gated.runId} failed; it is denied all the same:`, error);
         }
       };
+      const notes: string[] = [];
       for (const rule of [containmentRule, ...(options.rules ?? [])]) {
         asked = false;
         closedBy = undefined;
@@ -282,7 +283,8 @@ export const createToolGate =
           record(closedBy ?? rule.decider, ruling.message);
           return ruling;
         }
+        if (ruling?.message !== undefined) notes.push(ruling.message);
       }
-      return { decision: "allow" };
+      return { decision: "allow", ...(notes.length > 0 && { message: notes.join("\n\n") }) };
     },
   });

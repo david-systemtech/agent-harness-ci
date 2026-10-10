@@ -282,7 +282,7 @@ export const denylistRule = (context: DenylistContext): ToolGateRule => ({
       { toolName: call.tool, toolCallId: call.toolCallId, input: call.input ?? null, summary: `${call.tool}: ${named}`, reason, denylist: matches },
       signal,
     );
-    if (decision.decision === "allow") return { decision: "allow" };
+    if (decision.decision === "allow") return { decision: "allow", ...(decision.message !== undefined && { message: decision.message }) };
     return { decision: "deny", message: decision.message ?? denylistDenial(reason) };
   },
 });

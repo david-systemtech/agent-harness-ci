@@ -689,9 +689,10 @@ export const toolCallSummary = (tool: string, access: ToolAccess, title?: string
 /**
  * The gate's ruling. `allow` hands the call on to the provider's own
  * evaluation (its mode, its rules, its prompts), which the gate never
- * replaces; `deny` is final, and `message` is what the model is told.
+ * replaces; `deny` is final. `message` is what the model is told, including
+ * a person's Note on an allowed denylist prompt.
  */
-export type GateDecision = { readonly decision: "allow" } | { readonly decision: "deny"; readonly message: string };
+export type GateDecision = { readonly decision: "allow"; readonly message?: string } | { readonly decision: "deny"; readonly message: string };
 
 /**
  * The tool gate (permissions spec, "Modules": the tool gate): consulted by
