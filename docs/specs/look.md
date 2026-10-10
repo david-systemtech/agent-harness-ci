@@ -1131,7 +1131,11 @@ restore, receipts and progress; the intro does not create a second checklist.
 
 ## 14. Empty, loading and error
 
-Ready empty session: centred welcome min 60vh, x 32/y 48/gap 24, content max 512,
+Ready empty session: welcome fills its pane's available height, x 32/y 48/gap 24,
+content max 512.
+Centre content when it fits; otherwise scroll it from its start through the whole
+keyboard legend, keeping the pane caption outside the scrollport. No
+viewport-height minimum.
 44px beam tile/22px neutral SquareTerminal, product name 16px/600, one sentence
 about the chosen environment/account. Keep a composer present. “Not ready to
 run” is a wash/hairline/lg alert with 16px amber TriangleAlert, short missing
