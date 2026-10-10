@@ -26,7 +26,8 @@ it.each(["constrained", "full", "setup", "picker", "qr"] as const)("phone Settin
   }
   if (kind === "setup") {
     expect(screen.getByRole("heading", { name: "Bring over your past work", level: 2 })).toBeDefined();
-    expect(await screen.findByText("New sessions")).toBeDefined();
-    expect(screen.queryByText(/The inventory could not be read/)).toBeNull();
+    expect(await screen.findByText("Project account with a long descriptive label: 24 past chats, 7 notes folders, 7 skills.")).toBeDefined();
+    expect(screen.queryByText(/could not look at/)).toBeNull();
+    expect(screen.queryByText("Everything is already here.")).toBeNull();
   }
 });

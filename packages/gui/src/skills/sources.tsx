@@ -1,10 +1,267 @@
-import { oneLine } from "@agent-harness/client-runtime";
-import { SKILL_SOURCE_LIMIT, type SkillsViewSource } from "@agent-harness/contracts";
-import { GitBranch, Folder, Link, Pin, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { adminCall, oneLine, plainRefusal, uuidv7, type PlainRefusal, type RefusedAnswer, type RequestAnswer } from "@agent-harness/client-runtime";
+import { CATALOGUE, PRODUCT_NAME, SKILL_SOURCE_LIMIT, SkillSourceUrl, skillCollectionName, type CommandMethodName, type SkillsViewSource } from "@agent-harness/contracts";
+import { ArrowRight, GitBranch, Folder, Link, Pin, Plus, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { nameOf } from "../connections/words.js";
+import { useWindowFrame } from "../frame/window-controls.js";
+import { useChecklist } from "../setup/checklist-window.js";
+import { SetupNotice } from "../setup/notice.js";
 import { Button, Dialog, DialogContent, Input, Fact, Tooltip } from "../ui/index.js";
-import { useObservable, useRuntime } from "../window-context.js";
+import { useClientVersion, useClock, useObservable, useRuntime, useShell } from "../window-context.js";
 import { SkillButton, useSkillVerb } from "./skill-verb.js";
+
+/** The skills refusals whose message the environment words plainly itself (setup-copy.md §5.9; #1855). */
+const PLAIN_REASONS: ReadonlySet<string> = new Set(["unreachable", "duplicate", "source_limit", "no_skills"]);
+
+/** What Set up says when the address typed is no repository's (setup-copy.md §5.9), never the params' words. */
+const NOT_AN_ADDRESS = "Enter the address of a repository, like https://github.com/you/skills.";
+
+/**
+ * A refusal of a probe or of a collection's add or remove, said plainly
+ * (setup-copy.md §5.9): a probe's problem and an add's conflict in the
+ * environment's own words, git's words for Details; a refused address as an
+ * instruction; anything else through the refusal mapper, for `verb`.
+ */
+export const collectionRefusal = (refusal: RefusedAnswer, verb: string): PlainRefusal => {
+  const reason = refusal.data?.["reason"];
+  if (refusal.code === "conflict" && typeof reason === "string" && PLAIN_REASONS.has(reason)) {
+    const said = refusal.data?.["line"];
+    return { line: refusal.message, details: [...(typeof said === "string" ? [said] : []), `${refusal.code} (${reason})`] };
+  }
+  if (refusal.code === "invalid_params") return { line: NOT_AN_ADDRESS, details: [`${refusal.code}: ${refusal.message}`] };
+  return plainRefusal(refusal, verb);
+};
+
+/** A refusal on the Skills card: an error notice, its line the title, the fix in place and the raw words under Details. */
+export const RefusedLine = ({ environmentId, refusal, actions }: { readonly environmentId: string; readonly refusal: PlainRefusal; readonly actions?: ReactNode }) => {
+  const shell = useShell();
+  const version = useClientVersion();
+  const frame = useWindowFrame();
+  const environment = useObservable(useRuntime().projections.environments).find((view) => view.environmentId === environmentId);
+  return (
+    <SetupNotice
+      tone="error"
+      title={refusal.line}
+      {...(actions !== undefined && { actions })}
+      {...(refusal.details.length > 0 && { details: {
+        report: { app: { version, platform: frame?.platform ?? "unknown" }, ...(environment !== undefined && { computer: { name: nameOf(environment) } }), line: refusal.line, details: refusal.details },
+        copy: (text: string) => shell?.clipboard === undefined ? Promise.reject(new Error("This app has no clipboard.")) : shell.clipboard.writeText(text),
+      } })}
+    />
+  );
+};
+
+/** A collection's add or remove as Set up sends it: one at a time, a fresh command id each, its refusal kept to say plainly. */
+export const useCollectionVerb = () => {
+  const clock = useClock();
+  const [sending, setSending] = useState(false);
+  const [refusal, setRefusal] = useState<PlainRefusal | undefined>(undefined);
+  const inFlight = useRef(false);
+  const send = async <N extends CommandMethodName>(call: () => Promise<RequestAnswer<N>>, verb: string): Promise<boolean> => {
+    if (inFlight.current) return false;
+    inFlight.current = true;
+    setSending(true);
+    setRefusal(undefined);
+    try {
+      const answer = await adminCall(call);
+      if (!answer.ok) setRefusal(collectionRefusal(answer.refusal, verb));
+      return answer.ok;
+    } finally {
+      inFlight.current = false;
+      setSending(false);
+    }
+  };
+  return { send, sending, refusal, commandId: () => uuidv7(clock.now()) };
+};
+
+/**
+ * More options › Add from a link (setup-copy.md §5.9): a repository's
+ * address, Look for skills, then the skill folders found to tick and Add
+ * selected. An address the source URL rule refuses is answered with an
+ * instruction here, before anything is sent, keeping what was typed.
+ */
+export const AddFromLink = ({ environmentId, say }: { readonly environmentId: string; readonly say: (line: string) => void }) => {
+  const runtime = useRuntime();
+  const field = useRef<HTMLInputElement>(null);
+  const [url, setUrl] = useState("");
+  const [asked, setAsked] = useState<string | undefined>(undefined);
+  const [bad, setBad] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const look = () => {
+    if (adding) return;
+    const address = url.trim();
+    if (!SkillSourceUrl.safeParse(address).success) {
+      setAsked(undefined);
+      setBad(true);
+      field.current?.focus();
+      return;
+    }
+    setBad(false);
+    setAsked(address);
+    runtime.requests.refresh(environmentId, "skills.probe", { url: address });
+  };
+  return (
+    <section aria-label="Add from a link" className="flex flex-col gap-3">
+      <h4 className="text-sm font-semibold">Add from a link</h4>
+      <label className="flex flex-col gap-1 text-sm"><span className="flex items-center gap-1"><Link aria-hidden="true" className="size-3.5" />Repository address</span><Input
+        ref={field}
+        placeholder="https://github.com/you/skills"
+        className="font-mono text-xs"
+        aria-label="Repository address"
+        value={url}
+        onChange={(event) => setUrl(event.target.value)}
+        onKeyDown={(event) => { if (event.key === "Enter") look(); }}
+      /></label>
+      <SkillButton environmentId={environmentId} method="skills.probe" busy={adding} onClick={look}>Look for skills</SkillButton>
+      {bad && <RefusedLine environmentId={environmentId} refusal={{ line: NOT_AN_ADDRESS, details: [] }} />}
+      {asked !== undefined && <FoundFolders key={asked} environmentId={environmentId} url={asked} done={say} partly={say} onBusy={setAdding} />}
+    </section>
+  );
+};
+
+/** A probed folder as its tick names it: the repository's own name for its root, and how many skills it holds. */
+const folderWords = (identity: string, folder: string, count: number): string =>
+  `${folder === "." ? skillCollectionName({ identity, folder }, []) : folder} · ${count === 1 ? "1 skill" : `${count} skills`}`;
+
+/**
+ * The skill folders a look found at `url` (setup-copy.md §5.9): `Found {n}
+ * skill folders:`, each ticked to add, and Add selected, which adds each in
+ * turn; or what kept the look from the repository, with Go to Forges for a
+ * private one. Choosing a moved collection's folders again (`replacing`)
+ * looks afresh on the branch it follows, adds the chosen ones following
+ * that branch, and removes the moved one once they are added; or first,
+ * when the chosen ones would not fit beside it under the limit of
+ * collections, or include its original folder (`followed` is how many are followed now). A refusal part
+ * way has `partly` say on the card itself what was done before it: the
+ * folders added, and the moved one removed.
+ */
+export const FoundFolders = ({ environmentId, url, replacing, done, partly, onBusy }: {
+  readonly environmentId: string;
+  readonly url: string;
+  readonly replacing?: { readonly source: SkillsViewSource; readonly followed: number };
+  readonly done: (line: string) => void;
+  readonly partly: (line: string) => void;
+  readonly onBusy?: (busy: boolean) => void;
+}) => {
+  const runtime = useRuntime();
+  // Capability answers change with the connection, even while its probe result stays cached.
+  useObservable(runtime.connections.list);
+  const { choose: goTo } = useChecklist();
+  const branch = replacing?.source.follow.kind === "branch" ? replacing.source.follow.branch : null;
+  const params = useMemo(() => ({ url, ...(branch !== null && { branch }) }), [url, branch]);
+  const probed = useObservable(useMemo(() => runtime.requests.cached(environmentId, "skills.probe", params), [runtime, environmentId, params]));
+  const [picked, choose] = useState<readonly string[]>([]);
+  // Each new look starts with no ticks; accepted-folder lines are kept separately below.
+  useEffect(() => choose([]), [probed.result]);
+  const { send, sending, refusal, commandId } = useCollectionVerb();
+  const [working, setWorking] = useState(false);
+  const batch = useRef(false);
+  // Set once the moved collection is removed, so a retry after a refused add never removes it again.
+  const removed = useRef(false);
+  // Keep accepted folders for this panel, so a refused retry still says what earlier attempts added.
+  const added = useRef<string[]>([]);
+  const choosingAgain = replacing !== undefined;
+  useEffect(() => {
+    // Choosing again reads the repository as it is now, never a look kept from before: once, so not
+    // when following the answer is already fetching it (none kept, or the one kept no longer fresh).
+    if (choosingAgain && !runtime.requests.cached(environmentId, "skills.probe", params).read().loading) runtime.requests.refresh(environmentId, "skills.probe", params);
+  }, [runtime, environmentId, params, choosingAgain]);
+  if (probed.error !== null) {
+    const problem = probed.error.data?.["problem"];
+    return (
+      <RefusedLine
+        environmentId={environmentId}
+        refusal={collectionRefusal(probed.error, "Look for skills")}
+        {...(problem === "authentication" && { actions: <Button variant="outline" size="sm" onClick={() => goTo("forges")}><ArrowRight aria-hidden="true" />Go to Forges</Button> })}
+      />
+    );
+  }
+  const probe = probed.result;
+  if (probe === null) return <p role="status" className="text-sm text-ink-muted">Looking for skills…</p>;
+  const folders = [...(probe.root === null ? [] : [probe.root]), ...probe.folders];
+  // Validate before effects run too, so an old tick never submits a folder absent from this look.
+  const chosen = picked.filter((folder) => folders.some((found) => found.folder === folder && found.count > 0));
+  if (folders.length === 0) return <p className="text-sm">No skill folders were found there.</p>;
+  const finishing = replacing !== undefined && added.current.length > 0 && !removed.current;
+  const adding = runtime.capability(environmentId, "skills.sources.add");
+  const removing = replacing !== undefined && !removed.current ? runtime.capability(environmentId, "skills.sources.remove") : undefined;
+  const blocked = ((chosen.length > 0 || !finishing) && adding.status === "absent" ? adding.message : undefined)
+    ?? (removing?.status === "absent" ? removing.message : undefined);
+  const reason = blocked ?? (chosen.length === 0 && !finishing ? "Choose a skill folder first." : undefined);
+  const addFolders = async () => {
+    if ((chosen.length > 0 && runtime.capability(environmentId, "skills.sources.add").status === "absent")
+      || (replacing !== undefined && !removed.current && runtime.capability(environmentId, "skills.sources.remove").status === "absent")) return;
+    const remove = async () => {
+      if (replacing === undefined || removed.current) return true;
+      removed.current = await send(() => runtime.requests.call(environmentId, "skills.sources.remove", { commandId: commandId(), sourceId: replacing.source.id }), "Add selected");
+      return removed.current;
+    };
+    // Remove first when the chosen folders would exceed the limit or duplicate the moved collection.
+    // A refused add leaves that removal recorded, so a retry does not remove it again.
+    const first = replacing !== undefined && (replacing.followed + chosen.length > SKILL_SOURCE_LIMIT
+      || (probe.identity === replacing.source.identity && chosen.includes(replacing.source.folder)));
+    if (first && !(await remove())) return;
+    const addedLines = () => added.current.map((name) => `Added ${name}.`);
+    const stopped = () => {
+      const lines = [...addedLines(), ...(replacing !== undefined && removed.current ? [`${skillCollectionName(replacing.source, CATALOGUE.skills)} was removed to make room for its new folders.`] : [])];
+      if (lines.length > 0) partly(lines.join(" "));
+    };
+    for (const folder of chosen) {
+      const ok = await send(
+        () => runtime.requests.call(environmentId, "skills.sources.add", { commandId: commandId(), url, folder, probeId: probe.probeId, follow: { kind: "branch", branch } }),
+        "Add selected",
+      );
+      // A refused add stops here, its refusal said, the folders added so far no longer ticked.
+      if (!ok) {
+        stopped();
+        return;
+      }
+      added.current.push(skillCollectionName({ identity: probe.identity, folder }, CATALOGUE.skills));
+      choose((held) => held.filter((value) => value !== folder));
+    }
+    if (!first && !(await remove())) {
+      stopped();
+      return;
+    }
+    done(addedLines().join(" "));
+  };
+  // The entire batch stays busy, including the gaps between add/remove commands.
+  const add = async () => {
+    if (batch.current) return;
+    batch.current = true;
+    setWorking(true);
+    onBusy?.(true);
+    try { await addFolders(); }
+    finally {
+      batch.current = false;
+      setWorking(false);
+      onBusy?.(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-sm">{folders.length === 1 ? "Found 1 skill folder:" : `Found ${folders.length} skill folders:`}</p>
+      {probe.truncated && <p className="text-sm text-ink-muted">{PRODUCT_NAME} stopped looking after 2,000 folders, so there may be more.</p>}
+      {folders.map((folder) => (
+        <label key={folder.folder} className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="accent-beam focus-visible:outline-beam"
+            disabled={folder.count === 0 || working || sending || adding.status === "absent" || removing?.status === "absent"}
+            checked={chosen.includes(folder.folder)}
+            onChange={(event) => choose(event.target.checked ? [...chosen, folder.folder] : chosen.filter((value) => value !== folder.folder))}
+          /><Folder aria-hidden="true" className="size-3.5" />
+          {folderWords(probe.identity, folder.folder, folder.count)}
+        </label>
+      ))}
+      <span className="flex flex-wrap items-center gap-2">
+        <Button variant="outline" size="sm" disabled={reason !== undefined || working || sending} onClick={() => void add()}><Plus aria-hidden="true" />Add selected</Button>
+        {reason !== undefined && <span className="text-xs text-ink-muted">{reason}</span>}
+      </span>
+      {refusal !== undefined && <RefusedLine environmentId={environmentId} refusal={refusal} />}
+    </div>
+  );
+};
 
 /** The probe is cached by its submitted URL/branch, never copied into component state. */
 export const AddSource = ({ environmentId, say, title = "Skill sources" }: {

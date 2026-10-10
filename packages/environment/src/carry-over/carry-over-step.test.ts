@@ -31,9 +31,8 @@ const BROUGHT_OVER = "Brought over 2026-09-24 00:00 UTC.";
 /** The import's time behind that line: what a client words it with, and in details. */
 const IMPORTED_AT = "2026-09-24T00:00:00.000Z";
 
-/** The step's line when it is skipped. */
-const NOTHING =
-  "No adopted account's directory holds anything to carry, and no source data folder or terminal-client state folder is on this machine.";
+/** The step's line when it is skipped (setup-copy.md §5.3). */
+const NOTHING = "Nothing to bring over from this computer.";
 
 /** An adopted provider directory on disk, with a project folder. */
 const adoptedDirectory = (): string => {
@@ -143,12 +142,12 @@ describe("the Carry over step with nothing to carry", () => {
 });
 
 describe("the Carry over step with an adopted directory to carry", () => {
-  it("needs attention before the first import, naming the account with Import again", async () => {
+  it("needs attention before the first import, naming the account with Bring them over", async () => {
     const client = await start({ sessions: [listed(), listed()] });
     expect(await checkCarryOver(client)).toEqual({
       step: "carry-over",
       state: "needs-attention",
-      reason: "Nothing has been imported yet from the directory of claude-max: Import again to import it.",
+      reason: "claude-max has past chats to bring over. Choose Bring them over.",
       failing: ["carry-over.last-import"],
       actions: ["import-again"],
       targets: [{ action: "import-again", ...TARGET }],
@@ -180,7 +179,7 @@ describe("the Carry over step with an adopted directory to carry", () => {
     expect(await checkCarryOver(client)).toMatchObject({ state: "needs-attention", failing: ["carry-over.last-import"] });
   });
 
-  it("needs attention after an import that failed part way, naming what failed, and is done once a re-run imports it", async () => {
+  it("needs attention after an import that failed part way, counting what failed with each in details, and is done once a re-run imports it", async () => {
     const foreign = listed({ workingDirectory: "C:relative\\work" });
     const sessions = [listed(), foreign];
     const client = await start({ sessions: () => sessions });
@@ -188,8 +187,8 @@ describe("the Carry over step with an adopted directory to carry", () => {
     expect(await checkCarryOver(client)).toEqual({
       step: "carry-over",
       state: "needs-attention",
-      reason:
-        "The last import from the directory of claude-max failed part way: Its working directory C:relative\\work is not an absolute path on this environment. Import again to retry what failed.",
+      reason: "1 item from claude-max did not come over. Choose Try again.",
+      details: [`${foreign.providerSessionId}: Its working directory C:relative\\work is not an absolute path on this environment.`],
       failing: ["carry-over.last-import"],
       actions: ["import-again"],
       targets: [{ action: "import-again", ...TARGET }],
@@ -200,18 +199,16 @@ describe("the Carry over step with an adopted directory to carry", () => {
     expect((await checkCarryOver(client)).state).toBe("done");
   });
 
-  it("names the first three failures of an import and counts the rest", async () => {
-    const client = await start({ sessions: ["a", "b", "c", "d", "e"].map((name) => listed({ workingDirectory: `relative/${name}` })) });
+  it("counts every failure of an import in its line, with no id or path there, and names each in details", async () => {
+    const sessions = ["a", "b", "c", "d", "e"].map((name) => listed({ workingDirectory: `relative/${name}` }));
+    const client = await start({ sessions });
     await importNow(client);
-    const { reason } = await checkCarryOver(client);
-    expect(reason).toBe(
-      "The last import from the directory of claude-max failed part way: Its working directory relative/a is not an absolute path on this environment. " +
-        "Its working directory relative/b is not an absolute path on this environment. Its working directory relative/c is not an absolute path on this environment. " +
-        "2 more failed. Import again to retry what failed.",
-    );
+    const { reason, details } = await checkCarryOver(client);
+    expect(reason).toBe("5 items from claude-max did not come over. Choose Try again.");
+    expect(details).toEqual(sessions.map((session) => `${session.providerSessionId}: Its working directory ${session.workingDirectory} is not an absolute path on this environment.`));
   });
 
-  it("needs attention with a directory that cannot be read, naming the account with Check again", async () => {
+  it("needs attention with a directory that cannot be read, naming the account with Check again, its path and error only in details", async () => {
     const file = join(tempDir(), "not-a-directory");
     writeFileSync(file, "");
     const client = await start({ sessions: [listed()], directory: file });
@@ -219,11 +216,12 @@ describe("the Carry over step with an adopted directory to carry", () => {
     expect(result).toMatchObject({
       step: "carry-over",
       state: "needs-attention",
+      reason: "agent-harness cannot open claude-max's Claude Code folder. Check that it still exists, then choose Check again.",
       failing: ["carry-over.readable"],
       actions: ["check-again"],
       targets: [{ action: "check-again", ...TARGET }],
     });
-    expect(result.reason).toMatch(new RegExp(`^The directory of claude-max, ${file}, cannot be read \\(ENOTDIR[^)]*\\): Check again once it can\\.$`));
+    expect(result.details).toEqual([`Folder: ${file}`, expect.stringMatching(/^Error: ENOTDIR/)]);
   });
 });
 

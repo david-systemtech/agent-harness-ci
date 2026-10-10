@@ -246,14 +246,17 @@ export const syncedPayload = (source: TrackedSource, fetched: SourceFetch): Skil
   return sync.outcome === "layout_moved" && sync.commit === fetched.commit ? null : { sourceId, outcome: "layout_moved", commit: fetched.commit, folders: [...fetched.folders] };
 };
 
-/** `conflict`, reason `no_skills`, for a folder that yields no valid member at `commit`; `folders` the walk found. */
-export const noSkills = (folder: string, commit: GitCommit, folders: readonly string[]): CommandRejection<"conflict"> => {
-  const where = folder === "." ? "The repository's root" : `The folder ${folder}`;
-  // The walk lists the folder itself when the skills in it are all invalid: the message says so rather than naming it as one that would do.
-  const invalid = folders.includes(folder) ? " Every skill in it is invalid." : "";
+/**
+ * `conflict`, reason `no_skills`, for a folder that yields no valid member; `folders` the walk found.
+ * Its message is plain (setup-copy.md §5.9): the folder, then the folders that have skills, if any.
+ */
+export const noSkills = (folder: string, folders: readonly string[]): CommandRejection<"conflict"> => {
+  const where = folder === "." ? "this repository" : `the folder ${folder}`;
+  // The walk lists the folder itself when the skills in it all have problems: the message says so rather than naming it as one that would do.
+  const line = folders.includes(folder) ? `The skills in ${where} cannot be used.` : `There are no skills in ${where}.`;
   const others = folders.filter((found) => found !== folder);
-  const elsewhere = others.length > 0 ? `These folders hold skills: ${others.join(", ")}.` : `No ${folders.length > 0 ? "other " : ""}folder in the repository holds a skill.`;
-  return { code: "conflict", message: `${where} holds no valid skill at ${commit.slice(0, 7)}.${invalid} ${elsewhere}`, data: { reason: "no_skills", folders: [...folders] } };
+  const elsewhere = others.length > 0 ? ` These folders have skills: ${others.join(", ")}.` : "";
+  return { code: "conflict", message: `${line}${elsewhere}`, data: { reason: "no_skills", folders: [...folders] } };
 };
 
 /** The notice every committed change to the sources is followed by. */
@@ -311,10 +314,10 @@ export const createSkillSources = (options: SkillSourcesOptions): SkillSources =
     const sources = readSkillSources(log);
     const same = sources.find((source) => source.identity === identity && source.folder === folder);
     if (same !== undefined) {
-      return conflict(`The environment already tracks ${folder === "." ? "the root" : `the folder ${folder}`} of ${identity} as a source.`, { reason: "duplicate", sourceId: same.id });
+      return conflict("You already follow this collection.", { reason: "duplicate", sourceId: same.id });
     }
     if (sources.length >= SKILL_SOURCE_LIMIT) {
-      return conflict(`The environment already tracks ${SKILL_SOURCE_LIMIT} skill sources, the most it may: remove one first.`, { reason: "source_limit", limit: SKILL_SOURCE_LIMIT });
+      return conflict(`You can follow up to ${SKILL_SOURCE_LIMIT} collections. Remove one first.`, { reason: "source_limit", limit: SKILL_SOURCE_LIMIT });
     }
     return null;
   };
@@ -366,7 +369,7 @@ export const createSkillSources = (options: SkillSourcesOptions): SkillSources =
       const sourceId = randomUUID();
       const fetched = await fetch({ id: sourceId, url, identity, folder }, follow, probeId === undefined ? {} : { probeId });
       if (fetched.outcome === "failed") throw fetched.refusal;
-      if (fetched.outcome === "layout_moved") return refusing(noSkills(folder, fetched.commit, fetched.folders));
+      if (fetched.outcome === "layout_moved") return refusing(noSkills(folder, fetched.folders));
       const { snapshot } = fetched;
       context.onUndo(() => snapshots.remove(snapshot));
       const synced: SkillsSourceSyncedPayload = { sourceId, outcome: "ok", commit: fetched.commit, members: [...fetched.members] };

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   ContractError,
   GitCommit,
+  PRODUCT_NAME,
   SKILL_PROBE_DEPTH,
   SKILL_PROBE_KEPT_MS,
   SKILL_PROBE_MAX_DIRECTORIES,
@@ -103,6 +104,8 @@ export interface SkillProbesOptions {
   readonly git: (request: ForgeGitRequest) => Promise<ForgeGitAnswer>;
   /** The forge accounts' canonical origins and verified aliases, which the repository identity reads. */
   readonly forgeAccounts: () => readonly ForgeAccountOrigins[];
+  /** This environment's name, as a refusal names the computer git is missing on. */
+  readonly environmentName: () => string;
 }
 
 /** What git says, untranslated, when the forge refused a credential or there was none to give. */
@@ -125,18 +128,28 @@ const problemOf = (stderr: string, timedOut: boolean): SkillProbeProblem => {
   return "git_failed";
 };
 
-/** What each problem tells the person, before what git said. */
-const PROBLEM_MESSAGES: Record<SkillProbeProblem, string> = {
-  authentication: "The repository asked for a credential the environment could not give: add a forge account for its origin in Set up, Forges, or check your ssh keys.",
-  not_found: "There is no such repository or branch, or it is private and needs a forge account.",
-  network: "The repository's host could not be reached in time.",
-  git_failed: "git could not clone the repository.",
+/** Where a refusal happened: the repository's origin, and the computer git ran on. */
+interface Reach {
+  readonly origin: string;
+  readonly computer: string;
+}
+
+/** An origin's host as a person reads it: no scheme, no user. */
+const hostOf = (origin: string): string => origin.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/^[^@/]*@/, "");
+
+/** What each problem tells the person (setup-copy.md §5.9); what git said stays in the data's line, for Details. */
+const PROBLEM_LINES: { readonly [Problem in SkillProbeProblem]: (reach: Reach) => string } = {
+  authentication: ({ origin }) => `This repository is private. Add a forge for ${hostOf(origin)} first.`,
+  not_found: () => `${PRODUCT_NAME} found no repository at this address.`,
+  network: ({ origin }) => `${hostOf(origin)} did not answer in time. Try again.`,
+  git_missing: ({ computer }) => `Git is not installed on ${computer}. Install Git, then try again.`,
+  git_failed: () => `${PRODUCT_NAME} could not read this repository. Try again.`,
 };
 
-/** `conflict`, reason `unreachable`, with the problem, what git said and the origin. */
-const unreachable = (problem: SkillProbeProblem, line: string, origin: string): ContractError => {
-  const data: SkillProbeUnreachable = { reason: "unreachable", problem, line, origin };
-  return new ContractError({ code: "conflict", message: `${PROBLEM_MESSAGES[problem]} ${line}`, data: { ...data } });
+/** `conflict`, reason `unreachable`: the problem's plain line, with the problem, what git said and the origin. */
+const unreachable = (problem: SkillProbeProblem, line: string, reach: Reach): ContractError => {
+  const data: SkillProbeUnreachable = { reason: "unreachable", problem, line, origin: reach.origin };
+  return new ContractError({ code: "conflict", message: PROBLEM_LINES[problem](reach), data: { ...data } });
 };
 
 /** What git printed in `cwd` for `args`, trimmed; null when it failed. */
@@ -145,21 +158,22 @@ const ask = async (cwd: string, args: readonly string[]): Promise<string | null>
   return answer.ok && !answer.truncated ? answer.stdout.toString("utf8").trim() : null;
 };
 
-/** Throws what kept git from the repository: refused for want of a forge account, else the problem its output names. */
-const reached = (answer: ForgeGitAnswer, origin: string): void => {
-  if (answer.outcome === "refused") throw unreachable("authentication", answer.error.message, answer.error.data.origin);
+/** Throws what kept git from the repository: refused for want of a forge account, git missing from the computer, else the problem its output names. */
+const reached = (answer: ForgeGitAnswer, reach: Reach): void => {
+  if (answer.outcome === "refused") throw unreachable("authentication", answer.error.message, { ...reach, origin: answer.error.data.origin });
   if (answer.git.ok) return;
+  if (answer.git.missing) throw unreachable("git_missing", answer.git.stderr, reach);
   const noSsh = NO_SSH.exec(answer.git.stderr);
-  if (noSsh !== null) throw unreachable("git_failed", noSsh[0].trim(), origin);
+  if (noSsh !== null) throw unreachable("git_failed", noSsh[0].trim(), reach);
   // Stopped at its time, git has said nothing of why: the line says what stopped it.
   const line = answer.git.timedOut ? `git was stopped after ${PROBE_CLONE_TIMEOUT_MS / 1000} seconds.` : gitComplaint(answer.git.stderr);
-  throw unreachable(problemOf(answer.git.stderr, answer.git.timedOut), line, origin);
+  throw unreachable(problemOf(answer.git.stderr, answer.git.timedOut), line, reach);
 };
 
 /** The commit the checkout at `path` stands at, its branch when on one; unreachable `not_found` when it has none. */
-const headOf = async (path: string, origin: string): Promise<{ readonly commit: GitCommit; readonly branch: SkillSourceBranch | undefined }> => {
+const headOf = async (path: string, reach: Reach): Promise<{ readonly commit: GitCommit; readonly branch: SkillSourceBranch | undefined }> => {
   const commit = GitCommit.safeParse(await ask(path, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]));
-  if (!commit.success) throw unreachable("not_found", "The repository has no commit on that branch.", origin);
+  if (!commit.success) throw unreachable("not_found", "The repository has no commit on that branch.", reach);
   return { commit: commit.data, branch: SkillSourceBranch.safeParse(await ask(path, ["symbolic-ref", "--quiet", "--short", "HEAD"])).data };
 };
 
@@ -183,6 +197,8 @@ export const createSkillProbes = (options: SkillProbesOptions): SkillProbes => {
   /** Each checkout kept, by the probe's id: what it cloned, its removal timer, how many adds hold it, and whether its time is up. */
   const kept = new Map<string, KeptProbe>();
 
+  const reachOf = (origin: string): Reach => ({ origin, computer: options.environmentName() });
+
   const remove = (probeId: string): void => {
     kept.get(probeId)?.timer.cancel();
     kept.delete(probeId);
@@ -190,7 +206,7 @@ export const createSkillProbes = (options: SkillProbesOptions): SkillProbes => {
   };
 
   /** Clones `url` at `branch`, else the remote's default, into `directory` under the probes' folder, depth one, as the probe does; git stops when `signal` aborts. */
-  const clone = async (url: string, branch: string | undefined, directory: string, purpose: string, origin: string, signal?: AbortSignal): Promise<void> => {
+  const clone = async (url: string, branch: string | undefined, directory: string, purpose: string, reach: Reach, signal?: AbortSignal): Promise<void> => {
     mkdirSync(root, { recursive: true });
     const cloned = await options.git({
       operation: "clone",
@@ -204,13 +220,15 @@ export const createSkillProbes = (options: SkillProbesOptions): SkillProbes => {
       ...(signal !== undefined && { signal }),
       sshAsWritten: true,
     });
-    reached(cloned, origin);
+    reached(cloned, reach);
   };
 
   /** Fetches `commit` of `url`, depth one, into a new repository at `path`, and checks it out there; git stops when `signal` aborts. */
-  const fetchCommit = async (url: string, commit: GitCommit, path: string, origin: string, signal?: AbortSignal): Promise<void> => {
+  const fetchCommit = async (url: string, commit: GitCommit, path: string, reach: Reach, signal?: AbortSignal): Promise<void> => {
     mkdirSync(path, { recursive: true });
-    if (!(await runGit(path, ["init", "--quiet"], { maxBytes: 64 * 1024 })).ok) throw unreachable("git_failed", "git could not make a repository to fetch the pinned commit into.", origin);
+    const made = await runGit(path, ["init", "--quiet"], { maxBytes: 64 * 1024 });
+    if (made.missing) throw unreachable("git_missing", made.stderr, reach);
+    if (!made.ok) throw unreachable("git_failed", "git could not make a repository to fetch the pinned commit into.", reach);
     const fetched = await options.git({
       operation: "fetch",
       repository: url,
@@ -223,10 +241,10 @@ export const createSkillProbes = (options: SkillProbesOptions): SkillProbes => {
       sshAsWritten: true,
     });
     // A commit the remote does not have, which a clone, asking for refs alone, never meets.
-    if (fetched.outcome === "ran" && !fetched.git.ok && NOT_OUR_REF.test(fetched.git.stderr)) throw unreachable("not_found", gitComplaint(fetched.git.stderr), origin);
-    reached(fetched, origin);
+    if (fetched.outcome === "ran" && !fetched.git.ok && NOT_OUR_REF.test(fetched.git.stderr)) throw unreachable("not_found", gitComplaint(fetched.git.stderr), reach);
+    reached(fetched, reach);
     const checkedOut = await runGit(path, ["-c", "advice.detachedHead=false", "checkout", "--quiet", "--detach", commit], { maxBytes: 64 * 1024 });
-    if (!checkedOut.ok) throw unreachable("git_failed", gitComplaint(checkedOut.stderr), origin);
+    if (!checkedOut.ok) throw unreachable("git_failed", gitComplaint(checkedOut.stderr), reach);
   };
 
   /** The kept probe `probeId` names, held, when it cloned `identity` at what `follow` names; null otherwise. */
@@ -263,11 +281,12 @@ export const createSkillProbes = (options: SkillProbesOptions): SkillProbes => {
     if (remote === null || identity === null) throw new Error("A URL the source URL rule takes has an identity.");
     const probeId = randomUUID();
     const path = join(root, probeId);
+    const reach = reachOf(remote.origin);
     try {
-      await clone(url, branch, probeId, "probe a skill repository", remote.origin);
-      const head = await headOf(path, remote.origin);
+      await clone(url, branch, probeId, "probe a skill repository", reach);
+      const head = await headOf(path, reach);
       const cloneBranch = branch ?? head.branch;
-      if (cloneBranch === undefined) throw unreachable("git_failed", "The remote's default branch has no name a source can follow.", remote.origin);
+      if (cloneBranch === undefined) throw unreachable("git_failed", "The remote's default branch has no name a source can follow.", reach);
 
       const found = await findSkillFolders(path, { depth: SKILL_PROBE_DEPTH, maxDirectories: SKILL_PROBE_MAX_DIRECTORIES, skipped: SKILL_PROBE_SKIPPED });
       const answer: SkillsProbeResult = {
@@ -298,10 +317,11 @@ export const createSkillProbes = (options: SkillProbesOptions): SkillProbes => {
     const directory = `${ADD_CHECKOUT}${randomUUID()}`;
     const path = join(root, directory);
     const release = (): void => rmSync(path, { recursive: true, force: true });
+    const reach = reachOf(remote.origin);
     try {
-      if (follow.kind === "pinned") await fetchCommit(url, follow.commit, path, remote.origin, signal);
-      else await clone(url, follow.branch ?? undefined, directory, "read a skill source", remote.origin, signal);
-      return { path, commit: (await headOf(path, remote.origin)).commit, release };
+      if (follow.kind === "pinned") await fetchCommit(url, follow.commit, path, reach, signal);
+      else await clone(url, follow.branch ?? undefined, directory, "read a skill source", reach, signal);
+      return { path, commit: (await headOf(path, reach)).commit, release };
     } catch (error) {
       release();
       throw error;

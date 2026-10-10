@@ -110,7 +110,7 @@ it("keeps earlier successes, retries repaired sources and names, and preserves e
   const first = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
   expect(first).toMatchObject({ result: { carried: { skillSources: 1, alwaysOnSkills: 1 }, failed: expect.arrayContaining([
     // The repository and folder wait under Details; the label names the collection alone (#1845).
-    { label: "Skill collection broken", message: "It holds no skills agent-harness can use.", details: ["Repository: https://skills.test/team/broken", "Folder: skills", expect.stringContaining("no valid skill")] },
+    { label: "Skill collection broken", message: "It holds no skills agent-harness can use.", details: ["Repository: https://skills.test/team/broken", "Folder: skills", "There are no skills in the folder skills."] },
     { label: expect.stringContaining("repair"), message: "Skill repair is missing.", step: "skills" },
   ]) } });
   expect(JSON.stringify(first)).not.toContain("token-for-tests");
