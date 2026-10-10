@@ -134,6 +134,26 @@ describe("the denylist on a browser call", () => {
     expect(navigations(peer).at(-1)).toBe(PAYPAL);
   });
 
+  it.each([false, true])("delivers an allowed redirect Note in the browser result, including when navigation is refused (%s)", async (fails) => {
+    const { t, client, peer, id } = await headless();
+    peer.document("https://shop.example/pay", { redirect: PAYPAL });
+    if (fails) peer.document(PAYPAL, { frames: [{ url: "https://checkout.stripe.com/pay", crossSite: true }] });
+    const answers: HostToolResult[] = [];
+    script(t, answers, [["browser_open", { address: "https://shop.example/pay", snapshot: false }], ["browser_snapshot", {}]]);
+    await run(client, id);
+    const p = await prompt(t, id);
+    await client.request("permissions.prompts.answer", {
+      commandId: randomUUID(), sessionId: id, promptId: p.promptId, decision: "allow",
+      message: "REDIRECT_NOTE_2091: summarize only; do not buy anything.",
+    });
+    await ended(t, id);
+    expect(answers).toHaveLength(2);
+    expect(answers[0]?.isError).toBe(fails);
+    expect(answers[0]?.text).toContain("Note from the person: REDIRECT_NOTE_2091: summarize only; do not buy anything.");
+    expect(answers[1]?.text).not.toContain("REDIRECT_NOTE_2091");
+    expect(navigations(peer)).toContain(PAYPAL);
+  });
+
   it("refuses a listed sub-frame's whole page immediately, records the call's denylist decision and counts it in Unattended review", async () => {
     const { t, client, peer, id } = await headless();
     peer.document("https://shop.example/pay", { frames: [{ url: PAYPAL, crossSite: true }] });
