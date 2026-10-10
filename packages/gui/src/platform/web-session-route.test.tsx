@@ -152,3 +152,53 @@ it("opens the supplied startup session despite a hash from another mounted clien
   expect(screen.queryByRole("alert")).toBeNull();
   expect(location.hash).toBe(new URL(sessionLink(first), location.origin).hash);
 });
+
+it.each(["#/unrecognized", "missing"])("lets the phone drawer reselect the current session after %s", async hash => {
+  const { first, navigate, selected } = await pairedClient(true, true);
+  await selected(first);
+  await navigate(hash === "missing" ? `/#/session/${first.environmentId}/unknown-session` : `/${hash}`);
+  await screen.findByRole("alert");
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Show sessions" }));
+  const drawer = await screen.findByRole("dialog", { name: "Sessions" });
+  await user.click(within(drawer).getByText("First conversation"));
+  await selected(first);
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  expect(location.hash).toBe(new URL(sessionLink(first), location.origin).hash);
+});
+
+it.each([false, true])("keeps a new session's draft and attachment when an earlier linked row arrives (phone: %s)", async narrow => {
+  const { env, first, navigate, selected, runtime } = await pairedClient(narrow, narrow);
+  if (narrow) await selected(first);
+  const lateId = "0199dd00-0000-4000-8000-000000000099";
+  await navigate(sessionLink({ environmentId: first.environmentId, sessionId: lateId }));
+  await screen.findByText("This session is unavailable. Open a session from Sessions.");
+  const user = userEvent.setup();
+  if (narrow) {
+    await user.click(screen.getByRole("button", { name: "More" }));
+    await user.click(await screen.findByRole("menuitem", { name: "New session" }));
+  } else await user.click(screen.getByRole("button", { name: "New session" }));
+  const surface = await screen.findByRole("region", { name: "New session" });
+  await user.type(within(surface).getByRole("textbox", { name: "Message" }), "Keep this first message");
+  await user.upload(within(surface).getByLabelText("Files to attach"), new File([new Uint8Array([137, 80, 78, 71])], "note.png", { type: "image/png" }));
+  await within(surface).findByRole("list", { name: "Attachments" });
+  await act(async () => env.emit(first.sessionId, "test.late-session", {}, { patch: { op: "add", summary: { ...env.summary(first.sessionId), id: lateId, title: "Late linked session" } } }));
+  await waitFor(() => expect(runtime.projections.sessionList.read().rows.some(row => row.summary.id === lateId)).toBe(true));
+  expect(screen.getByRole("region", { name: "New session" })).toBe(surface);
+  expect(within(surface).getByRole("textbox", { name: "Message" })).toHaveProperty("value", "Keep this first message");
+  expect(within(surface).getByRole("list", { name: "Attachments" }).textContent).toContain("note.png");
+  expect(screen.queryByText("This session is unavailable. Open a session from Sessions.")).toBeNull();
+  expect(location.hash).toBe("");
+});
+
+it("explains a disabled linked environment and opens the requested session when it is enabled", async () => {
+  const { first, second, navigate, selected, runtime } = await pairedClient(true);
+  await selected(first);
+  await act(async () => runtime.connections.setEnabled(first.environmentId, false));
+  await navigate(sessionLink(second));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "This environment is disabled. Enable it in Settings or open a session from Sessions.");
+  expect(location.hash).toBe(new URL(sessionLink(second), location.origin).hash);
+  await act(async () => runtime.connections.setEnabled(first.environmentId, true));
+  await selected(second);
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+});

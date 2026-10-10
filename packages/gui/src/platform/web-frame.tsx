@@ -119,32 +119,36 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
     // Cached or catching-up lists cannot prove a session absent. Keep the handed URL until the list is live.
     const connection = environments.find(env => env.environmentId === requestedSession.environmentId);
     if (!connection && pairingDone) setRouteFailure("This environment is not paired. Pair with it or open a session from Sessions.");
+    else if (connection && !connection.enabled) setRouteFailure("This environment is disabled. Enable it in Settings or open a session from Sessions.");
     else if (sessions.environments.some(env => env.environmentId === requestedSession.environmentId && env.freshness === "live")) {
       setRouteFailure("This session is unavailable. Open a session from Sessions.");
     }
   }, [requestedSession, sessions, environments, pairingDone, setLayout]);
+  const sessionChosen = (environmentId: string, sessionId: string) => {
+    requestSession(undefined);
+    setRouteFailure(undefined);
+    history.replaceState(null, "", sessionLink({ environmentId, sessionId }));
+  };
   const open = (key: string) => {
     const row = sessions.rows.find(row => `${row.environmentId}/${row.summary.id}` === key);
     if (!row) return;
-    requestSession(undefined);
-    setRouteFailure(undefined);
+    sessionChosen(row.environmentId, row.summary.id);
     const session = { environmentId: row.environmentId, sessionId: row.summary.id };
     setLayout(held => showSession(held, held.focused, session));
-    history.replaceState(null, "", sessionLink(session));
   };
-  const previousSession = useRef(pane.session);
+  const previousPane = useRef(pane);
   useEffect(() => {
-    const previous = previousSession.current;
-    previousSession.current = pane.session;
-    if (!pane.session) return;
-    const changed = previous?.environmentId !== pane.session.environmentId || previous.sessionId !== pane.session.sessionId;
+    const previous = previousPane.current;
+    previousPane.current = pane;
+    const changed = previous.id !== pane.id || previous.session?.environmentId !== pane.session?.environmentId || previous.session?.sessionId !== pane.session?.sessionId || previous.newSession?.id !== pane.newSession?.id;
     // Drawer, new-session and pane-focus actions take precedence over an unresolved handed link too.
     if (changed) {
       requestSession(undefined);
       setRouteFailure(undefined);
     }
-    if (changed || (!requestedSession && !routeFailure)) history.replaceState(null, "", sessionLink(pane.session));
-  }, [pane.session, requestedSession, routeFailure]);
+    if (changed) history.replaceState(null, "", pane.session ? sessionLink(pane.session) : "/");
+    else if (pane.session && !requestedSession && !routeFailure) history.replaceState(null, "", sessionLink(pane.session));
+  }, [pane, requestedSession, routeFailure]);
   if (checklist.shown) return <ChecklistView />;
   return <WebViewport narrow={phone.narrow} connection={selected}>
     {phone.narrow ? <Header onPair={() => setPairing(held => held ? undefined : {})} /> : <header className="flex min-w-0 shrink-0 items-center gap-1 border-b border-hairline p-2">
@@ -168,7 +172,7 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
       <WindowNotices />
       <PaneGrid />
     </main>}
-    <SessionDrawer />
+    <SessionDrawer onOpenSession={sessionChosen} />
     {settings.shown && <SettingsView />}
   </WebViewport>;
 };
