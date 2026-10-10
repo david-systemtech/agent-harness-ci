@@ -634,6 +634,53 @@ describe("the smoke relay (#1769)", () => {
   const errors = (stdout: string) => stdout.split("\n").filter((line) => line.startsWith("::error::"));
   const tree = { ".forgejo/github-workflows/smoke.yml": "name: smoke\n", "public/.github-workflows/release.yml": "name: release\n" };
 
+  it("retrieves the matching run's Windows native payload for a cross-built Forgejo caller", async () => {
+    const f = await smokeFixture({ ".forgejo/github-workflows/windows-pty.yml": "name: windows-pty\n" }, { ".github/workflows/windows-pty.yml": "name: windows-pty\n" });
+    const archive = join(f.checkout, "native.zip");
+    await run("python3", ["-c", "import sys,zipfile; z=zipfile.ZipFile(sys.argv[1],'w'); z.writestr('manifest.json','payload provenance'); z.writestr('Release/conpty.node',b'patched runtime'); z.close()", archive]);
+    const out = join(f.checkout, "windows-pty");
+    const result = await relay(f, {
+      GH_CI_EVENT: "windows-pty", GH_CI_WINDOWS_PTY_OUT: out,
+      FAKE_GALLERY_ZIP: archive,
+      FAKE_ARTIFACTS: JSON.stringify([{ id: 321, name: "windows-pty", size_in_bytes: 1000, expired: false }]),
+    });
+    expect(result.code, result.stdout + result.stderr).toBe(0);
+    expect(readFileSync(join(out, "Release/conpty.node"), "utf8")).toBe("patched runtime");
+    expect(apiCalls(f).find((call) => call.stage === "archive")?.args).toContain("https://api.github.com/repos/david-systemtech/agent-harness-ci/actions/artifacts/321/zip");
+    expect(apiCalls(f).find((call) => call.stage === "dispatch")?.args.join(" ")).toContain('"event_type": "windows-pty"');
+  });
+
+  it.each(["missing", "expired", "duplicate", "traversal", "symlink"])("rejects a %s Windows native artifact before handing a payload to packaging", async (fault) => {
+    const f = await smokeFixture({ ".forgejo/github-workflows/windows-pty.yml": "name: windows-pty\n" }, { ".github/workflows/windows-pty.yml": "name: windows-pty\n" });
+    const archive = join(f.checkout, "native.zip");
+    await run("python3", ["-c", `import sys,zipfile
+with zipfile.ZipFile(sys.argv[1],'w') as z:
+ z.writestr('manifest.json','payload provenance')
+ z.writestr('Release/conpty.node',b'patched runtime')
+ if sys.argv[2]=='traversal': z.writestr('../escaped.node',b'unsafe')
+ if sys.argv[2]=='symlink':
+  e=zipfile.ZipInfo('Release/link.node'); e.external_attr=0o120777 << 16; z.writestr(e,b'../../escaped.node')
+`, archive, fault]);
+    const out = join(f.checkout, "windows-pty");
+    const item = { id: 321, name: "windows-pty", size_in_bytes: 1000, expired: fault === "expired" };
+    const result = await relay(f, {
+      GH_CI_EVENT: "windows-pty", GH_CI_WINDOWS_PTY_OUT: out, FAKE_GALLERY_ZIP: archive,
+      FAKE_ARTIFACTS: JSON.stringify(fault === "missing" ? [] : fault === "duplicate" ? [item, { ...item, id: 322 }] : [item]),
+    });
+    expect(result.code).not.toBe(0);
+    expect(existsSync(out)).toBe(false);
+    expect(existsSync(join(f.checkout, "escaped.node"))).toBe(false);
+  });
+
+  it("dispatches no Windows native compile while its installed workflow differs", async () => {
+    const f = await smokeFixture({ ".forgejo/github-workflows/windows-pty.yml": "name: windows-pty\n" }, { ".github/workflows/windows-pty.yml": "name: obsolete\n" });
+    const result = await relay(f, { GH_CI_EVENT: "windows-pty", GH_CI_WINDOWS_PTY_OUT: join(f.checkout, "windows-pty") });
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain(".github/workflows/windows-pty.yml on its workflows branch is not this commit's");
+    expect(readFileSync(f.log, "utf8")).not.toContain("git push");
+    expect(apiCalls(f)).toEqual([]);
+  });
+
   it("dispatches a smoke run once the relay repository's installed smoke and release workflows are this commit's, byte for byte", async () => {
     const f = await smokeFixture(tree, { ".github/workflows/smoke.yml": "name: smoke\n", ".github/workflows/release.yml": "name: release\n", ".github/workflows/ci.yml": "name: ci\n" });
     const result = await relay(f);

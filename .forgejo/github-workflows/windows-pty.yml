@@ -1,0 +1,68 @@
+# Install byte for byte as .github/workflows/windows-pty.yml on the hosted
+# relay repository's workflows branch after review. The Forgejo manual
+# desktop and recovery release relay verifies this copy before dispatch.
+name: windows-pty
+run-name: windows-pty ${{ github.event.client_payload.sha }} ${{ github.event.client_payload.id }}
+on:
+  repository_dispatch:
+    types: [windows-pty]
+concurrency:
+  group: windows-pty-${{ github.event.client_payload.group }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  payload:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check the payload
+        env:
+          SHA: ${{ github.event.client_payload.sha }}
+        run: '[[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad sha"; exit 1; }'
+  windows-pty:
+    needs: payload
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.client_payload.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+      - name: Compile the patched Windows node-pty runtime
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare --activate
+          pnpm install --frozen-lockfile --ignore-scripts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @agent-harness/environment rebuild node-pty
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm exec tsx packages/cli/scripts/export-windows-pty.ts windows-pty
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Keep the repaired Windows native payload
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: windows-pty
+          path: windows-pty/
+          if-no-files-found: error
+          retention-days: 7
+
+  cleanup:
+    needs: [payload, windows-pty]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Delete this run's ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_REF: ci/${{ github.event.client_payload.id }}
+        run: |
+          [[ "$RUN_REF" =~ ^ci/[A-Za-z0-9._-]+$ ]] || { echo "::error::bad id"; exit 1; }
+          gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/$RUN_REF" || true
