@@ -1,5 +1,5 @@
 diff --git a/lib/conpty_console_list_agent.js b/lib/conpty_console_list_agent.js
-index 8c4fca9022a6d6f015bca87f61625cde2278f428..476b049894640c2bc2c36b98bdf6779751ef7d9d 100644
+index 8c4fca9022a6d6f015bca87f61625cde2278f428..7e6f0e379bb64061c9738ad9250ab7317aa54fad 100644
 --- a/lib/conpty_console_list_agent.js
 +++ b/lib/conpty_console_list_agent.js
 @@ -10,7 +10,18 @@ Object.defineProperty(exports, "__esModule", { value: true });
@@ -24,8 +24,9 @@ index 8c4fca9022a6d6f015bca87f61625cde2278f428..476b049894640c2bc2c36b98bdf67797
 +// Flush the result before exit; a genuine failure is reported by the parent.
 +process.send(reply, function () { process.exit(0); });
  //# sourceMappingURL=conpty_console_list_agent.js.map
+\ No newline at end of file
 diff --git a/lib/windowsPtyAgent.js b/lib/windowsPtyAgent.js
-index a358ffb177357e177661033c1b092f9c9d0e5f5a..bd88c0694e7dfc84b590676ded69df4ee2bac9d3 100644
+index a358ffb177357e177661033c1b092f9c9d0e5f5a..33755988823db6cb19c3bc3b766c60a84da856de 100644
 --- a/lib/windowsPtyAgent.js
 +++ b/lib/windowsPtyAgent.js
 @@ -135,6 +135,8 @@ var WindowsPtyAgent = /** @class */ (function () {
@@ -37,7 +38,7 @@ index a358ffb177357e177661033c1b092f9c9d0e5f5a..bd88c0694e7dfc84b590676ded69df4e
                  this._inSocket.readable = false;
                  this._outSocket.readable = false;
                  this._getConsoleProcessList().then(function (consoleProcessList) {
-@@ -143,12 +145,14 @@ var WindowsPtyAgent = /** @class */ (function () {
+@@ -143,12 +145,16 @@ var WindowsPtyAgent = /** @class */ (function () {
                              process.kill(pid);
                          }
                          catch (e) {
@@ -48,6 +49,8 @@ index a358ffb177357e177661033c1b092f9c9d0e5f5a..bd88c0694e7dfc84b590676ded69df4e
 +                    // Capture the process list while its console still exists (#2029).
 +                    try { _this._ptyNative.kill(_this._pty, _this._useConptyDll); }
 +                    catch (error) { console.error('node-pty: could not close console: ' + error.message); }
++                    // The write-only input pipe otherwise keeps the owning process alive (#2052).
++                    _this._inSocket.destroy();
 +                    _this._conoutSocketWorker.dispose();
                  });
 -                this._ptyNative.kill(this._pty, this._useConptyDll);
@@ -55,7 +58,7 @@ index a358ffb177357e177661033c1b092f9c9d0e5f5a..bd88c0694e7dfc84b590676ded69df4e
              }
              else {
                  // Close the input write handle to signal the end of session.
-@@ -181,15 +185,32 @@ var WindowsPtyAgent = /** @class */ (function () {
+@@ -181,15 +187,32 @@ var WindowsPtyAgent = /** @class */ (function () {
      WindowsPtyAgent.prototype._getConsoleProcessList = function () {
          var _this = this;
          return new Promise(function (resolve) {
@@ -93,4 +96,16 @@ index a358ffb177357e177661033c1b092f9c9d0e5f5a..bd88c0694e7dfc84b590676ded69df4e
 -                resolve([_this._innerPid]);
              }, 5000);
          });
+     };
+@@ -240,7 +263,10 @@ var WindowsPtyAgent = /** @class */ (function () {
+         if (this._useConptyDll) {
+             return;
+         }
+-        this._inSocket.readable = false;
++        // A shell can exit before the environment drains. Release its console and
++        // worker too: the registry no longer owns a running process to kill (#2052).
++        this.kill();
++        this._inSocket.destroy();
+         this._outSocket.readable = false;
+         this._outSocket.destroy();
      };

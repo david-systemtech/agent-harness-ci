@@ -13,8 +13,10 @@ afterEach(() => vi.useRealTimers());
 function terminal() {
   vi.useFakeTimers();
   const events: string[] = [];
+  const resources = new Set<string>();
+  let exit: (code: number) => void = () => { throw new Error("Native exit callback was not registered"); };
   const helper = Object.assign(new EventEmitter(), { kill: () => events.push("helper killed") });
-  const native = { startProcess: () => ({ pty: 1, conin: "input" }), connect: () => ({ pid: 123 }),
+  const native = { startProcess: () => ({ pty: 1, conin: "input" }), connect: (...args: unknown[]) => { exit = args[5] as (code: number) => void; return { pid: 123 }; },
     kill: () => events.push("console closed") };
   const exports = {} as { WindowsPtyAgent: new (...args: unknown[]) => { kill(): void } };
   runInNewContext(source("windowsPtyAgent"), {
@@ -27,17 +29,24 @@ function terminal() {
         case "os": return { release: () => "10.0.19045" };
         case "path": return require("node:path");
         case "child_process": return { fork: () => helper };
-        case "net": return { Socket: class extends EventEmitter { setEncoding() {} } };
+        case "net": return { Socket: class extends EventEmitter {
+          private readonly resource: string;
+          constructor(options?: { fd: number }) { super(); this.resource = options ? "input socket" : "output socket"; resources.add(this.resource); }
+          setEncoding() {}
+          destroy() { if (resources.delete(this.resource)) events.push(this.resource + " closed"); }
+        } };
         case "./utils": return { loadNativeModule: () => ({ module: native }) };
         case "./windowsConoutConnection": return { ConoutConnection: class {
-          onReady() {} dispose() { events.push("worker disposed"); }
+          constructor() { resources.add("output worker"); }
+          onReady() {}
+          dispose() { resources.delete("output worker"); events.push("worker disposed"); }
         } };
         default: throw new Error(`Unexpected dependency: ${name}`);
       }
     },
   });
   const pty = new exports.WindowsPtyAgent("cmd.exe", [], [], "/work", 80, 24, false, true, false, false);
-  return { pty, helper, events };
+  return { pty, helper, events, resources, exit: (code: number) => exit(code) };
 }
 
 it("captures and kills the console's processes before closing it, even when kill is repeated", async () => {
@@ -47,7 +56,7 @@ it("captures and kills the console's processes before closing it, even when kill
   pty.kill();
   helper.emit("message", { consoleProcessList: [123, 456] });
   await Promise.resolve();
-  expect(events).toEqual(["killed 123", "killed 456", "console closed", "worker disposed"]);
+  expect(events).toEqual(["killed 123", "killed 456", "console closed", "input socket closed", "worker disposed"]);
   expect(vi.getTimerCount()).toBe(0);
 });
 
@@ -107,5 +116,36 @@ it("keeps genuine helper errors actionable and settles cleanup just once", async
   await Promise.resolve();
   expect(events.filter((event) => event.includes("FreeConsole failed"))).toHaveLength(1);
   expect(events.filter((event) => event === "console closed")).toHaveLength(1);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("releases a naturally exited console after its final output drains, so the environment can exit", async () => {
+  const { helper, resources, exit } = terminal();
+  expect([...resources].sort()).toEqual(["input socket", "output socket", "output worker"]);
+  exit(0);
+  await vi.advanceTimersByTimeAsync(999);
+  expect(resources.size).toBe(3);
+  await vi.advanceTimersByTimeAsync(1);
+  // An already-gone shell returns no PIDs; the real helper's quiet reply is tested above.
+  helper.emit("message", { consoleProcessList: [] });
+  await Promise.resolve();
+  expect([...resources]).toEqual([]);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("closes the input pipe after forced console cleanup even before the native exit callback", async () => {
+  const { pty, helper, events, resources, exit } = terminal();
+  pty.kill();
+  expect(resources.has("input socket")).toBe(true);
+  helper.emit("message", { consoleProcessList: [123, 456] });
+  await Promise.resolve();
+  expect([...resources]).toEqual(["output socket"]);
+  expect(events.indexOf("input socket closed")).toBeGreaterThan(events.indexOf("console closed"));
+  exit(0);
+  await vi.advanceTimersByTimeAsync(999);
+  expect(resources.has("output socket")).toBe(true);
+  await vi.advanceTimersByTimeAsync(1);
+  expect([...resources]).toEqual([]);
+  expect(events.filter(event => event === "console closed")).toHaveLength(1);
   expect(vi.getTimerCount()).toBe(0);
 });
