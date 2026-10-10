@@ -1760,7 +1760,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     detectStateImport: () => detectSource(stateImportSource),
     stateImport: {
       environmentId: record.id,
-      underWay: () => stateImports.underWay()?.importId ?? null,
+      underWay: () => {
+        const active = stateImports.underWay();
+        return active !== null && !active.dryRun ? active.importId : null;
+      },
     },
     containment,
     isRoot,
@@ -2002,6 +2005,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       archive: sessionHandlers["sessions.archive"],
       pin: sessionHandlers["sessions.pin"],
       coordinator: stateImports,
+      onSettled: () => setupScheduler.trigger("carry-over"),
       sources: skillSources,
       forgeAccounts: () => verifiedOrigins(forge.list()),
       setAlwaysOn: skillHandlers["skills.setAlwaysOn"],
