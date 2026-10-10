@@ -44,15 +44,15 @@ const Part = ({ heading, children }: { readonly heading: string; readonly childr
 
 const Preference = ({ name, detail, icon: Icon, control }: { readonly name: string; readonly detail: string; readonly icon: LucideIcon; readonly control: (label: string) => ReactNode }) => {
   const label = useId();
-  return <div className="flex flex-wrap items-center justify-between gap-3">
-    <div className="flex min-w-0 flex-1 items-start gap-2.5">
+  return <div data-theme-preference={name} className="flex flex-wrap items-center justify-between gap-3">
+    <div className="theme-preference-label flex items-start gap-2.5">
       <Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-ink-muted" />
-      <div className="flex min-w-0 flex-col gap-0.5">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span id={label} className="text-xs font-medium text-ink">{name}</span>
         <span className="text-2xs text-ink-faint">{detail}</span>
       </div>
     </div>
-    {control(label)}
+    <div className="theme-preference-control min-w-0 max-w-full">{control(label)}</div>
   </div>;
 };
 

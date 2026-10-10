@@ -28,6 +28,13 @@ export const PHONE_PROFILES = [
   { suffix: "phone-390-keyboard", viewport: { width: 390, height: 480 }, textSize: 14 },
 ] as const;
 
+/** Theme instructions at both phone widths, supported larger text and keyboard height (#2080). */
+const THEME_PHONE_PROFILES = [360, 390].flatMap(width => [16, 20].flatMap(textSize => [false, true].map(keyboard => ({
+  // Keep the trusted publisher's established dimension suffix; text size belongs to the scene name.
+  suffix: `text-${textSize}-phone-${width}${keyboard ? width === 360 ? "-short" : "-keyboard" : ""}`,
+  viewport: { width, height: width === 360 ? keyboard ? 400 : 740 : keyboard ? 480 : 844 }, textSize,
+}))));
+
 /**
  * Laptop windows shorter than the standard captures, where a dialog's header and footer must stay in the
  * window (look.md §11.1; #1690 measured the sign-in dialog off-screen at 1280 × 800 and 1280 × 700). The
@@ -61,7 +68,7 @@ export function capturePlan(scenes: readonly string[]) {
   );
   const phone: CaptureCase[] = scenes.filter(scene => scene.startsWith("phone-")).flatMap(scene =>
     // Surface scenes carry the full matrix; scaffold and duplicate keyboard scenes keep one proof.
-    (scene.startsWith("phone-landscape-") ? LANDSCAPE_PHONE_PROFILES : scene.startsWith("phone-compact-composer-") ? COMPACT_COMPOSER_PROFILES : PHONE_PROFILES).filter(profile => {
+    (scene === "phone-settings-theme" ? THEME_PHONE_PROFILES : scene.startsWith("phone-landscape-") ? LANDSCAPE_PHONE_PROFILES : scene.startsWith("phone-compact-composer-") ? COMPACT_COMPOSER_PROFILES : PHONE_PROFILES).filter(profile => {
       if (scene === "phone-keyboard-dock") return profile.suffix === "phone-390";
       if (scene === "phone-gallery-conversation") return profile.suffix === "phone-390";
       if (scene === "phone-pairing-unlisted-origin") return profile.suffix === "phone-390";

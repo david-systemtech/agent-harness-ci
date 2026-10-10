@@ -4,6 +4,7 @@ import { chromium } from "playwright";
 import { capturePlan, captureShard, sceneFiles } from "./capture-plan.js";
 import { verifyPhoneMenuReachability } from "./phone-menu-reachability.js";
 import { verifyPhonePairingReachability } from "./phone-pairing-reachability.js";
+import { verifyPhoneThemeReachability } from "./phone-theme-reachability.js";
 import { measureSceneGeometry } from "./geometry.js";
 import { waitForFloatingLayout } from "./floating-layout.js";
 import { compareCapture, geometryFailures, galleryFailed } from "./compare.js";
@@ -64,6 +65,7 @@ try {
       ...await page.evaluate(measureSceneGeometry),
       ...(scene.startsWith("phone-more-") ? await page.evaluate(verifyPhoneMenuReachability) : []),
       ...(scene === "phone-connections-pairing" ? await page.evaluate(verifyPhonePairingReachability) : []),
+      ...(scene === "phone-settings-theme" ? await page.evaluate(verifyPhoneThemeReachability) : []),
       ...geometryFailures(measured, [{ measure: "$window", property: "overflow", maximum: 0 }]),
       ...(platform === "web" ? await page.evaluate((size) => {
         const actual = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
