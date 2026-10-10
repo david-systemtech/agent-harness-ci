@@ -63,14 +63,20 @@ const setUpdates = (client: WireClient, values: ParamsOf<"updates.settings.set">
 /** The paths of the desktop builds the release source served. */
 const buildReads = (fake: FakeReleaseSource) => fake.reads().filter((request) => /\.(pacman|exe)$/.test(request.path));
 
+const deferred = () => {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => { resolve = done; });
+  return { promise, resolve };
+};
+
 describe("updates.desktop.stage", () => {
   it.each(["done", "refused"] as const)("finishes an anonymous download (%s) after the environment closes without reading the closed log or reporting a handler failure, and stages again after restart", async (outcome) => {
     const fake = await startFakeReleaseSource("github");
     onCleanup(() => fake.forge.close());
     fake.publish(release("0.5.0"));
-    const held = Promise.withResolvers<void>();
-    const released = Promise.withResolvers<void>();
-    const finished = Promise.withResolvers<void>();
+    const held = deferred();
+    const released = deferred();
+    const finished = deferred();
     const dataDir = tempDir();
     const t = await startTestEnvironment({
       dataDir,
