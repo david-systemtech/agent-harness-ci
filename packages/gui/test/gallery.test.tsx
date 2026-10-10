@@ -35,6 +35,25 @@ it("refuses an unknown scene rather than capturing a different window", async ()
   await expect(mountGallery(document.createElement("div"), "missing-scene")).rejects.toThrow("Unknown gallery scene");
 });
 
+it("captures the empty grid at 20px after checking every welcome control and legend row can scroll into view", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, "grid-empty-text-20");
+  close = gallery.close;
+  expect(await gallery.ready).toBe(true);
+  expect(gallery.world.presentation.values.read().textSize).toBe(20);
+  expect(screen.getAllByRole("region", { name: "Session pane" })).toHaveLength(3);
+  expect(screen.getAllByRole("list", { name: "Keyboard shortcuts" })).toHaveLength(3);
+  expect(container.querySelector('[data-welcome-scroll-proof="passed"]')).not.toBeNull();
+  expect(JSON.parse(container.dataset["galleryGeometry"] ?? "null")).toEqual(expect.arrayContaining([
+    { selector: "html", fontSize: 16 * 20 / 14 },
+    // Hosted 20px capture measures the rem-scaled tile at 62.84 CSS pixels.
+    { selector: "[data-welcome-tile]", width: expect.closeTo(62.84, 1), height: expect.closeTo(62.84, 1) },
+    { selector: "[data-welcome]", visibleWithin: "[data-grid-card]" },
+    { selector: "[data-grid-card]", unscrollable: true },
+  ]));
+});
+
 it("renders the session window with nine sessions and its sidebar geometry contract", async () => {
   const container = document.createElement("div");
   document.body.append(container);

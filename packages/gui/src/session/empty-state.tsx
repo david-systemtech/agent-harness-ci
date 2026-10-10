@@ -27,8 +27,8 @@ export const Welcome = ({ children, sentence = "A place to work with coding agen
   readonly macOS?: boolean;
 }) => {
   const { narrow } = usePhoneFrame();
-  return <div data-welcome className="@container flex min-h-[60vh] min-w-0 flex-1 flex-col items-center justify-center gap-6 px-8 py-12">
-    <div className="flex w-full max-w-[512px] flex-col items-center gap-6">
+  return <div data-welcome className="@container flex min-h-0 min-w-0 flex-1 flex-col items-center overflow-y-auto px-8 py-12">
+    <div className="my-auto flex w-full max-w-[512px] shrink-0 flex-col items-center gap-6">
       <div data-welcome-tile className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-beam text-beam-ink">
         <SquareTerminal aria-hidden="true" className="size-[22px]" />
       </div>
