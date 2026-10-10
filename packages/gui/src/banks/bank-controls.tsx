@@ -1,6 +1,6 @@
 import type { PlainRefusal } from "@agent-harness/client-runtime";
 import { ArrowUpRight, Link, UserRound, UsersRound, type LucideIcon } from "lucide-react";
-import { cloneElement, useId, useState, type ReactElement } from "react";
+import { cloneElement, useId, useLayoutEffect, useRef, useState, type ReactElement } from "react";
 import { CopyLine } from "../settings/copy-line.js";
 import { useSettings } from "../settings/settings-window.js";
 import { useChecklist } from "../setup/checklist-window.js";
@@ -48,7 +48,7 @@ export const BankField = ({ label, icon: Icon, children, wide = false, hint, err
   const control = error === undefined ? children : cloneElement(children, { "aria-describedby": errorId, "aria-invalid": true });
   return <div data-bank-field className={wide ? "max-w-[320px]" : "max-w-[224px]"}>
     <div className="flex items-start gap-2"><Icon aria-hidden="true" className="mt-1 size-4 shrink-0 text-ink-muted" /><Tooltip content={label} keys="Tab to focus, type to edit"><div className="min-w-0 flex-1"><Field label={label} {...(hint !== undefined && { description: hint })}>{control}</Field></div></Tooltip></div>
-    {error !== undefined && <p id={errorId} role="alert" className="mt-1 pl-6 text-sm text-signal"><span className="sr-only">Error: </span>{error}</p>}
+    {error !== undefined && <p id={errorId} role="alert" tabIndex={-1} className="mt-1 pl-6 text-sm text-signal"><span className="sr-only">Error: </span>{error}</p>}
   </div>;
 };
 
@@ -58,13 +58,21 @@ const empties = <Field extends string>(fields: Readonly<Record<Field, readonly [
 
 /** A press with an empty field says so beside it and sends nothing; one with every field filled sends. */
 export const useFieldCheck = <Field extends string>() => {
+  const form = useRef<HTMLDivElement>(null);
   const [missing, setMissing] = useState<Partial<Record<Field, string>>>({});
+  // Wait for every field error, including choice errors, to render before focusing in form order.
+  useLayoutEffect(() => {
+    const control = form.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+    if (control == null) return;
+    control.focus();
+    if (control.ownerDocument.activeElement !== control) control.closest("[data-bank-field]")?.querySelector<HTMLElement>('[role="alert"]')?.focus();
+  }, [missing]);
   const press = (fields: Readonly<Record<Field, readonly [string, string]>>, send: () => void) => {
     const found = empties(fields);
     setMissing(found);
     if (Object.keys(found).length === 0) send();
   };
-  return { missing, press };
+  return { missing, press, form };
 };
 
 /** A refusal's plain line, never cut, its raw facts under Details with Copy details (setup-copy.md §3). */
