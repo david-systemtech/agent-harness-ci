@@ -4,7 +4,8 @@ import { usePhoneFrame } from "../frame/phone-frame.js";
 import { toast } from "../ui/toaster.js";
 import type { Offer } from "../keys/key-dispatch.js";
 import type { GridPane, PaneLayout, PaneSession } from "../presentation.js";
-import { usePresentation } from "../window-context.js";
+import { useSurfaces } from "../new-session/surfaces.js";
+import { usePresentation, useRuntime } from "../window-context.js";
 import {
   GRID_FULL,
   addNewSession,
@@ -128,6 +129,8 @@ export interface PaneGrid {
 export const usePaneGrid = (): PaneGrid => {
   const { narrow } = usePhoneFrame();
   const [layout, setLayout] = usePresentation("paneLayout");
+  const runtime = useRuntime();
+  const { messages } = useSurfaces();
   const say = useRefusal();
   const [dragged, drag] = use(DragContext) ?? [null, () => {}];
   return useMemo<PaneGrid>(() => {
@@ -178,7 +181,26 @@ export const usePaneGrid = (): PaneGrid => {
         const id = uuidv4();
         let shown = id;
         change((held) => {
-          const next = showNewSession(held, held.focused, carried, id);
+          let next = showNewSession(held, held.focused, carried, id);
+          const surface = focusedPane(next).newSession;
+          if (surface !== undefined) {
+            const pending = messages.get(surface.id);
+            const message = pending?.read();
+            const environmentId = runtime.projections.newSession(surface).read().environment.value;
+            const used = environmentId !== null && (
+              message?.collisionEnvironmentId === environmentId || runtime.projections.sessionList.read().rows.some(row =>
+                row.environmentId === environmentId && row.summary.id.toLowerCase() === surface.id.toLowerCase(),
+              )
+            );
+            // A successful create owns this id: a refused first message must retry on it.
+            if (used && !message?.starting && message?.environmentId == null) {
+              if (pending !== undefined) {
+                pending.update(message => ({ ...message, line: undefined, collisionEnvironmentId: null }));
+                messages.set(id, pending);
+              }
+              next = showNewSession(held, held.focused, carried, id, true);
+            }
+          }
           shown = focusedPane(next).newSession?.id ?? id;
           return next;
         });
@@ -191,5 +213,5 @@ export const usePaneGrid = (): PaneGrid => {
       chooseChips: (id, choose) => setLayout((held) => chooseChips(held, id, choose)),
       refuse: (line = GRID_FULL) => say(line),
     };
-  }, [layout, setLayout, say, dragged, drag, narrow]);
+  }, [layout, setLayout, say, dragged, drag, narrow, runtime, messages]);
 };

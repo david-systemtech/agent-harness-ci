@@ -436,6 +436,69 @@ describe("the workspace chip", () => {
 });
 
 describe("the first send", () => {
+  it("replaces a restored used ID before submitting while ordinary unsent composers keep their ID and choices", async () => {
+    const app = await withOpen("Train tidy");
+    await app.user.click(headingControl("laptop"));
+    const surface = () => surfaces()[0] as HTMLElement;
+    await chipsRead(surface, TRAIN_CHIPS);
+    await typeOn(app, surface(), "Unsent message");
+    const layout = app.presentation.values.read().paneLayout;
+    const reserved = layout.rows[0]?.panes[0]?.newSession?.id;
+    await app.user.click(within(sidebar()).getByRole("button", { name: "New session" }));
+    await app.user.click(headingControl("laptop"));
+    expect(app.presentation.values.read().paneLayout.rows[0]?.panes[0]?.newSession?.id).toBe(reserved);
+    await chipsRead(surface, TRAIN_CHIPS);
+    expect(messageBox(surface())).toHaveProperty("value", "Unsent message");
+
+    const usedId = app.environment("laptop").sessionId(0);
+    act(() => app.presentation.set("paneLayout", {
+      ...layout, rows: layout.rows.map(line => ({ ...line, panes: line.panes.map(pane => ({
+        ...pane, ...(pane.newSession !== undefined && { newSession: { ...pane.newSession, id: usedId.toUpperCase() } }),
+      })) })),
+    }));
+    // A stale restored composer can recover from the list without first attempting a create.
+    await app.user.click(within(sidebar()).getByRole("button", { name: "New session" }));
+    expect(app.presentation.values.read().paneLayout.rows[0]?.panes[0]?.newSession?.id?.toLowerCase()).not.toBe(usedId.toLowerCase());
+    await chipsRead(surface, TRAIN_CHIPS);
+    expect(params(app, "laptop", "sessions.create")).toEqual([]);
+    expect(row("Train tidy")).toBeDefined();
+  });
+
+  it.each(["heading", "sidebar"] as const)("recovers a restored used session ID through the %s New session control without losing the rejected message", async (control) => {
+    const receipts: Record<string, { rejected: "exists"; message: string }> = { "sessions.create": { rejected: "exists", message: "A session with this ID exists already." } };
+    const original = await launch({ laptop: { receipts } });
+    const usedId = original.environment("laptop").sessionId(0);
+    act(() => original.presentation.set("paneLayout", {
+      focused: "pane-1",
+      rows: [{ id: "row-1", height: 100, panes: [{ id: "pane-1", width: 100, session: null, newSession: {
+        id: usedId.toUpperCase(), focus: { kind: "environment", environmentId: LAPTOP_ID },
+        chips: { environmentId: LAPTOP_ID, account: { environmentId: LAPTOP_ID, accountId: "account-2" }, model: "claude-sonnet-5", workspace: { environmentId: LAPTOP_ID, request: { kind: "directory", path: "/work/retry" } } },
+      } }] }],
+    }));
+    const app = await original.remount();
+    await within(sidebar()).findByRole("button", { name: /Train tidy/ });
+    const surface = () => surfaces()[0] as HTMLElement;
+    const chosen = ["Environment: laptop", "Account: Home milo@home.test", "Model: Sonnet 5", "Workspace: directory retry"];
+    await chipsRead(surface, chosen);
+    await typeOn(app, surface(), "Keep this prompt{Enter}");
+    await waitFor(() => expect(within(surface()).getByRole("status").textContent).toContain("Choose New session to keep your message and choices, then send again."));
+    expect((messageBox(surface()) as HTMLTextAreaElement).value).toBe("Keep this prompt");
+    expect(params(app, "laptop", "runs.start")).toEqual([]);
+    delete receipts["sessions.create"];
+
+    await app.user.click(control === "heading" ? headingControl("laptop") : within(sidebar()).getByRole("button", { name: "New session" }));
+    expect(grid()).toEqual([["*+"]]);
+    await chipsRead(surface, chosen);
+    expect((messageBox(surface()) as HTMLTextAreaElement).value).toBe("Keep this prompt");
+    await typeOn(app, surface(), "{Enter}");
+    await waitFor(() => expect(params(app, "laptop", "runs.start")).toHaveLength(1));
+    const creates = params(app, "laptop", "sessions.create") as { id: string }[];
+    expect(creates[1]?.id.toLowerCase()).not.toBe(usedId.toLowerCase());
+    expect(params(app, "laptop", "runs.start")[0]).toEqual(expect.objectContaining({ sessionId: creates[1]?.id, text: "Keep this prompt" }));
+    expect(row("Train tidy")).toBeDefined();
+    expect(params(app, "laptop", "sessions.delete")).toEqual([]);
+  });
+
   it("labels the single send action Starting while creation is pending and ignores repeated sends", async () => {
     const app = await withOpen("Train tidy");
     await app.user.keyboard("{Control>}n{/Control}");

@@ -81,6 +81,30 @@ it("selects a directory on the environment by tap and restores focus after cance
   ]));
 });
 
+it("recovers an exists rejection before the session list sees the collision, keeping the first message and files", async () => {
+  const receipts: Record<string, ScriptedReceipt> = { "sessions.create": { rejected: "exists", message: "A session with this ID exists already." } };
+  const { user, env, surface, box } = await open(receipts);
+  await user.type(box, "Read this note");
+  await user.upload(screen.getByLabelText("Files to attach"), new File([new Uint8Array([137, 80, 78, 71])], "note.png", { type: "image/png" }));
+  await within(surface).findByRole("list", { name: "Attachments" });
+  await user.click(within(surface).getByRole("button", { name: "Send" }));
+  await within(surface).findByText("Not started: a session already exists for this composer. Choose New session to keep your message and choices, then send again.");
+  const rejected = env.requests("sessions.create")[0]?.params as { id: string };
+  expect(env.requests("runs.start")).toEqual([]);
+  expect(box).toHaveProperty("value", "Read this note");
+  receipts["sessions.create"] = "accepted";
+  await user.click(screen.getByRole("button", { name: "More" }));
+  await user.click(await screen.findByRole("menuitem", { name: "New session" }));
+  const recovered = await screen.findByRole("region", { name: "New session" });
+  expect(within(recovered).getByRole("textbox", { name: "Message" })).toHaveProperty("value", "Read this note");
+  expect(within(recovered).getByRole("list", { name: "Attachments" }).textContent).toContain("note.png");
+  await user.click(within(recovered).getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(env.requests("runs.start")).toHaveLength(1));
+  const created = env.requests("sessions.create")[1]?.params as { id: string };
+  expect(created.id).not.toBe(rejected.id);
+  expect(env.requests("runs.start")[0]?.params).toEqual(expect.objectContaining({ sessionId: created.id, text: "Read this note", attachments: [{ kind: "image", name: "note.png", mediaType: "image/png", data: "iVBORw==" }] }));
+});
+
 it("keeps the selected phone files after a refused first send and retries on the same created session", async () => {
   const receipts: Record<string, ScriptedReceipt> = { "runs.start": { rejected: "unavailable", message: "The provider is temporarily unavailable." } };
   const { user, env, surface, box } = await open(receipts);
@@ -93,6 +117,10 @@ it("keeps the selected phone files after a refused first send and retries on the
   expect(box).toHaveProperty("value", "Read this note");
   expect(within(surface).getByRole("list", { name: "Attachments" }).textContent).toContain("note.png");
   expect(within(surface).getByRole("button", { name: /^Workspace:/ }).closest("fieldset")).toHaveProperty("disabled", true);
+  // New session must not replace the id owned by an accepted create.
+  await user.click(screen.getByRole("button", { name: "More" }));
+  await user.click(await screen.findByRole("menuitem", { name: "New session" }));
+  expect(screen.getByRole("region", { name: "New session" })).toBe(surface);
   receipts["runs.start"] = "accepted";
   await user.click(within(surface).getByRole("button", { name: "Send" }));
   await waitFor(() => expect(env.requests("runs.start")).toHaveLength(2));

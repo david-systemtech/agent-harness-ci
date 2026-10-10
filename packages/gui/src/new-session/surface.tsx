@@ -45,7 +45,7 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
   const { messages, focusAsked, askFocus } = useSurfaces();
   const { id, focus, chips } = surface;
   const [pending] = useState<Writable<NewSessionMessage>>(() => {
-    const held = messages.get(id) ?? writable<NewSessionMessage>({ text: "", attachments: [], environmentId: null, starting: false, line: undefined });
+    const held = messages.get(id) ?? writable<NewSessionMessage>({ text: "", attachments: [], environmentId: null, collisionEnvironmentId: null, starting: false, line: undefined });
     messages.set(id, held);
     return held;
   });
@@ -153,6 +153,7 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
         ...(model !== null && { model: model.id }),
       });
       if (!answer.ok) {
+        if (answer.error.code === "exists") pending.update(held => ({ ...held, collisionEnvironmentId: environmentId }));
         setStarting(false);
         const where = environment === undefined ? "the environment" : nameOf(environment);
         return say(refusalLine(answer.error, workspace, { where, environmentId, rows: runtime.projections.sessionList.read().rows }));

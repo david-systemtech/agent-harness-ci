@@ -25,6 +25,8 @@ export interface NewSessionMessage {
   readonly attachments: readonly AttachmentInput[];
   /** Once creation is accepted, retries must use this environment. */
   readonly environmentId: string | null;
+  /** An exists rejection proves the reserved id is used even when the list has not caught up. */
+  readonly collisionEnvironmentId: string | null;
   readonly starting: boolean;
   readonly line: string | undefined;
 }
