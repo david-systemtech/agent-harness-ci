@@ -47,6 +47,8 @@ it("captures the empty grid at 20px after checking every welcome control and leg
   expect(container.querySelector('[data-welcome-scroll-proof="passed"]')).not.toBeNull();
   expect(JSON.parse(container.dataset["galleryGeometry"] ?? "null")).toEqual(expect.arrayContaining([
     { selector: "html", fontSize: 16 * 20 / 14 },
+    // Hosted 20px capture measures the rem-scaled tile at 62.84 CSS pixels.
+    { selector: "[data-welcome-tile]", width: expect.closeTo(62.84, 1), height: expect.closeTo(62.84, 1) },
     { selector: "[data-welcome]", visibleWithin: "[data-grid-card]" },
     { selector: "[data-grid-card]", unscrollable: true },
   ]));

@@ -13,7 +13,7 @@ export const geometry: readonly SceneGeometry[] = [
   PANE_CARD_UNSCROLLABLE,
   { selector: "html", fontSize: 16 * 20 / 14 },
   { selector: "[data-welcome]", visibleWithin: "[data-grid-card]" },
-  { selector: "[data-welcome-tile]", width: 44, height: 44 },
+  { selector: "[data-welcome-tile]", width: 44 * 20 / 14, height: 44 * 20 / 14 },
 ];
 
 export const activate = () => {
