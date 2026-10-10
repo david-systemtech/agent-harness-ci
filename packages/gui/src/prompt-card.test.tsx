@@ -144,6 +144,14 @@ describe("an approval", () => {
       vi.mocked(prompt.getBoundingClientRect).mockReturnValue(new DOMRect(0, 0, 1000, 620));
       resize();
       expect(above.style.getPropertyValue("--session-prompt-height")).toBe("388px");
+      // Compact composer controls free a row; that must not turn compact mode off and back on.
+      vi.mocked(column.getBoundingClientRect).mockReturnValue(new DOMRect(0, 0, 1000, 745));
+      resize();
+      expect(above.style.getPropertyValue("--session-prompt-height")).toBe("443px");
+      expect(above.dataset["promptSpace"]).toBe("compact");
+      paneHeight = 800;
+      resize();
+      expect(above.dataset["promptSpace"]).toBe("bounded");
     } finally { vi.restoreAllMocks(); vi.unstubAllGlobals(); }
   });
 

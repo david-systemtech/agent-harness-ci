@@ -20,8 +20,10 @@ export function usePromptSpace(above: RefObject<HTMLDivElement | null>, enabled:
       const padding = (Number.parseFloat(reading.paddingTop) || 0) + (Number.parseFloat(reading.paddingBottom) || 0);
       const available = Math.max(0, pane.getBoundingClientRect().height - reserved - controls - (3 * lineHeight + padding));
       strip.style.setProperty("--session-prompt-height", `${available}px`);
-      // Below 400px, expanded note and repeated action explanations compete with the request well.
-      strip.dataset["promptSpace"] = available < 400 ? "compact" : "bounded";
+      // Compact controls remove a composer row. Leave room for that row to return before expanding,
+      // so its own height change cannot repeatedly cross the 400px entry threshold.
+      const threshold = strip.dataset["promptSpace"] === "compact" ? 464 : 400;
+      strip.dataset["promptSpace"] = available < threshold ? "compact" : "bounded";
     };
     const observer = new ResizeObserver(measure);
     for (const element of [pane, column, strip, transcript]) observer.observe(element);
