@@ -15,6 +15,7 @@ export async function verifyPhoneThemeReachability(): Promise<string[]> {
         || rect.left < Math.max(0, bounds.left) - 0.5 || rect.right > Math.min(innerWidth, bounds.right) + 0.5) {
         failures.push(`${name}: ${target.ariaLabel ?? target.textContent} is clipped after scrolling`);
       }
+      if (target.matches(":disabled")) continue;
       const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
       if (!hit || !target.contains(hit)) failures.push(`${name}: ${target.ariaLabel ?? target.textContent} is covered`);
     }

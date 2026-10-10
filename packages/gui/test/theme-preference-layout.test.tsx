@@ -70,6 +70,16 @@ it("plans both ladders at 360px and 390px, text 16 and 20, with and without the 
   const plan = capturePlan(["phone-settings-theme"]);
   expect(plan.captures).toHaveLength(16);
   expect(new Set(plan.captures.map(capture => capture.viewport.width))).toEqual(new Set([360, 390]));
-  expect(new Set(plan.captures.map(capture => capture.viewport.height))).toEqual(new Set([844, 480]));
+  expect(plan.captures.filter(capture => capture.ladder === "dark").map(capture =>
+    [capture.name, capture.viewport.width, capture.viewport.height, capture.textSize])).toEqual([
+    ["phone-settings-theme-text-16-phone-360.dark", 360, 740, 16],
+    ["phone-settings-theme-text-16-phone-360-short.dark", 360, 400, 16],
+    ["phone-settings-theme-text-20-phone-360.dark", 360, 740, 20],
+    ["phone-settings-theme-text-20-phone-360-short.dark", 360, 400, 20],
+    ["phone-settings-theme-text-16-phone-390.dark", 390, 844, 16],
+    ["phone-settings-theme-text-16-phone-390-keyboard.dark", 390, 480, 16],
+    ["phone-settings-theme-text-20-phone-390.dark", 390, 844, 20],
+    ["phone-settings-theme-text-20-phone-390-keyboard.dark", 390, 480, 20],
+  ]);
   expect(new Set(plan.captures.map(capture => capture.textSize))).toEqual(new Set([16, 20]));
 });

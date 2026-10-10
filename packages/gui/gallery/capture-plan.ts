@@ -29,9 +29,10 @@ export const PHONE_PROFILES = [
 ] as const;
 
 /** Theme instructions at both phone widths, supported larger text and keyboard height (#2080). */
-const THEME_PHONE_PROFILES = [360, 390].flatMap(width => [16, 20].flatMap(textSize => [844, 480].map(height => ({
-  suffix: `phone-${width}-text-${textSize}${height === 480 ? "-keyboard" : ""}`,
-  viewport: { width, height }, textSize,
+const THEME_PHONE_PROFILES = [360, 390].flatMap(width => [16, 20].flatMap(textSize => [false, true].map(keyboard => ({
+  // Keep the trusted publisher's established dimension suffix; text size belongs to the scene name.
+  suffix: `text-${textSize}-phone-${width}${keyboard ? width === 360 ? "-short" : "-keyboard" : ""}`,
+  viewport: { width, height: width === 360 ? keyboard ? 400 : 740 : keyboard ? 480 : 844 }, textSize,
 }))));
 
 /**
