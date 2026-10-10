@@ -8,7 +8,7 @@ let close: (() => Promise<void>) | undefined;
 afterEach(async () => { await close?.(); close = undefined; document.body.replaceChildren(); });
 
 it.each([
-  ["dialog-pairing", "Pair with an environment", 512],
+  ["dialog-pairing", "Connect to another computer", 512],
   ["dialog-restore", "Restore a deleted session", 512],
   ["dialog-run-info", "Run info", 512],
   ["dialog-hand-off", "Hand off Check the receipts on desk", 560],

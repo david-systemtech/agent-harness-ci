@@ -151,6 +151,11 @@
     },
     {
       "rule": "private-ip",
+      "path": "^packages/client\\-runtime/src/pairing\\.ts$",
+      "value": "192\\.168\\.1\\.20"
+    },
+    {
+      "rule": "private-ip",
       "path": "^packages/contracts/src/browser\\-policy\\.ts$",
       "value": "(?:100\\.100\\.100\\.200|fd00:ec2::254)"
     },

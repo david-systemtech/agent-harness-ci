@@ -86,8 +86,8 @@ it("draws the phone pairing screen's refusal of a further origin, served at the 
   const gallery = await mountGallery(root, "phone-pairing-unlisted-origin", "dark", registry, { platform: "web", textSize: 14 });
   close = gallery.close;
   expect(await gallery.ready).toBe(true);
-  const status = document.querySelector('[data-phone-pairing] [role="status"]')!;
+  const refusal = document.querySelector('[data-phone-pairing] [data-pairing-refusal]')!;
   expect(screen.getByRole("button", { name: "More" })).toBeDefined();
-  expect(Array.from(status.querySelectorAll("[data-pairing-origin]"), (origin) => origin.textContent)).toEqual(["https://second-laptop.example.test:8444", "https://second-laptop.example.test:8444", location.origin]);
+  expect(Array.from(refusal.querySelectorAll("[data-pairing-origin]"), (origin) => origin.textContent)).toEqual(["second-laptop.example.test:8444", "second-laptop.example.test:8444"]);
   expect(screen.getByRole("button", { name: "Browser origins" })).toBeDefined();
 });

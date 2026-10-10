@@ -48,7 +48,7 @@ export const ProgramPairing = ({ view, writable }: { readonly view: EnvironmentV
         </Select>
       </div>
       {scopes.length === 0 && <p className="text-xs text-ink-faint">Tick at least one scope.</p>}
-      <PairingCode view={view} writable={writable && scopes.length > 0} grant={{ scopes, ceiling }} action="Make a program's pairing code" />
+      <PairingCode view={view} writable={writable && scopes.length > 0} grant={{ scopes, ceiling }} action="Make a program's pairing code" grantShown />
     </div>
   );
 };

@@ -3,6 +3,7 @@ import { LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
 import { PROTOCOL_VERSION, SCOPES } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type RenderedApp } from "../test/harness.js";
+import { pairingLine } from "./commands/pair.js";
 
 /**
  * Pairing both ways (docs/specs/tui.md, "First launch"): `/pair <link>` and
@@ -82,31 +83,35 @@ describe("/pair", () => {
 
   // Each typed failure with the runtime's own line for it.
   const failures = [
-    ["expired-code", { name: "laptop", reach: "unpaired", pairing: "expired-code" }, {}, "The pairing code has expired"],
-    ["used-code", { name: "laptop", reach: "unpaired", pairing: "used-code" }, {}, "The pairing code has been used already"],
+    ["expired-code", { name: "laptop", reach: "unpaired", pairing: "expired-code" }, {}, "This code has run out"],
+    ["used-code", { name: "laptop", reach: "unpaired", pairing: "used-code" }, {}, "This code was already used"],
     ["unreachable", { name: "laptop", reach: "unpaired", discovery: "nothing" }, {}, "Nothing answered"],
-    ["protocol-mismatch", { name: "laptop", reach: "unpaired" }, { protocolVersion: PROTOCOL_VERSION + 1 }, "update the environment"],
-    ["not-ready", { name: "laptop", reach: "unpaired", discovery: "starting" }, {}, "starting"],
+    ["protocol-mismatch", { name: "laptop", reach: "unpaired" }, { protocolVersion: PROTOCOL_VERSION + 1 }, "Update laptop, then pair again"],
+    ["not-ready", { name: "laptop", reach: "unpaired", discovery: "starting" }, {}, "still starting"],
     [
       "different-environment",
       { name: "laptop", reach: "unpaired", hello: { environmentId: "0199aa00-0000-7000-8000-0000000000ff" } },
       {},
-      "not the one its address named",
+      "reaches a different computer",
     ],
   ] as const;
 
-  it.each(failures)("renders the %s failure as one line", async (_reason, environment, options, words) => {
+  it.each(failures)("renders the %s failure as one message, in the runtime's plain words", async (_reason, environment, options, words) => {
     const app = await launch({ script: { environments: [environment] }, service: { installed: false }, ...options });
     await run(app, `/pair ${app.environment("laptop").wire.link}`);
     await app.waitFor("Not paired: ");
-    expect(rowsWith(app.frame(), "Not paired: ")[0]).toContain(words);
-    const rows = rowsWith(app.frame(), "Not paired");
-    expect(rows).toHaveLength(1);
-    const row = rows[0] as string;
-    const next = app.frame().split("\n")[app.frame().split("\n").indexOf(row) + 1] ?? "";
-    // The line after it is the question line or the composer, not the failure wrapping on.
-    expect(next.trim() === "" || next.includes("›"), app.frame()).toBe(true);
+    // A plain line may be longer than the frame is wide: it wraps at word breaks, and is said once.
+    await app.waitFor(words);
+    expect(rowsWith(app.frame(), "Not paired")).toHaveLength(1);
     expect(app.runtime().connections.list.read().map((r) => r.environmentId)).toEqual([LOCAL_PLACEHOLDER_ID]);
+  });
+
+  it("says the raw failure behind the plain line after it, as the GUI's Details holds it, and nothing more without one", () => {
+    const failure = { reason: "unreachable", message: "Nothing answered at laptop.test:7433." } as const;
+    expect(pairingLine({ status: "failed", failure: { ...failure, details: ["http://laptop.test:7433: fetch failed", "ECONNREFUSED"] } }, [])).toBe(
+      "Not paired: Nothing answered at laptop.test:7433. Details: http://laptop.test:7433: fetch failed; ECONNREFUSED",
+    );
+    expect(pairingLine({ status: "failed", failure }, [])).toBe("Not paired: Nothing answered at laptop.test:7433.");
   });
 });
 

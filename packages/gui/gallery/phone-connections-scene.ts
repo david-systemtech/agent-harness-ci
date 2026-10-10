@@ -7,6 +7,7 @@ export const phoneConnectionsScene = (kind: "machines" | "access" | "custom"): S
   activate: () => {
     let opened = false;
     let arranged = false;
+    let unfolded = false;
     const advance = () => {
       if (!opened) {
         const button = document.querySelector<HTMLButtonElement>('[aria-label="Settings"]');
@@ -15,10 +16,16 @@ export const phoneConnectionsScene = (kind: "machines" | "access" | "custom"): S
       }
       if (kind === "custom") {
         const choice = document.querySelector<HTMLButtonElement>('[role="radio"][aria-label="Custom"]');
+        // Custom sits under More options (setup-copy.md §5.5).
+        if (!choice && !unfolded) {
+          const more = Array.from(document.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")).find((button) => button.textContent === "More options");
+          if (more) { unfolded = true; more.click(); }
+          return;
+        }
         if (!choice || choice.disabled) return;
         if (choice.getAttribute("aria-checked") !== "true") { choice.click(); return; }
       }
-      const target = document.querySelector<HTMLElement>(kind === "custom" ? '[role="group"][aria-label="Scopes"]' : '[data-connection-grant]');
+      const target = document.querySelector<HTMLElement>(kind === "custom" ? '[role="group"][aria-label="What it can do"]' : '[data-connection-grant]');
       if (target && !arranged) {
         arranged = true;
         requestAnimationFrame(() => {
@@ -38,7 +45,7 @@ export const phoneConnectionsScene = (kind: "machines" | "access" | "custom"): S
     { selector: "[data-settings-dialog] button", renderedOnly: true, minimumHeight: 44, minimumWidth: 44 },
     ...(kind === "custom" ? [
       { selector: '[data-settings-dialog] label:has([role="checkbox"])', renderedOnly: true, minimumHeight: 44 },
-      { selector: '[role="group"][aria-label="Scopes"]', visibleWithin: "[data-settings-scroll]", contentFits: true },
+      { selector: '[role="group"][aria-label="What it can do"]', visibleWithin: "[data-settings-scroll]", contentFits: true },
     ] : []),
     { selector: "[data-connection-grant]", renderedOnly: true, contentFits: true },
   ],

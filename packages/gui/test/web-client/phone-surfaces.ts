@@ -169,7 +169,7 @@ export async function phoneFrameSmoke(page: Page, engine: string): Promise<void>
     await expect(page.locator(".phone-frame-menu")).toHaveCount(0);
     const upgrade = page.getByRole("dialog", { name: "Give this phone full access", exact: true });
     await expect(upgrade).toBeVisible();
-    await expect(upgrade).toContainText("My own client");
+    await expect(upgrade).toContainText("card → Me");
     await upgrade.getByRole("button", { name: "Close", exact: true }).click();
     await expect(upgrade).toBeHidden();
     await expect(grant).toHaveAttribute("data-scopes", scopes);
