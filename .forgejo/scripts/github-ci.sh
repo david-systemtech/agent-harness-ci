@@ -18,6 +18,8 @@
 #
 # The `smoke` event (.forgejo/workflows/smoke.yml) first checks that the hosted
 # smoke and release workflows installed on `workflows` are this commit's.
+# The windows-pty event checks its hosted compile workflow the same way,
+# then retrieves that run's runtime payload into GH_CI_WINDOWS_PTY_OUT.
 #
 # Needs GH_CI_TOKEN: a fine-grained token for agent-harness-ci, with Contents
 # read/write (the push, and repository_dispatch) and Actions read (the run). GROUP is the pull request number or,
@@ -31,7 +33,10 @@ api=https://api.github.com/repos/$repo
 group=$(printf '%s' "$GROUP" | tr -c 'A-Za-z0-9._-' '-')
 # A separate network job shares the transport, not the unit suite.
 event=${GH_CI_EVENT:-ci}
-case "$event" in ci | catalogue | gallery | smoke) ;; *) echo "::error::unknown CI event"; exit 1 ;; esac
+case "$event" in ci | catalogue | gallery | smoke | windows-pty) ;; *) echo "::error::unknown CI event"; exit 1 ;; esac
+if [ "$event" = windows-pty ]; then
+  : "${GH_CI_WINDOWS_PTY_OUT:?Windows native payload destination is not set}"
+fi
 sha=$(git rev-parse HEAD)
 if [ "$event" = gallery ]; then
   # This script and its sibling publisher stay checked out from the trusted base.
@@ -153,14 +158,18 @@ tar -xzf "$gl/g.tgz" -C "$gl" gitleaks
 
 auth=(-c credential.https://github.com.helper= -c 'credential.https://github.com.helper=!f() { test "$1" = get && printf "username=x-access-token\npassword=%s\n" "$GH_CI_TOKEN"; }; f')
 export GH_CI_TOKEN GIT_TERMINAL_PROMPT=0
-if [ "$event" = smoke ]; then
+if [[ "$event" == smoke || "$event" == windows-pty ]]; then
   # The hosted smoke calls the release workflow, and both run as installed by hand on the relay
   # repository's `workflows` branch (#1769). A copy that is not this commit's would smoke another
   # release than the one this commit publishes, so nothing runs until both are installed byte for byte.
   git "${auth[@]}" fetch --quiet --no-tags "https://github.com/$repo.git" refs/heads/workflows ||
     { echo "::error::could not read $repo's workflows branch"; exit 1; }
   installed=$(git rev-parse FETCH_HEAD)
-  for pair in .forgejo/github-workflows/smoke.yml:.github/workflows/smoke.yml public/.github-workflows/release.yml:.github/workflows/release.yml; do
+  pairs=(.forgejo/github-workflows/smoke.yml:.github/workflows/smoke.yml public/.github-workflows/release.yml:.github/workflows/release.yml)
+  if [ "$event" = windows-pty ]; then
+    pairs=(.forgejo/github-workflows/windows-pty.yml:.github/workflows/windows-pty.yml)
+  fi
+  for pair in "${pairs[@]}"; do
     source=${pair%%:*} target=${pair#*:}
     if ! want=$(git rev-parse -q --verify "$sha:$source") || [ "$(git rev-parse -q --verify "$installed:$target")" != "$want" ]; then
       echo "::error::$repo's $target on its workflows branch is not this commit's $source; install it there byte for byte"
@@ -319,6 +328,38 @@ PYFORMAT
       # its inventory scan consume the publication job's remaining deadline.
     fi
   fi
+fi
+if [[ "$event" == windows-pty && "$conclusion" == success ]]; then
+  listing=$(gh_collection artifacts artifacts)
+  artifact=$(printf '%s' "$listing" | python3 -c '
+import json,sys
+items=[a for a in json.load(sys.stdin)["artifacts"] if a["name"]=="windows-pty"]
+if len(items)!=1 or items[0].get("expired") or not 0 < items[0]["size_in_bytes"] <= 67108864 or type(items[0]["id"]) is not int:
+    sys.exit("missing, expired, duplicate or oversized Windows native payload")
+print(items[0]["id"])')
+  gh_artifact -o "$gl/windows-pty.zip" "$api/actions/artifacts/$artifact/zip"
+  python3 - "$gl/windows-pty.zip" "$GH_CI_WINDOWS_PTY_OUT" <<'PYWINDOWSPTY'
+import pathlib,re,stat,sys,zipfile
+out=pathlib.Path(sys.argv[2])
+if out.exists(): sys.exit("Windows native payload destination already exists")
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    entries=archive.infolist()
+    names=[e.filename for e in entries]
+    if not 0 < len(entries) <= 200 or len(set(names))!=len(names) or sum(e.file_size for e in entries)>67108864:
+        sys.exit("invalid Windows native payload archive size or duplicate paths")
+    for e in entries:
+        parts=e.filename.rstrip("/").split("/")
+        kind=stat.S_IFMT(e.external_attr >> 16)
+        if any(not re.fullmatch(r"[\w.-]+", p) or p in (".","..") for p in parts) or kind not in (0,stat.S_IFREG,stat.S_IFDIR):
+            sys.exit("unsafe Windows native payload archive path or entry")
+        if not (e.filename=="manifest.json" or parts[0]=="Release"):
+            sys.exit("unexpected Windows native payload archive entry")
+    if not {"manifest.json","Release/conpty.node"}.issubset(names):
+        sys.exit("Windows native payload archive is missing its manifest or addon")
+    out.mkdir(parents=True)
+    archive.extractall(out)
+PYWINDOWSPTY
+  echo "Windows native payload downloaded to $GH_CI_WINDOWS_PTY_OUT"
 fi
 [ "$conclusion" != success ] || exit 0
 

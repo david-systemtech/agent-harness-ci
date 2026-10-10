@@ -4,6 +4,7 @@ import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { ARTEFACT_CLI_ENTRY, artefactNode } from "@agent-harness/contracts/launcher";
 import { placeNodeRuntime, type NodeArchive } from "./node-runtime.js";
 import { BuildError, type ArtefactTarget } from "./targets.js";
+import { installWindowsPtyBuild } from "./windows-pty.js";
 
 /**
  * One platform's server artefact laid out in a folder (launcher-update spec,
@@ -124,10 +125,10 @@ const layOutPackages = (repoRoot: string, packages: readonly RuntimePackage[], v
 
 /**
  * Keeps of `node-pty` what runs on `target`: its prebuild for the platform
- * (macOS and Windows; its npm package carries them), without the other
+ * (macOS; its npm package carries them), without the other
  * platforms' or the debug symbols, and with the helper macOS spawns through
  * made executable, which the npm package ships without its execute bit; or,
- * with no prebuild (Linux), the build its install script compiled on the
+ * with no usable prebuild (Linux and patched Windows), the native build compiled on the
  * build's own runner, which is why a platform with no prebuild is built only
  * on a runner of that platform.
  */
@@ -135,7 +136,7 @@ const keepNodePty = (root: string, target: ArtefactTarget): void => {
   const pty = join(root, "node_modules", "node-pty");
   const prebuilds = join(pty, "prebuilds");
   const own = join(prebuilds, target.platform);
-  if (existsSync(join(own, "pty.node"))) {
+  if (target.os !== "win32" && existsSync(join(own, "pty.node"))) {
     remove(join(pty, "build"));
     for (const entry of readdirSync(prebuilds)) if (entry !== target.platform) remove(join(prebuilds, entry));
     for (const entry of readdirSync(own, { recursive: true, encoding: "utf8" })) if (entry.endsWith(".pdb")) remove(join(own, entry));
@@ -207,6 +208,8 @@ export interface StageRequest {
   readonly root: string;
   /** Whether the target is the platform the build runs on, where install scripts run. */
   readonly onHost: boolean;
+  /** The repaired Windows native runtime supplied by this run's Windows runner. */
+  readonly windowsPtyBuild?: string;
   readonly installDependencies: InstallDependencies;
   /** Node's archive for the target, downloaded and checked. */
   readonly node: { readonly file: string; readonly archive: NodeArchive };
@@ -222,6 +225,13 @@ export const stageArtefact = async (request: StageRequest): Promise<void> => {
   const stamp = JSON.parse(readFileSync(join(web, "version.json"), "utf8")) as { version?: string };
   if (stamp.version !== version) throw new BuildError("The web bundle must match the server release version.");
   cpSync(web, join(root, "node_modules/@agent-harness/environment/dist/serve/web-client"), { recursive: true });
+  if (target.os === "win32") {
+    if (request.windowsPtyBuild !== undefined) {
+      installWindowsPtyBuild(request.windowsPtyBuild, join(root, "node_modules/node-pty"));
+    } else if (!request.onHost) {
+      throw new BuildError("Cross-built Windows artefacts require --windows-pty-build from the same run's Windows runner; the upstream prebuild lacks the console ownership fix.");
+    }
+  }
   keepNodePty(root, target);
   await placeNodeRuntime(request.node.file, request.node.archive, target, root);
   writeCommand(root, target);

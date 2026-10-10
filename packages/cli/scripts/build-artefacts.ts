@@ -4,11 +4,12 @@
  * "The release"; #356): `scripts/release/build.ts`, run from the command
  * line. The release workflow runs it on a linux-x64 runner, the one platform
  * whose artefact needs its own runner (node-pty compiles there); it builds
- * the macOS and Windows artefacts there too.
+ * the macOS and Windows artefacts there too. Windows takes the repaired
+ * native payload from the same run's Windows runner, via --windows-pty-build.
  *
  *   pnpm --filter agent-harness build-artefacts --tag v0.5.0 --out release \
  *     --image-reference git.systemtech.dev:5526/david/agent-harness:0.5.0 --image-digest sha256:<hex> \
- *     --asset install-script=scripts/install.sh
+ *     --windows-pty-build windows-pty --asset install-script=scripts/install.sh
  */
 import { ArgumentsError, BUILD_USAGE, buildOptionsOf } from "./release/arguments.js";
 import { buildRelease } from "./release/build.js";

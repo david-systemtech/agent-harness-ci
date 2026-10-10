@@ -158,6 +158,8 @@ jobs:
       IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - run: corepack enable && corepack prepare --activate
       - name: Where pnpm keeps its store
         id: pnpm-store
@@ -170,11 +172,21 @@ jobs:
           restore-keys: pnpm-store-wine-${{ github.repository }}-
       - run: pnpm install --frozen-lockfile
 
+      - name: The repaired Windows native payload
+        run: bash .forgejo/scripts/github-ci.sh
+        env:
+          GH_CI_EVENT: windows-pty
+          GH_CI_WINDOWS_PTY_OUT: windows-pty
+          GH_CI_TOKEN: ${{ secrets.GH_CI_TOKEN }}
+          FORGEJO_TOKEN: ${{ github.token }}
+          GROUP: native-${{ github.workflow }}-${{ github.run_id }}
+          FORGEJO_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}
+
       # The release build checks the artefact of the platform it runs on, so it builds linux-x64's beside it.
       - name: The win32-x64 server artefact
         run: |
           set -euo pipefail
-          pnpm --filter agent-harness build-artefacts --tag "$TAG" --out server --platform linux-x64 --platform win32-x64 \
+          pnpm --filter agent-harness build-artefacts --tag "$TAG" --out server --platform linux-x64 --platform win32-x64 --windows-pty-build windows-pty \
             --image-reference "$IMAGE_REFERENCE" --image-digest "$IMAGE_DIGEST"
 
       - name: The Windows setup
@@ -199,7 +211,11 @@ jobs:
       - name: Hand the desktop to the release job
         env:
           PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
-        run: bash .forgejo/scripts/desktop-builds.sh put desktop/agent-harness-desktop-win32-x64-setup.exe
+        run: |
+          set -euo pipefail
+          tar -czf windows-pty.tar.gz -C windows-pty .
+          bash .forgejo/scripts/desktop-builds.sh put windows-pty.tar.gz
+          bash .forgejo/scripts/desktop-builds.sh put desktop/agent-harness-desktop-win32-x64-setup.exe
 
   desktop-arch:
     needs: [check, image]
@@ -280,7 +296,9 @@ jobs:
           PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
         run: |
           bash .forgejo/scripts/desktop-builds.sh get desktop agent-harness-desktop-darwin-arm64.zip \
-            agent-harness-desktop-win32-x64-setup.exe agent-harness-desktop-linux-x64.pacman
+            agent-harness-desktop-win32-x64-setup.exe agent-harness-desktop-linux-x64.pacman windows-pty.tar.gz
+          mkdir windows-pty
+          tar -xzf desktop/windows-pty.tar.gz -C windows-pty
 
       # The asset list: every asset of the release beside the server
       # artefacts and release.json, one `--asset <kind>=<path>` line each,
@@ -297,7 +315,7 @@ jobs:
           IMAGE_REFERENCE: ${{ needs.image.outputs.reference }}
           IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
         run: |
-          pnpm --filter agent-harness build-artefacts --tag "$TAG" --out release-assets \
+          pnpm --filter agent-harness build-artefacts --tag "$TAG" --out release-assets --windows-pty-build windows-pty \
             --image-reference "$IMAGE_REFERENCE" --image-digest "$IMAGE_DIGEST" \
             --asset schema=packages/contracts/schema \
             --asset install-script=scripts/install.sh \

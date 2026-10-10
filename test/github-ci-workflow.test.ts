@@ -51,3 +51,23 @@ describe("the hosted CI workflow", () => {
     expect(job("cleanup")).toContain('git/refs/heads/$RUN_REF');
   });
 });
+
+
+describe("the hosted Windows native compile workflow", () => {
+  it("uses the supported Visual Studio 2022 runner and the release's patched native compilation", () => {
+    const native = readFileSync(join(import.meta.dirname, "../.forgejo/github-workflows/windows-pty.yml"), "utf8");
+    const release = readFileSync(join(import.meta.dirname, "../public/.github-workflows/release.yml"), "utf8");
+    const compileJob = native.split("\n  windows-pty:\n")[1]?.split("\n  cleanup:")[0] ?? "";
+    // node-gyp 11.5.0 supports Visual Studio 2022; the moving latest image has VS18 (#2054).
+    expect(compileJob).toMatch(/^ {4}runs-on: windows-2022$/m);
+    expect(compileJob).toContain('node-version: "24"');
+    const compileStep = (body: string) => {
+      const start = body.indexOf("      - name: Compile the patched Windows node-pty runtime\n");
+      expect(start).toBeGreaterThan(-1);
+      const end = body.indexOf("\n      - ", start + 1);
+      return body.slice(start, end);
+    };
+    expect(compileStep(native)).toBe(compileStep(release));
+    expect(compileJob).not.toContain("continue-on-error");
+  });
+});

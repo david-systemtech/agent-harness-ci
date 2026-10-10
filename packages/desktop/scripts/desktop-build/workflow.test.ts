@@ -86,9 +86,9 @@ describe("the release workflow's desktop jobs", () => {
         "      IMAGE_REFERENCE: ${{ needs.image.outputs.reference }}",
         "      IMAGE_DIGEST: ${{ needs.image.outputs.digest }}",
       ]);
-      const own = job.filter((line, i) => line !== "    needs: [check, image]" && !(i >= env && i < env + 3)).slice(0, -4);
+      const own = job.slice(0, job.indexOf("      - name: Hand the desktop to the release job")).filter((line, i) => line !== "    needs: [check, image]" && !(i >= env && i < env + 3));
       expect(own, target.platform).toEqual(desktopJobs(lines).get(target.platform));
-      expect(job.at(-1), target.platform).toBe(`        run: bash .forgejo/scripts/desktop-builds.sh put desktop/${target.name}`);
+      expect(job.at(-1)?.trim().replace(/^run: /, ""), target.platform).toBe(`bash .forgejo/scripts/desktop-builds.sh put desktop/${target.name}`);
     }
   });
 
@@ -101,5 +101,41 @@ describe("the release workflow's desktop jobs", () => {
   it("list each desktop in the release with the platform and format its shell's update installs", () => {
     const listed = release.filter((line) => line.includes("--asset desktop:")).map((line) => line.trim().replace(/ \\$/, ""));
     expect(listed).toEqual(DESKTOP_TARGETS.map(({ platform, format, name }) => `--asset desktop:${platform}:${format}=desktop/${name}`));
+  });
+});
+
+
+describe("Windows native payloads for the Forgejo build callers", () => {
+  it("compiles the repaired payload on a hosted Windows runner before either cross-built desktop", () => {
+    for (const workflow of [lines, release]) {
+      const windows = desktopJobs(workflow).get("win32-x64") ?? [];
+      expect(windows).toContain("          GH_CI_EVENT: windows-pty");
+      expect(windows).toContain("          GH_CI_WINDOWS_PTY_OUT: windows-pty");
+      expect(windows).toContain("          GH_CI_TOKEN: ${{ secrets.GH_CI_TOKEN }}");
+      const compile = windows.indexOf("        run: bash .forgejo/scripts/github-ci.sh");
+      const build = windows.findIndex((line) => line.includes("build-artefacts"));
+      expect(compile).toBeGreaterThan(0);
+      expect(compile).toBeLessThan(build);
+      expect(windows[build]).toContain("--windows-pty-build windows-pty");
+    }
+    const hosted = readFileSync(join(import.meta.dirname, "../../../../.forgejo/github-workflows/windows-pty.yml"), "utf8");
+    expect(hosted).toContain("runs-on: windows-2022");
+    expect(hosted).toContain("ref: ${{ github.event.client_payload.sha }}");
+    expect(hosted).toContain("pnpm --filter @agent-harness/environment rebuild node-pty");
+    expect(hosted).toContain("packages/cli/scripts/export-windows-pty.ts windows-pty");
+    expect(hosted).toContain("name: windows-pty");
+    const publicRelease = readFileSync(join(import.meta.dirname, "../../../../public/.github-workflows/release.yml"), "utf8");
+    const nativeSteps = (text: string): string => (text.split("\n  windows-pty:\n")[1]?.split(/\n {2}[a-z-]+:\n/)[0] ?? "").split("    steps:\n")[1]?.trim() ?? "";
+    expect(nativeSteps(hosted)).toBe(nativeSteps(publicRelease).replace("${{ inputs.sha }}", "${{ github.event.client_payload.sha }}"));
+  });
+
+  it("hands that native payload to recovery's final server build along with the desktops", () => {
+    const windows = desktopJobs(release).get("win32-x64") ?? [];
+    expect(windows).toContain("          tar -czf windows-pty.tar.gz -C windows-pty .");
+    expect(windows).toContain("          bash .forgejo/scripts/desktop-builds.sh put windows-pty.tar.gz");
+    const final = jobs(release).get("release") ?? [];
+    expect(final.some((line) => line.includes("windows-pty.tar.gz"))).toBe(true);
+    expect(final).toContain("          tar -xzf desktop/windows-pty.tar.gz -C windows-pty");
+    expect(final.find((line) => line.includes("build-artefacts"))).toContain("--windows-pty-build windows-pty");
   });
 });
