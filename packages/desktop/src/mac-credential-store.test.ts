@@ -54,6 +54,41 @@ it("recovers from the earlier OS item into fresh protected storage that a relaun
 });
 
 
+it.each([true, false])("pairs into fresh storage after replacement beside an unreadable and unwritable item, with probe refusal=%s", async (refuseProbe) => {
+  const dir = join(scratch(), "secrets");
+  const os = keychains(false);
+  const signal = new AbortController().signal;
+  const prior = macCredentialStore({ dir, open: os.open });
+  const kept = await prior.encrypt("credential-for-tests-prior-build", signal);
+  prior.close();
+  const previousItems = new Set(os.opened);
+  const attempted: string[] = [];
+  const replaced = macCredentialStore({ dir, open: name => {
+    const item = os.open(name);
+    const check = () => {
+      attempted.push(name);
+      if (previousItems.has(name)) throw new Error("The previous build owns this unreadable and unwritable item");
+    };
+    return {
+      ...item,
+      available: async signal => { if (refuseProbe) check(); return item.available(signal); },
+      encrypt: async (secret, signal) => { check(); return item.encrypt(secret, signal); },
+      decrypt: async (bytes, signal) => { check(); return item.decrypt(bytes, signal); },
+    };
+  } });
+  // Your machines and pairing probe before spending the one-use code; neither may touch the old item.
+  expect(await replaced.available(signal)).toBe(true);
+  const fresh = await replaced.encrypt("credential-for-tests-new-pairing", signal);
+  expect(attempted.some(name => previousItems.has(name))).toBe(false);
+  await expect(replaced.decrypt(kept, signal)).rejects.toThrow(/previous build owns/);
+  await replaced.recover(kept);
+  expect(await replaced.decrypt(fresh, signal)).toBe("credential-for-tests-new-pairing");
+  replaced.close();
+  const relaunched = macCredentialStore({ dir, open: os.open });
+  expect(await relaunched.decrypt(fresh, signal)).toBe("credential-for-tests-new-pairing");
+  relaunched.close();
+});
+
 it("keeps recovery visible across relaunch and fresh successes until the earlier credential is replaced", async () => {
   const dir = join(scratch(), "secrets");
   mkdirSync(dir);
@@ -167,20 +202,25 @@ it.each([
 it("keeps an item a shutdown cancelled", async () => {
   const dir = join(scratch(), "secrets");
   const os = keychains();
+  const signal = new AbortController().signal;
+  const prior = macCredentialStore({ dir, open: os.open });
+  const kept = await prior.encrypt("credential-for-tests-kept", signal);
+  prior.close();
   let entered!: (release: () => void) => void;
   const pending = new Promise<() => void>(resolve => { entered = resolve; });
   const open = (name: string): MacCredentials => ({
     ...os.open(name),
     encrypt: () => new Promise((_resolve, reject) => entered(() => reject(new Error("Desktop credential access was cancelled at shutdown.")))),
   });
-  const signal = new AbortController().signal;
   const store = macCredentialStore({ dir, open });
+  expect(await store.decrypt(kept, signal)).toBe("credential-for-tests-kept");
   const writing = store.encrypt("credential-for-tests-cancelled", signal);
   const release = await pending;
   store.close();
   release();
   await expect(writing).rejects.toThrow(/shutdown/);
   const relaunched = macCredentialStore({ dir, open: os.open });
+  expect(await relaunched.decrypt(kept, signal)).toBe("credential-for-tests-kept");
   const fresh = await relaunched.encrypt("credential-for-tests-fresh", signal);
   expect(await relaunched.decrypt(fresh, signal)).toBe("credential-for-tests-fresh");
   relaunched.close();

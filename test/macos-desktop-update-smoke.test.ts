@@ -27,7 +27,7 @@ const { createCdpEvaluator, restartPackagedDesktop, checkPackagedUpdateCleanup, 
   quitWithPendingPackagedCredential: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
   startUnavailablePackagedCredential: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
   credentialHelperPids: (pid: number, executable: string, run?: (command: string, args: string[]) => string) => number[];
-  checkUnavailablePackagedCredential: (evaluate: (expression: string) => Promise<unknown>, observe?: () => Promise<void>) => Promise<void>;
+  checkUnavailablePackagedCredential: (evaluate: (expression: string) => Promise<unknown>, observe?: () => Promise<void>, name?: string) => Promise<void>;
   checkFreshPackagedCredential: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
   askForPackagedUpdate: (evaluate: (expression: string) => Promise<unknown>, version: string, outcome?: "retained" | "unavailable") => Promise<void>;
   packagedSettingsOpen: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
@@ -35,7 +35,7 @@ const { createCdpEvaluator, restartPackagedDesktop, checkPackagedUpdateCleanup, 
   openPackagedSettings: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
   stampPriorPackagedServer: (server: string, version: string) => void;
   copyPackagedDesktop: (source: string, destination: string) => void;
-  prepareCredentialFixture: (app: string) => void;
+  prepareCredentialFixture: (app: string, name?: string) => void;
 };
 
 /** The smoke's CDP boundary evaluates in a page exposing the preload's shell; no Electron or service manager runs. */
@@ -301,7 +301,7 @@ describe("the packaged macOS update smoke", () => {
     let refuse!: () => void;
     const events: string[] = [];
     const window = { desktopShell: {
-      secrets: { get: () => new Promise((_resolve, reject) => { events.push("read"); refuse = () => reject(new Error("Keychain unavailable")); }) },
+      secrets: { get: () => new Promise((_resolve, reject) => { events.push("read"); refuse = () => reject(new Error("Stored credentials from the previous build could not be read. Keychain unavailable")); }) },
       system: async () => { events.push("system"); return { platform: "darwin" }; },
     } };
     const document = new JSDOM('<section aria-label="Settings"></section>').window.document;
@@ -311,6 +311,21 @@ describe("the packaged macOS update smoke", () => {
       refuse();
     });
     expect(JSON.stringify(window)).not.toContain("__packagedCredentialCheck");
+  });
+
+  it("checks the named leftover credential and rejects unrelated read errors", async () => {
+    const asked: string[] = [];
+    let message = "Stored credentials from the previous build could not be read. Keychain refused";
+    const window = { desktopShell: {
+      secrets: { get: async (name: string) => { asked.push(name); throw new Error(message); } },
+      system: async () => ({ platform: "darwin" }),
+    } };
+    const document = new JSDOM('<section aria-label="Settings"></section>').window.document;
+    const evaluate = async (expression: string) => await runInNewContext(expression, { window, document }) as unknown;
+    await checkUnavailablePackagedCredential(evaluate, undefined, "packaged-leftover-check");
+    expect(asked).toEqual(["packaged-leftover-check"]);
+    message = "Unexpected renderer error";
+    await expect(checkUnavailablePackagedCredential(evaluate, undefined, "packaged-leftover-check")).rejects.toThrow(/must be unavailable/);
   });
 
   it("does not pass the unavailable-access check when a locked prior item unexpectedly reads successfully", async () => {
@@ -400,11 +415,15 @@ describe("the packaged macOS update smoke", () => {
     expect(JSON.stringify(p.results)).not.toContain("token-for-tests-kept");
   });
 
-  it.each([false, true])("finishes loading before ready, then seeds the credential with failure=%s", (failEncryption) => {
+  it.each([
+    [false, "agent-harness"],
+    [true, "agent-harness"],
+    [false, "agent-harness credentials 11111111-1111-4111-8111-111111111111"],
+  ])("finishes loading before ready, then seeds the credential with failure=%s in %s", (failEncryption, itemName) => {
     const work = mkdtempSync(join(tmpdir(), "credential-fixture-"));
     try {
       const app = join(work, "app");
-      prepareCredentialFixture(app);
+      prepareCredentialFixture(app, String(itemName));
       const electron = join(app, "node_modules", "electron");
       mkdirSync(electron, { recursive: true });
       writeFileSync(join(electron, "package.json"), JSON.stringify({ type: "module", exports: "./index.js" }));
@@ -439,7 +458,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { app, ready, name, userData, exitCode, phases } from 'electron';
 await import('./main.js');
-assert.equal(name, 'agent-harness');
+assert.equal(name, ${JSON.stringify(itemName)});
 assert.equal(userData, process.env.DESKTOP_FIXTURE);
 assert.equal(exitCode, undefined);
 assert.equal(existsSync(process.env.SECRET_FIXTURE), false);

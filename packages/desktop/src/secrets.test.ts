@@ -8,7 +8,7 @@ import { keychainSecrets } from "./secrets.js";
 import { macCredentialStore } from "./mac-credential-store.js";
 import type { MacCredentials } from "./mac-credentials.js";
 import { fakeElectron } from "../test/fake-electron.js";
-import { cleanUp, platformOn, start } from "../test/harness.js";
+import { cleanUp, platformOn, scratch, start } from "../test/harness.js";
 
 afterEach(cleanUp);
 
@@ -21,6 +21,25 @@ afterEach(cleanUp);
 
 const DESK = "0199aa00-0000-7000-8000-00000000d35c";
 const LAPTOP = "0199aa00-0000-7000-8000-0000000019a7";
+
+it("reports fresh and retained macOS storage only after the encrypted credential is kept", async () => {
+  const electron = fakeElectron({ os: "darwin" });
+  const dir = join(scratch(), "storage-result");
+  const open = (): MacCredentials => ({
+    available: signal => { if (signal.aborted) throw new Error("cancelled"); return electron.safeStorage.isAsyncEncryptionAvailable(); },
+    encrypt: secret => electron.safeStorage.encryptStringAsync(secret),
+    decrypt: async bytes => (await electron.safeStorage.decryptStringAsync(bytes)).result,
+    close: () => {},
+  });
+  const first = keychainSecrets({ safeStorage: electron.safeStorage, os: "darwin", dir, report: () => {}, macCredentials: macCredentialStore({ dir, open }) });
+  expect(await first.set(DESK, "token-for-tests-first")).toBe("fresh-item");
+  first.close();
+  const next = keychainSecrets({ safeStorage: electron.safeStorage, os: "darwin", dir, report: () => {}, macCredentials: macCredentialStore({ dir, open }) });
+  expect(await next.get(DESK)).toBe("token-for-tests-first");
+  expect(await next.set(DESK, "token-for-tests-next")).toBe("retained-item");
+  expect(await next.get(DESK)).toBe("token-for-tests-next");
+  next.close();
+});
 
 describe("secrets", () => {
   it("keeps unreadable earlier ciphertext while fresh credentials work and the recovery notice stays visible", async () => {

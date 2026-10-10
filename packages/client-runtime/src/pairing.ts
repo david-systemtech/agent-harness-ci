@@ -1,3 +1,4 @@
+import type { SecretStorage } from "./platform.js";
 import {
   PAIR_PATH,
   PRODUCT_NAME,
@@ -59,9 +60,10 @@ export type PairingOutcome =
   /**
    * The token is kept, the record written and the connection made or
    * attempted. On a re-pair in place, `replaced` says whether the client
-   * session it gave up was revoked.
+   * session it gave up was revoked. `credentialStorage`, when the store reports
+   * it, says whether the token uses a fresh or successfully read OS item.
    */
-  | { readonly status: "paired"; readonly environmentId: string; readonly replaced?: RemoveResult }
+  | { readonly status: "paired"; readonly environmentId: string; readonly replaced?: RemoveResult; readonly credentialStorage?: SecretStorage }
   /** The environment is saved already: nothing was exchanged; ask again with `rePair` to pair it again in place. */
   | { readonly status: "re-pair-offered"; readonly environmentId: string; readonly name: string }
   | { readonly status: "failed"; readonly failure: PairingFailure };

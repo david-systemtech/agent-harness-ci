@@ -34,8 +34,10 @@ const unpack = (kept: Buffer): { name: string; encrypted: Buffer } => {
  * differently signed build may own that one even when this folder is new.
  * The original only reads raw earlier ciphertext. An item whose access fails
  * or is refused is kept intact but retired, and new writes use a new helper
- * name, hence a new Keychain item. The envelope records its item, and private
- * metadata remembers retired items across launches so no background retry or
+ * name, hence a new Keychain item. The envelope records its item.
+ * A persisted active item is reused for writes only after this launch reads it
+ * successfully; otherwise probes and writes select a fresh item before OS access.
+ * Metadata remembers retired items across launches so no background retry or
  * availability probe asks for one again.
  */
 export const macCredentialStore = ({ dir, open }: MacCredentialStoreParts): MacCredentials & {
@@ -45,7 +47,10 @@ export const macCredentialStore = ({ dir, open }: MacCredentialStoreParts): MacC
   const file = join(dir, "mac-credential-store.json");
   const providers = new Map<string, MacCredentials>();
   const unavailable = new Set<string>();
+  const freshItems = new Set<string>();
   let active: string | undefined;
+  // A persisted name belongs to another launch until this process successfully reads its item.
+  let activeAccessible = false;
   let closed = false;
   const usable = () => { if (closed) throw new Error("Desktop credential access was cancelled at shutdown."); };
   const load = (async () => {
@@ -74,8 +79,10 @@ export const macCredentialStore = ({ dir, open }: MacCredentialStoreParts): MacC
   const ready = async () => { await saved; usable(); };
   /** Metadata from before #1572's reopening may still name the original as active. */
   const choose = (): boolean => {
-    if (active !== undefined && active !== ORIGINAL_NAME && !unavailable.has(active)) return false;
+    if (active !== undefined && active !== ORIGINAL_NAME && activeAccessible && !unavailable.has(active)) return false;
     active = `agent-harness credentials ${randomUUID()}`;
+    activeAccessible = true;
+    freshItems.add(active);
     return true;
   };
   const persist = () => {
@@ -130,10 +137,13 @@ export const macCredentialStore = ({ dir, open }: MacCredentialStoreParts): MacC
       const encrypted = await attempt(name, (item) => item.encrypt(secret, signal));
       return Buffer.concat([Buffer.from(HEADER + name + "\n"), encrypted]);
     },
+    writeStorage(kept) { return freshItems.has(unpack(kept).name) ? "fresh-item" : "retained-item"; },
     async decrypt(kept, signal) {
       await ready();
       const { name, encrypted } = unpack(kept);
-      return provider(name).decrypt(encrypted, signal);
+      const secret = await provider(name).decrypt(encrypted, signal);
+      if (name === active) activeAccessible = true;
+      return secret;
     },
     async recover(kept) {
       await ready();

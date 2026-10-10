@@ -1161,7 +1161,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
 
         // The code is spent now: a store that fails here (an OS prompt it re-raised and nobody answered, say) needs a new code. No
         // client keeps the new token, so its client session is given up too (#1706).
-        await platform.secrets.set(id, credential.token).catch(async (error: unknown) => {
+        const credentialStorage = await platform.secrets.set(id, credential.token).catch(async (error: unknown) => {
           if (answer.ok) await revokeNew(answer.socket);
           throw new PairingCodeSpentError(error);
         });
@@ -1186,7 +1186,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         if (entries.get(id) !== entry || closed) {
           // Removed while this pairing was being kept, or the runtime closed: nothing is attached to a forgotten entry.
           if (answer.ok) answer.socket.close();
-          return { status: "paired", environmentId: id, ...(replaced && { replaced }) };
+          return { status: "paired", environmentId: id, ...(replaced && { replaced }), ...(credentialStorage && { credentialStorage }) };
         }
         // A retry, enable, address edit or start that ran while this pairing was being kept did nothing: a re-paired connection's
         // machine holds from `detach` to `adopt`, and a new entry's starts only here. `adopt` and `start` halt first regardless.
@@ -1202,7 +1202,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         }
         // Settled once its session list is no longer catching up, so the caller sees `ready`, not `syncing`.
         await settledFor(id, entry);
-        return { status: "paired", environmentId: id, ...(replaced && { replaced }) };
+        return { status: "paired", environmentId: id, ...(replaced && { replaced }), ...(credentialStorage && { credentialStorage }) };
       } catch (error) {
         // The pairing socket nobody took is closed, so the environment is not left holding a second socket.
         if (answer.ok && !adopted) answer.socket.close();

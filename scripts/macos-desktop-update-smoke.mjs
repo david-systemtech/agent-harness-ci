@@ -65,12 +65,12 @@ export function stampPriorPackagedServer(server, version) {
 }
 
 /** Writes the prior signed app that seeds the existing encrypted credential. */
-export function prepareCredentialFixture(app) {
+export function prepareCredentialFixture(app, name = "agent-harness") {
   mkdirSync(app, { recursive: true });
   writeFileSync(join(app, "package.json"), JSON.stringify({ name: "agent-harness", productName: "agent-harness", version: baseline, type: "module", main: "main.js" }));
   writeFileSync(join(app, "main.js"), `import { app, safeStorage } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
-app.setName('agent-harness');
+app.setName(${JSON.stringify(name)});
 app.setPath('userData', process.env.DESKTOP_FIXTURE);
 // Entry import must finish before Electron can emit ready.
 app.whenReady().then(() => {
@@ -132,11 +132,11 @@ export async function openPackagedMachines(evaluate) {
 }
 
 /** Starts a real prior read without awaiting it, so responsiveness is checked while access is pending/refused. */
-export async function startUnavailablePackagedCredential(evaluate) {
+export async function startUnavailablePackagedCredential(evaluate, name = credentialName) {
   await evaluate(`(() => {
     const check = { settled: false };
     window.__packagedCredentialCheck = check;
-    check.result = window.desktopShell.secrets.get(${JSON.stringify(credentialName)})
+    check.result = window.desktopShell.secrets.get(${JSON.stringify(name)})
       .then(token => { check.token = token; check.settled = true; return 'read'; }, error => { check.expectedRefusal = String(error?.message).includes('Stored credentials from the previous build could not be read'); check.settled = true; return 'unavailable'; });
     return true;
   })()`, "begin locked prior credential");
@@ -188,13 +188,14 @@ export async function waitForCredentialHelpersExit(helpers, running = processRun
 }
 
 /** Requires bounded settlement, rather than treating a harness timeout as a successful refusal. */
-export async function checkUnavailablePackagedCredential(evaluate, observe = async () => {}) {
-  await startUnavailablePackagedCredential(evaluate);
+export async function checkUnavailablePackagedCredential(evaluate, observe = async () => {}, name = credentialName) {
+  await startUnavailablePackagedCredential(evaluate, name);
   await observe();
   const result = await evaluate(`(async () => {
     const result = await window.__packagedCredentialCheck.result;
+    const expectedRefusal = window.__packagedCredentialCheck.expectedRefusal;
     delete window.__packagedCredentialCheck;
-    return result;
+    return result === 'unavailable' && expectedRefusal ? 'unavailable' : result === 'read' ? 'read' : 'unexpected-error';
   })()`, "settle unavailable prior credential", 45_000);
   assert.equal(result, "unavailable", "The locked prior credential must be unavailable");
 }
@@ -209,7 +210,7 @@ export async function checkFreshPackagedCredential(evaluate) {
     await secrets.set(name, value);
     try { return await secrets.get(name) === value; }
     finally { await secrets.delete(name); }
-  })()`, "fresh OS-protected credential storage and readback");
+  })()`, "fresh OS-protected credential storage and readback", 25_000);
   assert.equal(result, true, "Fresh storage must be OS-protected and read back correctly");
 }
 
@@ -551,6 +552,8 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
     await configureIdle(origin, credential, discovery.protocolVersion);
     const secrets = join(data, "desktop", "secrets");
     mkdirSync(secrets, { recursive: true, mode: 0o700 });
+    const leftoverName = `agent-harness credentials ${randomUUID()}`;
+    const leftoverFile = join(secrets, "packaged-leftover-check.secret");
     const seed = join(work, "credential.json");
     writeFileSync(seed, JSON.stringify({ token: credential.token, file: join(secrets, `${credentialName}.secret`) }), { mode: 0o600 });
     // Seed with synchronous safeStorage in a differently signed app, then replace that app at the same path.
@@ -562,11 +565,21 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
     execute("security", ["unlock-keychain", "-p", "password-for-tests", keychain]);
     execute("security", ["default-keychain", "-d", "user", "-s", keychain]);
     execute("security", ["list-keychains", "-d", "user", "-s", keychain, ...originalSearchList]);
-    // Only the prior app is authorized. Replacement access follows a real OS request and repair.
-    execute("security", ["add-generic-password", "-a", "agent-harness", "-s", "agent-harness Safe Storage", "-w", "password-for-tests", "-T", executable(installed), keychain]);
-    const seedLog = openSync(join(privateDiagnostics, "desktop.log"), "a", 0o600);
-    try { execute(executable(installed), [], { env: { ...process.env, CREDENTIAL_FIXTURE: seed, DESKTOP_FIXTURE: join(data, "desktop") }, stdio: ["ignore", seedLog, seedLog] }); }
-    finally { closeSync(seedLog); }
+    // Only the prior app is authorized; replacement must not probe or write either existing item.
+    const seedCredential = (name, file) => {
+      prepareCredentialFixture(app, name);
+      execute("codesign", ["--force", "--deep", "--sign", "-", installed]);
+      execute("security", ["add-generic-password", "-a", name, "-s", `${name} Safe Storage`, "-w", "password-for-tests", "-T", executable(installed), keychain]);
+      writeFileSync(seed, JSON.stringify({ token: credential.token, file }), { mode: 0o600 });
+      const seedLog = openSync(join(privateDiagnostics, "desktop.log"), "a", 0o600);
+      try { execute(executable(installed), [], { env: { ...process.env, CREDENTIAL_FIXTURE: seed, DESKTOP_FIXTURE: join(data, "desktop") }, stdio: ["ignore", seedLog, seedLog] }); }
+      finally { closeSync(seedLog); }
+    };
+    seedCredential("agent-harness", join(secrets, `${credentialName}.secret`));
+    seedCredential(leftoverName, leftoverFile);
+    const leftover = Buffer.concat([Buffer.from(`ah-mac-credential-v1\n${leftoverName}\n`), readFileSync(leftoverFile)]);
+    writeFileSync(leftoverFile, leftover, { mode: 0o600 });
+    writeFileSync(join(secrets, "mac-credential-store.json"), JSON.stringify({ active: leftoverName, unavailable: [] }), { mode: 0o600 });
     const kept = readFileSync(join(secrets, `${credentialName}.secret`));
     assert.equal(kept.subarray(0, 3).toString(), "v10");
     assert.equal(kept.includes(Buffer.from(credential.token)), false);
@@ -601,14 +614,19 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
     await waitForCredentialHelpersExit(credentialHelpers);
     cdp.close();
     assert.deepEqual(readFileSync(join(secrets, `${credentialName}.secret`)), kept);
+    // Restore the prior active name: the locked-access shutdown must not hide this replacement case.
+    writeFileSync(join(secrets, "mac-credential-store.json"), JSON.stringify({ active: leftoverName, unavailable: [] }), { mode: 0o600 });
     // Unlock before reading the replacement: a stable identity may retain the item;
     // an unsigned identity must prove bounded recovery without pre-authorising it.
     execute("security", ["unlock-keychain", "-p", "password-for-tests", keychain]);
     await launchDesktop();
     // The keychain holds the prior build's app-wide item, as on a person's Mac: neither navigation
     // nor a new pairing may touch it. Both waited on its prompt before #1572 was reopened.
+    execute("security", ["find-generic-password", "-s", `${leftoverName} Safe Storage`, keychain]);
     await checkQuietPackagedNavigation(cdp.evaluate);
     await checkFreshPackagedCredential(cdp.evaluate);
+    await checkUnavailablePackagedCredential(cdp.evaluate, async () => {}, "packaged-leftover-check");
+    assert.deepEqual(readFileSync(leftoverFile), leftover, "Recovery must preserve the unreadable named credential");
     const outcome = await checkReplacedPackagedCredential(cdp.evaluate);
     await checkFreshPackagedCredential(cdp.evaluate);
     await askForPackagedUpdate(cdp.evaluate, version, outcome);

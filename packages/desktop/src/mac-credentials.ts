@@ -1,3 +1,4 @@
+import type { SecretStorage } from "@agent-harness/client-runtime";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { ElectronSafeStorage } from "./electron.js";
 
@@ -7,6 +8,8 @@ export interface MacCredentials {
   available(signal: AbortSignal): Promise<boolean>;
   encrypt(secret: string, signal: AbortSignal): Promise<Buffer>;
   decrypt(kept: Buffer, signal: AbortSignal): Promise<string>;
+  /** Storage path for this encrypted write; native providers have no envelope. */
+  writeStorage?(encrypted: Buffer): SecretStorage;
   /** Rotates new writes away from an unavailable earlier OS item. */
   recover?(kept: Buffer): Promise<void>;
   /** Whether an earlier unavailable item's ciphertext still needs re-pairing. */

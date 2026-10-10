@@ -62,6 +62,9 @@ export interface DocumentStore {
   delete(key: string): Promise<void>;
 }
 
+/** Whether a macOS write used a new OS item or one successfully read by this launch. */
+export type SecretStorage = "fresh-item" | "retained-item";
+
 /**
  * Secrets by name. The runtime names a paired connection's client session
  * token by its environment id. The desktop's shell provides one as its
@@ -70,7 +73,8 @@ export interface DocumentStore {
 export interface SecretStore {
   /** Unavailable access may reject; reconnecting must preserve the saved credential when it does. */
   get(name: string): Promise<string | undefined>;
-  set(name: string, secret: string): Promise<void>;
+  /** macOS may report which OS item kept the token, after the write succeeds. */
+  set(name: string, secret: string): Promise<void | SecretStorage>;
   delete(name: string): Promise<void>;
   /**
    * How a token kept now is protected, which the Your machines card says when it is unprotected (#416). A pairing asks it

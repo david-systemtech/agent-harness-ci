@@ -169,6 +169,7 @@ export const keychainSecrets = ({ safeStorage, os, dir, report, clock = SYSTEM_C
         if (closed) throw new Error("Desktop credential access was cancelled at shutdown.");
         await rename(next, file);
         await recovery();
+        return os === "darwin" ? mac.writeStorage?.(encrypted) : undefined;
       } catch (error) {
         await rm(next, { force: true });
         throw error;

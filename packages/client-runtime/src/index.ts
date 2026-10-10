@@ -24,6 +24,7 @@ export type {
   PlatformSocket,
   RuntimeClientKind,
   SecretStore,
+  SecretStorage,
   SocketHandlers,
   Timer,
   WebSocketFactory,
