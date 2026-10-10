@@ -65,7 +65,7 @@ export async function checkPackagedAccountRecovery(server, source = false) {
       assert.notEqual(accountStateChecks({ accounts: () => service.list() })["account.signed-in"](), true, "Account readiness must stay strict");
       held = false;
       const retries = [...timers.values()];
-      assert.equal(retries.length, 2);
+      assert.equal(retries.length, 4, "Each account schedules separate status and model retries");
       assert.ok(retries.every(timer => timer.ms === PROBE_RETRY_INTERVAL_MS));
       timers.clear();
       for (const timer of retries) timer.callback();
