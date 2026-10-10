@@ -201,24 +201,26 @@ describe("the registered checks on the Environment clock", () => {
 describe("Carry over's import findings on the subscribed Environment", () => {
   it.each(["finishes", "fails"] as const)("keeps an open Set up truthful during Preview and refreshes it when Preview %s", async (ending) => {
     const source = writeSourceFolder(tempDir(), { prompts: [sourcePrompt("one")] });
-    const planned = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
+    let planned!: () => void;
+    let release!: () => void;
+    const reached = new Promise<void>((resolve) => { planned = resolve; });
+    const pending = new Promise<void>((resolve) => { release = resolve; });
     const t = await start({ accounts: [], stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }), stateImportHooks: {
-      planned: async () => {
-        planned.resolve();
-        await release.promise;
+      previewPlanned: async () => {
+        planned();
+        await pending;
         if (ending === "fails") throw new Error("The preview could not finish reading its source.");
       },
     } });
     const client = await t.client();
     expect(await check(client, "carry-over")).toMatchObject({ state: "done", reason: "Found earlier work you can bring over: 1 instruction." });
     const run = client.request("stateImport.run", { commandId: randomUUID(), dryRun: true });
-    onCleanup(async () => { release.resolve(); await run.catch(() => undefined); });
-    await planned.promise;
+    onCleanup(async () => { release(); await run.catch(() => undefined); });
+    await reached;
     expect(await check(client, "carry-over")).toMatchObject({ state: "done", reason: "Found earlier work you can bring over: 1 instruction." });
     const changed = await observe(t, client);
     writeSourceFolder(source, { prompts: [sourcePrompt("one"), sourcePrompt("two")] });
-    release.resolve();
+    release();
     if (ending === "fails") {
       const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
       try { await expect(run).rejects.toMatchObject({ code: "internal" }); } finally { logged.mockRestore(); }
@@ -233,18 +235,20 @@ describe("Carry over's import findings on the subscribed Environment", () => {
 
   it("names an actual import under way and publishes its imported summary when it finishes", async () => {
     const source = writeSourceFolder(tempDir(), { prompts: [sourcePrompt("one")] });
-    const planned = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
+    let planned!: () => void;
+    let release!: () => void;
+    const reached = new Promise<void>((resolve) => { planned = resolve; });
+    const pending = new Promise<void>((resolve) => { release = resolve; });
     const t = await start({ accounts: [], stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }), stateImportHooks: {
-      planned: async () => { planned.resolve(); await release.promise; },
+      planned: async () => { planned(); await pending; },
     } });
     const client = await t.client();
     const run = client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
-    onCleanup(async () => { release.resolve(); await run.catch(() => undefined); });
-    await planned.promise;
+    onCleanup(async () => { release(); await run.catch(() => undefined); });
+    await reached;
     expect(await check(client, "carry-over")).toMatchObject({ state: "done", reason: "Bringing your earlier work over now…" });
     const changed = await observe(t, client);
-    release.resolve();
+    release();
     expect(await run).toMatchObject({ result: { dryRun: false, carried: { instructions: 1 }, failed: [] } });
     t.clock.advance(1_000);
     expect(await changed("carry-over")).toMatchObject({ state: "done", reason: "Brought over 2026-09-24 00:00 UTC." });

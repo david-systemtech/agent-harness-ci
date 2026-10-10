@@ -46,8 +46,10 @@ import { unreadStore } from "./failures.js";
 
 /** Seams a test reaches the import through: after the plan, and after each item carried. */
 export interface StateImportHooks {
-  /** Heard once an import or preview has planned, before reporting or applying anything. */
+  /** Heard once an import has planned, before applying anything. */
   readonly planned?: () => void | Promise<void>;
+  /** Heard once a preview has planned, before returning its report. */
+  readonly previewPlanned?: () => void | Promise<void>;
   /** Heard after each item an import carried commits: a test stops the import there, as a crash would. */
   readonly carried?: (item: Pick<ImportItem, "kind" | "sourceId">) => void | Promise<void>;
 }
@@ -144,12 +146,13 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
             return accountId === undefined ? [] : [{ ...entry, accountId, ownerAccountId: accountIds.get(entry.ownerSourceId) ?? accountId }];
           }), preview });
         };
-        await hooks?.planned?.();
         if (dryRun) {
+          await hooks?.previewPlanned?.();
           const org = organisation(true, withOrganisation);
           const report = reportOf({ ...withOrganisation, stores: [...withOrganisation.stores, { snapshot: { path: "", digest: null }, label: "Organisation", items: org.items }], notCarried: [...withOrganisation.notCarried, ...org.notCarried] }, null);
           return () => ({ aggregate: environmentStream, result: { ...report, ...(sharedProjects.length > 0 && { sharedProjects }) } });
         }
+        await hooks?.planned?.();
         const plan = await recheckStores(withOrganisation);
         applying();
         const actor = formatActor({ kind: "client_session", id: caller.clientSession.id });
