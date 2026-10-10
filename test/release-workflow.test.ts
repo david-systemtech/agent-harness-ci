@@ -128,6 +128,8 @@ describe.skipIf(recovery === undefined)("the private Forgejo recovery workflow",
       "v0.5.0",
       "--out",
       "release-assets",
+      "--windows-pty-build",
+      "windows-pty",
       "--image-reference",
       "git.example.test:5526/david/agent-harness:0.5.0",
       "--image-digest",
@@ -154,7 +156,9 @@ describe.skipIf(recovery === undefined)("the private Forgejo recovery workflow",
     expect(checkout.filter((path) => !existsSync(join(root, path)))).toEqual([]);
     expect(statSync(join(root, "packages", "contracts", "schema")).isDirectory()).toBe(true);
     const got = script(job("release"), "The desktop jobs' builds").replace(/\\\n\s*/g, "");
-    expect(got).toBe(`bash .forgejo/scripts/desktop-builds.sh get desktop ${desktops.map((path) => path.slice("desktop/".length)).join(" ")}`);
+    expect(got).toBe(`bash .forgejo/scripts/desktop-builds.sh get desktop ${desktops.map((path) => path.slice("desktop/".length)).join(" ")} windows-pty.tar.gz
+mkdir windows-pty
+tar -xzf desktop/windows-pty.tar.gz -C windows-pty`);
     const release = job("release");
     const get = release.indexOf("      - name: The desktop jobs' builds");
     expect(get).toBeGreaterThan(release.indexOf("      - run: pnpm install --frozen-lockfile"));
@@ -164,12 +168,21 @@ describe.skipIf(recovery === undefined)("the private Forgejo recovery workflow",
   it("hands each desktop job's build to the release job through the package registry, with the packages token, and removes them once the release is published", () => {
     for (const desktop of DESKTOP_JOBS) {
       const lines = job(desktop);
-      expect(lines.slice(-4), desktop).toEqual([
+      const hand = step(lines, "Hand the desktop to the release job");
+      expect(hand.slice(0, 3), desktop).toEqual([
         "      - name: Hand the desktop to the release job",
         "        env:",
         "          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}",
-        expect.stringMatching(/^ {8}run: bash \.forgejo\/scripts\/desktop-builds\.sh put desktop\/agent-harness-desktop-[a-z0-9-]+\.(zip|exe|pacman)$/),
       ]);
+      const put = script(lines, "Hand the desktop to the release job");
+      if (desktop === "desktop-windows") {
+        expect(put).toBe(`set -euo pipefail
+tar -czf windows-pty.tar.gz -C windows-pty .
+bash .forgejo/scripts/desktop-builds.sh put windows-pty.tar.gz
+bash .forgejo/scripts/desktop-builds.sh put desktop/agent-harness-desktop-win32-x64-setup.exe`);
+      } else {
+        expect(put, desktop).toMatch(/^bash \.forgejo\/scripts\/desktop-builds\.sh put desktop\/agent-harness-desktop-[a-z0-9-]+\.(zip|pacman)$/);
+      }
     }
     const release = job("release");
     for (const name of ["The desktop jobs' builds", "Remove the desktop jobs' builds from the package registry"]) {
