@@ -21,7 +21,7 @@ describe("the header's Settings control", () => {
     const accounts = within(settings).getByRole("region", { name: "Accounts" });
     const personal = await within(accounts).findByRole("region", { name: "personal" });
     await app.user.click(within(personal).getByRole("button", { name: "Sign in again" }));
-    expect(await screen.findByRole("region", { name: "Sign in: personal on desk" })).toBeDefined();
+    expect(await screen.findByRole("region", { name: "Sign in to Claude" })).toBeDefined();
   });
 
   it.each([{ macOS: false, keys: "Ctrl+," }, { macOS: true, keys: "⌘," }])("names the platform's shortcut in its tooltip: $keys", async ({ macOS, keys }) => {

@@ -173,10 +173,11 @@ describe("a step's status", () => {
     });
     const skills = await cardOf(app, "Skills");
     await app.user.click(await within(skills).findByRole("button", { name: "Sign in again: work" }));
-    await screen.findByRole("dialog", { name: "Sign in: work on desk" });
+    const dialog = await screen.findByRole("dialog", { name: "Sign in to Claude" });
     await waitFor(() => expect(app.environment("desk").requests("accounts.signin.start")).toHaveLength(1));
     act(() => app.environment("desk").signIn("failed", { error: "the provider's CLI exited 1" }));
-    const said = (await within(skills).findByText("The sign-in of work failed: the provider's CLI exited 1.")).closest<HTMLElement>("[data-notice-tone]") as HTMLElement;
+    // setup-copy.md §5.2 (#1843): the dialog stays open on the failure, said as an error notice with Start again.
+    const said = (await within(dialog).findByText("The sign-in did not finish.")).closest<HTMLElement>("[data-notice-tone]") as HTMLElement;
     expect(said.dataset["noticeTone"]).toBe("error");
     expect(said.getAttribute("role")).toBe("alert");
   });

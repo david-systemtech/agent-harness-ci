@@ -15,7 +15,7 @@ it.each(["constrained", "full", "setup", "picker", "qr"] as const)("phone Settin
   expect(gallery.world.shell).toBeUndefined();
   if (kind === "constrained") expect(screen.getByRole("button", { name: "Give this phone full access" })).toBeDefined();
   if (kind === "full" || kind === "qr") expect(screen.getByRole("link", { name: "Open the sign-in page" })).toBeDefined();
-  if (kind === "full" || kind === "qr") expect(screen.getByRole("img", { name: "QR code of the provider sign-in page" })).toBeDefined();
+  if (kind === "full" || kind === "qr") expect(screen.getByRole("img", { name: "QR code of the Claude sign-in page" })).toBeDefined();
   if (kind === "picker") {
     const picker = screen.getByRole("dialog", { name: "New-session defaults" });
     expect(picker.closest("[data-settings-dialog]")).toBeNull();

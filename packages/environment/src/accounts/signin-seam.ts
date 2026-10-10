@@ -117,7 +117,8 @@ export const signInUnavailable: SignInDirectorFactory = () => {
   return {
     ready: (account) => ({
       started: false,
-      message: `Signing in from this environment is not available. The account's directory is ${account.directory.path}; sign it in with the provider's own CLI there, then call accounts.refresh.`,
+      reason: "signin_unavailable",
+      message: `Signing in from this environment is not available. The account's directory is ${account.directory.path}; sign it in with the provider's own CLI there, then check the account again.`,
     }),
     start: () => undefined,
     begin: ({ accountId }) => unavailable(stream(accountId), "signin_unavailable", "Signing in from this environment is not available."),

@@ -77,6 +77,15 @@
         }
       ],
       "description": "Why the sign-in failed, expired or was cancelled, when there is more to say; null otherwise."
+    },
+    "cause": {
+      "description": "Why a failed or cancelled sign-in ended, where a client words it apart: code-refused (the provider's CLI failed after the code was written to it), restarted (the environment restarted while it ran), account-removed; absent otherwise, from a person's cancel, and from environments that do not say.",
+      "type": "string",
+      "enum": [
+        "code-refused",
+        "restarted",
+        "account-removed"
+      ]
     }
   },
   "required": [

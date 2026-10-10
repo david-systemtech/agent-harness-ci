@@ -295,6 +295,30 @@ quoted from the files named; a builder greps for them.
 | `{label} is signed in on {env}.` + Done | `{label} is signed in.` **Done** |
 | `Sign in again` disabled with `Finish or cancel the open sign-in first.` | stays |
 
+Added when the dialog was built (#1843), where the lines above did not reach the code:
+- Each end that is not a success or a person's cancel (a refused code, a failed CLI, an expiry, a cancel the system made) keeps
+  the dialog open as a notice (§1.14): its first sentence is the title, the second the description, then **Start again** and
+  Details (`Details:` the environment's own words). The footer's **Cancel the sign-in** becomes **Close**, which says nothing
+  more where the dialog was opened. A code agent-harness refused before the CLI saw it ends the sign-in that waited for it, and
+  Start again signs the same account in afresh.
+- A code that got no answer (no answer in time, a lost link: a failure the app met itself, not agent-harness's refusal) does not
+  end the sign-in, since agent-harness may already be checking it: the dialog stays on its steps with the mapper's line by
+  the code field (§3 patterns), and follows the sign-in to its end.
+- When the account was removed: `The sign-in stopped because {label} was removed.` (no Start again; an information notice).
+- `{m}` in `{m} min left` is whole minutes rounded up; from one minute down it reads `Less than a minute left.`
+- A start refused without the holder's name (an older agent-harness): `Another sign-in is running. Finish or cancel it first.`
+- A refused cancel: `The sign-in was not cancelled.` then the mapper's line (§3 patterns).
+- Details while it waits: `What we saw: Waiting for the code from the Claude page.` and `Sign-in page: {link}`.
+- A link too long for a QR: `This link is too long for a QR code. Choose Copy link instead.` The QR's name for screen readers:
+  `QR code of the Claude sign-in page`.
+- A copy the system refused (Copy link, the command's **Copy**): `Could not copy. Select the text and copy it manually.` with the
+  text in a field to select.
+- The terminal UI's account picker has no Start again: it says only the end's first sentence, and shows the link as text,
+  since a terminal cannot copy it for you.
+- §5.1's `{label} is added. Its sign-in did not start…` row, its other causes: the computer cannot sign Claude in there,
+  `{label} is added. agent-harness cannot sign it in on that computer. Sign in with Claude Code there instead.`; no reason given
+  (an older agent-harness), `{label} is added. Its sign-in did not start. Choose Sign in again.`
+
 ### 5.3 Carry over (gui/src/carry-over/*; environment/src/carry-over/step-checks.ts)
 - Title `Bring over your past work`. Why `Your old Claude Code chats and notes can come with you.`
 - What is this? `agent-harness can copy your past Claude Code chats, notes and skills from this computer. Nothing is deleted or changed where they came from.`

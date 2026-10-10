@@ -231,11 +231,11 @@ describe("new-session readiness", () => {
     const accountsPane = await screen.findByRole("region", { name: "Accounts" });
     const adopted = await within(accountsPane).findByRole("region", { name: "Adopted" });
     await app.user.click(within(adopted).getByRole("button", { name: "Sign in again" }));
-    const signing = await within(accountsPane).findByRole("region", { name: "Sign in: Adopted on laptop" });
+    const signing = await within(accountsPane).findByRole("region", { name: "Sign in to Claude on laptop" });
     await waitFor(() => expect(params(app, "laptop", "accounts.signin.start")).toEqual([expect.objectContaining({ accountId: "adopted" })]));
     expect(params(app, "desk", "accounts.signin.start")).toEqual([]);
     app.environment("laptop").signIn("awaiting-code", { url: "https://claude.test/sign-in" });
-    expect(await within(signing).findByRole("textbox", { name: "Then paste the code it shows" })).toBeDefined();
+    expect(await within(signing).findByRole("textbox", { name: "Code" })).toBeDefined();
   });
 
   it.each([{ accounts: [] }, { accounts: [{ id: "signed-out", label: "Adopted", status: { state: "signed-out", checkedAt: null, detail: null } }] }] as const)("reaches the provider code dialog from New session with no signed-in account and keeps the draft", async ({ accounts }) => {
@@ -258,12 +258,12 @@ describe("new-session readiness", () => {
       const adopted = await within(accountsPane).findByRole("region", { name: "Adopted" });
       await app.user.click(within(adopted).getByRole("button", { name: "Sign in again" }));
     }
-    const signing = await within(accountsPane).findByRole("region", { name: `Sign in: ${accounts.length === 0 ? "Claude account" : "Adopted"} on laptop` });
+    const signing = await within(accountsPane).findByRole("region", { name: "Sign in to Claude on laptop" });
     await waitFor(() => expect(params(app, "laptop", accounts.length === 0 ? "accounts.add" : "accounts.signin.start")).toEqual([expect.objectContaining(accounts.length === 0 ? { label: "Claude account" } : { accountId: "signed-out" })]));
     expect(params(app, "desk", "accounts.add")).toEqual([]);
     expect(params(app, "desk", "accounts.signin.start")).toEqual([]);
     app.environment("laptop").signIn("awaiting-code", { url: "https://claude.test/sign-in" });
-    expect(await within(signing).findByRole("textbox", { name: "Then paste the code it shows" })).toBeDefined();
+    expect(await within(signing).findByRole("textbox", { name: "Code" })).toBeDefined();
     await app.user.click(within(settings).getByRole("button", { name: "Close Settings" }));
     expect((messageBox(surfaces()[0] as HTMLElement) as HTMLTextAreaElement).value).toBe("Keep this draft");
   });
