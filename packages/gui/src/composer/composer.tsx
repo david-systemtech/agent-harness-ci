@@ -37,6 +37,8 @@ import { useWorkspaceChecks, WorkspaceCheck, WorkspaceRow } from "./workspace-ch
 import { useComposition } from "./composition.js";
 import "./phone-conversation.css";
 import { StatusLine } from "../status/status-line.js";
+import "./prompt-space.css";
+import { usePromptSpace } from "./prompt-space.js";
 import { PromptCard } from "../prompt-card/prompt-card.js";
 import { usePromptWalk } from "./walk.js";
 
@@ -104,6 +106,7 @@ export const Composer = ({ environmentId, sessionId, authoring = false }: Compos
   const box = useBox();
   const { composing, ...composition } = useComposition();
   const above = useRef<HTMLDivElement>(null);
+  usePromptSpace(above, !narrow && !authoring);
   useSessionDraft(environmentId, sessionId, projection, box);
   const sendKey = useFirstKey("composer.send");
   const newlineKey = useFirstKey("composer.newline");

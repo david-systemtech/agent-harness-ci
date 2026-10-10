@@ -1,0 +1,13 @@
+/* Request details yield to the pinned decisions and the space actually left in the session pane. */
+[data-prompt-space] [aria-label="Permission request"] { overflow-y: auto; overscroll-behavior: contain; }
+/* Tight panes retain full-size text; fixed chrome and scrollable notes leave room for the request. */
+[data-prompt-space="compact"] [aria-label="Parked prompt"] { padding: 8px 12px; gap: 8px; }
+[data-prompt-space="compact"] [aria-label="Parked prompt"] .gap-2 { gap: 8px; }
+[data-prompt-space="compact"] [aria-label="Parked prompt"] button { height: 28px; padding-inline: 12px; }
+[data-prompt-space="compact"] [aria-label="Parked prompt"] button svg { width: 14px; height: 14px; }
+[data-prompt-space="compact"] [aria-label="Parked prompt"] kbd { height: 20px; }
+[data-prompt-space="compact"] [aria-label="Parked prompt"] textarea { height: 48px; min-height: 48px; max-height: 48px; resize: none; overflow-y: auto; }
+/* Each answer still exposes this explanation in its tooltip and accessible description. */
+[data-prompt-space="compact"] [data-prompt-choice] > span { display: none; }
+/* One request scrollport keeps even a one-line command readable when summary and reason fill its well. */
+[data-prompt-space="compact"] [aria-label="Arguments"] { max-height: none; flex-shrink: 0; overflow: visible; }

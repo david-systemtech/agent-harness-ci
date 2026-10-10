@@ -45,7 +45,7 @@ const THEME_PHONE_PROFILES = [360, 390].flatMap(width => [16, 20].flatMap(textSi
  * The dedicated authoring usage scene also probes both ladders: #2069 clipped its full meter horizontally.
  */
 export const LAPTOP_PROBES = [{ width: 1280, height: 800 }, { width: 1280, height: 700 }] as const;
-const LAPTOP_SCENES: ReadonlySet<string> = new Set(["dialog-sign-in", "dialog-sign-in-refused", "window-session", "status-line-docked", "settings-bank-authoring-usage"]);
+const LAPTOP_SCENES: ReadonlySet<string> = new Set(["dialog-sign-in", "dialog-sign-in-refused", "window-session", "status-line-docked", "settings-bank-authoring-usage", "window-scale-20", "prompt-permission"]);
 
 export interface CaptureCase {
   readonly scene: string;

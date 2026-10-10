@@ -655,7 +655,12 @@ Tinted bubbles derive their fill from beam: lightness 0.93/chroma ×0.16 in ligh
 Cards lg, semantic 45% border, semantic fill and 14px icon, x 12/y 10/gap 8;
 shared focus beam/50, pending answer controls 28px and notes min 48px/rows 2.
 Arguments square mono max 224px; plan max 416px with bottom clipping fade and
-scroll hint; parked-card stack max 60vh. The plan well shrinks within that
+scroll hint; parked-card stack max 60vh. In a session pane this is only an upper
+bound: reserve the caption, composer, status and three transcript lines plus
+their padding from the actual pane height after top notices. Tight cards retain
+28px decision controls and a bounded 48px note well; action explanations stay in
+tooltips and accessible descriptions when their inline copies would consume the
+request well. Request details scroll inside that allocation. The plan well shrinks within that
 bound to keep the note, delivery error and decision footer visible without
 scrolling the card; only the plan and a long note scroll. Keep draft/choices keyed by prompt
 identity across collapse and failed delivery. Busy disables duplicate decisions;

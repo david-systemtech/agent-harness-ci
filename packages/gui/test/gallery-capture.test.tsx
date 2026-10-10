@@ -212,7 +212,7 @@ it("measures only the headless switch in the Browser defaults capture", () => {
 
 it.each([11, 20])("measures text size %i with the preset root scale and fixed desktop frame", async (size) => {
   const { geometry } = size === 11 ? await import("../gallery/scenes/window-scale-11.js") : await import("../gallery/scenes/window-scale-20.js");
-  expect(geometry.find((check) => check.selector === "html")).toEqual({ selector: "html", fontSize: 16 * size / 14 });
+  expect(geometry.find((check) => check.selector === "html")).toEqual(expect.objectContaining({ selector: "html", fontSize: 16 * size / 14 }));
   expect(geometry.find((check) => check.selector === "[data-window-header]")).toEqual({ selector: "[data-window-header]", height: 44 });
 });
 

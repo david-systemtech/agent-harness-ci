@@ -252,9 +252,10 @@ const ParkedCard = ({ environmentId, parked, place, repeat, capability, fields, 
         ref={self}
         {...{ onCompositionStart, onCompositionEnd, onKeyDownCapture }}
         aria-label="Parked prompt"
+        style={{ maxHeight: "min(60dvh, var(--session-prompt-height, 60dvh))" }}
         tabIndex={-1}
         className={classes(
-          "mx-3 flex min-h-0 max-h-[60dvh] shrink flex-col gap-2 rounded-lg border px-3 py-2.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-beam/50",
+          "mx-3 flex min-h-0 shrink flex-col gap-2 rounded-lg border px-3 py-2.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-beam/50",
           pinnedDecision ? "overflow-hidden" : "overflow-y-auto",
           dim ? "border-line bg-panel text-ink-muted" : classes("text-ink", EDGES[prompt.kind]),
         )}

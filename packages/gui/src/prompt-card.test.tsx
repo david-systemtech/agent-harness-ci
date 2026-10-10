@@ -2,7 +2,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
 import { describeDenylistMatch, type DenylistMatch } from "@agent-harness/contracts";
 import type { ScriptedPrompt } from "@agent-harness/client-runtime/testing/scripted-environment";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderApp, type EnvironmentHandle, type RenderedApp, type RenderOptions, type ScriptedEnvironment } from "../test/harness.js";
 
 /**
@@ -106,6 +106,47 @@ const sentAnswers = async (env: EnvironmentHandle, count: number) => {
 };
 
 describe("an approval", () => {
+  it("bounds a pending request by the pane left after notices, composer and three transcript lines", async () => {
+    const observers: ResizeObserverCallback[] = [];
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: ResizeObserverCallback) { observers.push(callback); }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    try {
+      const { env, session, transcript } = await opened();
+      await park(env, session, { input: { command: "git tag qa-check" } });
+      const prompt = card()!;
+      const pane = prompt.closest('[aria-label="Session pane"]')!;
+      const column = prompt.closest("[data-composer-column]")!;
+      const above = prompt.closest<HTMLElement>("[data-composer-above]")!;
+      transcript.style.lineHeight = "28px";
+      (transcript.firstElementChild as HTMLElement).style.paddingTop = "14px";
+      (transcript.firstElementChild as HTMLElement).style.paddingBottom = "14px";
+      let paneHeight = 580;
+      vi.spyOn(pane, "getBoundingClientRect").mockImplementation(() => new DOMRect(0, 0, 1000, paneHeight));
+      vi.spyOn(column, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 1000, 600));
+      vi.spyOn(prompt, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 1000, 420));
+      const caption = pane.firstElementChild!;
+      vi.spyOn(caption, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 1000, 32));
+      const resize = () => act(() => { for (const callback of observers) callback([], {} as ResizeObserver); });
+      resize();
+      expect(above.style.getPropertyValue("--session-prompt-height")).toBe("256px");
+      expect(above.dataset["promptSpace"]).toBe("compact");
+      expect(prompt.style.maxHeight).toBe("min(60dvh, var(--session-prompt-height, 60dvh))");
+      // Dismissing unrelated banners restores space without remounting the request.
+      paneHeight = 712;
+      resize();
+      expect(above.style.getPropertyValue("--session-prompt-height")).toBe("388px");
+      // Growing the request and its containing composer equally changes no allocation.
+      vi.mocked(column.getBoundingClientRect).mockReturnValue(new DOMRect(0, 0, 1000, 800));
+      vi.mocked(prompt.getBoundingClientRect).mockReturnValue(new DOMRect(0, 0, 1000, 620));
+      resize();
+      expect(above.style.getPropertyValue("--session-prompt-height")).toBe("388px");
+    } finally { vi.restoreAllMocks(); vi.unstubAllGlobals(); }
+  });
+
   it.each([
     { action: "Deny", decision: "deny", remember: undefined },
     { action: "Allow once", decision: "allow", remember: undefined },
