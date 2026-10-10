@@ -90,5 +90,10 @@ int main() {
   closeAvailable = true;
   PtyKill({4, false});
   assert(consoles == 0 && ptyHandles.empty());
+  create(6);
+  nativeExit(6);
+  assert(shells == 0 && consoles == 1 && get_pty_baton(6) != nullptr);
+  PtyKill({6, true}); // Natural DLL-mode cleanup closes the console without a live shell handle.
+  assert(consoles == 0 && ptyHandles.empty());
   std::cout << "native ownership released exactly once\n";
 }

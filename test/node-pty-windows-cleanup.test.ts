@@ -10,21 +10,23 @@ const source = (name: string) => readFileSync(require.resolve(`node-pty/lib/${na
 afterEach(() => vi.useRealTimers());
 
 // Run the installed dependency's Windows boundary on any host; only native/OS calls are scripted.
-function terminal() {
+function terminal(useConptyDll = false) {
   vi.useFakeTimers();
   const events: string[] = [];
   const resources = new Set<string>();
+  const closeModes: boolean[] = [];
   let forks = 0;
   let nativeRegistered = true;
   let shellExited = false;
   let exit: (code: number) => void = () => { throw new Error("Native exit callback was not registered"); };
   const helper = Object.assign(new EventEmitter(), { kill: () => events.push("helper killed") });
   const native = { startProcess: () => { resources.add("console"); return { pty: 1, conin: "input" }; }, connect: (...args: unknown[]) => { exit = args[5] as (code: number) => void; return { pid: 123 }; },
-    kill: () => {
+    kill: (_pty: number, dll: boolean) => {
+      closeModes.push(dll);
       if (nativeRegistered && resources.delete("console")) events.push("console closed");
       if (shellExited) nativeRegistered = false;
     } };
-  const exports = {} as { WindowsPtyAgent: new (...args: unknown[]) => { kill(): void } };
+  const exports = {} as { WindowsPtyAgent: new (...args: unknown[]) => { kill(): void; readonly outSocket: EventEmitter } };
   runInNewContext(source("windowsPtyAgent"), {
     exports, __dirname: "/dependency/lib", setTimeout, clearTimeout,
     process: { kill: (pid: number) => events.push(`killed ${pid}`) },
@@ -51,8 +53,8 @@ function terminal() {
       }
     },
   });
-  const pty = new exports.WindowsPtyAgent("cmd.exe", [], [], "/work", 80, 24, false, true, false, false);
-  return { pty, helper, events, resources, get forks() { return forks; }, exit: (code: number) => { shellExited = true; if (!resources.has("console")) nativeRegistered = false; exit(code); } };
+  const pty = new exports.WindowsPtyAgent("cmd.exe", [], [], "/work", 80, 24, false, true, useConptyDll, false);
+  return { pty, helper, events, resources, closeModes, get forks() { return forks; }, exit: (code: number) => { shellExited = true; if (!resources.has("console")) nativeRegistered = false; exit(code); } };
 }
 
 it("captures and kills the console's processes before closing it, even when kill is repeated", async () => {
@@ -125,14 +127,15 @@ it("keeps genuine helper errors actionable and settles cleanup just once", async
   expect(vi.getTimerCount()).toBe(0);
 });
 
-it("releases a naturally exited console after its final output drains, so the environment can exit", async () => {
-  const { resources, exit } = terminal();
+it.each([false, true])("releases a naturally exited console after its final output drains, so the environment can exit (DLL=%s)", async (dll) => {
+  const { resources, exit, closeModes } = terminal(dll);
   expect([...resources].sort()).toEqual(["console", "input socket", "output socket", "output worker"]);
   exit(0);
   await vi.advanceTimersByTimeAsync(999);
   expect(resources.size).toBe(4);
   await vi.advanceTimersByTimeAsync(1);
   expect([...resources]).toEqual([]);
+  expect(closeModes).toEqual([dll]);
   expect(vi.getTimerCount()).toBe(0);
 });
 
@@ -153,12 +156,40 @@ it("closes the input pipe after forced console cleanup even before the native ex
   expect(vi.getTimerCount()).toBe(0);
 });
 
-it("never enumerates a shell PID again after native exit, because that PID can be reused", async () => {
-  const ended = terminal();
+it.each([false, true])("never enumerates a shell PID again after native exit, because that PID can be reused (DLL=%s)", async (dll) => {
+  const ended = terminal(dll);
   ended.exit(0);
   await vi.advanceTimersByTimeAsync(1000);
   expect(ended.forks).toBe(0);
   expect(ended.events.filter(event => event.startsWith("killed "))).toEqual([]);
   expect([...ended.resources]).toEqual([]);
   expect(ended.events.filter(event => event === "console closed")).toHaveLength(1);
+});
+
+
+it.each([false, true])("waits for the last output before releasing naturally exited resources (DLL=%s)", async (dll) => {
+  const ended = terminal(dll);
+  ended.exit(0);
+  await vi.advanceTimersByTimeAsync(999);
+  ended.pty.outSocket.emit("data", "final output");
+  await vi.advanceTimersByTimeAsync(999);
+  expect(ended.resources.size).toBe(4);
+  await vi.advanceTimersByTimeAsync(1);
+  expect([...ended.resources]).toEqual([]);
+  expect(ended.closeModes).toEqual([dll]);
+  expect(ended.forks).toBe(0);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("releases DLL-mode sockets and worker after a forced exit without requiring another output event", async () => {
+  const ended = terminal(true);
+  ended.pty.kill();
+  expect([...ended.resources].sort()).toEqual(["output socket", "output worker"]);
+  ended.exit(1);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect([...ended.resources]).toEqual([]);
+  expect(ended.events.filter(event => event === "console closed")).toHaveLength(1);
+  expect(ended.closeModes.every(mode => mode)).toBe(true);
+  expect(ended.forks).toBe(0);
+  expect(vi.getTimerCount()).toBe(0);
 });

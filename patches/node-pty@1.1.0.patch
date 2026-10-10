@@ -26,7 +26,7 @@ index 8c4fca9022a6d6f015bca87f61625cde2278f428..7e6f0e379bb64061c9738ad9250ab731
  //# sourceMappingURL=conpty_console_list_agent.js.map
 \ No newline at end of file
 diff --git a/lib/windowsPtyAgent.js b/lib/windowsPtyAgent.js
-index a358ffb177357e177661033c1b092f9c9d0e5f5a..90db34abb133ff70164a6b172090ca7a3279c277 100644
+index a358ffb177357e177661033c1b092f9c9d0e5f5a..f041405bbd52b03dbd1c296a5a0861a5ee74b754 100644
 --- a/lib/windowsPtyAgent.js
 +++ b/lib/windowsPtyAgent.js
 @@ -135,6 +135,8 @@ var WindowsPtyAgent = /** @class */ (function () {
@@ -97,11 +97,31 @@ index a358ffb177357e177661033c1b092f9c9d0e5f5a..90db34abb133ff70164a6b172090ca7a
              }, 5000);
          });
      };
-@@ -240,7 +263,15 @@ var WindowsPtyAgent = /** @class */ (function () {
-         if (this._useConptyDll) {
-             return;
+@@ -221,26 +244,27 @@ var WindowsPtyAgent = /** @class */ (function () {
+     WindowsPtyAgent.prototype._$onProcessExit = function (exitCode) {
+         var _this = this;
+         this._exitCode = exitCode;
+-        if (!this._useConptyDll) {
+-            this._flushDataAndCleanUp();
+-            this._outSocket.on('data', function () { return _this._flushDataAndCleanUp(); });
+-        }
++        // Both ConPTY modes retain their native console until final output drains (#2052).
++        this._flushDataAndCleanUp();
++        this._outSocket.on('data', function () { return _this._flushDataAndCleanUp(); });
+     };
+     WindowsPtyAgent.prototype._flushDataAndCleanUp = function () {
+         var _this = this;
+-        if (this._useConptyDll) {
+-            return;
+-        }
+         if (this._closeTimeout) {
+             clearTimeout(this._closeTimeout);
          }
--        this._inSocket.readable = false;
+         this._closeTimeout = setTimeout(function () { return _this._cleanUpProcess(); }, FLUSH_DATA_INTERVAL);
+     };
+     WindowsPtyAgent.prototype._cleanUpProcess = function () {
+-        if (this._useConptyDll) {
+-            return;
 +        // Native exit already proved the shell ended. Its PID may be reused, so
 +        // close the owned console directly instead of enumerating that PID (#2052).
 +        if (!this._killStarted) {
@@ -109,7 +129,8 @@ index a358ffb177357e177661033c1b092f9c9d0e5f5a..90db34abb133ff70164a6b172090ca7a
 +            try { this._ptyNative.kill(this._pty, this._useConptyDll); }
 +            catch (error) { console.error('node-pty: could not close console: ' + error.message); }
 +            this._conoutSocketWorker.dispose();
-+        }
+         }
+-        this._inSocket.readable = false;
 +        this._inSocket.destroy();
          this._outSocket.readable = false;
          this._outSocket.destroy();
