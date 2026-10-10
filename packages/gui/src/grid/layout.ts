@@ -100,13 +100,13 @@ export const newSessionFocus = (layout: PaneLayout, carried: string | null, besi
  * session it showed stays in the sidebar. A pane holding one already keeps
  * it, with what was chosen on it: a heading's control (`carried`) sets its
  * environment chip, the chips after it following, and the header's changes
- * nothing.
+ * nothing. A used id is replaced when `replaceId` is set, keeping the choices.
  */
-export const showNewSession = (layout: PaneLayout, paneId: string, carried: string | null, id: string): PaneLayout =>
+export const showNewSession = (layout: PaneLayout, paneId: string, carried: string | null, id: string, replaceId = false): PaneLayout =>
   showIn(layout, paneId, (pane) => {
     if (pane.newSession === undefined) return { newSession: { id, focus: newSessionFocus(layout, carried, pane.id), chips: {} } };
     const chips: NewSessionChips = carried === null ? pane.newSession.chips : { ...pane.newSession.chips, environmentId: carried };
-    return { newSession: { ...pane.newSession, chips } };
+    return { newSession: { ...pane.newSession, id: replaceId ? id : pane.newSession.id, chips } };
   });
 
 /** An id no row or pane holds: `row-n` or `pane-n`, n past the highest the grid holds by `after` and one. */

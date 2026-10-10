@@ -40,6 +40,7 @@ export const requestWords = (request: WorkspaceRequest, environmentId: string, s
  * share, an account it cannot run on).
  */
 export const refusalLine = (failure: DispatchFailure, request: WorkspaceRequest, place: RefusalPlace): string => {
+  if (failure.code === "conflict" && failure.data?.reason === "exists") return "Not started: a session already exists for this composer. Choose New session to keep your message and choices, then send again.";
   const said = resolverRefusal(failure.data ?? {}, request, place);
   if (said !== undefined) return `Not started: ${said}`;
   if (failure.code === "invalid_params" && request.kind === "directory") return `Not started: a workspace is a full path on ${place.where}, or one from its home (~).`;
