@@ -1,0 +1,2 @@
+# Pinned dependency patches must apply identical bytes on every build host.
+/patches/*.patch text eol=lf
