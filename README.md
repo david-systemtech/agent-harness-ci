@@ -180,26 +180,36 @@ agent-harness pair --preset phone
 
 | Choice | What the phone receives |
 | --- | --- |
-| **My own client — everything for my own devices (phone included)** (`own-client`) | Every scope: read and organise sessions, drive runs and answer prompts, use terminals, files and diffs, and administer the environment. Ceiling `bypassPermissions`: run without permission checks; the denylist still applies. |
-| **Phone — restricted** (`phone`) | `read`, `sessions:write`, `runs:drive`: read and organise sessions, drive runs and answer prompts, without terminal or admin authority. Ceiling `acceptEdits`: accept file edits; ask before other actions when the provider supports it. Bypass permissions is unavailable. |
-| **Custom** (`custom`) | Choose scopes and a ceiling to raise or lower access for a single pairing, within the minter's grant. Defaults to `read` (read sessions) and `plan` (plan without making changes). |
+| **Me** (`agent-harness pair --preset own-client`) | Every scope: `read`, `sessions:write`, `runs:drive`, `terminal`, `admin`. Read and organise sessions, drive runs and answer prompts, use terminals, files and diffs, and administer the environment. Ceiling `bypassPermissions`: run without permission checks; the denylist still applies. |
+| **A phone with limited access** (`agent-harness pair --preset phone`) | `read`, `sessions:write`, `runs:drive`: read and organise sessions, drive runs and answer prompts, without terminal or admin authority. Ceiling `acceptEdits`: accept file edits; ask before other actions when the provider supports it. Bypass permissions is unavailable. |
+| **Custom** (`agent-harness pair --preset custom`) | Choose scopes and a ceiling to raise or lower access for a single pairing, within the minter's grant. Defaults to `read` (read sessions) and `plan` (plan without making changes). |
 
-In Settings → Your machines → Pair another client, My own client is listed
-first and selected by default when your current client can grant it. Choose
-it for everything on your own phone; Phone is the restricted choice. Custom
-can raise or lower the scopes and ceiling of the new pairing.
+Open **Settings → Settings rows → Your machines**, find the environment's
+card and its **Pair another client** section. Under **Who is it for?**,
+**Me** is first and selected by default when your current client can grant
+it. Choose it for everything on your own phone;
+**A phone with limited access** is the restricted choice. **A program or bot**
+is for a tool or bot. Expand **More options → Custom** to choose the scopes and ceiling of
+the new pairing, then choose **Make a pairing code**.
 
 Open the printed link or scan its QR with the phone's camera. Codes last ten
 minutes and work once. Check the displayed scopes and ceiling: an existing
-My own client link keeps its full grant in a browser; there is no automatic
+**Me** (`own-client`) link keeps its full grant in a browser; there is no automatic
 downgrade. For selected extra scopes, deliberately mint a Custom code and
 re-pair as [the guide](docs/phone.md#choose-the-grant) explains.
+
+To upgrade a restricted phone, choose **Give this phone full access** on
+the phone and use a new code minted with **Me** on a trusted client (or CLI
+`--preset own-client`). Another admin client can instead use **Settings →
+Settings rows → Access → Change access**, select **Full access** and choose
+**Save access** without pairing again; **Restricted phone** restores the
+restricted grant. [The guide](docs/phone.md#change-a-phones-access) covers both paths.
 
 After pairing, open or create a session, choose its environment workspace,
 and send a prompt. The environment must have a signed-in provider account.
 With an admin grant, use **Settings > Accounts > Sign in** or **Set up**;
-open the verification page, then return and send its code. With Phone's
-restricted grant, have a trusted admin set up the account or explicitly
+open the verification page, then return and send its code. With the
+restricted `phone` grant, have a trusted admin set up the account or explicitly
 re-pair with admin. Files, Diff and terminals require `terminal`.
 
 Pairing credentials are saved in JavaScript-readable, origin-scoped browser
