@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,7 +11,9 @@ import { buildRelease } from "../packages/cli/scripts/release/build.js";
 import { fixtureBuild } from "../packages/cli/test/release-fixtures.js";
 
 const script = pathToFileURL(join(import.meta.dirname, "..", "scripts", "macos-desktop-update-smoke.mjs")).href;
-const { checkQuietPackagedNavigation, checkPackagedCredentialRepair, checkReplacedPackagedCredential, waitForCredentialHelpersExit, quitWithPendingPackagedCredential, startUnavailablePackagedCredential, credentialHelperPids, checkUnavailablePackagedCredential, checkFreshPackagedCredential, askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer, copyPackagedDesktop, prepareCredentialFixture } = await import(script) as {
+const { restartPackagedDesktop, checkPackagedUpdateCleanup, checkQuietPackagedNavigation, checkPackagedCredentialRepair, checkReplacedPackagedCredential, waitForCredentialHelpersExit, quitWithPendingPackagedCredential, startUnavailablePackagedCredential, credentialHelperPids, checkUnavailablePackagedCredential, checkFreshPackagedCredential, askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer, copyPackagedDesktop, prepareCredentialFixture } = await import(script) as {
+  restartPackagedDesktop: (evaluate: (expression: string) => Promise<unknown>, staged: { path: string; version: string; sha256: string }) => Promise<void>;
+  checkPackagedUpdateCleanup: (installed: string, expectedArchive: string) => void;
   checkQuietPackagedNavigation: (evaluate: (expression: string, stage?: string, milliseconds?: number) => Promise<unknown>) => Promise<void>;
   checkPackagedCredentialRepair: (evaluate: (expression: string, stage?: string, milliseconds?: number) => Promise<unknown>) => Promise<void>;
   checkReplacedPackagedCredential: (evaluate: (expression: string, stage?: string, milliseconds?: number) => Promise<unknown>) => Promise<"retained" | "unavailable">;
@@ -57,6 +60,37 @@ const page = (token: string | undefined, status = 200, fromVersion = "0.0.0-0") 
 };
 
 describe("the packaged macOS update smoke", () => {
+  it("fails on an archive left in staging or its cleanup receipt, before harness cleanup", () => {
+    const work = mkdtempSync(join(tmpdir(), "packaged-update-cleanup-"));
+    try {
+      const installed = join(work, "agent-harness.app");
+      const archive = join(installed, "Contents", "Resources", "app.asar");
+      mkdirSync(join(installed, "Contents", "Resources"), { recursive: true });
+      writeFileSync(archive, "archive-for-tests");
+      const digest = createHash("sha256").update(readFileSync(archive)).digest("hex");
+      const temporary = join(work, ".agent-harness.app-update-test");
+      mkdirSync(join(temporary, "previous", "Contents", "Resources"), { recursive: true });
+      cpSync(archive, join(temporary, "previous", "Contents", "Resources", "app.asar"));
+      expect(() => checkPackagedUpdateCleanup(installed, digest)).toThrow(/owned staging directory/);
+      rmSync(temporary, { recursive: true });
+      writeFileSync(temporary + ".cleanup", installed);
+      expect(() => checkPackagedUpdateCleanup(installed, digest)).toThrow(/cleanup receipt/);
+      rmSync(temporary + ".cleanup");
+      expect(() => checkPackagedUpdateCleanup(installed, digest)).not.toThrow();
+      writeFileSync(archive, "wrong-archive-for-tests");
+      expect(() => checkPackagedUpdateCleanup(installed, digest)).toThrow(/real app.asar/);
+    } finally { rmSync(work, { recursive: true, force: true }); }
+  });
+
+  it("hands the verified ZIP to the packaged Restart to update path", async () => {
+    const applied: unknown[] = [];
+    const staged = { path: "/fixture/replacement.zip", version: "0.2.0", sha256: "digest-for-tests" };
+    await restartPackagedDesktop(async expression => await runInNewContext(expression, {
+      window: { desktopShell: { update: { apply: async (...args: unknown[]) => { applied.push(args); return { outcome: "applied" }; } } } },
+    }) as unknown, staged);
+    expect(applied).toEqual([[staged, "now"]]);
+  });
+
   const replacedPage = (unavailable: boolean, message = "Stored credentials from the previous build could not be read", repairWorks = true) => {
     const content = (row: string) => `<section aria-label="Settings"><nav aria-label="Settings rows"><button aria-label="About">About</button></nav><section aria-label="Credential access"><p>macOS is asking for access to the stored credentials. Answering the macOS prompt keeps them.</p><p>${message}. New credentials use a fresh OS-protected item. Pair again with the environments that were paired.</p><button data-repair>Pair again</button></section><section aria-label="${row}"></section></section>`;
     const dom = new JSDOM(content("Your machines"));

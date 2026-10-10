@@ -26,7 +26,7 @@ export const mainBundleConfig = (outDir: string): InlineConfig => ({
     outDir,
     emptyOutDir: false,
     minify: false,
-    rolldownOptions: { external: ["electron"], output: { format: "es", entryFileNames: "main.js" } },
+    rolldownOptions: { external: ["electron", "original-fs"], output: { format: "es", entryFileNames: "main.js" } },
   },
 });
 

@@ -36,6 +36,10 @@ describe("the packaged main process", () => {
     mkdirSync(electron, { recursive: true });
     writeFileSync(join(helperDir, "package.json"), JSON.stringify({ type: "module" }));
     writeFileSync(join(electron, "package.json"), JSON.stringify({ type: "module", exports: "./index.js" }));
+    const originalFs = join(helperDir, "node_modules", "original-fs");
+    mkdirSync(originalFs, { recursive: true });
+    writeFileSync(join(originalFs, "package.json"), JSON.stringify({ type: "module", exports: "./index.js" }));
+    writeFileSync(join(originalFs, "index.js"), "export { promises } from 'node:fs';\n");
     writeFileSync(join(electron, "index.js"), `
 let identity, profile;
 export const app = {
@@ -71,11 +75,12 @@ export const clipboard = {}, dialog = {}, ipcMain = {}, nativeTheme = {}, Notifi
     } finally { provider.close(); }
   });
 
-  it("is one ES module, main.js, which imports Electron and Node's built-ins and nothing else", () => {
+  it("is one ES module, main.js, which imports Electron's physical filesystem and Node's built-ins", () => {
     expect(readdirSync(outDir)).toEqual(["main.js"]);
     const imported = specifiers(readFileSync(join(outDir, "main.js"), "utf8"));
     expect(imported).toContain("electron");
-    expect(imported.filter((specifier) => specifier !== "electron" && !isBuiltin(specifier))).toEqual([]);
+    expect(imported).toContain("original-fs");
+    expect(imported.filter((specifier) => specifier !== "electron" && specifier !== "original-fs" && !isBuiltin(specifier))).toEqual([]);
   });
 });
 

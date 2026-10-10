@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import console from "node:console";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import process from "node:process";
 
 import { spawn, execFileSync } from "node:child_process";
@@ -18,6 +18,32 @@ const { fetch, AbortSignal, WebSocket } = globalThis;
 const discoveryPath = "/.well-known/agent-harness/environment";
 const credentialName = "packaged-update-check";
 const baseline = "0.0.0-0";
+
+/** Checks the physical archive and owned staging paths before the smoke's own cleanup can hide a leak. */
+export function checkPackagedUpdateCleanup(installed, expectedArchive) {
+  assert.equal(createHash("sha256").update(readFileSync(join(installed, "Contents", "Resources", "app.asar"))).digest("hex"), expectedArchive,
+    "The replacement must preserve its real app.asar");
+  const leftovers = readdirSync(resolve(installed, "..")).filter(name => name.startsWith(`.${basename(installed)}-update-`));
+  assert.deepEqual(leftovers, [], "The restarted desktop must remove its owned staging directory and cleanup receipt");
+}
+
+/** Starts the same packaged shell path as Restart to update without awaiting an IPC reply across quit. */
+export async function restartPackagedDesktop(evaluate, staged) {
+  assert.equal(await evaluate(`(() => {
+    void window.desktopShell.update.apply(${JSON.stringify(staged)}, 'now');
+    return true;
+  })()`, "restart the packaged desktop with its real archive"), true);
+}
+
+/** Observe only the executable paths, never process arguments or environment. */
+const installedDesktopPid = (executable) => {
+  const listing = execFileSync("ps", ["-ww", "-A", "-o", "pid=,comm="], { encoding: "utf8", timeout: 2000 });
+  for (const line of listing.split("\n")) {
+    const match = line.trim().match(/^(\d+)\s+(.+)$/);
+    if (match?.[2] === executable) return Number(match[1]);
+  }
+  return undefined;
+};
 
 /** Copies a packaged desktop for the prior install and its replacement. */
 export function copyPackagedDesktop(source, destination) {
@@ -454,6 +480,7 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
   let originalKeychain;
   let originalSearchList;
   let desktop;
+  let relaunchedPid;
   let cdp;
   let fixtureCli;
   let failure;
@@ -477,6 +504,10 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
   };
   const executable = (app) => join(app, "Contents", "MacOS", execFileSync("/usr/libexec/PlistBuddy", ["-c", "Print :CFBundleExecutable", join(app, "Contents", "Info.plist")], { encoding: "utf8" }).trim());
   const stopDesktop = async () => {
+    if (relaunchedPid && processRunning(relaunchedPid)) {
+      process.kill(relaunchedPid, "SIGTERM");
+      await until(() => !processRunning(relaunchedPid), "The restarted desktop did not respond to SIGTERM", 10_000);
+    }
     if (!desktop || desktop.exitCode !== null || desktop.signalCode !== null) return;
     desktop.kill("SIGTERM");
     await until(() => desktop.exitCode !== null || desktop.signalCode !== null, "The packaged desktop did not respond to SIGTERM", 10_000);
@@ -585,8 +616,24 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
       return labels.includes('This machine') && labels.includes('Ready');
     })`, "local environment ready in the replacement window", 5000), "The replacement's local environment must be ready in the window", 60_000);
     assert.equal(await cdp.evaluate("window.desktopShell.system().then(s => s.platform)", "post-upgrade main responsiveness"), "darwin");
-    await cdp.evaluate("window.desktopShell.window.close()", "close replacement window");
-    await until(() => desktop.exitCode !== null, "The replacement window did not quit", 10_000);
+    // A real packaged app.asar is load-bearing here: a plain app/ fixture cannot catch Electron's archive-aware rm.
+    const replacementZip = join(work, "replacement.zip");
+    execute("ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", source, replacementZip]);
+    const archiveDigest = createHash("sha256").update(readFileSync(join(source, "Contents", "Resources", "app.asar"))).digest("hex");
+    await restartPackagedDesktop(cdp.evaluate, {
+      path: replacementZip, version,
+      sha256: createHash("sha256").update(readFileSync(replacementZip)).digest("hex"),
+    });
+    await until(() => desktop.exitCode !== null, "The updating desktop did not quit", 30_000);
+    cdp.close();
+    relaunchedPid = await until(() => installedDesktopPid(executable(installed)), "The updated desktop did not restart", 30_000);
+    cdp = await connectCdp(port, { onTimeout: capture, redact: text => redactDiagnostic(text, secretsToRedact) });
+    await cdp.enableDiagnostics();
+    await openPackagedSettings(cdp.evaluate);
+    await cdp.evaluate("window.desktopShell.update.current()", "wait for deferred bundle cleanup");
+    checkPackagedUpdateCleanup(installed, archiveDigest);
+    await cdp.evaluate("window.desktopShell.window.close()", "close restarted replacement window");
+    await until(() => !processRunning(relaunchedPid), "The restarted replacement window did not quit", 10_000);
     console.log(`Packaged replacement proved ${outcome} credential recovery and upgraded ${baseline} to ${version}`);
   } catch (error) {
     failure = error;
@@ -602,7 +649,10 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
       async () => {
         if (!desktop) return;
         try { await stopDesktop(); }
-        finally { if (desktop.exitCode === null && desktop.signalCode === null) desktop.kill("SIGKILL"); }
+        finally {
+          if (desktop.exitCode === null && desktop.signalCode === null) desktop.kill("SIGKILL");
+          if (relaunchedPid && processRunning(relaunchedPid)) process.kill(relaunchedPid, "SIGKILL");
+        }
       },
       async () => { if (existsSync(diagnostics)) persistDesktopLog(diagnostics, privateDiagnostics, secretsToRedact); },
       async () => { if (fixtureCli) execute(fixtureCli[0], [fixtureCli[1], "service", "uninstall"]); },

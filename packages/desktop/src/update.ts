@@ -1,7 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
-import { access, mkdtemp, readdir, rename, rm } from "node:fs/promises";
+import { access, lstat, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { ShellApplyOutcome, ShellApplyWhen, ShellStagedBuild, ShellUpdate } from "@agent-harness/client-runtime";
@@ -22,7 +22,7 @@ import type { DesktopPlatform } from "./platform.js";
  * An AppImage, a `.deb` or a bundle that cannot be replaced has no format:
  * the runtime reports it `unsupported`, with the release page.
  *
- * Temporary folders are made and removed through Node's file calls, never a
+ * Temporary folders are made and removed through physical file calls, never a
  * command, so no platform's cleanup rests on a tool it may lack; a cleanup
  * that fails is said as one, never as an install that failed.
  */
@@ -30,10 +30,13 @@ import type { DesktopPlatform } from "./platform.js";
 /** The file calls an update makes: Node's own, unless a test wraps one to fail. */
 export interface UpdateFiles {
   readonly access: typeof access;
+  readonly lstat: typeof lstat;
   readonly mkdtemp: typeof mkdtemp;
+  readonly readFile: typeof readFile;
   readonly readdir: typeof readdir;
   readonly rename: typeof rename;
   readonly rm: typeof rm;
+  readonly writeFile: typeof writeFile;
 }
 
 /** What a command run to its end came to: its exit code, and what it said on its standard error. */
@@ -73,7 +76,7 @@ export const NODE_UPDATE_SYSTEM: UpdateSystem = {
         settle();
       });
     }),
-  files: { access, mkdtemp, readdir, rename, rm },
+  files: { access, lstat, mkdtemp, readFile, readdir, rename, rm, writeFile },
 };
 
 export interface UpdateParts {
@@ -151,9 +154,50 @@ interface HandedOver {
   readonly restart: boolean;
 }
 
+/** Activated only after a successful swap; a stranded rollback has no cleanup authority. */
+const CLEANUP_MARKER = ".cleanup";
+const PENDING_CLEANUP_MARKER = ".cleanup-pending";
+const temporaryPrefix = (bundle: string): string => `.${basename(bundle)}-update-`;
+
 export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): ShellUpdate => {
   const { files } = system;
   const stays = () => `${app.getVersion()} stays installed`;
+
+  /** The new process owns cleanup after the old process has released its bundle. */
+  const retryCleanup = async (): Promise<void> => {
+    if (platform.os !== "darwin" || !app.isPackaged) return;
+    const bundle = bundleOf(platform.executable);
+    if (bundle === undefined) return;
+    const parent = dirname(bundle);
+    for (const name of await files.readdir(parent)) {
+      const pending = name.endsWith(PENDING_CLEANUP_MARKER);
+      const suffix = pending ? PENDING_CLEANUP_MARKER : CLEANUP_MARKER;
+      if (!name.startsWith(temporaryPrefix(bundle)) || !name.endsWith(suffix)) continue;
+      const marker = join(parent, name);
+      const temporary = marker.slice(0, -suffix.length);
+      try {
+        // A filename alone never authorizes removal, nor does a symlink to an owned folder.
+        if (!(await files.lstat(marker)).isFile()) continue;
+        if (await files.readFile(marker, "utf8") !== bundle) continue;
+        const found = await files.lstat(temporary).catch((error: unknown) => {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+          throw error;
+        });
+        if (found !== undefined && !found.isDirectory()) continue;
+        if (pending && found !== undefined) {
+          // The incoming bundle remains here until the swap commits, including a stranded rollback.
+          if ((await files.readdir(temporary)).some((entry) => entry.endsWith(".app"))) continue;
+          if (!(await files.lstat(bundle)).isDirectory()) continue;
+        }
+        await files.rm(temporary, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+        // Keep the receipt outside the tree: a partial removal must not erase retry authority.
+        await files.rm(marker, { force: true });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") report(new Error(`The desktop's deferred update cleanup: ${messageOf(error)}`));
+      }
+    }
+  };
+  const cleanupReady = retryCleanup().catch(report);
 
   /** Whether `path` can be written: a bundle on a disk image, or translocated, cannot. */
   const writable = (path: string): Promise<boolean> =>
@@ -166,17 +210,18 @@ export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): S
    * Swaps `bundle` for the one the staged zip holds: unpacked with `ditto`
    * into a temporary folder beside it, on the same volume, the old bundle
    * renamed into that folder and the new one renamed into its place, the
-   * old one renamed back if that fails. The folder is removed after, the old
-   * bundle with it, unless it holds the only copy of the app.
+   * old one renamed back if that fails. A successful swap records cleanup for
+   * the next process; a stranded rollback keeps the only copy of the app.
    */
   const swapBundle = async (bundle: string, staged: ShellStagedBuild): Promise<ShellApplyOutcome> => {
     let temporary: string;
     try {
-      temporary = await files.mkdtemp(join(dirname(bundle), `.${basename(bundle)}-update-`));
+      temporary = await files.mkdtemp(join(dirname(bundle), temporaryPrefix(bundle)));
     } catch (error) {
       return failed("install", `Could not make a folder beside ${bundle} to unpack ${staged.version} into (${messageOf(error)}), so ${stays()}.`);
     }
     const previous = join(temporary, "previous");
+    const pendingMarker = temporary + PENDING_CLEANUP_MARKER;
     /** Undefined once the new bundle is in place, else why it is not. A stranded app's temporary folder is kept. */
     const swap = async (): Promise<SwapFailure | undefined> => {
       const unpacked = await system.run("ditto", ["-x", "-k", staged.path, temporary]).catch((error: unknown) => ({ code: -1, stderr: messageOf(error) }));
@@ -184,6 +229,8 @@ export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): S
       const bundles = (await files.readdir(temporary)).filter((name) => name.endsWith(".app"));
       const [incoming] = bundles;
       if (incoming === undefined || bundles.length > 1) return { why: `The build of ${staged.version} does not hold one app bundle, so ${stays()}.` };
+      // Refuse the swap if ownership cannot be recorded; a partial write never strands an old bundle.
+      await files.writeFile(pendingMarker, bundle, { flag: "wx", mode: 0o600 });
       try {
         await files.rename(bundle, previous);
       } catch (error) {
@@ -204,9 +251,16 @@ export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): S
     const failure = await swap().catch((error: unknown): SwapFailure => ({ why: `Could not install ${staged.version} (${messageOf(error)}), so ${stays()}.` }));
     if (failure?.stranded) return failed("install", failure.why);
     try {
-      await files.rm(temporary, { recursive: true, force: true });
+      if (failure === undefined) {
+        await files.rename(pendingMarker, temporary + CLEANUP_MARKER);
+      } else {
+        await files.rm(temporary, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+        await files.rm(pendingMarker, { force: true });
+      }
     } catch (error) {
-      const cleanup = `the temporary folder ${temporary} could not be removed: ${messageOf(error)}`;
+      const cleanup = failure === undefined
+        ? `cleanup of the temporary folder ${temporary} could not be scheduled: ${messageOf(error)}`
+        : `the temporary folder ${temporary} could not be removed: ${messageOf(error)}`;
       return failure === undefined ? failed("cleanup", `${staged.version} is installed, but ${cleanup}.`) : failed("install", `${failure.why} And ${cleanup}.`);
     }
     return failure === undefined ? APPLIED : failed("install", failure.why);
@@ -315,6 +369,7 @@ export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): S
 
   const apply = (staged: ShellStagedBuild, when: ShellApplyWhen): Promise<ShellApplyOutcome> =>
     inTurn(async () => {
+      await cleanupReady;
       const found = await installable(staged);
       if (!("install" in found)) return found;
       if (when === "quit" || found.afterQuit) {
@@ -335,7 +390,10 @@ export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): S
     });
 
   return {
-    current: async () => ({ version: app.getVersion(), platform: platform.os, arch: platform.architecture, format: (await installation()).format }),
+    current: async () => {
+      await cleanupReady;
+      return { version: app.getVersion(), platform: platform.os, arch: platform.architecture, format: (await installation()).format };
+    },
     apply,
   };
 };
