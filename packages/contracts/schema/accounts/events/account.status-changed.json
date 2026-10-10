@@ -15,9 +15,10 @@
         "signed-in",
         "signed-out",
         "expired",
-        "unreadable"
+        "unreadable",
+        "unavailable"
       ],
-      "description": "What an account's status read found: signed-in (it can run), signed-out, expired (the provider says its login has lapsed), or unreadable (the read failed or timed out). Only a signed-in account runs."
+      "description": "What an account's status read found: signed-in (it can run), signed-out, expired (the provider says its login has lapsed), unreadable (the provider read failed), or unavailable (a deadline elapsed; automatically retried). Only a signed-in account runs."
     },
     "previous": {
       "type": "string",
@@ -25,9 +26,10 @@
         "signed-in",
         "signed-out",
         "expired",
-        "unreadable"
+        "unreadable",
+        "unavailable"
       ],
-      "description": "What an account's status read found: signed-in (it can run), signed-out, expired (the provider says its login has lapsed), or unreadable (the read failed or timed out). Only a signed-in account runs."
+      "description": "What an account's status read found: signed-in (it can run), signed-out, expired (the provider says its login has lapsed), unreadable (the provider read failed), or unavailable (a deadline elapsed; automatically retried). Only a signed-in account runs."
     },
     "detail": {
       "anyOf": [
@@ -39,7 +41,7 @@
           "type": "null"
         }
       ],
-      "description": "Why, when the read said: the provider's error on an unreadable read."
+      "description": "Why, when the read said: the provider's error or a temporary deadline and retry diagnostic."
     }
   },
   "required": [

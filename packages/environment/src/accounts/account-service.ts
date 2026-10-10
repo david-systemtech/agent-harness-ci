@@ -18,6 +18,7 @@ import {
   type SignInStart,
 } from "@agent-harness/contracts";
 import type { AccountRef, Adapter, ModelCatalogue } from "../adapter/contract.js";
+import { ProbeTimeoutError } from "../adapter/probe.js";
 import { createAdapterRegistry, type AdapterRegistry } from "../adapter/registry.js";
 import { formatActor, type EventInput, type EventLog, type StreamRef } from "../event-log/event-log.js";
 import { dropAccountInjection } from "../key-managers/injection-setting.js";
@@ -79,7 +80,10 @@ export const ACCOUNTS_DIRECTORY = "accounts";
 /** How long a status or model probe may take before it counts as failed, so a hung probe cannot hang startup or a read. */
 export const PROBE_TIMEOUT_MS = 5_000;
 
-/** The longest an account goes without a status read (ADR 0011, ADR 0018: at most every fifteen minutes). */
+/** Retry temporary provider deadlines promptly, without a tight startup loop. */
+export const PROBE_RETRY_INTERVAL_MS = 30_000;
+
+/** The longest an account goes without a status read (ADR 0011, ADR 0018). */
 export const STATUS_READ_INTERVAL_MS = 15 * 60_000;
 
 /** The account store's own actor: status reads, a refused sign-in, the accounts carried over from configuration. */
@@ -191,22 +195,20 @@ interface Observed {
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /** Settles as `work` does, or rejects once `ms` have passed on the wall clock (never the environment's, which a test may hold still). */
-export const withTimeout = <T>(work: () => Promise<T>, ms: number, what: string): Promise<T> =>
+export const withTimeout = <T>(work: (signal: AbortSignal) => Promise<T>, ms: number, what: string, controller = new AbortController()): Promise<T> =>
   new Promise<T>((resolvePromise, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${what} gave no answer within ${ms} ms.`)), ms);
+    const signal = controller.signal;
+    const aborted = () => reject(signal.reason);
+    signal.addEventListener("abort", aborted, { once: true });
+    const timer = setTimeout(() => controller.abort(new ProbeTimeoutError(`${what} gave no answer within ${ms} ms.`)), ms);
     timer.unref();
-    Promise.resolve()
-      .then(work)
-      .then(
-        (value) => {
-          clearTimeout(timer);
-          resolvePromise(value);
-        },
-        (error: unknown) => {
-          clearTimeout(timer);
-          reject(error);
-        },
-      );
+    const finish = () => { clearTimeout(timer); signal.removeEventListener("abort", aborted); signal.removeEventListener("abort", finish); };
+    if (signal.aborted) { finish(); reject(signal.reason); return; }
+    Promise.resolve().then(() => { signal.throwIfAborted(); return work(signal); }).then(
+      (value) => { finish(); resolvePromise(value); },
+      (error: unknown) => { finish(); reject(error); },
+    );
+    signal.addEventListener("abort", finish, { once: true });
   });
 
 /** A sign-in state as the store reads it: unreadable when the read said why it failed, signed in, expired when the provider says so, else signed out. */
@@ -248,6 +250,14 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
   const timers = new Map<string, Timer>();
   const statusReads = new Map<string, Promise<void>>();
   const modelReads = new Map<string, Promise<void>>();
+  const modelTimeouts = new Set<string>();
+  const probes = new Set<AbortController>();
+  const probeWork = async <T>(work: (signal: AbortSignal) => Promise<T>, what: string): Promise<T> => {
+    const controller = new AbortController();
+    probes.add(controller);
+    try { return await withTimeout(work, probeTimeoutMs, what, controller); }
+    finally { probes.delete(controller); }
+  };
   /** The machine's own directory, by provider, as it was last read. */
   const ambient = new Map<string, AmbientProbe>();
   /** Why an owned account's sign-in was refused, for the director to say. */
@@ -318,10 +328,12 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
     timers.get(accountId)?.cancel();
     timers.delete(accountId);
     catalogues.delete(accountId);
+    modelTimeouts.delete(accountId);
     checkedAt.delete(accountId);
   };
 
   const readModels = (accountId: string): Promise<void> => {
+    if (closed) return Promise.resolve();
     const running = modelReads.get(accountId);
     if (running !== undefined) return running;
     const reading = (async () => {
@@ -329,12 +341,20 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
       const adapter = record === null ? undefined : adapters.get(record.provider);
       if (record === null || adapter === undefined) return;
       try {
-        const catalogue = await withTimeout(() => adapter.models(refOf(record)), probeTimeoutMs, `The model listing of the account ${record.label}`);
-        if (!closed && liveAccount(reader, accountId) !== null) catalogues.set(accountId, catalogue);
+        const catalogue = await probeWork((signal) => adapter.models(refOf(record), signal), `The model listing of the account ${record.label}`);
+        if (!closed && liveAccount(reader, accountId) !== null) {
+          catalogues.set(accountId, catalogue);
+          modelTimeouts.delete(accountId);
+        }
       } catch (error) {
-        console.error(`Reading the models of the account ${record.label} failed:`, error);
+        if (closed) return;
+        if (error instanceof ProbeTimeoutError) modelTimeouts.add(accountId);
+        console.error(`Reading the models of the account ${record.label} failed: ${messageOf(error)}`);
       }
-    })().finally(() => modelReads.delete(accountId));
+    })().finally(() => {
+      modelReads.delete(accountId);
+      arm(accountId);
+    });
     modelReads.set(accountId, reading);
     return reading;
   };
@@ -394,7 +414,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
       return change === null ? null : { change, warning };
     });
 
-  /** Reads the account's status again in fifteen minutes, whatever reads it meanwhile. */
+  /** Reads again in thirty seconds after a deadline, otherwise in fifteen minutes. */
   const arm = (accountId: string): void => {
     timers.get(accountId)?.cancel();
     if (closed || liveAccount(reader, accountId) === null) {
@@ -406,8 +426,8 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
       clock.setTimeout(() => {
         void readStatus(accountId);
         // A catalogue a failed read left unknown is read again too, so the account is not left with no model to run.
-        if (!catalogues.has(accountId)) void readModels(accountId);
-      }, STATUS_READ_INTERVAL_MS),
+        if (!catalogues.has(accountId) || modelTimeouts.has(accountId)) void readModels(accountId);
+      }, liveAccount(reader, accountId)?.status.state === "unavailable" || modelTimeouts.has(accountId) ? PROBE_RETRY_INTERVAL_MS : STATUS_READ_INTERVAL_MS),
     );
   };
 
@@ -418,6 +438,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
    * caller that needs a read begun after it asked (a sign-in just done).
    */
   const readStatus = (accountId: string, how: { readonly quiet?: boolean; readonly fresh?: boolean } = {}): Promise<void> => {
+    if (closed) return Promise.resolve();
     const running = statusReads.get(accountId);
     if (running !== undefined) return how.fresh === true ? running.then(() => readStatus(accountId, how)) : running;
     const reading = (async () => {
@@ -428,10 +449,13 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
       if (adapter === undefined) observed = { state: "unreadable", identity: null, detail: `No adapter serves the provider ${record.provider} on this environment.` };
       else {
         try {
-          observed = classify(record.provider, await withTimeout(() => adapter.status(refOf(record)), probeTimeoutMs, `The status probe of the account ${record.label}`));
+          observed = classify(record.provider, await probeWork((signal) => adapter.status(refOf(record), signal), `The status probe of the account ${record.label}`));
         } catch (error) {
-          console.error(`Reading the status of the account ${record.label} failed:`, error);
-          observed = { state: "unreadable", identity: null, detail: messageOf(error) };
+          if (closed) return;
+          const temporary = error instanceof ProbeTimeoutError;
+          const detail = temporary ? `${messageOf(error)} Temporarily unavailable; automatic retry in ${PROBE_RETRY_INTERVAL_MS / 1000} seconds. No sign-in change was detected.` : messageOf(error);
+          console.error(`Reading the status of the account ${record.label} failed: ${detail}`);
+          observed = { state: temporary ? "unavailable" : "unreadable", identity: null, detail };
         }
       }
       if (closed) return;
@@ -477,7 +501,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
       // Only a directory that is there is read: a status read may create what it names.
       present = true;
       try {
-        const observed = classify(id, await withTimeout(() => adapter.status({ id: "ambient", directory }), probeTimeoutMs, `The status probe of ${directory}`));
+        const observed = classify(id, await probeWork((signal) => adapter.status({ id: "ambient", directory }, signal), `The status probe of ${directory}`));
         signedIn = observed.state === "signed-in";
         identity = observed.identity;
         detail = observed.detail;
@@ -803,6 +827,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
 
     close() {
       closed = true;
+      for (const probe of probes) probe.abort(new Error("The account service closed."));
       for (const timer of timers.values()) timer.cancel();
       timers.clear();
       director.close();

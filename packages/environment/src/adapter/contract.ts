@@ -987,7 +987,8 @@ export interface RunContext {
 export interface Adapter {
   readonly descriptor: AdapterDescriptor;
   readonly credentials: AdapterCredentialSpec;
-  status(account: AccountRef): Promise<AuthStatus>;
+  /** A caller deadline or shutdown aborts the probe; reclaim provider processes and reject with the signal reason. */
+  status(account: AccountRef, signal?: AbortSignal): Promise<AuthStatus>;
   /** Read cached identity metadata only: no sign-in, credential refresh, process launch or writes. Internal import planning, not a wire capability. */
   observeIdentity?(directory: string): Promise<AccountIdentity | null>;
   /**
@@ -996,7 +997,8 @@ export interface Adapter {
    * in place; absent, or null, when the provider has none here.
    */
   ambientDirectory?(): string | null;
-  models(account: AccountRef): Promise<ModelCatalogue>;
+  /** A cancelled listing must reclaim its query and propagate the signal reason without a fallback diagnostic. */
+  models(account: AccountRef, signal?: AbortSignal): Promise<ModelCatalogue>;
   createRun(input: RunInput, context: RunContext): AdapterRun;
   /**
    * Stops the session's provider process, whichever it holds at the call; a

@@ -116,6 +116,17 @@ describe("provider sign-in attendance", () => {
 });
 
 describe("Accounts", () => {
+  it("shows a temporary deadline with automatic recovery instead of asking the owner to sign in", async () => {
+    const app = await opened({ desk: { accounts: [{ label: "Slow account", status: {
+      state: "unavailable", checkedAt: null, detail: "Provider deadline elapsed; automatic retry in 30 seconds.",
+    } }] } });
+    const accounts = await openRow(app, "Accounts");
+    const card = await within(accounts).findByRole("region", { name: "Slow account" });
+    expect(within(card).getByText("Temporarily unavailable — checking again")).toBeDefined();
+    expect(within(card).getByText("Provider deadline elapsed; automatic retry in 30 seconds.")).toBeDefined();
+    expect(within(card).getByRole("button", { name: "Sign in again" })).toHaveProperty("disabled", true);
+  });
+
   it("lists the picked environment's accounts from accounts.list, each with its label, email and state, its plan reading and folder in Details", async () => {
     const app = await opened({
       desk: {

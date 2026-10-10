@@ -1,3 +1,4 @@
+import { ProbeTimeoutError } from "../../adapter/probe.js";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -255,18 +256,20 @@ export interface CommandResult {
   readonly code: number | null;
   readonly stdout: string;
   readonly stderr: string;
+  readonly timedOut?: boolean;
 }
 
 /** Runs the bundled binary with an argv and an environment; injectable, so no test spawns it. */
-export type CommandRunner = (executable: string, argv: readonly string[], env: Record<string, string>, timeoutMs: number) => Promise<CommandResult>;
+export type CommandRunner = (executable: string, argv: readonly string[], env: Record<string, string>, timeoutMs: number, signal?: AbortSignal) => Promise<CommandResult>;
 
 /**
  * The real runner: no shell, stdin closed so a command that unexpectedly
  * prompts fails fast instead of hanging, killed at the timeout. Never
  * rejects: a binary that cannot be run answers a null code and its error.
  */
-export const spawnCommand: CommandRunner = (executable, argv, env, timeoutMs) =>
+export const spawnCommand: CommandRunner = (executable, argv, env, timeoutMs, signal) =>
   new Promise((resolve) => {
+    if (signal?.aborted === true) { resolve({ code: null, stdout: "", stderr: "Cancelled." }); return; }
     let stdout = "";
     let stderr = "";
     let settled = false;
@@ -275,12 +278,15 @@ export const spawnCommand: CommandRunner = (executable, argv, env, timeoutMs) =>
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener("abort", cancelled);
       resolve(result);
     };
+    const cancelled = () => { child.kill("SIGKILL"); finish({ code: null, stdout, stderr: "Cancelled." }); };
     const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      finish({ code: null, stdout, stderr: `${stderr}\nTimed out after ${timeoutMs} ms.` });
+      child.kill("SIGKILL");
+      finish({ code: null, stdout, stderr: `${stderr}\nTimed out after ${timeoutMs} ms.`, timedOut: true });
     }, timeoutMs);
+    signal?.addEventListener("abort", cancelled, { once: true });
     // Decoded by the streams, which hold a character split across two chunks until it is whole.
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
@@ -298,6 +304,7 @@ export interface StatusReadOptions {
   readonly hostEnv: HostEnvironment;
   readonly run?: CommandRunner;
   readonly timeoutMs?: number;
+  readonly signal?: AbortSignal;
 }
 
 /**
@@ -308,9 +315,12 @@ export interface StatusReadOptions {
  * read is a signed-out state with the reason, the binary's own words first.
  */
 export const readClaudeStatus = async (options: StatusReadOptions): Promise<AuthStatus> => {
+  options.signal?.throwIfAborted();
   if (options.executable === null) return unreadable("The bundled Claude binary was not found for this platform.");
   const run = options.run ?? spawnCommand;
-  const result = await run(options.executable, CLAUDE_STATUS_ARGV, composeRunEnvironment(options.hostEnv, options.directory), options.timeoutMs ?? 15_000);
+  const result = await run(options.executable, CLAUDE_STATUS_ARGV, composeRunEnvironment(options.hostEnv, options.directory), options.timeoutMs ?? 15_000, options.signal);
+  options.signal?.throwIfAborted();
+  if (result.timedOut === true) throw new ProbeTimeoutError(`The Claude status command did not answer within ${options.timeoutMs ?? 15_000} ms.`);
   const parsed = parseClaudeStatus(result.stdout);
   if (parsed.error === null) return parsed;
   // The binary's own words; else how it failed, when it did; else what was wrong with what it printed.

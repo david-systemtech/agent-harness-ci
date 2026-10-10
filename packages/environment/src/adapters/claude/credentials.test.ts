@@ -254,6 +254,12 @@ describe("reading the status through the bundled binary", () => {
     expect(calls[0]?.env).not.toHaveProperty("ANTHROPIC_API_KEY");
   });
 
+  it("reports its own process deadline as temporary unavailability rather than unreadable credentials", async () => {
+    await expect(readClaudeStatus({ executable: "/sdk/claude", directory: "/d", hostEnv: {},
+      timeoutMs: 15_000, run: async () => ({ code: null, stdout: "", stderr: "Timed out.", timedOut: true }),
+    })).rejects.toMatchObject({ name: "ProbeTimeoutError", message: "The Claude status command did not answer within 15000 ms." });
+  });
+
   it("reads a signed-out exit 1 as signed out, not as a failure", async () => {
     const status = await readClaudeStatus({ executable: "/sdk/claude", directory: "/d", hostEnv: {}, run: async () => ({ code: 1, stdout: SIGNED_OUT, stderr: "" }) });
     expect(status).toEqual({ signedIn: false, authMethod: null, email: null, orgName: null, subscriptionType: null, error: null });

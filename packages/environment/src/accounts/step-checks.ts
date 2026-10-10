@@ -23,7 +23,7 @@ export interface AccountStateChecksOptions {
 }
 
 /** What one account that needs to sign in again says (setup-copy.md §5.1): its label, never its directory or id. */
-const SIGN_IN_AGAIN_LINE: { readonly [State in Exclude<AccountStatusState, "signed-in" | "unreadable">]: (label: string) => string } = {
+const SIGN_IN_AGAIN_LINE: { readonly [State in Exclude<AccountStatusState, "signed-in" | "unreadable" | "unavailable">]: (label: string) => string } = {
   "signed-out": (label) => `${label} is signed out. Sign in again to use it.`,
   expired: (label) => `${label}'s sign-in has run out. Sign in again to keep using it.`,
 };
@@ -59,10 +59,12 @@ const accountPresent = (accounts: readonly AccountRecord[]): StateCheckAnswer =>
 const everySignedIn = (accounts: readonly AccountRecord[]): StateCheckAnswer => {
   const lapsed = accounts.filter((account) => account.status.state === "signed-out" || account.status.state === "expired");
   const unreadable = accounts.filter((account) => account.status.state === "unreadable");
-  const lines = [signInAgainLine(lapsed), unreadableLine(unreadable)].filter((line) => line !== undefined);
+  const unavailable = accounts.filter((account) => account.status.state === "unavailable");
+  const temporaryLine = unavailable.length === 0 ? undefined : `Temporarily unavailable: ${unavailable.map(account => account.label).join(", ")}. Checking again automatically; no sign-in change was detected.`;
+  const lines = [signInAgainLine(lapsed), unreadableLine(unreadable), temporaryLine].filter((line) => line !== undefined);
   if (lines.length === 0) return true;
-  const actions: SetupAction[] = [...(lapsed.length > 0 ? ["sign-in-again" as const] : []), ...(unreadable.length > 0 ? ["check-again" as const] : [])];
-  const details = unreadable.flatMap((account) => (account.status.detail === null ? [] : [`${account.label}: ${account.status.detail}`]));
+  const actions: SetupAction[] = [...(lapsed.length > 0 ? ["sign-in-again" as const] : []), ...(unreadable.length > 0 || unavailable.length > 0 ? ["check-again" as const] : [])];
+  const details = [...unreadable, ...unavailable].flatMap((account) => (account.status.detail === null ? [] : [`${account.label}: ${account.status.detail}`]));
   return { reason: lines.join(" "), details, ...(lapsed.length > 0 && { targets: lapsed.map(signInAgain) }), actions };
 };
 

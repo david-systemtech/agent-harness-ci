@@ -77,10 +77,11 @@ export const AccountCard = ({ environmentId, account, gauges, writable, signIn, 
         <Fact name="Status"><span className={signedIn ? undefined : "text-amber"}>{accountStatusWords(account.status)}</span></Fact>
       </dl>
       <div className="flex flex-wrap gap-2">
-        <AccountAction icon={KeyRound} size="sm" variant="outline" disabled={!writable || signInHeld !== undefined} {...(signInHeld === undefined ? {} : { "aria-describedby": held })} onClick={signIn}>
+        <AccountAction icon={KeyRound} size="sm" variant="outline" disabled={!writable || account.status.state === "unavailable" || signInHeld !== undefined} {...(signInHeld === undefined ? {} : { "aria-describedby": held })} onClick={signIn}>
           Sign in again
         </AccountAction>
       </div>
+      {account.status.state === "unavailable" && <p className="text-2xs text-ink-muted">{account.status.detail}</p>}
       {signInHeld !== undefined && <p id={held} className="text-2xs text-ink-muted">{signInHeld}</p>}
       <CardFold summary="More options">
         {/* Keyed by the label, so a label set anywhere, here or by another client, is the field's again. */}

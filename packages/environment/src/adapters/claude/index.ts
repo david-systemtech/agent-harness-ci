@@ -176,12 +176,13 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
   const control = (account: AccountRef, cwd: string) => controlIn(configDirectory(account), cwd);
 
   /** The bundled binary's status of an account's directory, as the CLI there says it. */
-  const statusIn = (directory: string): Promise<AuthStatus> =>
+  const statusIn = (directory: string, signal?: AbortSignal): Promise<AuthStatus> =>
     readClaudeStatus({
       executable: executablePath(),
       directory,
       hostEnv,
       timeoutMs: timings.statusTimeoutMs,
+      ...(signal !== undefined && { signal }),
       ...(options.runCommand !== undefined && { run: options.runCommand }),
     });
 
@@ -225,9 +226,9 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
    * out (the CLI clears a login whose refresh the provider refused) until the
    * binary says signed in again, after a sign-in from anywhere.
    */
-  const status = async (account: AccountRef): Promise<AuthStatus> => {
+  const status = async (account: AccountRef, signal?: AbortSignal): Promise<AuthStatus> => {
     const directory = configDirectory(account);
-    const read = await statusIn(directory);
+    const read = await statusIn(directory, signal);
     if (read.signedIn) logins.signedIn(directory);
     else if (read.error === null && logins.lapsed(directory)) return { signedIn: false, authMethod: null, email: null, orgName: null, subscriptionType: null, error: null, expired: true };
     return read;
@@ -306,10 +307,11 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     },
     // The machine's own directory, resolved once: what `accounts.adopt` registers in place (#134).
     ambientDirectory: () => ambient,
-    async models(account) {
+    async models(account, signal) {
       try {
-        return catalogueOf(await withControlQuery(control(account, tmpdir()), (query) => query.supportedModels()));
+        return catalogueOf(await withControlQuery({ ...control(account, tmpdir()), ...(signal !== undefined && { signal }) }, (query) => query.supportedModels()));
       } catch (error) {
+        if (signal?.aborted === true) throw signal.reason;
         diagnostic(`Listing the models of the Claude account ${account.id} failed; the static list answers.`, error);
         return staticCatalogue();
       }

@@ -25,6 +25,7 @@ const STATE_WORDS: Readonly<Record<AccountStatusState, string>> = {
   "signed-out": "signed out",
   expired: "expired",
   unreadable: "its status unreadable",
+  unavailable: "temporarily unavailable; status will be checked again",
 };
 
 /** The list's heading: what the lines are for. */

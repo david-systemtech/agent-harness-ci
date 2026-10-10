@@ -1,6 +1,7 @@
 import type { RunSkillSet } from "@agent-harness/contracts";
 import { query as sdkQuery, type Options, type Query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { Clock } from "../../serve/clock.js";
+import { ProbeTimeoutError } from "../../adapter/probe.js";
+import type { Clock, Timer } from "../../serve/clock.js";
 import { composeRunEnvironment, type HostEnvironment } from "./credentials.js";
 import { CLIENT_APP, flagSettings, projectOptions, skillPlugins } from "./options.js";
 
@@ -33,6 +34,7 @@ export interface ControlQueryOptions {
   /** The main checkout of the linked worktree `cwd` lies in, whose project configuration a trusted run there loads (#998). */
   readonly checkoutRoot?: string | null;
   readonly timeoutMs: number;
+  readonly signal?: AbortSignal;
 }
 
 /** A skill set's plugin and flag settings as a run's options carry them (`options.ts`); nothing without a set. */
@@ -45,6 +47,7 @@ const skillOptions = (skillSet: RunSkillSet | undefined): Pick<Options, "plugins
 };
 
 export const withControlQuery = async <T>(options: ControlQueryOptions, ask: (query: Query) => Promise<T>): Promise<T> => {
+  options.signal?.throwIfAborted();
   const abort = new AbortController();
   // Yields nothing and parks until the abort: ending would close the input and let the CLI end the session before the request lands.
   const idle: AsyncIterable<SDKUserMessage> = {
@@ -70,23 +73,21 @@ export const withControlQuery = async <T>(options: ControlQueryOptions, ask: (qu
     ...skillOptions(options.skillSet),
   };
   let query: Query | undefined;
+  let timer: Timer | undefined;
+  let cancelled: (() => void) | undefined;
   try {
     query = sdkQuery({ prompt: idle, options: queryOptions });
     const asked = ask(query);
     return await new Promise<T>((resolve, reject) => {
-      const timer = options.clock.setTimeout(() => reject(new Error(`The Claude binary did not answer within ${options.timeoutMs} ms.`)), options.timeoutMs);
-      asked.then(
-        (value) => {
-          timer.cancel();
-          resolve(value);
-        },
-        (error: unknown) => {
-          timer.cancel();
-          reject(error instanceof Error ? error : new Error(String(error)));
-        },
-      );
+      cancelled = () => { abort.abort(); reject(options.signal?.reason); };
+      timer = options.clock.setTimeout(() => reject(new ProbeTimeoutError(`The Claude binary did not answer within ${options.timeoutMs} ms.`)), options.timeoutMs);
+      options.signal?.addEventListener("abort", cancelled, { once: true });
+      if (options.signal?.aborted === true) cancelled();
+      asked.then(resolve, reject);
     });
   } finally {
+    timer?.cancel();
+    if (cancelled !== undefined) options.signal?.removeEventListener("abort", cancelled);
     abort.abort();
     try {
       query?.close();

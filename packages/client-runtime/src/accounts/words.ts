@@ -22,6 +22,7 @@ const ACCOUNT_STATE_WORDS: Readonly<Record<AccountRecord["status"]["state"], str
   "signed-out": "Signed out",
   expired: "Sign-in ran out",
   unreadable: "Cannot read the sign-in",
+  unavailable: "Temporarily unavailable — checking again",
 };
 
 /** An account's state in a word or two, as its row says it. */
