@@ -8,6 +8,8 @@
   animation: none;
 }
 .authoring-dialog > div:first-child { flex-shrink: 0; }
+/* The nested flex row must wrap within the header rather than take its min-content width. */
+[data-authoring-header] [aria-label="Status line"] { min-width: 0; width: 100%; flex-basis: 100%; }
 /* The shared phone frame is fixed; its nested authoring panel stays in the dialog's flex layout. */
 .authoring-dialog[data-authoring-dialog] [data-authoring-frame] { position: static; }
 @media (width < 640px) {

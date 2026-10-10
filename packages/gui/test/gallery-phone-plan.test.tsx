@@ -173,3 +173,13 @@ it("keeps the keyboard dock proof at layout 390x844 instead of reducing the whol
     ["phone-keyboard-dock-phone-390.dark", { width: 390, height: 844 }],
   ]);
 });
+
+it("checks the authoring dialog's full usage in both themes at laptop sizes", () => {
+  const plan = capturePlan(["settings-bank-authoring-usage"]);
+  expect(plan.captures.map(capture => [capture.name, capture.viewport, capture.probes])).toEqual([
+    ["settings-bank-authoring-usage.light", { width: 1400, height: 900 }, [{ width: 1280, height: 800 }, { width: 1280, height: 700 }]],
+    ["settings-bank-authoring-usage.dark", { width: 1400, height: 900 }, [{ width: 1280, height: 800 }, { width: 1280, height: 700 }]],
+    ["settings-bank-authoring-usage-narrow.light", { width: 1024, height: 768 }, undefined],
+    ["settings-bank-authoring-usage-narrow.dark", { width: 1024, height: 768 }, undefined],
+  ]);
+});
