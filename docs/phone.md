@@ -88,16 +88,27 @@ installed shim below or `./bin/agent-harness` from the archive. For a custom
 data directory or listener, append `--data-dir <path> --port <port>` to each
 command; these identify the local environment, not the HTTPS proxy's port.
 
-| Preset | Command | Scopes | Run ceiling |
+| Visible pairing choice | Command | Scopes | Run ceiling |
 | --- | --- | --- | --- |
-| Phone | `agent-harness pair --preset phone` | `read`, `sessions:write`, `runs:drive` | `acceptEdits` |
-| My own client | `agent-harness pair --preset own-client` | Every scope, including `terminal` and `admin` | `bypassPermissions` |
+| **A phone with limited access** | `agent-harness pair --preset phone` | `read`, `sessions:write`, `runs:drive` | `acceptEdits` |
+| **Me** | `agent-harness pair --preset own-client` | `read`, `sessions:write`, `runs:drive`, `terminal`, `admin` | `bypassPermissions` |
+| **Custom** | `agent-harness pair --preset custom` | Defaults to `read`; choose scopes explicitly | Defaults to `plan`; choose a ceiling explicitly |
 
-Phone is the restricted choice for persistent browser storage. My own client
-remains a valid, deliberate full-access choice for your own phone. Opening a
-link in a phone browser never changes its minted grant: an existing My own
-client link is not downgraded. Both commands print the preset, scopes,
-ceiling, HTTPS link, QR and code. Inspect that grant before accepting.
+**A phone with limited access** (`--preset phone`) is the restricted choice
+for persistent browser storage. **Me** (`--preset own-client`) remains a
+valid, deliberate full-access choice for your own phone. Opening a link in a
+phone browser never changes its minted grant: an existing `own-client` link
+is not downgraded. The commands print the preset, scopes, ceiling, HTTPS link,
+QR and code. Inspect that grant before accepting.
+
+To mint a code in a trusted client, open
+**Settings → Settings rows → Your machines**, find the environment's card
+and its **Pair another client** section. Under **Who is it for?**, **Me** is first and selected by default
+when your current client can grant it. The other visible choices are
+**A phone with limited access** and **A program or bot**. Expand
+**More options → Custom**
+to choose scopes and **How much may its agents do without asking?**, then
+choose **Make a pairing code**.
 
 To keep `acceptEdits` while granting Settings/provider sign-in, deliberately
 mint an expanded Custom code:
@@ -113,10 +124,31 @@ agent-harness pair --preset custom --scopes read,sessions:write,runs:drive,termi
 ```
 
 A terminal can run commands outside the run-mode ceiling; grant it only when
-intended. A trusted desktop client can also mint these codes in **Your
-machines > Pair a client**. A minter cannot grant beyond its own scopes or
+intended. The same expanded **More options → Custom** form can mint these
+codes. A minter cannot grant beyond its own scopes or
 ceiling, and the phone cannot raise its own grant. Re-pair and confirm
 replacement of the saved connection when you deliberately change authority.
+
+## Change a phone's access
+
+On the restricted phone, choose **Give this phone full access**. On a trusted
+client, use the **Pair another client** section above, choose **Me** and
+**Make a pairing code** (or run CLI `--preset own-client` on the environment).
+Paste the new link or scan its QR in the phone's upgrade form. The successful
+pairing replaces this phone's saved connection; it cannot mint its own
+higher-access code. For selected extra scopes instead of full access, mint
+an expanded **More options → Custom** code with the scopes and ceiling you
+intend, then re-pair and confirm replacement of the saved connection.
+
+Alternatively, another admin client can open **Settings → Settings rows →
+Access** for this environment, find the phone and choose **Change access**.
+The **Access preset** choices there are **Full access** (the `own-client`
+grant), **Restricted phone** (the `phone` grant) and **Custom**. Choose the
+intended grant and **Save access**. This changes access in place without a
+new code: the phone reconnects with its existing token, and running runs
+keep their resolved policy. The admin cannot grant beyond its own scopes or
+ceiling or change its own client's grant. Choosing **Restricted phone**
+later restores the restricted scopes and ceiling.
 
 ## Pair and use a session
 
@@ -130,8 +162,8 @@ replacement of the saved connection when you deliberately change authority.
 3. Check the actual granted scopes and ceiling. Pairing opens sessions;
    **Set up** remains available. Open a session or create one, choose a
    workspace on the environment and send a prompt.
-4. Answer a waiting permission card with Allow/Deny. Phone includes
-   `runs:drive` for answering, including asks from another client's run.
+4. Answer a waiting permission card with Allow/Deny. The restricted `phone`
+   preset includes `runs:drive` for answering, including asks from another client's run.
    If disconnected, reconnect and check the session before retrying actions.
 
 At phone widths, use the session drawer and pane sheet. Files, Diff and
@@ -150,9 +182,10 @@ not grant cross-origin browser access.
 
 ## Provider sign-in and Settings
 
-Phone's default grant cannot change provider accounts or environment settings.
-A trusted admin can configure them from another client, or you can deliberately
-re-pair with Custom + `admin` or My own client. With that grant, choose the
+The restricted `phone` grant cannot change provider accounts or environment
+settings. A trusted admin can configure them from another client, or you can
+deliberately re-pair with **More options → Custom** + `admin` or **Me**
+(`--preset own-client`). With that grant, choose the
 environment in **Settings**, open **Accounts**, and choose **Sign in** (also
 available in **Set up**). Tap the verification link to open the provider's
 real page, complete it, return to the client, paste the returned code and
@@ -171,8 +204,9 @@ Cleared/evicted storage requires a fresh pairing code. A different hostname or
 port is a different origin and does not reuse the saved credential.
 
 **Forget** erases the local credential and attempts remote revocation. If the
-environment is unreachable, use a trusted client's **Your machines > Access**
-to revoke it remotely when reachable. For a lost phone, revoke every affected
+environment is unreachable, use a trusted client's
+**Settings → Settings rows → Access** to revoke it remotely when reachable.
+For a lost phone, revoke every affected
 browser/Home Screen client there; removing a Home Screen icon is not remote
 revocation. Session tokens are refreshable and have a 30-day lifetime;
 revoked or expired credentials require re-pairing.
@@ -230,8 +264,8 @@ opt-in and silent outcomes stay quiet.
 ### Operator recipe: signed webhook to Matrix
 
 An admin adds the route from a client paired with the admin grant (the
-**My own client** preset): **Settings > Attention** (bell button), **Add a
-webhook route**. Type a name (lower-case letters, digits and hyphens, such as
+**Me** choice, CLI `--preset own-client`): **Settings > Attention** (bell
+button), **Add a webhook route**. Type a name (lower-case letters, digits and hyphens, such as
 `phone-attention`), the receiver's URL and a dedicated signing secret, then
 **Add route**. The environment keeps the endpoint under that name, with its
 secret in its vault, and adds a global route naming it, shown as **Signed
