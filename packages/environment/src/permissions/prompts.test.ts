@@ -823,7 +823,7 @@ describe("a restart", () => {
     expect(snapshot.items.filter((item) => item.kind === "prompt")).toEqual([{ kind: "prompt", sequence, runId, promptId: "q-1", prompt: opened, answer: null }]);
 
     const answers = { "Which date library?": "luxon", "Which parts?": "API, UI" };
-    const given = await answer(later, "q-1", { decision: "allow", answers });
+    const given = await answer(later, "q-1", { decision: "allow", answers, message: "RESTART_NOTE_2091: acknowledge only." });
     expect(given.result).toMatchObject({ delivery: "next-run", answers });
     const next = await startRun(later, id, "Carry on");
     await untilEnded(again, id, next.runId);
@@ -831,6 +831,7 @@ describe("a restart", () => {
     expect(delivered?.text).toContain("Which date library?");
     expect(delivered?.text).toContain("luxon");
     expect(delivered?.text).toContain("API, UI");
+    expect(delivered?.text).toContain("RESTART_NOTE_2091: acknowledge only.");
     expect(message).toMatchObject({ text: "Carry on" });
   });
 

@@ -102,6 +102,8 @@ export interface RunOptionsInput {
   readonly fileTools: FileToolHooks;
   /** Called as each turn stops, with the session's scheduled jobs as the CLI lists them (`session_crons`). */
   readonly onStop?: HookCallback;
+  /** Delivers allowed prompt notes after the matching tool succeeds or fails. */
+  readonly onToolResult?: HookCallback;
   /** The process's own spawn of the CLI, so a kill reaches the child; absent, the SDK spawns it. */
   readonly spawnProcess?: NonNullable<Options["spawnClaudeCodeProcess"]>;
   readonly abortController: AbortController;
@@ -189,13 +191,14 @@ const gatedThenObserved =
  * The run's hooks: one `PreToolUse`, matching every tool (no matcher) and
  * waiting as long as the CLI can, which is the tool gate and then the file
  * tools' observation of a call it let through; the file tools' `PostToolUse`
- * and `PostToolUseFailure`, matching those tools alone; and the process's
- * `Stop` when it has one.
+ * and `PostToolUseFailure`, matching those tools alone; a prompt-note
+ * callback on every tool result when supplied; and the process's `Stop`
+ * when it has one.
  */
-const hooksOf = (input: Pick<RunOptionsInput, "preToolUse" | "fileTools" | "onStop">): Partial<Record<HookEvent, HookCallbackMatcher[]>> => ({
+const hooksOf = (input: Pick<RunOptionsInput, "preToolUse" | "fileTools" | "onStop" | "onToolResult">): Partial<Record<HookEvent, HookCallbackMatcher[]>> => ({
   PreToolUse: [{ hooks: [gatedThenObserved(input.preToolUse, input.fileTools.before)], timeout: GATE_HOOK_TIMEOUT_SECONDS }],
-  PostToolUse: [{ matcher: FILE_TOOL_MATCHER, hooks: [input.fileTools.completed] }],
-  PostToolUseFailure: [{ matcher: FILE_TOOL_MATCHER, hooks: [input.fileTools.failed] }],
+  PostToolUse: [{ matcher: FILE_TOOL_MATCHER, hooks: [input.fileTools.completed] }, ...(input.onToolResult === undefined ? [] : [{ hooks: [input.onToolResult] }])],
+  PostToolUseFailure: [{ matcher: FILE_TOOL_MATCHER, hooks: [input.fileTools.failed] }, ...(input.onToolResult === undefined ? [] : [{ hooks: [input.onToolResult] }])],
   ...(input.onStop !== undefined && { Stop: [{ hooks: [input.onStop] }] }),
 });
 

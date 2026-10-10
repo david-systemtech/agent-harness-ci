@@ -102,6 +102,16 @@ describe("a rule that asks, on a gate with no ask wired", () => {
   });
 });
 
+describe("an allowed denylist prompt's Note", () => {
+  it("hands the person's Note to the adapter without recording another decision", async () => {
+    const workspace = realpathSync(tempDir());
+    const append = vi.fn();
+    const ask: ToolGateOptions["ask"] = async () => ({ decision: { decision: "allow", message: "DENYLIST_NOTE_2091: read only this file." }, unopened: null });
+    expect(await gateAt(workspace, append, [keyRule()], ask).check(readKey)).toEqual({ decision: "allow", message: "DENYLIST_NOTE_2091: read only this file." });
+    expect(append).not.toHaveBeenCalled();
+  });
+});
+
 describe("a rule whose ask fails", () => {
   it("denies the call as a rule that could not rule, recorded by the rule's decider, since no prompt was opened to answer", async () => {
     const workspace = realpathSync(tempDir());

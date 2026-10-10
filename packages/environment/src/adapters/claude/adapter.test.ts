@@ -508,6 +508,100 @@ describe("canUseTool on the broker seam", () => {
     });
   });
 
+  it("delivers a live question's Note with its selected answer and preserves preview annotations", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const run = adapter.createRun(runInput(), context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]));
+    await flush();
+    const input = {
+      questions: [{ question: "Which scope?", header: "Scope", options: [{ label: "Local", description: "This workspace" }, { label: "Shared", description: "Every workspace" }], multiSelect: false }],
+      annotations: { "Which scope?": { preview: "Local preview" } },
+    };
+    const asked = query.canUseTool("AskUserQuestion", input, { toolUseID: "toolu_question" });
+    await vi.waitFor(() => expect(context.asked).toHaveLength(1));
+    run.answerPrompt?.("toolu_question", { decision: "allow", answers: { "Which scope?": "Local" }, message: "QUESTION_NOTE_2091: acknowledge only; run no tools." });
+    expect(await asked).toEqual({
+      behavior: "allow", toolUseID: "toolu_question",
+      updatedInput: { ...input, answers: { "Which scope?": "Local" }, annotations: { "Which scope?": { preview: "Local preview", notes: "QUESTION_NOTE_2091: acknowledge only; run no tools." } } },
+    });
+    expect(input.annotations).toEqual({ "Which scope?": { preview: "Local preview" } });
+  });
+
+  it.each([
+    ["Bash", { command: "ls" }, { updatedInput: { command: "ls -a" }, remember: "session" }],
+    ["ExitPlanMode", { plan: "Read the receipts" }, { mode: "acceptEdits" }],
+    ["AskUserQuestion", { questions: [] }, {}],
+  ] satisfies [string, Record<string, unknown>, Partial<PromptDecision>][])("delivers an allowed %s Note through the matching tool's completion hook", async (toolName, input, fields) => {
+    const adapter = adapterWith();
+    const context = contextWith(async () => ({ decision: "allow", message: "ALLOW_NOTE_2091: report only.", ...fields }));
+    adapter.createRun(runInput(), context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]));
+    await flush();
+    const result = await query.canUseTool(toolName, input, { toolUseID: "toolu_note" });
+    expect(result).toMatchObject({ behavior: "allow", updatedInput: fields.updatedInput ?? input });
+    expect(await query.postToolUse(toolName, input, {}, { toolUseID: "toolu_other" })).toEqual({});
+    expect(await query.postToolUse(toolName, input, {}, { toolUseID: "toolu_note" })).toEqual({
+      hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: "ALLOW_NOTE_2091: report only." },
+    });
+    expect(await query.postToolUse(toolName, input, {}, { toolUseID: "toolu_note" })).toEqual({});
+  });
+
+  it("delivers a gate-approved Note before the tool runs without overriding the provider's permission evaluation", async () => {
+    const { context } = gatedWith(() => ({ decision: "allow", message: "GATE_NOTE_2091: summarize the result." }));
+    adapterWith().createRun(runInput(), context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]));
+    await flush();
+    expect(await query.preToolUse("Read", { file_path: "/work/repo/a.ts" }, { toolUseID: "toolu_note" })).toEqual({
+      hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: "GATE_NOTE_2091: summarize the result." },
+    });
+  });
+
+  it("delivers concurrent allowed Notes on success or failure, and a denied Note only in the denial", async () => {
+    const context = contextWith(async (request) => ({ decision: request.promptId === "toolu_denied" ? "deny" : "allow", message: `Note for ${request.promptId}` }));
+    adapterWith().createRun(runInput(), context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]));
+    await flush();
+    await query.canUseTool("Write", { file_path: "/work/repo/a.ts", content: "" }, { toolUseID: "toolu_a" });
+    await query.canUseTool("Bash", { command: "ls" }, { toolUseID: "toolu_b" });
+    expect(await query.canUseTool("Bash", { command: "ls" }, { toolUseID: "toolu_denied" })).toEqual({ behavior: "deny", message: "Note for toolu_denied", toolUseID: "toolu_denied" });
+    expect(await query.postToolUseFailure("Bash", { command: "ls" }, "Failed", { toolUseID: "toolu_b" })).toEqual({
+      hookSpecificOutput: { hookEventName: "PostToolUseFailure", additionalContext: "Note for toolu_b" },
+    });
+    expect(await query.postToolUse("Write", { file_path: "/work/repo/a.ts", content: "" }, {}, { toolUseID: "toolu_a" })).toEqual({
+      hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: "Note for toolu_a" },
+    });
+    expect(await query.postToolUse("Bash", { command: "ls" }, {}, { toolUseID: "toolu_denied" })).toEqual({});
+  });
+
+  it("carries a gate-approved Note through canUseTool when the provider omitted the pre-tool hook", async () => {
+    const { context } = gatedWith(() => ({ decision: "allow", message: "Gate Note" }), async () => ({ decision: "allow", message: "Permission Note" }));
+    adapterWith().createRun(runInput(), context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]));
+    await flush();
+    await query.canUseTool("Bash", { command: "ls" }, { toolUseID: "toolu_note" });
+    expect(await query.postToolUse("Bash", { command: "ls" }, {}, { toolUseID: "toolu_note" })).toEqual({
+      hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: "Gate Note\n\nPermission Note" },
+    });
+  });
+
+  it("refuses an allowed network Note explicitly because network asks have no model-context hook", async () => {
+    const { context } = gatedWith(() => ({ decision: "allow", message: "NETWORK_NOTE_2091: do not download anything else." }));
+    adapterWith().createRun(runInput(), context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]));
+    await flush();
+    expect(await query.canUseTool("SandboxNetworkAccess", { host: "example.com" }, { toolUseID: "net_note" })).toEqual({
+      behavior: "deny", toolUseID: "net_note",
+      message: "The network request was refused because its attached Note cannot be delivered with an allowed network response. Note: NETWORK_NOTE_2091: do not download anything else.",
+    });
+  });
+
   it("asks a question and a plan as prompts of their own kind", async () => {
     const adapter = adapterWith();
     const context = contextWith(async () => ({ decision: "allow" }));
