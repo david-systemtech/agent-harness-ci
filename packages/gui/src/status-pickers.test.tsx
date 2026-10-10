@@ -644,84 +644,234 @@ describe("the hand-off offer and picker", () => {
 });
 
 describe("sign-in", () => {
-  it("lets the local provider browser complete without opening its manual-code URL, with a paste fallback", async () => {
+  const signedOut = () => opened([desk({ accounts: [{ id: "account-1", label: "work", identity: WORK }, { id: "account-2", label: "personal", status: { state: "signed-out", checkedAt: null, detail: null } }] })]);
+  const signingIn = async () => {
+    const { app, env } = await signedOut();
+    // The pane is hidden from the accessibility tree while the dialog is open: its line is read before and after.
+    const lineBefore = paneLine();
+    await app.user.click(within(await openPicker(app, "Account")).getByRole("menuitem", { name: /^personal/ }));
+    const card = await screen.findByRole("dialog", { name: "Sign in to Claude" });
+    await waitFor(() => expect(sent(env, "accounts.signin.start")).toEqual([expect.objectContaining({ accountId: "account-2" })]));
+    return { app, env, card, lineBefore };
+  };
+
+  it("on this computer says the page opened, folds the three numbered steps under The page did not open?, and never draws the link (setup-copy.md §5.2)", async () => {
     const { app, env } = await opened();
     await app.user.click(within(await openPicker(app, "Account")).getByRole("menuitem", { name: "Add an account…" }));
     const card = await screen.findByRole("dialog", { name: "Add an account on desk" });
     await app.user.type(within(card).getByRole("textbox", { name: "Label for the new account" }), "side{Enter}");
     await waitFor(() => expect(sent(env, "accounts.add")).toEqual([expect.objectContaining({ label: "side" })]));
-    const signing = await screen.findByRole("dialog", { name: "Sign in: side on desk" });
+    const signing = await screen.findByRole("dialog", { name: "Sign in to Claude" });
     await within(signing).findByText("Starting the sign-in…");
 
-    env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true&state=abc" });
-    await within(signing).findByText("https://claude.ai/oauth/authorize?code=true&state=abc");
+    const url = "https://claude.ai/oauth/authorize?code=true&state=abc";
+    env.signIn("awaiting-code", { url });
+    await within(signing).findByText("A Claude page opened in your browser. Sign in there and choose Authorize. This window finishes by itself.");
     expect(app.shell.calls.filter(([method]) => method === "openExternal")).toEqual([]);
-    expect(within(signing).getByText(/Finish signing in in the browser on this machine/)).toBeDefined();
-    expect(within(signing).getByText("Or run this in a terminal on desk's machine:")).toBeTruthy();
-    expect(within(signing).getByText("CLAUDE_CONFIG_DIR='/home/milo/.agent-harness/accounts/3' claude auth login")).toBeTruthy();
+    expect(signing.textContent).not.toContain(url);
+    expect(within(signing).queryByRole("textbox", { name: "Code" })).toBeNull();
+    expect(within(signing).getByRole("timer").textContent).toBe("10 min left");
 
-    await app.user.type(within(signing).getByRole("textbox", { name: "Then paste the code it shows" }), "  abc-123#abc  {Enter}");
+    await app.user.click(within(signing).getByRole("button", { name: "The page did not open?" }));
+    const steps = within(signing).getByRole("list");
+    expect(within(steps).getAllByRole("listitem").map((item) => item.firstElementChild?.firstChild?.textContent)).toEqual([
+      "Open the Claude sign-in page.",
+      "Sign in and choose Authorize.",
+      "Copy the code the page shows and paste it here.",
+    ]);
+    expect(within(steps).getByRole("button", { name: "Open the sign-in page" })).toBeTruthy();
+    expect(within(steps).getByText("Or scan this with your phone.")).toBeTruthy();
+    await app.user.click(within(steps).getByRole("button", { name: "Copy link" }));
+    expect(app.shell.calls.filter(([member]) => member === "clipboard.writeText").at(-1)?.slice(1)).toEqual([url]);
+    expect(signing.textContent).not.toContain(url);
+
+    // The terminal command sits in its own fold, with Copy.
+    expect(within(signing).queryByText("CLAUDE_CONFIG_DIR='/home/milo/.agent-harness/accounts/3' claude auth login")).toBeNull();
+    await app.user.click(within(signing).getByRole("button", { name: "Sign in from a terminal instead" }));
+    expect(within(signing).getByText("CLAUDE_CONFIG_DIR='/home/milo/.agent-harness/accounts/3' claude auth login")).toBeTruthy();
+    await app.user.click(within(signing).getByRole("button", { name: "Copy the command" }));
+    expect(app.shell.calls.filter(([member]) => member === "clipboard.writeText").at(-1)?.slice(1)).toEqual(["CLAUDE_CONFIG_DIR='/home/milo/.agent-harness/accounts/3' claude auth login"]);
+
+    // The link is in Details, with the computer it is for.
+    await app.user.click(within(signing).getByRole("button", { name: "Details" }));
+    expect(within(signing).getByText(/Sign-in page: https:\/\/claude\.ai\/oauth\/authorize\?code=true&state=abc/)).toBeTruthy();
+
+    await app.user.type(within(signing).getByRole("textbox", { name: "Code" }), "  abc-123#abc  ");
+    await app.user.click(within(signing).getByRole("button", { name: "Sign in" }));
     await waitFor(() => expect(sent(env, "accounts.signin.code")).toEqual([expect.objectContaining({ accountId: "account-3", code: "abc-123#abc" })]));
     await within(signing).findByText("Checking the code…");
 
     env.signIn("done");
-    await waitFor(() => expect(paneLine()).toBe("side is signed in on desk."));
+    await waitFor(() => expect(paneLine()).toBe("side is signed in."));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("starts the sign-in of an account not signed in, and says a failure in one line", async () => {
-    const { app, env } = await opened([desk({ accounts: [{ id: "account-1", label: "work", identity: WORK }, { id: "account-2", label: "personal", status: { state: "signed-out", checkedAt: null, detail: null } }] })]);
+  it("on another computer shows the numbered steps at once, titled with its name, and opens the page itself", async () => {
+    const { app, env } = await opened([desk({ reach: "paired", accounts: [{ id: "account-1", label: "work", identity: WORK }, { id: "account-2", label: "personal", status: { state: "signed-out", checkedAt: null, detail: null } }] })]);
     await app.user.click(within(await openPicker(app, "Account")).getByRole("menuitem", { name: /^personal/ }));
-    await screen.findByRole("dialog", { name: "Sign in: personal on desk" });
-    await waitFor(() => expect(sent(env, "accounts.signin.start")).toEqual([expect.objectContaining({ accountId: "account-2" })]));
-    env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true" });
-    await screen.findByRole("textbox", { name: "Then paste the code it shows" });
-    env.signIn("failed", { error: "the provider's CLI exited 1" });
-    await waitFor(() => expect(paneLine()).toBe("The sign-in of personal failed: the provider's CLI exited 1."));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    const card = await screen.findByRole("dialog", { name: "Sign in to Claude on desk" });
+    env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true&state=for-tests" });
+    await within(card).findByRole("textbox", { name: "Code" });
+    expect(within(card).queryByText(/A Claude page opened in your browser/)).toBeNull();
+    expect(within(card).getByText("Sign in and choose Authorize.")).toBeTruthy();
+    await waitFor(() => expect(app.shell.calls.filter(([method]) => method === "openExternal").map(([, url]) => url)).toEqual(["https://claude.ai/oauth/authorize?code=true&state=for-tests"]));
   });
 
-  it("cancels the sign-in it started when the card is closed", async () => {
-    const { app, env } = await opened([desk({ accounts: [{ id: "account-1", label: "work", identity: WORK }, { id: "account-2", label: "personal", status: { state: "signed-out", checkedAt: null, detail: null } }] })]);
+  it("keeps the dialog open when Claude refuses the code, saying so plainly with Start again and the CLI's words in Details", async () => {
+    const { app, env, card } = await signingIn();
+    env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true&state=for-tests" });
+    await app.user.click(await within(card).findByRole("button", { name: "The page did not open?" }));
+    await app.user.type(within(card).getByRole("textbox", { name: "Code" }), "code-for-tests#for-tests{Enter}");
+    await waitFor(() => expect(sent(env, "accounts.signin.code")).toHaveLength(1));
+    env.signIn("failed", { error: "The provider's CLI exited with code 1: Login failed: Request failed with status code 400.", cause: "code-refused" });
+
+    const notice = await within(card).findByRole("alert");
+    expect(notice.textContent).toContain("Error: Claude did not accept this code.");
+    expect(notice.textContent).toContain("Start the sign-in again.");
+    expect(notice.textContent).not.toContain("..");
+    expect(within(card).queryByText(/status code 400/)).toBeNull();
+    await app.user.click(within(notice).getByRole("button", { name: "Details" }));
+    expect(within(notice).getByText(/Login failed: Request failed with status code 400\.$/m)).toBeTruthy();
+    expect(within(card).queryByRole("timer")).toBeNull();
+
+    // Start again signs the same account in afresh, and the dialog follows the new sign-in.
+    await app.user.click(within(notice).getByRole("button", { name: "Start again" }));
+    await waitFor(() => expect(sent(env, "accounts.signin.start")).toHaveLength(2));
+    await within(card).findByText("Starting the sign-in…");
+    expect(within(card).queryByRole("alert")).toBeNull();
+    env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true&state=again" });
+    await within(card).findByRole("button", { name: "The page did not open?" });
+    expect(screen.getByRole("dialog", { name: "Sign in to Claude" })).toBe(card);
+  });
+
+  it("says a code the environment refused as Claude's refusal, and cancels the sign-in left waiting, so Close frees it", async () => {
+    const { app, env } = await opened([desk({
+      accounts: [{ id: "account-1", label: "work", identity: WORK }, { id: "account-2", label: "personal", status: { state: "signed-out", checkedAt: null, detail: null } }],
+      receipts: { "accounts.signin.code": { rejected: "conflict", message: "The sign-in of personal is starting, not awaiting a code.", data: { reason: "not_awaiting_code" } } },
+    })]);
     await app.user.click(within(await openPicker(app, "Account")).getByRole("menuitem", { name: /^personal/ }));
-    const card = await screen.findByRole("dialog", { name: "Sign in: personal on desk" });
+    const card = await screen.findByRole("dialog", { name: "Sign in to Claude" });
+    env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true&state=for-tests" });
+    await app.user.click(await within(card).findByRole("button", { name: "The page did not open?" }));
+    await app.user.type(within(card).getByRole("textbox", { name: "Code" }), "code-for-tests#for-tests{Enter}");
+    const notice = await within(card).findByRole("alert");
+    expect(notice.textContent).toContain("Claude did not accept this code.");
+    await app.user.click(within(notice).getByRole("button", { name: "Details" }));
+    expect(within(notice).getByText(/conflict \(not_awaiting_code\): The sign-in of personal is starting, not awaiting a code\./)).toBeTruthy();
+    await waitFor(() => expect(sent(env, "accounts.signin.cancel")).toEqual([expect.objectContaining({ accountId: "account-2" })]));
+    await app.user.click(within(card).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(sent(env, "accounts.signin.cancel")).toHaveLength(1);
+  });
+
+  it("keeps the sign-in waiting when its code got no answer, since the environment may be checking it, and says the connection's failure by the field (PR review)", async () => {
+    const { app, env } = await opened([desk({
+      accounts: [{ id: "account-1", label: "work", identity: WORK }, { id: "account-2", label: "personal", status: { state: "signed-out", checkedAt: null, detail: null } }],
+    })]);
+    // The code reaches the environment, then the link drops before its answer: this client meets the failure itself.
+    env.wire.answer("accounts.signin.code", () => new Promise<undefined>(() => undefined));
+    await app.user.click(within(await openPicker(app, "Account")).getByRole("menuitem", { name: /^personal/ }));
+    const card = await screen.findByRole("dialog", { name: "Sign in to Claude" });
+    env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true&state=for-tests" });
+    await app.user.click(await within(card).findByRole("button", { name: "The page did not open?" }));
+    await app.user.type(within(card).getByRole("textbox", { name: "Code" }), "code-for-tests#for-tests{Enter}");
+    await waitFor(() => expect(sent(env, "accounts.signin.code")).toHaveLength(1));
+    env.wire.server.drop();
+    const alert = await within(card).findByRole("alert");
+    expect(alert.textContent).toBe("Error: This app cannot reach that computer right now. Choose Sign in to try again.");
+    // The sign-in goes on: no stopped notice, no Start again, the steps still there (a cancel comes only with a stop).
+    expect(within(card).queryByText("Claude did not accept this code.")).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Start again" })).toBeNull();
+    expect(within(card).getByRole("textbox", { name: "Code" })).toBeTruthy();
+  });
+
+  it("keeps the dialog open on an expiry and a failed CLI, each with Start again, and Close then leaves without a line", async () => {
+    for (const [state, title] of [["expired", "The sign-in ran out of time."], ["failed", "The sign-in did not finish."]] as const) {
+      const { app, env, card, lineBefore } = await signingIn();
+      env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true" });
+      await within(card).findByRole("button", { name: "The page did not open?" });
+      env.signIn(state, { error: "The provider's CLI stopped." });
+      const notice = await within(card).findByRole("alert");
+      expect(notice.textContent).toContain(title);
+      expect(notice.textContent).toContain("Choose Start again.");
+      expect(within(notice).getByRole("button", { name: "Start again" })).toBeTruthy();
+      await app.user.click(within(card).getByRole("button", { name: "Close" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(sent(env, "accounts.signin.cancel")).toEqual([]);
+      expect(paneLine()).toBe(lineBefore);
+      app.view.unmount();
+    }
+  });
+
+  it("says why the system stopped it: a restart offers Start again, a removed account does not", async () => {
+    {
+      const { app, env, card } = await signingIn();
+      env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true" });
+      await within(card).findByRole("button", { name: "The page did not open?" });
+      env.signIn("cancelled", { error: "The environment restarted.", cause: "restarted" });
+      const notice = await within(card).findByRole("alert");
+      expect(notice.textContent).toContain("The sign-in stopped because agent-harness restarted.");
+      expect(within(notice).getByRole("button", { name: "Start again" })).toBeTruthy();
+      app.view.unmount();
+    }
+    const { env, card } = await signingIn();
     env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true" });
-    await within(card).findByRole("textbox", { name: "Then paste the code it shows" });
+    await within(card).findByRole("button", { name: "The page did not open?" });
+    env.signIn("cancelled", { error: "The account was removed.", cause: "account-removed" });
+    await within(card).findByText("The sign-in stopped because personal was removed.");
+    expect(within(card).queryByRole("button", { name: "Start again" })).toBeNull();
+  });
+
+  it("says a code with no # plainly, as an error, keeping what was typed", async () => {
+    const { app, env, card } = await signingIn();
+    env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true&state=for-tests" });
+    await app.user.click(await within(card).findByRole("button", { name: "The page did not open?" }));
+    const field = within(card).getByRole("textbox", { name: "Code" });
+    await app.user.type(field, "half-a-code{Enter}");
+    const error = await within(card).findByRole("alert");
+    expect(error.textContent).toBe("Error: Paste the whole code from the Claude page. It has a # in the middle.");
+    expect((field as HTMLInputElement).value).toBe("half-a-code");
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(field.getAttribute("aria-describedby")).toBe(error.id);
+    expect(sent(env, "accounts.signin.code")).toEqual([]);
+  });
+
+  it("starts the sign-in of an account not signed in, and cancels it when the card is closed", async () => {
+    const { app, env, card } = await signingIn();
+    env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true" });
+    await within(card).findByRole("button", { name: "The page did not open?" });
     await app.user.click(within(card).getByRole("button", { name: "Cancel the sign-in" }));
     await waitFor(() => expect(sent(env, "accounts.signin.cancel")).toEqual([expect.objectContaining({ accountId: "account-2" })]));
-    await waitFor(() => expect(paneLine()).toBe("The sign-in of personal was cancelled."));
+    await waitFor(() => expect(paneLine()).toBe("The sign-in was cancelled."));
   });
 
-  it("caps the sign-in dialog at the window, keeps its title and actions out of the scrolling middle, and folds the long page link (ticket 1690)", async () => {
-    const { app, env } = await opened([desk({ accounts: [{ id: "account-1", label: "work", identity: WORK }, { id: "account-2", label: "personal", status: { state: "signed-out", checkedAt: null, detail: null } }] })]);
+  it("caps the sign-in dialog at the window and keeps its title and actions out of the scrolling middle (ticket 1690)", async () => {
+    const { app, env } = await opened([desk({ reach: "paired", accounts: [{ id: "account-1", label: "work", identity: WORK }, { id: "account-2", label: "personal", status: { state: "signed-out", checkedAt: null, detail: null } }] })]);
     await app.user.click(within(await openPicker(app, "Account")).getByRole("menuitem", { name: /^personal/ }));
-    const card = await screen.findByRole("dialog", { name: "Sign in: personal on desk" });
+    const card = await screen.findByRole("dialog", { name: "Sign in to Claude on desk" });
     const url = `https://claude.test/oauth/authorize?code=true&scope=${"profile ".repeat(24).trim()}&state=for-tests`;
     env.signIn("awaiting-code", { url });
-    await within(card).findByRole("textbox", { name: "Then paste the code it shows" });
+    await within(card).findByRole("textbox", { name: "Code" });
 
     // look.md §11.1: the dialog stops at the window less its margin and only its middle scrolls.
     expect(card.className).toContain("max-h-[calc(100dvh-4rem)]");
     const middle = card.querySelector<HTMLElement>("[data-sign-in-body]");
     expect(middle?.className).toContain("overflow-y-auto");
     expect(middle?.className).toContain("min-h-0");
-    expect(middle?.contains(within(card).getByRole("img", { name: "QR code of the provider sign-in page" }))).toBe(true);
-    expect(middle?.contains(within(card).getByRole("region", { name: "Terminal fallback" }))).toBe(true);
-    for (const outside of [card.querySelector("h2"), within(card).getByRole("button", { name: "Close dialog" }), within(card).getByRole("button", { name: "Send the code" }), within(card).getByRole("button", { name: "Cancel the sign-in" })]) {
+    expect(middle?.contains(within(card).getByRole("img", { name: "QR code of the Claude sign-in page" }))).toBe(true);
+    expect(middle?.contains(within(card).getByRole("button", { name: "Sign in from a terminal instead" }))).toBe(true);
+    for (const outside of [card.querySelector("h2"), within(card).getByRole("button", { name: "Close dialog" }), within(card).getByRole("button", { name: "Sign in" }), within(card).getByRole("button", { name: "Cancel the sign-in" })]) {
       expect(outside).not.toBeNull();
       expect(middle?.contains(outside)).toBe(false);
     }
-
-    // The page link takes at most two lines; copying and opening it carry the whole link.
-    const link = within(card).getByText(url);
-    expect(link.className).toContain("line-clamp-2");
-    expect(link.getAttribute("title")).toBe(url);
-    await app.user.click(within(card).getByRole("button", { name: "Copy the sign-in page link" }));
+    // The whole link is never drawn; Copy link carries it.
+    expect(card.textContent).not.toContain(url);
+    await app.user.click(within(card).getByRole("button", { name: "Copy link" }));
     expect(app.shell.calls.filter(([member]) => member === "clipboard.writeText").at(-1)?.slice(1)).toEqual([url]);
 
-    // Send the code, outside the code's form, still sends what the form holds.
-    await app.user.type(within(card).getByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests#for-tests");
-    await app.user.click(within(card).getByRole("button", { name: "Send the code" }));
+    // Sign in, outside the code's form, still sends what the form holds.
+    await app.user.type(within(card).getByRole("textbox", { name: "Code" }), "code-for-tests#for-tests");
+    await app.user.click(within(card).getByRole("button", { name: "Sign in" }));
     await waitFor(() => expect(sent(env, "accounts.signin.code")).toEqual([expect.objectContaining({ accountId: "account-2", code: "code-for-tests#for-tests" })]));
   });
 
