@@ -39,13 +39,15 @@ import { SidebarNewGroup } from "./new-group.js";
  * organising command did not do, Restore, and pairing with another
  * environment.
  */
-export const Sidebar = () => (
+export interface SidebarProps { readonly onOpenSession?: ((environmentId: string, sessionId: string) => void) | undefined }
+
+export const Sidebar = (props: SidebarProps = {}) => (
   <OrganiseProvider>
-    <Headings />
+    <Headings {...props} />
   </OrganiseProvider>
 );
 
-const Headings = () => {
+const Headings = ({ onOpenSession }: SidebarProps) => {
   const phone = usePhoneFrame();
   const runtime = useRuntime();
   const environments = useObservable(runtime.projections.environments);
@@ -89,7 +91,7 @@ const Headings = () => {
         environment={views.get(line.row.environmentId)}
         current={shown?.environmentId === line.row.environmentId && shown.sessionId === line.row.summary.id}
         drop={heading === null ? { kind: "filtered" } : { kind: "row", heading, at: heading.block.rows.findIndex((held) => rowKey(held) === line.key) }}
-        open={() => { openInPane(line.row.environmentId, line.row.summary.id); if (phone.narrow) phone.showDrawer(false); }}
+        open={() => { onOpenSession?.(line.row.environmentId, line.row.summary.id); openInPane(line.row.environmentId, line.row.summary.id); if (phone.narrow) phone.showDrawer(false); }}
       />
     ));
 

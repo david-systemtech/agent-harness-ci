@@ -1,3 +1,4 @@
+import { webSessionRouteSmoke } from "./web-session-route-smoke.js";
 import { phoneFrameSmoke as phoneSafeAreaSmoke } from "./phone-frame-smoke.js";
 import { phoneDocument, phoneFrameSmoke, phoneNewSessionSmoke, phonePaneSmoke, phoneReconnectSmoke, reachable } from "../test/web-client/phone-surfaces.js";
 import { phoneFallback } from "../test/web-client/phone-fallback.js";
@@ -96,6 +97,9 @@ try {
     const workspace = join(output, `phone-workspace-${name}`); mkdirSync(workspace);
     const fallback = await phoneFallback(environment);
     const { id: sessionId } = await create(admin, { workspace: { kind: "directory", path: workspace }, title: `Hosted phone conversation (${name})`, mode: "acceptEdits" });
+    const otherTitle = `Session route fixture (${name})`;
+    const { id: otherSessionId } = await create(admin, { workspace: { kind: "directory", path: workspace }, title: otherTitle, mode: "acceptEdits" });
+    const linkedSessions = [{ id: sessionId, title: `Hosted phone conversation (${name})` }, { id: otherSessionId, title: otherTitle }] as const;
     const browser = await engine.launch(name === "chromium" ? { channel: "chromium", args: ["--ignore-certificate-errors"] } : {});
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, ignoreHTTPSErrors: true });
     try {
@@ -121,6 +125,7 @@ try {
       await auditPublicCache(page, name, "initial installation");
       await page.reload();
       await page.locator('[data-web-grant][data-phase="ready"]').waitFor();
+      await webSessionRouteSmoke(page, name, environment.env.id, ...linkedSessions);
       await phoneSafeAreaSmoke(page, name);
       await page.getByRole("button", { name: "Show sessions", exact: true }).click();
       await page.getByRole("dialog", { name: "Sessions", exact: true }).locator("[data-sidebar-row]").filter({ hasText: `Hosted phone conversation (${name})` }).click();
@@ -141,6 +146,7 @@ try {
       await page.getByRole("button", { name: /^Send/ }).click();
       await page.getByRole("article", { name: "Reply", exact: true }).filter({ hasText: "Streaming the hosted reply: Allow this scripted reply." }).last().waitFor();
       assert(releaseStream, "The streamed reply reached the browser before completion.");
+      await webSessionRouteSmoke(page, `${name} live run`, environment.env.id, ...linkedSessions, "Streaming the hosted reply: Allow this scripted reply.");
       await phoneReconnectSmoke(page, environment, sessionId, releaseStream, available => {
         originAvailable = available;
         if (!available) for (const socket of clientSockets) socket.destroy();
@@ -196,6 +202,7 @@ try {
       await ownPage.goto(ownCode.link);
       await ownPage.locator('[data-web-grant][data-ceiling="bypassPermissions"]').waitFor();
       assert((await ownPage.locator("[data-web-grant]").getAttribute("data-scopes"))?.includes("terminal, admin"), "My own client keeps its full grant.");
+      await webSessionRouteSmoke(ownPage, `${name} full grant`, environment.env.id, ...linkedSessions);
       await ownPage.getByRole("button", { name: "Show sessions", exact: true }).click();
       const ownDrawer = ownPage.getByRole("dialog", { name: "Sessions", exact: true });
       await ownDrawer.locator("[data-sidebar-row]").filter({ hasText: `Hosted phone conversation (${name})` }).click();
@@ -206,12 +213,12 @@ try {
       await ownPage.getByRole("textbox", { name: "Message", exact: true }).waitFor();
       await phoneSafeAreaSmoke(ownPage, `${name} full grant`);
       // Returning through the drawer hides a retained side sheet without stealing the drawer's focus.
-      const otherTitle = `Drawer focus fixture (${name})`;
-      await create(admin, { workspace: { kind: "directory", path: workspace }, title: otherTitle });
+      const drawerTitle = `Drawer focus fixture (${name})`;
+      await create(admin, { workspace: { kind: "directory", path: workspace }, title: drawerTitle });
       await ownPage.getByRole("button", { name: "More", exact: true }).click();
       await ownPage.getByRole("menuitem", { name: "Documents", exact: true }).click();
       await expect(ownPage.getByRole("dialog", { name: "Side column", exact: true })).toBeVisible();
-      for (const title of [otherTitle, `Hosted phone conversation (${name})`]) {
+      for (const title of [drawerTitle, `Hosted phone conversation (${name})`]) {
         await ownPage.getByRole("button", { name: "Show sessions", exact: true }).click();
         await ownDrawer.locator("[data-sidebar-row]").filter({ hasText: title }).click();
         await expect(ownDrawer).toBeHidden();

@@ -1,6 +1,6 @@
 import { Dialog } from "radix-ui";
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode, type RefObject } from "react";
-import { Sidebar } from "../sidebar/sidebar.js";
+import { Sidebar, type SidebarProps } from "../sidebar/sidebar.js";
 import "./phone-frame.css";
 
 interface PhoneFrame {
@@ -50,7 +50,7 @@ export const PhoneFrameProvider = ({ children }: { readonly children: ReactNode 
 /** Radix owns modal trapping and dismissal; focus changes never scroll the document.
  * Closing hands focus back to what opened the drawer. New session explicitly leaves it in
  * its message box (#1902); incidental focus during the delayed close cannot change that decision. */
-export const SessionDrawer = () => {
+export const SessionDrawer = (props: SidebarProps = {}) => {
   const { narrow, drawerTrigger, drawerOpener, drawerRestoreFocus } = usePhoneFrame();
   const content = useRef<HTMLDivElement>(null);
   const [anchor, setAnchor] = useState<HTMLSpanElement | null>(null);
@@ -64,7 +64,7 @@ export const SessionDrawer = () => {
     <Dialog.Overlay className="phone-frame-scrim fixed inset-0 z-40 bg-scrim/30" />
     <Dialog.Content ref={content} onOpenAutoFocus={event => { event.preventDefault(); content.current?.focus({ preventScroll: true }); }} onCloseAutoFocus={event => { event.preventDefault(); handBack(); }} onKeyDown={event => event.stopPropagation()} aria-describedby={undefined} className="phone-frame-drawer fixed inset-y-0 left-0 z-50 flex flex-col overflow-hidden rounded-r-xl border-r border-hairline bg-float text-ink outline-none">
       <Dialog.Title className="sr-only">Sessions</Dialog.Title>
-      <Sidebar />
+      <Sidebar {...props} />
     </Dialog.Content>
   </Dialog.Portal></>;
 };
