@@ -8,6 +8,31 @@ import { accountStateChecks } from "./step-checks.js";
 import { accountsProjector } from "./account-store.js";
 import { ProbeTimeoutError } from "../adapter/probe.js";
 
+it("keeps the fifteen-minute status bound while failed model catalogues are requested every twenty seconds", async () => {
+  vi.useFakeTimers();
+  const clock = manualClock();
+  const log = openEventLog({ path: ":memory:", clock: () => clock.now(), projectors: [accountsProjector] });
+  let signedIn = true;
+  const status = vi.fn(async () => signedInAs(signedIn ? "one@example.com" : null));
+  const service = createAccountService({ log, clock, environmentId: "test-environment", ownedRoot: null,
+    configured: [{ id: "one", provider: "fake" }], adapters: [{ ...fakeAdapter(), status,
+      models: async () => { throw new ProbeTimeoutError("The model catalogue is temporarily unavailable."); },
+    }] });
+  const diagnostics = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  try {
+    await service.start();
+    expect(service.list()[0]?.status.state).toBe("signed-in");
+    signedIn = false;
+    for (let read = 0; read < 45; read++) {
+      clock.advance(20_000);
+      await service.catalogues("one");
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    expect(service.list()[0]?.status.state).toBe("signed-out");
+    expect(status).toHaveBeenCalledTimes(2);
+  } finally { service.close(); log.close(); diagnostics.mockRestore(); vi.useRealTimers(); }
+});
+
 it("does not postpone status recovery when an uncached model catalogue is requested", async () => {
   vi.useFakeTimers();
   const clock = manualClock();

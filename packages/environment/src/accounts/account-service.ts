@@ -248,6 +248,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
   const checkedAt = new Map<string, string>();
   const catalogues = new Map<string, ModelCatalogue>();
   const timers = new Map<string, Timer>();
+  const modelTimers = new Map<string, Timer>();
   const statusReads = new Map<string, Promise<void>>();
   const modelReads = new Map<string, Promise<void>>();
   const modelTimeouts = new Set<string>();
@@ -327,6 +328,8 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
   const forget = (accountId: string): void => {
     timers.get(accountId)?.cancel();
     timers.delete(accountId);
+    modelTimers.get(accountId)?.cancel();
+    modelTimers.delete(accountId);
     catalogues.delete(accountId);
     modelTimeouts.delete(accountId);
     checkedAt.delete(accountId);
@@ -353,8 +356,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
       }
     })().finally(() => {
       modelReads.delete(accountId);
-      // Catalogue requests must not postpone an unavailable account's pending status retry.
-      if (liveAccount(reader, accountId)?.status.state !== "unavailable" || !timers.has(accountId)) arm(accountId);
+      armModels(accountId);
     });
     modelReads.set(accountId, reading);
     return reading;
@@ -425,11 +427,23 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
     timers.set(
       accountId,
       clock.setTimeout(() => {
+        timers.delete(accountId);
         void readStatus(accountId);
-        // A catalogue a failed read left unknown is read again too, so the account is not left with no model to run.
+        // An account added since startup may not have requested a catalogue yet.
         if (!catalogues.has(accountId) || modelTimeouts.has(accountId)) void readModels(accountId);
-      }, liveAccount(reader, accountId)?.status.state === "unavailable" || modelTimeouts.has(accountId) ? PROBE_RETRY_INTERVAL_MS : STATUS_READ_INTERVAL_MS),
+      }, liveAccount(reader, accountId)?.status.state === "unavailable" ? PROBE_RETRY_INTERVAL_MS : STATUS_READ_INTERVAL_MS),
     );
+  };
+
+  /** Catalogue retries never move the status deadline, even when callers repeatedly request uncached models. */
+  const armModels = (accountId: string): void => {
+    modelTimers.get(accountId)?.cancel();
+    modelTimers.delete(accountId);
+    if (closed || liveAccount(reader, accountId) === null || (catalogues.has(accountId) && !modelTimeouts.has(accountId))) return;
+    modelTimers.set(accountId, clock.setTimeout(() => {
+      modelTimers.delete(accountId);
+      void readModels(accountId);
+    }, modelTimeouts.has(accountId) ? PROBE_RETRY_INTERVAL_MS : STATUS_READ_INTERVAL_MS));
   };
 
   /**
@@ -831,6 +845,8 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
       for (const probe of probes) probe.abort(new Error("The account service closed."));
       for (const timer of timers.values()) timer.cancel();
       timers.clear();
+      for (const timer of modelTimers.values()) timer.cancel();
+      modelTimers.clear();
       director.close();
     },
   };
