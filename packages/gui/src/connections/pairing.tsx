@@ -94,7 +94,9 @@ const saidOf = (outcome: PairingOutcome, input: PairingInput, views: readonly En
       const view = views.find((candidate) => candidate.environmentId === outcome.environmentId);
       const name = view ? nameOf(view) : "the other computer";
       const replaced = outcome.replaced && !outcome.replaced.revoked ? ` ${outcome.replaced.message}` : "";
-      return { kind: "connected", line: `Connected to ${name}.${replaced}`, environmentId: outcome.environmentId, name };
+      const storage = outcome.credentialStorage === "fresh-item" ? " Stored credentials in a fresh protected item." :
+        outcome.credentialStorage === "retained-item" ? " Stored credentials using the existing protected item." : "";
+      return { kind: "connected", line: `Connected to ${name}.${storage}${replaced}`, environmentId: outcome.environmentId, name };
     }
     case "re-pair-offered":
       return { kind: "offer", line: `${outcome.name} is already connected. Connect again?`, input, environmentId: outcome.environmentId };

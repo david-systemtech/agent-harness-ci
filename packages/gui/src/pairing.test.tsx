@@ -85,6 +85,18 @@ describe("pairing", () => {
     expect(app.shell.calls).toContainEqual(["network.allow", expect.arrayContaining([laptop.wire.origin])]);
   });
 
+  it.each([
+    ["fresh-item", "Stored credentials in a fresh protected item."],
+    ["retained-item", "Stored credentials using the existing protected item."],
+  ] as const)("says the %s storage path in the pairing result", async (storage, message) => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }, { name: "laptop", reach: "unpaired" }] });
+    app.shell.answer("secrets.set", async () => storage);
+    await app.user.click(within(sidebar()).getByRole("button", { name: "Pair with an environment…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Connect to another computer" });
+    await pasteLink(app, dialog, app.environment("laptop").wire.link);
+    expect(await within(dialog).findByText(`Connected to laptop. ${message}`)).toBeDefined();
+  });
+
   it("pairs from an address and a code, typed in the sidebar's pairing dialog", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }, { name: "laptop", reach: "unpaired" }] });
     await app.user.click(within(sidebar()).getByRole("button", { name: "Pair with an environment…" }));

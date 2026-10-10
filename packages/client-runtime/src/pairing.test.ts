@@ -286,6 +286,20 @@ describe("pairing with an environment", () => {
     expect(await platform.secrets.get(t.env.id)).toBe(token);
   });
 
+  it.each(["fresh-item", "retained-item"] as const)("reports %s storage in a successful pairing result", async (storage) => {
+    const t = await harness.environment();
+    const platform = inMemoryPlatform();
+    const runtime = harness.runtime(inMemoryPlatform({ secrets: {
+      ...platform.secrets,
+      set: async (id, token) => { await platform.secrets.set(id, token); return storage; },
+    } }));
+    await runtime.start();
+    expect(await runtime.connections.add({ link: (await t.createPairing()).link })).toMatchObject({
+      status: "paired", environmentId: t.env.id, credentialStorage: storage,
+    });
+    expect(runtime.connections.list.read()).toEqual([expect.objectContaining({ phase: "ready" })]);
+  });
+
   it("re-pairs an unreadable earlier credential with a read-only code, without pretending to revoke the older session", async () => {
     const t = await harness.environment();
     const platform = inMemoryPlatform();
