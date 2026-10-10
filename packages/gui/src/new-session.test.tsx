@@ -2,6 +2,7 @@ import { useToastTimers } from "../test/toast-timers.js";
 import { chooseHeaderAction, openHeaderMenu } from "../test/header-actions.js";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { ScriptedReceipt } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { RenderedApp, ScriptedEnvironment } from "../test/harness.js";
 import { renderApp } from "../test/harness.js";
 import { dataTransfer, heading, inUtc, region, row, sidebar } from "../test/sidebar-fixtures.js";
@@ -465,7 +466,7 @@ describe("the first send", () => {
   });
 
   it.each(["heading", "sidebar"] as const)("recovers a restored used session ID through the %s New session control without losing the rejected message", async (control) => {
-    const receipts: Record<string, { rejected: "exists"; message: string }> = { "sessions.create": { rejected: "exists", message: "A session with this ID exists already." } };
+    const receipts: Record<string, ScriptedReceipt> = { "sessions.create": { rejected: "conflict", message: "A session with this ID exists already.", data: { reason: "exists" } } };
     const original = await launch({ laptop: { receipts } });
     const usedId = original.environment("laptop").sessionId(0);
     act(() => original.presentation.set("paneLayout", {

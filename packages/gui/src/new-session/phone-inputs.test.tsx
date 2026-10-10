@@ -82,7 +82,7 @@ it("selects a directory on the environment by tap and restores focus after cance
 });
 
 it("recovers an exists rejection before the session list sees the collision, keeping the first message and files", async () => {
-  const receipts: Record<string, ScriptedReceipt> = { "sessions.create": { rejected: "exists", message: "A session with this ID exists already." } };
+  const receipts: Record<string, ScriptedReceipt> = { "sessions.create": { rejected: "conflict", message: "A session with this ID exists already.", data: { reason: "exists" } } };
   const { user, env, surface, box } = await open(receipts);
   await user.type(box, "Read this note");
   await user.upload(screen.getByLabelText("Files to attach"), new File([new Uint8Array([137, 80, 78, 71])], "note.png", { type: "image/png" }));
