@@ -596,6 +596,7 @@ export const usePickers = (host: PickersHost): Pickers => {
           const at = accountCursor(card);
           const account = list[at];
           if (account) {
+            if (account.status.state === "unavailable") return host.say(`${account.label} is temporarily unavailable; checking again automatically.`);
             if (account.status.state !== "signed-in") return startSignIn(card.environmentId, account);
             return handOff(card.environmentId, account);
           }

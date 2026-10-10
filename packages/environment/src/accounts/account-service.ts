@@ -353,7 +353,8 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
       }
     })().finally(() => {
       modelReads.delete(accountId);
-      arm(accountId);
+      // Catalogue requests must not postpone an unavailable account's pending status retry.
+      if (liveAccount(reader, accountId)?.status.state !== "unavailable" || !timers.has(accountId)) arm(accountId);
     });
     modelReads.set(accountId, reading);
     return reading;
