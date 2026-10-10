@@ -44,7 +44,7 @@ export const ACCOUNTS_TABLES = {
     directory TEXT NOT NULL,
     identity TEXT,
     identity_key TEXT,
-    status TEXT NOT NULL CHECK (status IN ('signed-in', 'signed-out', 'expired', 'unreadable')),
+    status TEXT NOT NULL CHECK (status IN ('signed-in', 'signed-out', 'expired', 'unreadable', 'unavailable')),
     status_detail TEXT,
     status_at TEXT,
     signed_in_ever INTEGER NOT NULL DEFAULT 0 CHECK (signed_in_ever IN (0, 1)),

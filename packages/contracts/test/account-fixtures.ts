@@ -107,7 +107,7 @@ export const accountSchemaFixtures: Record<string, Fixtures> = {
     valid: [adopted.directory, owned.directory],
     invalid: [{ kind: "adopted", path: "" }, { kind: "owned" }, { kind: "moved", path: "/x" }],
   },
-  "accounts/status-state.json": { valid: ["signed-in", "signed-out", "expired", "unreadable"], invalid: ["unknown", "signed_in"] },
+  "accounts/status-state.json": { valid: ["signed-in", "signed-out", "expired", "unreadable", "unavailable"], invalid: ["unknown", "signed_in"] },
   "accounts/status.json": {
     valid: [signedIn, unread, unreadable],
     invalid: [{ state: "signed-in", checkedAt: "now", detail: null }, { state: "signed-in" }, { ...signedIn, detail: "" }],

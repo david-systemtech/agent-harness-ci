@@ -189,6 +189,7 @@ export const ACCOUNT_STATUS_WORDS: Readonly<Record<AccountStatusState, string>> 
   "signed-out": "signed out",
   expired: "sign-in expired",
   unreadable: "status unreadable",
+  unavailable: "temporarily unavailable; checking again",
 };
 
 /** Who an account signs in as, in words: its identity's email, or that it has not been read yet. */

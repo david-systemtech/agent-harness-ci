@@ -588,6 +588,7 @@ jobs:
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-extension.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-update-disk.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-provider-sign-in.mjs').Path -Destination (Join-Path $work 'scripts')
+            Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-account-recovery.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-terminal-state.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-terminal-drain.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-bank-describe.mjs').Path -Destination (Join-Path $work 'scripts')
@@ -635,6 +636,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged update disk check failed' }
           & $node scripts/check-packaged-provider-sign-in.mjs $server
           if ($LASTEXITCODE -ne 0) { throw 'Packaged provider sign-in check failed' }
+          & $node scripts/check-packaged-account-recovery.mjs $server
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged account recovery check failed' }
           & $node scripts/check-packaged-terminal-drain.mjs $server
           if ($LASTEXITCODE -ne 0) { throw 'Packaged terminal drain and update trial check failed' }
           $version = & $node $cli --version
@@ -943,6 +946,7 @@ jobs:
           test -f "$server/node_modules/@agent-harness/contracts/package.json"
           "$server/node/bin/node" scripts/check-packaged-update-disk.mjs "$server"
           "$server/node/bin/node" scripts/check-packaged-provider-sign-in.mjs "$server"
+          "$server/node/bin/node" scripts/check-packaged-account-recovery.mjs "$server"
           "$server/node/bin/node" scripts/check-packaged-bank-describe.mjs "$server"
           test "$("$server/node/bin/node" "$server/packages/cli/dist/main.js" --version)" = "agent-harness $VERSION"
           code=0
@@ -1097,6 +1101,7 @@ jobs:
           test -f "$server/node_modules/@agent-harness/contracts/package.json"
           "$server/node/bin/node" scripts/check-packaged-update-disk.mjs "$server"
           "$server/node/bin/node" scripts/check-packaged-provider-sign-in.mjs "$server"
+          "$server/node/bin/node" scripts/check-packaged-account-recovery.mjs "$server"
           "$server/node/bin/node" scripts/check-packaged-bank-describe.mjs "$server"
           test "$("$server/node/bin/node" "$server/packages/cli/dist/main.js" --version)" = "agent-harness $VERSION"
           code=0

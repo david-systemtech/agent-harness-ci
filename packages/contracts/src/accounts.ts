@@ -62,10 +62,10 @@ export const AccountDirectory = z
 export type AccountDirectory = z.infer<typeof AccountDirectory>;
 
 /** What an account's status read found. */
-export const ACCOUNT_STATUS_STATES = ["signed-in", "signed-out", "expired", "unreadable"] as const;
+export const ACCOUNT_STATUS_STATES = ["signed-in", "signed-out", "expired", "unreadable", "unavailable"] as const;
 export const AccountStatusState = z.enum(ACCOUNT_STATUS_STATES).meta({
   description:
-    "What an account's status read found: signed-in (it can run), signed-out, expired (the provider says its login has lapsed), or unreadable (the read failed or timed out). Only a signed-in account runs.",
+    "What an account's status read found: signed-in (it can run), signed-out, expired (the provider says its login has lapsed), unreadable (the provider read failed), or unavailable (a deadline elapsed; automatically retried). Only a signed-in account runs.",
 });
 export type AccountStatusState = z.infer<typeof AccountStatusState>;
 
@@ -73,7 +73,7 @@ export const AccountStatus = z
   .object({
     state: AccountStatusState,
     checkedAt: Timestamp.nullable().meta({ description: "When the status was last read; null until the first read." }),
-    detail: z.string().min(1).nullable().meta({ description: "Why the status is what it is, when the read said: the provider's error on an unreadable read." }),
+    detail: z.string().min(1).nullable().meta({ description: "Why the status is what it is, when the read said: the provider's error or a temporary deadline and retry diagnostic." }),
   })
   .meta({ description: "An account's status: what its last read found, when, and why when the read said." });
 export type AccountStatus = z.infer<typeof AccountStatus>;
@@ -134,7 +134,7 @@ export const AccountStatusChangedPayload = z
     ...accountPart,
     status: AccountStatusState,
     previous: AccountStatusState,
-    detail: z.string().min(1).nullable().meta({ description: "Why, when the read said: the provider's error on an unreadable read." }),
+    detail: z.string().min(1).nullable().meta({ description: "Why, when the read said: the provider's error or a temporary deadline and retry diagnostic." }),
   })
   .meta({ description: "account.status-changed: a status read found the account in another state than the last; appended only on a change." });
 export type AccountStatusChangedPayload = z.infer<typeof AccountStatusChangedPayload>;

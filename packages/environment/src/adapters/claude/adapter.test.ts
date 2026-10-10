@@ -2224,6 +2224,34 @@ describe("status, models and commands", () => {
     expect(calls[0]?.env).not.toHaveProperty("ANTHROPIC_API_KEY");
   });
 
+  it("cancels an unsampled model query at its caller's deadline without a second timeout diagnostic", async () => {
+    fake.controls = { supportedModels: () => new Promise(() => undefined) };
+    const adapter = adapterWith();
+    const abort = new AbortController();
+    const deadline = new Error("Outer probe deadline");
+    const listing = adapter.models({ id: "work", directory: "/d" }, abort.signal);
+    const rejected = expect(listing).rejects.toBe(deadline);
+    const query = fake.last();
+    abort.abort(deadline);
+    await rejected;
+    expect(query.closed).toBe(true);
+    expect(query.options.abortController?.signal.aborted).toBe(true);
+    clock.advance(DEFAULT_TIMINGS.controlTimeoutMs);
+    expect(diagnostics).toEqual([]);
+    expect(clock.pending()).toBe(0);
+  });
+
+  it("passes status cancellation to the binary runner and does not interpret cancellation as sign-out", async () => {
+    const abort = new AbortController();
+    const deadline = new Error("Outer probe deadline");
+    const adapter = adapterWith({ runCommand: async (_executable, _argv, _env, _timeout, signal) => {
+      expect(signal).toBe(abort.signal);
+      abort.abort(deadline);
+      return { code: null, stdout: "", stderr: "Cancelled." };
+    } });
+    await expect(adapter.status({ id: "work", directory: "/d" }, abort.signal)).rejects.toBe(deadline);
+  });
+
   it("lists the binary's models live, with families and tiers, and falls back to the static list", async () => {
     fake.controls = {
       supportedModels: async () => [

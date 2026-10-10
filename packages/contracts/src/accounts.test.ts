@@ -53,9 +53,9 @@ describe("the account stream", () => {
     }
   });
 
-  it("records a status change between the four states, and a removal with its reason", () => {
+  it("records a status change between the account states, and a removal with its reason", () => {
     const changed = ACCOUNT_EVENT_TYPES["account.status-changed"].payload;
-    for (const status of ["signed-in", "signed-out", "expired", "unreadable"]) {
+    for (const status of ["signed-in", "signed-out", "expired", "unreadable", "unavailable"]) {
       expect(changed.safeParse({ accountId: record.id, status, previous: "signed-in", detail: null }).success, status).toBe(true);
     }
     expect(changed.safeParse({ accountId: record.id, status: "unknown", previous: "signed-in", detail: null }).success).toBe(false);

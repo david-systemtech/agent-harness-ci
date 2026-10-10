@@ -540,18 +540,18 @@ describe("status", () => {
     expect((await client.request("accounts.refresh", { accountId: "claude-max" })).accounts[0]?.status).toMatchObject({ state: "expired", detail: null });
     t.adapter.setStatus(() => ({ ...signedInAs(null), error: "The binary could not be run." }));
     expect((await client.request("accounts.refresh", {})).accounts[0]?.status).toMatchObject({ state: "unreadable", detail: "The binary could not be run." });
-    // A probe that never answers gives up after the timeout, and reads unreadable.
+    // A probe that never answers gives up after the timeout, and is temporarily unavailable.
     t.adapter.setStatus(() => signedInAs("claude-max@example.com"));
     await client.request("accounts.refresh", {});
     t.adapter.setStatus(() => new Promise<AuthStatus>(() => undefined));
     const answer = await client.request("accounts.refresh", {});
-    expect(answer.accounts[0]?.status).toMatchObject({ state: "unreadable", detail: expect.stringContaining("20 ms") });
+    expect(answer.accounts[0]?.status).toMatchObject({ state: "unavailable", detail: expect.stringContaining("20 ms") });
     expect(accountEvents(t, "claude-max").filter((event) => event.type === "account.status-changed").map((event) => event.payload["status"])).toEqual([
       "signed-in",
       "expired",
       "unreadable",
       "signed-in",
-      "unreadable",
+      "unavailable",
     ]);
     expect(await refusal(client.request("accounts.refresh", { accountId: "nobody" }))).toMatchObject({ code: "not_found", data: { kind: "account" } });
   });

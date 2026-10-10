@@ -66,6 +66,19 @@ const command = async (app: RenderedApp, text: string) => {
 };
 
 describe("/account", () => {
+  it.each(["/account", "/handoff"])("%s waits for a temporarily unavailable account without starting sign-in", async (picker) => {
+    const { app, env } = await launch([desk({ accounts: [
+      { id: "account-1", label: "work", identity: MILO },
+      { id: "account-2", label: "personal", identity: HOME, status: { state: "unavailable", checkedAt: null, detail: "Automatic retry in 30 seconds." } },
+    ] })]);
+    await command(app, picker);
+    await app.waitFor("checking again");
+    await app.press(KEY.down, KEY.enter);
+    await app.waitFor("personal is temporarily unavailable; checking again automatically.");
+    expect(env.requests("accounts.signin.start")).toEqual([]);
+    expect(env.requests("sessions.fork")).toEqual([]);
+  });
+
   it("lists the session's environment's accounts with their identity, sign-in status and plan reading, then 'add an account'", async () => {
     const { app, env } = await launch([
       desk({

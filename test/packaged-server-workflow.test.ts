@@ -54,6 +54,17 @@ describe("the public release's packaged server smoke tests", () => {
     expect(body).toContain("if-no-files-found: error");
   });
 
+  it.each(["smoke-windows", "smoke-macos", "smoke-linux"])("checks persisted account probe recovery using the shipped modules in %s", name => {
+    const body = job(hosted, name);
+    expect(body).toContain(name === "smoke-windows"
+      ? "& $node scripts/check-packaged-account-recovery.mjs $server"
+      : '"$server/node/bin/node" scripts/check-packaged-account-recovery.mjs "$server"');
+    if (name === "smoke-windows") {
+      expect(body).toContain("Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-account-recovery.mjs').Path -Destination (Join-Path $work 'scripts')");
+      expect(body).toContain("throw 'Packaged account recovery check failed'");
+    }
+  });
+
   it.each(["smoke-windows", "smoke-macos", "smoke-linux"])("checks replay handling in the packaged provider listener with its own Node in %s", name => {
     const body = job(hosted, name);
     expect(body).toContain(name === "smoke-windows"
