@@ -628,6 +628,8 @@ export {
   startSignIn,
   type AccountAdded,
   type AttendedSignIn,
+  type CodeSent,
+  type SignInEnding,
 } from "./status/sign-in.js";
 export {
   DEFAULT_CHOICE_WORDS,

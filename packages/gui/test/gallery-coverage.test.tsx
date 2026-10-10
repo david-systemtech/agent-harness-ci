@@ -6,6 +6,7 @@ it("covers every registered Settings pane, all first-run steps and the verificat
   const names = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
   // look.md §16: these are the states a baseline set must include, independent of discovery order.
   const required = [
+    "dialog-sign-in-refused",
     "window-empty", "window-not-ready", "window-start-failed", "window-session", "header", "update-chip", "grid-two", "primitives", "window-scale-11", "window-scale-20",
     "session-conversation", "session-streaming", "session-tools", "session-find", "session-queue", "session-steering", "session-history",
     "composer-idle", "composer-running", "composer-stopping", "composer-slash", "composer-bypass", "status-line", "status-line-usage-details", "context-usage", "run-picker", "run-picker-compact",

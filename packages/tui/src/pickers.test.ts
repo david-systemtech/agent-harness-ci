@@ -112,17 +112,19 @@ describe("/account", () => {
     expect(env.requests("accounts.signin.code").map((r) => r.params)).toEqual([expect.objectContaining({ accountId: "account-3", code: "abc-123" })]);
 
     env.signIn("done");
-    await app.waitFor("side is signed in on desk.");
+    await app.waitFor("side is signed in.");
     expect(app.frame()).not.toContain("Checking the code");
     await app.waitUntil(() => env.requests("setup.check").length >= 2, "the account checks after sign-in writes");
     expect(env.requests("setup.check").every((r) => r.params.step === "account")).toBe(true);
   });
 
-  it("says a sign-in that failed, expired or was cancelled in one line each", async () => {
-    for (const [state, line] of [
-      ["failed", "The sign-in of personal failed: the provider's CLI exited 1."],
-      ["expired", "The sign-in of personal expired: no code came within ten minutes."],
-      ["cancelled", "The sign-in of personal was cancelled."],
+  it("says a sign-in that failed, expired or was cancelled in one line each, in setup-copy.md §5.2's words", async () => {
+    for (const [state, line, cause] of [
+      ["failed", "The sign-in did not finish.", undefined],
+      ["failed", "Claude did not accept this code.", "code-refused"],
+      ["expired", "The sign-in ran out of time.", undefined],
+      ["cancelled", "The sign-in was cancelled.", undefined],
+      ["cancelled", "The sign-in stopped because agent-harness restarted.", "restarted"],
     ] as const) {
       const { app, env } = await launch([desk({ accounts: [{ id: "account-1", label: "work", identity: MILO }, { id: "account-2", label: "personal", status: { state: "signed-out", checkedAt: null, detail: null } }] })]);
       await command(app, "/account");
@@ -133,9 +135,11 @@ describe("/account", () => {
       expect(env.requests("accounts.signin.start").map((r) => r.params)).toEqual([expect.objectContaining({ accountId: "account-2" })]);
       env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true" });
       await app.waitFor("Then paste the code");
-      env.signIn(state, { error: state === "failed" ? "the provider's CLI exited 1" : state === "expired" ? "no code came within ten minutes" : null });
+      env.signIn(state, { error: state === "failed" ? "the provider's CLI exited 1" : state === "expired" ? "no code came within ten minutes" : null, ...(cause !== undefined && { cause }) });
       await app.waitFor(line);
-      expect(app.rows().filter((row) => row.includes("personal")).length).toBe(1);
+      // The environment's own words are not the line (#1843).
+      expect(app.frame()).not.toContain("exited 1");
+      expect(app.rows().filter((row) => row.includes(line)).length).toBe(1);
       await app.unmount();
       apps = apps.filter((a) => a !== app);
     }
@@ -161,6 +165,25 @@ describe("/account", () => {
     answer();
   });
 
+  it("says a code that got no answer as the connection's failure, not Claude's refusal (PR review)", async () => {
+    const { app, env } = await launch();
+    await command(app, "/account");
+    await app.waitFor("+ Add an account");
+    await app.press(KEY.down, KEY.down, KEY.enter);
+    await app.type("side");
+    await app.press(KEY.enter);
+    env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true" });
+    await app.waitFor("Then paste the code");
+    // The code reaches the environment, then the link drops before its answer: this client meets the failure itself.
+    env.wire.answer("accounts.signin.code", () => new Promise<undefined>(() => undefined));
+    await app.type("abc-123");
+    await app.press(KEY.enter);
+    await app.waitFor("Checking the code");
+    env.wire.server.drop();
+    await app.waitFor("This app cannot reach that computer right now.");
+    expect(app.frame()).not.toContain("Claude did not accept this code.");
+  });
+
   it("leaves a card opened meanwhile alone when a sign-in's start answers late with a refusal (PR review)", async () => {
     const { app, env } = await launch([desk({ accounts: [{ id: "account-1", label: "work", identity: MILO }, { id: "account-2", label: "personal", status: { state: "signed-out", checkedAt: null, detail: null } }] })]);
     let refuse = () => undefined as void;
@@ -180,7 +203,7 @@ describe("/account", () => {
     await app.press("\u001Bh");
     await app.waitFor("Hand off Receipts on desk");
     refuse();
-    await app.waitFor("personal was not signed in: Another sign-in holds desk.");
+    await app.waitFor("This cannot be done right now. Wait a moment, then choose Sign in again.");
     expect(app.frame()).toContain("Hand off Receipts on desk");
   });
 
@@ -194,18 +217,18 @@ describe("/account", () => {
     env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true" });
     await app.waitFor("Then paste the code");
     await app.press(KEY.esc);
-    await app.waitFor("The sign-in of side was cancelled.");
+    await app.waitFor("The sign-in was cancelled.");
     expect(env.requests("accounts.signin.cancel").map((r) => r.params)).toEqual([expect.objectContaining({ accountId: "account-3" })]);
   });
 
   it("says why an account cannot be added where accounts.add says the sign-in did not start", async () => {
-    const { app } = await launch([desk({ addSignIn: { started: false, message: "Another sign-in holds desk: work's." } })]);
+    const { app } = await launch([desk({ addSignIn: { started: false, reason: "signin_running", message: "Another sign-in holds desk: work's." } })]);
     await command(app, "/account");
     await app.waitFor("+ Add an account");
     await app.press(KEY.down, KEY.down, KEY.enter);
     await app.type("side");
     await app.press(KEY.enter);
-    await app.waitFor("side was added on desk, but its sign-in did not start: Another sign-in holds desk: work's.");
+    await app.waitFor("side is added. Its sign-in did not start because another sign-in is running. Finish that one first.");
   });
 
   it("answers absent with the runtime's reason where this client may not add an account", async () => {

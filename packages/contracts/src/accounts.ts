@@ -253,11 +253,18 @@ export const CommandEntry = z
   .meta({ description: "A command entry of commands.list: a slash command the provider offers of its own, its built-ins flagged." });
 export type CommandEntry = z.infer<typeof CommandEntry>;
 
+/** Why `accounts.add` did not start the account's sign-in: another sign-in holds the environment's one, or this environment cannot sign the provider in. */
+export const SIGN_IN_NOT_STARTED_REASONS = ["signin_running", "signin_unavailable"] as const;
+
 /** Whether `accounts.add` started the account's sign-in, and what to tell a person when it did not. */
 export const SignInStart = z
   .object({
     started: z.boolean().meta({ description: "Whether the environment started signing the account in." }),
     message: z.string().min(1).nullable().meta({ description: "What to tell a person when it did not: why, and what to do instead." }),
+    reason: z.enum(SIGN_IN_NOT_STARTED_REASONS).optional().meta({
+      description:
+        "Why it did not start, as accounts.signin.start's refusal names it: signin_running (another account's sign-in is running) or signin_unavailable; absent when it started, and from environments that do not say.",
+    }),
   })
   .meta({ description: "Whether accounts.add started the account's sign-in, and why not when it did not." });
 export type SignInStart = z.infer<typeof SignInStart>;
@@ -342,6 +349,14 @@ export const SignInFallback = z
   .meta({ description: "The exact command that signs the account's directory in from a terminal on the environment's machine, in POSIX and PowerShell renderings." });
 export type SignInFallback = z.infer<typeof SignInFallback>;
 
+/**
+ * Why a sign-in ended, where a client words it apart (setup-copy.md §5.2):
+ * `code-refused` (the provider's CLI failed after a code was written to it),
+ * `restarted` (the environment restarted while it ran) or `account-removed`.
+ */
+export const SIGN_IN_CAUSES = ["code-refused", "restarted", "account-removed"] as const;
+export type SignInCause = (typeof SIGN_IN_CAUSES)[number];
+
 /** One sign-in as `accounts.signin.get` answers it and `signin.updated` carries it. */
 export const SignIn = z
   .object({
@@ -352,6 +367,10 @@ export const SignIn = z
     expiresAt: Timestamp.meta({ description: "When the sign-in expires if it is still waiting: ten minutes after it started, or after the code was written." }),
     fallback: SignInFallback,
     error: z.string().min(1).nullable().meta({ description: "Why the sign-in failed, expired or was cancelled, when there is more to say; null otherwise." }),
+    cause: z.enum(SIGN_IN_CAUSES).optional().meta({
+      description:
+        "Why a failed or cancelled sign-in ended, where a client words it apart: code-refused (the provider's CLI failed after the code was written to it), restarted (the environment restarted while it ran), account-removed; absent otherwise, from a person's cancel, and from environments that do not say.",
+    }),
   })
   .meta({ description: "A sign-in of an account's directory: its state, the verification URL, when it expires, the fallback command, and why it ended when it did not succeed." });
 export type SignIn = z.infer<typeof SignIn>;
