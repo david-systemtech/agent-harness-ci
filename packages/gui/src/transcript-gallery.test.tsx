@@ -34,6 +34,6 @@ it.each([true, false])("the enlarged permission scene retains both normal banner
     expect(within(prompt).getByLabelText("Arguments").textContent).toContain(short ? "git tag qa-check" : "Check 20");
     expect(within(prompt).getByRole("group", { name: "Permission decision" })).toBeDefined();
     expect(screen.getByRole("textbox", { name: "Message" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "Stop", exact: true })).toBeDefined();
+    expect(screen.getByRole("button", { name: /^Stop$/ })).toBeDefined();
   } finally { view.unmount(); }
 });

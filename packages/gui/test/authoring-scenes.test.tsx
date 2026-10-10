@@ -56,7 +56,8 @@ it("keeps authoring in the dialog flow when shared phone styles load after the d
     const column = within(dialog).getByRole("textbox", { name: "Message" }).closest("[data-composer-column]")!;
     expect(getComputedStyle(column).flexShrink).toBe("0");
     expect(getComputedStyle(column).maxHeight).toBe("none");
-    expect(getComputedStyle(dialog.querySelector('[aria-label="Parked prompt"]')!).maxHeight).toBe("60dvh");
+    expect(getComputedStyle(dialog.querySelector('[aria-label="Parked prompt"]')!).maxHeight).toBe("min(60dvh, var(--session-prompt-height, 60dvh))");
+    expect(getComputedStyle(column).getPropertyValue("--session-prompt-height")).toBe("");
   } finally { document.documentElement.removeAttribute("data-phone-viewport"); sheets.forEach(sheet => sheet.remove()); }
 });
 
