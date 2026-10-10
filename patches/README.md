@@ -4,4 +4,4 @@ The Windows ConPTY agent captures the console process list before closing the co
 
 pnpm applies this patch for workspace and production installs. The release staging workspace copies `patches/` before its frozen install. Tests execute the installed dependency at its Windows cleanup boundary, and the release's Windows smoke runs the packaged native runtime through terminal drain and an update trial. Recheck the patch and those tests when changing the node-pty pin.
 
-Natural shell exit also releases its console and output worker after the existing output-flush window, and both natural and forced cleanup close the owned input pipe (#2052). This allows an environment that opened terminals to exit after drain so its launcher can start and commit an update trial.
+Natural shell exit also releases its owned console and output worker after the existing output-flush window without enumerating the already-exited shell PID (which can be reused), and both natural and forced cleanup close the owned input pipe (#2052). This allows an environment that opened terminals to exit after drain so its launcher can start and commit an update trial.

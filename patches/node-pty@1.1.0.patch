@@ -26,7 +26,7 @@ index 8c4fca9022a6d6f015bca87f61625cde2278f428..7e6f0e379bb64061c9738ad9250ab731
  //# sourceMappingURL=conpty_console_list_agent.js.map
 \ No newline at end of file
 diff --git a/lib/windowsPtyAgent.js b/lib/windowsPtyAgent.js
-index a358ffb177357e177661033c1b092f9c9d0e5f5a..33755988823db6cb19c3bc3b766c60a84da856de 100644
+index a358ffb177357e177661033c1b092f9c9d0e5f5a..90db34abb133ff70164a6b172090ca7a3279c277 100644
 --- a/lib/windowsPtyAgent.js
 +++ b/lib/windowsPtyAgent.js
 @@ -135,6 +135,8 @@ var WindowsPtyAgent = /** @class */ (function () {
@@ -83,13 +83,13 @@ index a358ffb177357e177661033c1b092f9c9d0e5f5a..33755988823db6cb19c3bc3b766c60a8
 +            }
 +            agent.on('message', function (message) {
 +                finish(message.consoleProcessList, message.error);
-+            });
-+            agent.on('error', function (error) { finish([_this._innerPid], error.message); });
-+            agent.on('exit', function (code, signal) {
-+                finish([_this._innerPid], 'console list helper exited without a result (' + code + ', ' + signal + ')');
              });
 -            var timeout = setTimeout(function () {
 -                // Something went wrong, just send back the shell PID
++            agent.on('error', function (error) { finish([_this._innerPid], error.message); });
++            agent.on('exit', function (code, signal) {
++                finish([_this._innerPid], 'console list helper exited without a result (' + code + ', ' + signal + ')');
++            });
 +            timeout = setTimeout(function () {
 +                finish([_this._innerPid], 'console list helper timed out after 5000ms');
                  agent.kill();
@@ -97,14 +97,19 @@ index a358ffb177357e177661033c1b092f9c9d0e5f5a..33755988823db6cb19c3bc3b766c60a8
              }, 5000);
          });
      };
-@@ -240,7 +263,10 @@ var WindowsPtyAgent = /** @class */ (function () {
+@@ -240,7 +263,15 @@ var WindowsPtyAgent = /** @class */ (function () {
          if (this._useConptyDll) {
              return;
          }
 -        this._inSocket.readable = false;
-+        // A shell can exit before the environment drains. Release its console and
-+        // worker too: the registry no longer owns a running process to kill (#2052).
-+        this.kill();
++        // Native exit already proved the shell ended. Its PID may be reused, so
++        // close the owned console directly instead of enumerating that PID (#2052).
++        if (!this._killStarted) {
++            this._killStarted = true;
++            try { this._ptyNative.kill(this._pty, this._useConptyDll); }
++            catch (error) { console.error('node-pty: could not close console: ' + error.message); }
++            this._conoutSocketWorker.dispose();
++        }
 +        this._inSocket.destroy();
          this._outSocket.readable = false;
          this._outSocket.destroy();

@@ -14,6 +14,7 @@ function terminal() {
   vi.useFakeTimers();
   const events: string[] = [];
   const resources = new Set<string>();
+  let forks = 0;
   let exit: (code: number) => void = () => { throw new Error("Native exit callback was not registered"); };
   const helper = Object.assign(new EventEmitter(), { kill: () => events.push("helper killed") });
   const native = { startProcess: () => ({ pty: 1, conin: "input" }), connect: (...args: unknown[]) => { exit = args[5] as (code: number) => void; return { pid: 123 }; },
@@ -28,7 +29,7 @@ function terminal() {
         case "fs": return { openSync: () => 1 };
         case "os": return { release: () => "10.0.19045" };
         case "path": return require("node:path");
-        case "child_process": return { fork: () => helper };
+        case "child_process": return { fork: () => { forks++; return helper; } };
         case "net": return { Socket: class extends EventEmitter {
           private readonly resource: string;
           constructor(options?: { fd: number }) { super(); this.resource = options ? "input socket" : "output socket"; resources.add(this.resource); }
@@ -46,7 +47,7 @@ function terminal() {
     },
   });
   const pty = new exports.WindowsPtyAgent("cmd.exe", [], [], "/work", 80, 24, false, true, false, false);
-  return { pty, helper, events, resources, exit: (code: number) => exit(code) };
+  return { pty, helper, events, resources, get forks() { return forks; }, exit: (code: number) => exit(code) };
 }
 
 it("captures and kills the console's processes before closing it, even when kill is repeated", async () => {
@@ -120,15 +121,12 @@ it("keeps genuine helper errors actionable and settles cleanup just once", async
 });
 
 it("releases a naturally exited console after its final output drains, so the environment can exit", async () => {
-  const { helper, resources, exit } = terminal();
+  const { resources, exit } = terminal();
   expect([...resources].sort()).toEqual(["input socket", "output socket", "output worker"]);
   exit(0);
   await vi.advanceTimersByTimeAsync(999);
   expect(resources.size).toBe(3);
   await vi.advanceTimersByTimeAsync(1);
-  // An already-gone shell returns no PIDs; the real helper's quiet reply is tested above.
-  helper.emit("message", { consoleProcessList: [] });
-  await Promise.resolve();
   expect([...resources]).toEqual([]);
   expect(vi.getTimerCount()).toBe(0);
 });
@@ -148,4 +146,14 @@ it("closes the input pipe after forced console cleanup even before the native ex
   expect([...resources]).toEqual([]);
   expect(events.filter(event => event === "console closed")).toHaveLength(1);
   expect(vi.getTimerCount()).toBe(0);
+});
+
+it("never enumerates a shell PID again after native exit, because that PID can be reused", async () => {
+  const ended = terminal();
+  ended.exit(0);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(ended.forks).toBe(0);
+  expect(ended.events.filter(event => event.startsWith("killed "))).toEqual([]);
+  expect([...ended.resources]).toEqual([]);
+  expect(ended.events.filter(event => event === "console closed")).toHaveLength(1);
 });
