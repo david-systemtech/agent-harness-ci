@@ -96,8 +96,8 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
       setRefusal({ reason: "refused", message: "Pairing did not work. Try again.", details: [error instanceof Error ? error.message : String(error)] });
     });
   }, [runtime, route]);
-  const [requestedSession, requestSession] = useState(() => sessionOfHash(location.hash) ?? route.session);
-  const [routeFailure, setRouteFailure] = useState(() => location.hash && !sessionOfHash(location.hash) ? "This session link is malformed. Open a session from Sessions." : undefined);
+  const [requestedSession, requestSession] = useState(route.session);
+  const [routeFailure, setRouteFailure] = useState(() => !route.session && location.hash && !sessionOfHash(location.hash) ? "This session link is malformed. Open a session from Sessions." : undefined);
   useEffect(() => {
     const changed = () => {
       const session = sessionOfHash(location.hash);

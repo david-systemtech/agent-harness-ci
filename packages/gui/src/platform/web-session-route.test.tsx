@@ -10,7 +10,7 @@ import { openPresentation } from "../presentation.js";
 import { browserPlatform, type BrowserPlatform } from "./browser-platform.js";
 import { sessionLink, type BrowserRoute } from "./browser-boot.js";
 
-const pairedClient = async (cold = false, narrow = false) => {
+const pairedClient = async (cold = false, narrow = false, startupHash?: string) => {
   if (narrow) {
     const original = window.matchMedia;
     vi.stubGlobal("innerWidth", 390);
@@ -34,7 +34,7 @@ const pairedClient = async (cold = false, narrow = false) => {
   const presentation = await openPresentation(platform.documents);
   presentation.set("runLocalEnvironment", false); presentation.set("firstLaunchDone", true);
   const route: BrowserRoute = { pairing: { link: env.wire.link.replace(/^http:/, "https:") }, ...(cold ? { session: first } : {}) };
-  if (cold) history.replaceState(null, "", sessionLink(first));
+  if (cold) history.replaceState(null, "", startupHash ?? sessionLink(first));
   const app = render(<App runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route }} />);
   onTestFinished(async () => { app.unmount(); await runtime.close(); await presentation.close(); history.replaceState(null, "", "/"); });
   await waitFor(() => expect(runtime.projections.sessionList.read().rows).toHaveLength(2));
@@ -45,8 +45,8 @@ const pairedClient = async (cold = false, narrow = false) => {
   return { env, first, second, navigate, selected, app, presentation, runtime, clock };
 };
 
-it("opens session hashes in a freshly paired document and switches back with drafts and live replies intact", async () => {
-  const { env, first, second, navigate, selected } = await pairedClient();
+it.each([false, true])("opens session hashes and returns with drafts and live replies intact (phone: %s)", async narrow => {
+  const { env, first, second, navigate, selected } = await pairedClient(false, narrow);
   expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
   await navigate(sessionLink(first));
   await selected(first);
@@ -70,6 +70,9 @@ it("opens session hashes in a freshly paired document and switches back with dra
   await waitFor(() => expect(screen.getByRole("textbox", { name: "Message" })).toHaveProperty("value", "First draft"));
   await waitFor(() => expect(screen.getAllByRole("article", { name: "Reply" }).at(-1)?.textContent).toBe("First live reply continues"));
   expect(env.liveRun(first.sessionId)).toBe(runId);
+  expect(screen.getByRole("button", { name: /^Send/ })).toBeDefined();
+  await user.clear(screen.getByRole("textbox", { name: "Message" }));
+  expect(await screen.findByRole("button", { name: /^Stop/ })).toBeDefined();
   await navigate(sessionLink(second));
   await selected(second);
   await waitFor(() => expect(screen.getByRole("textbox", { name: "Message" })).toHaveProperty("value", "Second draft"));
@@ -139,4 +142,13 @@ it("lets the phone drawer replace a refused session link", async () => {
   await selected(second);
   await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   expect(location.hash).toBe(new URL(sessionLink(second), location.origin).hash);
+});
+
+// A caller can supply the consumed startup route without changing the host document's hash.
+it("opens the supplied startup session despite a hash from another mounted client", async () => {
+  const { first, selected } = await pairedClient(true, false, "#/session/stale-environment/stale-session");
+  await selected(first);
+  expect(await screen.findByRole("textbox", { name: "Message" })).toBeDefined();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(location.hash).toBe(new URL(sessionLink(first), location.origin).hash);
 });

@@ -27,12 +27,13 @@ export async function webSessionRouteSmoke(page: Page, engine: string, environme
   await expect(message).toHaveValue("First session route draft");
   if (liveReply) {
     await expect(page.getByRole("article", { name: "Reply", exact: true }).filter({ hasText: liveReply }).last()).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Stop/ })).toBeVisible();
   }
   await follow(second);
   await expect(message).toHaveValue("Second session route draft");
   await message.fill("");
   await follow(first);
   await message.fill("");
+  // Send and Stop share the composer action: a retained draft offers Send even during a live run.
+  if (liveReply) await expect(page.getByRole("button", { name: /^Stop/ })).toBeVisible();
   console.log(`WEB-SESSION-ROUTE PASS ${engine}: same document, header, composer, drafts${liveReply ? ", live transcript and run" : ""}`);
 }
