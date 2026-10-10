@@ -375,8 +375,39 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  windows-pty:
+    needs: prepare
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+      - name: Compile the patched Windows node-pty runtime
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare --activate
+          pnpm install --frozen-lockfile --ignore-scripts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @agent-harness/environment rebuild node-pty
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm exec tsx packages/cli/scripts/export-windows-pty.ts windows-pty
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Keep the repaired Windows native payload
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: windows-pty
+          path: windows-pty/
+          if-no-files-found: error
+          retention-days: 7
+
   desktop-windows:
-    needs: [prepare, image]
+    needs: [prepare, image, windows-pty]
     runs-on: ubuntu-latest
     container:
       image: electronuserland/builder:24-wine-05.26@sha256:41ae540902461b6cbc988987db79547fcc10cda04d2a6c6367504f59d4b37c64
@@ -405,10 +436,16 @@ jobs:
           restore-keys: pnpm-store-wine-${{ github.repository }}-
       - run: pnpm install --frozen-lockfile
 
+      - name: The repaired Windows native payload
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: windows-pty
+          path: windows-pty
+
       - name: The win32-x64 server artefact
         run: |
           set -euo pipefail
-          pnpm --filter agent-harness build-artefacts --tag "$TAG" --out server --platform linux-x64 --platform win32-x64 \
+          pnpm --filter agent-harness build-artefacts --tag "$TAG" --out server --platform linux-x64 --platform win32-x64 --windows-pty-build windows-pty \
             --image-reference "$IMAGE_REFERENCE" --image-digest "$IMAGE_DIGEST"
 
       # GitHub mounts its own HOME into container jobs, owned by the runner's user, and wine
@@ -1182,12 +1219,18 @@ jobs:
           path: desktop
           merge-multiple: true
 
+      - name: The repaired Windows native payload
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: windows-pty
+          path: windows-pty
+
       - name: Build the server artefacts and the release's assets
         env:
           IMAGE_REFERENCE: ${{ needs.image-push.outputs.reference }}
           IMAGE_DIGEST: ${{ needs.image-push.outputs.digest }}
         run: |
-          pnpm --filter agent-harness build-artefacts --tag "$TAG" --out release-assets \
+          pnpm --filter agent-harness build-artefacts --tag "$TAG" --out release-assets --windows-pty-build windows-pty \
             --image-reference "$IMAGE_REFERENCE" --image-digest "$IMAGE_DIGEST" \
             --asset schema=packages/contracts/schema \
             --asset install-script=scripts/install.sh \
