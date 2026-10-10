@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { access, mkdtemp, readdir, rename, rm, stat } from "node:fs/promises";
+import { access, lstat, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { relative, isAbsolute } from "node:path";
 import type { CommandResult, UpdateFiles, UpdateSystem } from "../src/update.js";
 
@@ -57,6 +57,9 @@ export const fakeSystem = (): FakeSystem => {
   };
 
   const files: UpdateFiles = {
+    lstat,
+    readFile,
+    writeFile,
     readdir,
     access: async (path, mode) => {
       if (mode !== undefined && (mode & constants.W_OK) !== 0 && readOnly.some((folder) => inside(String(path), folder))) {

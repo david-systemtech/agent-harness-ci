@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ShellPlatform } from "@agent-harness/client-runtime";
 import { app, BrowserWindow, WebContentsView, clipboard, dialog, ipcMain, Menu, nativeTheme, Notification, protocol, safeStorage, shell } from "electron";
+import { promises as originalFiles } from "original-fs";
 import type { ElectronWebView } from "./electron.js";
 import { desktopDataDirectory, environmentDataDirectory } from "./data-directory.js";
 import { startDesktop } from "./desktop.js";
@@ -11,6 +12,7 @@ import { desktopLog } from "./log.js";
 import { CREDENTIAL_HELPER_ARGUMENT, launchMacCredentials, serveMacCredentials } from "./mac-credentials.js";
 import { credentialHelperName, macCredentialStore } from "./mac-credential-store.js";
 import { PACKAGED_RENDERER, PACKAGED_SERVER } from "./packaged.js";
+import { NODE_UPDATE_SYSTEM } from "./update.js";
 
 /**
  * The desktop's entry, which Electron runs (`package.json`'s `main`): the
@@ -105,7 +107,12 @@ if (os === "darwin" && process.argv.includes(CREDENTIAL_HELPER_ARGUMENT) && proc
       // Unpackaged (`electron .`), the OS starts the app again as Electron's executable and the app's folder.
       ...(process.defaultApp && { relaunch: { executable: process.execPath, args: [resolve(process.argv[1] ?? ".")] } }),
     },
-    { reportError: log.report, ...(macCredentials && { macCredentials }) },
+    {
+      reportError: log.report,
+      // Update paths describe physical bundles, including app.asar as a file, never virtual directories.
+      updateSystem: { ...NODE_UPDATE_SYSTEM, files: originalFiles },
+      ...(macCredentials && { macCredentials }),
+    },
   ).catch(async (error: unknown) => {
     console.error(error);
     log.report(error);

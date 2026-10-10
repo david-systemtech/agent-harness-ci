@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { ShellPlatform, ShellStagedBuild } from "@agent-harness/client-runtime";
 import { afterEach, describe, expect, it } from "vitest";
@@ -112,6 +113,26 @@ const unzipping = (system: FakeSystem, version: string) =>
   });
 
 describe("apply on macOS", () => {
+  it("keeps the archive file until quit and removes the owned staging directory on the next start", async () => {
+    const mac = macBundle();
+    const archive = join(mac.bundle, "Contents", "Resources", "app.asar");
+    mkdirSync(dirname(archive), { recursive: true });
+    writeFileSync(archive, "archive-for-tests");
+    const system = fakeSystem();
+    unzipping(system, "0.6.0");
+    const prior = await installed("darwin", mac.executable, system);
+
+    expect(await prior.shell().update.apply(stagedBuild("0.6.0", "desktop.zip"), "now")).toEqual({ outcome: "applied" });
+    const temporary = system.made[0]!;
+    expect(readFileSync(join(temporary, "previous", "Contents", "Resources", "app.asar"), "utf8")).toBe("archive-for-tests");
+    await prior.electron.app.quitted;
+
+    const replacement = await installed("darwin", mac.executable, system);
+    await replacement.shell().update.current();
+    expect(existsSync(temporary)).toBe(false);
+    expect(mac.build()).toBe("0.6.0");
+  });
+
   it("replaces the running bundle with the staged one by rename, removes its temporary folder, and starts the new build", async () => {
     const mac = macBundle();
     const system = fakeSystem();
@@ -123,10 +144,11 @@ describe("apply on macOS", () => {
 
     expect(mac.build()).toBe("0.6.0");
     expect(system.ran).toEqual([["ditto", "-x", "-k", staged.path, system.made[0]]]);
-    expect(system.removed).toEqual(system.made);
-    expect(readdirSync(mac.applications)).toEqual(["agent-harness.app"]);
+    expect(system.removed).toEqual([]);
     expect(electron.app.calls.filter(([method]) => method === "relaunch" || method === "quit")).toEqual([["relaunch"], ["quit"]]);
     await electron.app.quitted;
+    await (await installed("darwin", mac.executable, system)).shell().update.current();
+    expect(readdirSync(mac.applications)).toEqual(["agent-harness.app"]);
   });
 
   it("renames the old bundle back when the new one cannot be put in place, and says the installed version stays", async () => {
@@ -162,6 +184,22 @@ describe("apply on macOS", () => {
     expect(readdirSync(mac.applications)).toEqual(["agent-harness.app"]);
   });
 
+  it("never schedules removal of the only bundle when installation and rollback both fail", async () => {
+    const mac = macBundle();
+    const system = fakeSystem();
+    unzipping(system, "0.6.0");
+    system.fail("rename", (_from, to) => to === mac.bundle);
+    system.fail("rename", (_from, to) => to === mac.bundle);
+    const prior = await installed("darwin", mac.executable, system);
+    expect(await prior.shell().update.apply(stagedBuild("0.6.0", "desktop.zip"), "now")).toMatchObject({ outcome: "failed", failure: "install" });
+
+    await (await installed("darwin", mac.executable, system)).shell().update.current();
+
+    expect(readFileSync(join(system.made[0]!, "previous", "Contents", "MacOS", "agent-harness"), "utf8")).toBe("0.5.0");
+    expect(existsSync(system.made[0] + ".cleanup")).toBe(false);
+    expect(system.removed).toEqual([]);
+  });
+
   it("at `quit`, swaps the bundle as the desktop next quits, each hand-over replacing the one before, and starts nothing", async () => {
     const mac = macBundle();
     const system = fakeSystem();
@@ -180,27 +218,78 @@ describe("apply on macOS", () => {
 
     expect(mac.build()).toBe("0.7.0");
     expect(system.ran).toEqual([["ditto", "-x", "-k", second.path, system.made[0]]]);
-    expect(readdirSync(mac.applications)).toEqual(["agent-harness.app"]);
     expect(electron.app.calls.map(([method]) => method)).not.toContain("relaunch");
+    await (await installed("darwin", mac.executable, system)).shell().update.current();
+    expect(readdirSync(mac.applications)).toEqual(["agent-harness.app"]);
   });
 
-  it("says a temporary folder it could not remove is a cleanup failure, the new build installed and started all the same", async () => {
+  it("reports deferred cleanup failure, preserves the installation and retries after a partial removal on another start", async () => {
     const mac = macBundle();
     const system = fakeSystem();
     unzipping(system, "0.6.0");
-    system.fail("rm");
-    const { shell, electron, reported } = await installed("darwin", mac.executable, system);
+    const { shell, electron } = await installed("darwin", mac.executable, system);
 
     const outcome = await shell().update.apply(stagedBuild("0.6.0", "agent-harness-desktop-darwin-arm64.zip"), "now");
 
-    expect(outcome).toEqual({
-      outcome: "failed",
-      failure: "cleanup",
-      message: `0.6.0 is installed, but the temporary folder ${system.made[0]} could not be removed: EACCES: permission denied, rm '${system.made[0]}'.`,
-    });
+    expect(outcome).toEqual({ outcome: "applied" });
     expect(mac.build()).toBe("0.6.0");
-    expect(reported).toHaveLength(1);
     expect(electron.app.calls.filter(([method]) => method === "relaunch" || method === "quit")).toEqual([["relaunch"], ["quit"]]);
+    await electron.app.quitted;
+    system.fail("rm");
+    const remove = system.files.rm;
+    const partialSystem = { ...system, files: { ...system.files, rm: async (path: Parameters<typeof rm>[0], options: Parameters<typeof rm>[1]) => {
+      // A recursive removal may have already deleted children before encountering the busy archive.
+      if (options?.recursive) await rm(join(String(path), "previous", "Contents", "MacOS"), { recursive: true, force: true });
+      return remove(path, options);
+    } } };
+    const replacement = await installed("darwin", mac.executable, partialSystem);
+    await replacement.shell().update.current();
+    expect(replacement.reported.map(String)).toEqual([expect.stringMatching(/deferred update cleanup: EACCES/)]);
+    expect(existsSync(system.made[0]!)).toBe(true);
+    expect(mac.build()).toBe("0.6.0");
+    await (await installed("darwin", mac.executable, system)).shell().update.current();
+    expect(readdirSync(mac.applications)).toEqual(["agent-harness.app"]);
+  });
+
+  it("leaves unmarked folders, another bundle's receipt and symlinked cleanup paths alone", async () => {
+    const mac = macBundle();
+    const unrelated = join(mac.applications, ".agent-harness.app-update-unrelated");
+    const foreign = join(mac.applications, ".agent-harness.app-update-foreign");
+    const linked = join(mac.applications, ".agent-harness.app-update-linked");
+    mkdirSync(unrelated);
+    mkdirSync(foreign);
+    writeFileSync(join(unrelated, "keep"), "keep-for-tests");
+    writeFileSync(foreign + ".cleanup", join(mac.applications, "another.app"));
+    symlinkSync(unrelated, linked, "dir");
+    writeFileSync(linked + ".cleanup", mac.bundle);
+    const markerLink = join(mac.applications, ".agent-harness.app-update-marker-link");
+    mkdirSync(markerLink);
+    const externalMarker = join(scratch(), "marker");
+    writeFileSync(externalMarker, mac.bundle);
+    symlinkSync(externalMarker, markerLink + ".cleanup", "file");
+
+    await (await installed("darwin", mac.executable, fakeSystem())).shell().update.current();
+
+    expect(readFileSync(join(unrelated, "keep"), "utf8")).toBe("keep-for-tests");
+    expect(existsSync(foreign)).toBe(true);
+    expect(existsSync(linked)).toBe(true);
+    expect(existsSync(markerLink)).toBe(true);
+  });
+
+  it("still restarts the installed build when its cleanup receipt cannot be written", async () => {
+    const mac = macBundle();
+    const system = fakeSystem();
+    unzipping(system, "0.6.0");
+    const receiptFailure = { ...system, files: { ...system.files, writeFile: async () => { throw new Error("receipt-write-refused-for-tests"); } } };
+    const replacement = await installed("darwin", mac.executable, receiptFailure);
+
+    expect(await replacement.shell().update.apply(stagedBuild("0.6.0", "desktop.zip"), "now")).toMatchObject({
+      outcome: "failed", failure: "cleanup", message: expect.stringMatching(/0\.6\.0 is installed.*could not be scheduled/),
+    });
+    await replacement.electron.app.quitted;
+    expect(mac.build()).toBe("0.6.0");
+    expect(replacement.reported).toHaveLength(1);
+    expect(replacement.electron.app.calls.map(([method]) => method)).toContain("relaunch");
   });
 });
 
@@ -462,7 +551,8 @@ describe("apply, on every platform", () => {
     unzipping(macSystem, "0.6.0");
     await (await installed("darwin", mac.executable, macSystem)).shell().update.apply(stagedBuild("0.6.0", "agent-harness-desktop-darwin-arm64.zip"), "now");
     expect(macSystem.made).toHaveLength(1);
-    expect(macSystem.removed).toEqual(macSystem.made);
+    await (await installed("darwin", mac.executable, macSystem)).shell().update.current();
+    expect(macSystem.removed).toEqual([macSystem.made[0], macSystem.made[0] + ".cleanup"]);
 
     const archSystem = fakeSystem();
     pacmanOwns(archSystem, "/opt/agent-harness/agent-harness");
