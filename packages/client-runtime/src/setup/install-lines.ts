@@ -1,8 +1,8 @@
 import { NEW_ENVIRONMENT_CHANNEL_VARIABLE, NEW_ENVIRONMENT_NAME_VARIABLE, type ReleaseChannel, type ReleaseSource } from "@agent-harness/contracts";
 
 /**
- * Add a machine's Install on another machine (the Set up spec, "Add a
- * machine"; ADR 0025; launcher-update spec; #577), as every renderer shows
+ * Add a device's Install agent-harness on another computer (setup-copy.md
+ * §5.5; ADR 0025; launcher-update spec; #577, #1847), as every renderer shows
  * it: a copyable line per platform that fetches the install script from
  * the environment's own release and runs it with the environment's channel
  * and the name given (`install.sh` piped into `sh`, `install.ps1` made a

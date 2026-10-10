@@ -91,6 +91,10 @@ export const EnvironmentBinding = z
         "Present on Windows when the environment runs on the launcher's copy of Node, whose path no update changes: its firewall asks the person once, at the first start that binds an address beside loopback, whether to let that Node accept connections, and the answer holds through updates (#1910). Absent elsewhere, on another Node (a foreground serve, or a version the launcher could not copy), and from an older environment.",
     }),
     lan: BindAddress.nullable().meta({ description: "The LAN address the environment binds; null when it binds none." }),
+    webOrigin: z.string().min(1).optional().meta({
+      description:
+        "The HTTPS origin a proxy in front of the environment serves it at (serve's --web-origin, such as Tailscale Serve's), which its pairing links carry, so other devices reach it there whatever it binds; absent when it has none and from an older environment.",
+    }),
     lanAddresses: z.array(BindAddress).meta({
       description:
         "The LAN addresses the environment could bind, as its machine holds them now: private IPv4 first, then unique-local IPv6, other IPv6 and other IPv4, preserving order within each group; excludes loopback, link-local, Tailscale, and addresses marked temporary or deprecated when that metadata is available; what network.bindLan may name.",

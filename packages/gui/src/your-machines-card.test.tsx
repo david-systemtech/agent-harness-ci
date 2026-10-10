@@ -70,7 +70,9 @@ const alsoFromOtherDevices = async (app: RenderedApp) => {
 
 /** The step's card with its More options open: the fold stays open for the window's life once opened, so it is opened only when shut. */
 const moreOptions = async (app: RenderedApp) => {
-  const fold = within(step()).getByRole("button", { name: "More options" });
+  const pairing = within(step()).queryByRole("region", { name: "Add a device" });
+  const fold = within(step()).getAllByRole("button", { name: "More options" }).find((button) => pairing === null || !pairing.contains(button));
+  if (fold === undefined) throw new Error("The computer’s More options is missing.");
   if (fold.getAttribute("aria-expanded") !== "true") await app.user.click(fold);
   return step();
 };
@@ -114,6 +116,20 @@ describe("the Your machines step in Set up", () => {
     await app.user.click(choice("Only on this computer"));
     expect(within(step()).queryByRole("region", { name: "How your devices reach this computer" })).toBeNull();
     expect(within(step()).queryByRole("region", { name: "Add a device" })).toBeNull();
+  });
+
+  it("makes a pairing code on the computer selected in Set up, without making one on this app’s home computer", async () => {
+    const app = await inSetUp();
+    await app.user.selectOptions(within(checklist()).getByRole("combobox", { name: "Setting up" }), "laptop");
+    const device = await within(step()).findByRole("region", { name: "Add a device" });
+    const desk = app.environment("desk");
+    const laptop = app.environment("laptop");
+    const onDesk = desk.requests("access.pairings.create").length;
+    const onLaptop = laptop.requests("access.pairings.create").length;
+    await app.user.click(within(device).getByRole("button", { name: "Make a pairing code" }));
+    await within(device).findByRole("group", { name: "Pairing code" });
+    expect(laptop.requests("access.pairings.create")).toHaveLength(onLaptop + 1);
+    expect(desk.requests("access.pairings.create")).toHaveLength(onDesk);
   });
 
   it("says when Tailscale is not installed, Get Tailscale opens its download page, and Check again reads how the computer is reached again", async () => {
@@ -323,7 +339,7 @@ describe("the Your machines step in Set up", () => {
     });
     expect(picked()).toBe("desk");
     await alsoFromOtherDevices(app);
-    const form = within(within(step()).getByRole("region", { name: "Add a machine" })).getByRole("form", { name: "Pair by link" });
+    const form = within(within(step()).getByRole("region", { name: "Add a device" })).getByRole("form", { name: "Pair by link" });
     act(() => within(form).getByRole("textbox", { name: "Pairing link" }).focus());
     await app.user.paste(app.environment("laptop").wire.link);
     await app.user.click(within(form).getByRole("button", { name: "Pair" }));
@@ -369,7 +385,7 @@ describe("the Your machines cards in Settings", () => {
       within(pane())
         .getAllByRole("heading", { level: 3 })
         .map((heading) => heading.textContent)
-        .filter((name) => name !== "Add a machine"),
+        .filter((name) => name !== "Add a device"),
     ).toEqual(["desk", "laptop"]);
     expect(await within(part("desk", "Reachability")).findByText("Reachable on the tailnet at desk.tail1234.ts.net (100.101.102.103).")).toBeDefined();
     expect(within(part("desk", "Reachability")).queryByText(TAILSCALE_WARNING)).toBeNull();
@@ -577,14 +593,14 @@ describe("the Your machines cards in Settings", () => {
     expect(await within(card("desk")).findByText(prompt)).toBeDefined();
   });
 
-  it("offers Set up this machine on the card Add a machine makes, which opens the checklist on it at its first step needing attention", async () => {
+  it("offers Set up this machine on the card Add a device makes, which opens the checklist on it at its first step needing attention", async () => {
     const app = await opened({
       laptop: {
         reach: "unpaired",
         setup: { forges: { state: "needs-attention", reason: "work's token has expired.", failing: ["forges.verified"], actions: [] } },
       },
     });
-    const form = within(within(pane()).getByRole("region", { name: "Add a machine" })).getByRole("form", { name: "Pair by link" });
+    const form = within(within(pane()).getByRole("region", { name: "Add a device" })).getByRole("form", { name: "Pair by link" });
     act(() => within(form).getByRole("textbox", { name: "Pairing link" }).focus());
     await app.user.paste(app.environment("laptop").wire.link);
     await app.user.click(within(form).getByRole("button", { name: "Pair" }));

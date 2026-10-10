@@ -1,10 +1,12 @@
-import { COUNTDOWN_TICK_MS, adminCall, clockTime, grantWords, ttlWords, uuidv7, type EnvironmentView } from "@agent-harness/client-runtime";
+import { COUNTDOWN_TICK_MS, adminCall, grantWords, pairingLinkIsLocal, uuidv7, type EnvironmentView } from "@agent-harness/client-runtime";
 import { formatPairingCode, parsePairingLink, type Ceiling, type MintedPairing, type Scope } from "@agent-harness/contracts";
 import { KeyRound } from "lucide-react";
 import { CopyLine } from "../settings/copy-line.js";
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
 import { encode } from "uqr";
-import { Button } from "../ui/index.js";
+import { PairingRefusal } from "../connections/pairing.js";
+import { nameOf } from "../connections/words.js";
+import { Button, Fold } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 
 /** The quiet zone around a QR code, in modules: the four the standard asks for, so a camera finds its edge. */
@@ -38,6 +40,8 @@ interface Minted {
   readonly pairing: MintedPairing;
   /** When it expires, on this client's clock: the environment's expiry moved by how far its clock is from this one's. */
   readonly until: Date;
+  /** How long it was made to last, in whole minutes. */
+  readonly minutes: number;
 }
 
 /** What a pairing code is asked to grant: its scopes and its ceiling. */
@@ -53,13 +57,28 @@ interface PairingCodeProps {
   readonly grant: PairingGrant;
   /** What the button that makes one says: preset "Make a pairing code". */
   readonly action?: string;
+  /** A line above the button, where the computer has one: that other devices cannot reach it yet. */
+  readonly warning?: ReactNode;
+  /** Whether the code made says what it grants as the environment answered it, in scope and mode ids: Settings' Access pane does, Add a device does not. */
+  readonly grantShown?: boolean;
+  /** Whether the code made says how to use it on another device's agent-harness: Add a device's does, a program's code does not, as a program has no Connect to another computer. */
+  readonly forDevice?: boolean;
 }
 
+/** How a code reaching another device is used there (setup-copy.md §5.5). */
+export const HOW_TO_USE = "On the new device, open agent-harness and choose Connect to another computer. Scan this code or paste the link.";
+
+const MINUTE_MS = 60_000;
+
+/** The line a code that reaches only this computer reads in place of how to use it on another device (setup-copy.md §5.5). */
+export const ONLY_HERE = "This code only works on this computer.";
+
 /**
- * How long a code minted has before it expires, in words, counted down on
- * this client's clock and drawn again every second while it runs.
+ * How many whole minutes a code minted has before it expires, rounded up,
+ * counted down on this client's clock and drawn again every second while it
+ * runs, so the minute turns when it does.
  */
-const useCountdown = (until: Date | undefined): string | undefined => {
+const useMinutesLeft = (until: Date | undefined): number | undefined => {
   const clock = useClock();
   const [tick, redraw] = useReducer((count: number) => count + 1, 0);
   const left = until === undefined ? undefined : until.getTime() - clock.now().getTime();
@@ -69,24 +88,27 @@ const useCountdown = (until: Date | undefined): string | undefined => {
     const timer = clock.setTimeout(redraw, COUNTDOWN_TICK_MS);
     return () => timer.cancel();
   }, [clock, running, tick]);
-  return left === undefined ? undefined : ttlWords(left);
+  return left === undefined ? undefined : Math.max(0, Math.ceil(left / MINUTE_MS));
 };
 
 /**
- * A pairing code for another client (ADR 0025; #416, #577):
- * `access.pairings.create` at `admin` with the grant asked, its scopes and
- * ceiling explicit (a preset's, or a program's on Access, #417); then the
- * link, the address and the code to type, the QR of the link, what the code
- * grants as the environment answered it, and when it expires, ten minutes
- * on and for one use, counted down; once it has, that it has, and no code
- * that no longer pairs.
+ * A pairing code for another device (setup-copy.md §5.5; ADR 0025; #416,
+ * #577, #1847): `access.pairings.create` at `admin` with the grant asked, its
+ * scopes and ceiling explicit (a preset's, or a program's on Access, #417);
+ * then how to use it on the new device, the QR of the link, the link with
+ * Copy, and in a fold the address and code to type, and how long it lasts,
+ * counted down; once it has run out, that it has, and Make a new code. A
+ * link whose address is loopback, which the computer hands out while it is
+ * reachable only from itself, is never offered to another device: it says
+ * so, with no QR (#1847).
  */
-export const PairingCode = ({ view, writable, grant, action = "Make a pairing code" }: PairingCodeProps) => {
+export const PairingCode = ({ view, writable, grant, action = "Make a pairing code", warning, grantShown = false, forDevice = false }: PairingCodeProps) => {
   const runtime = useRuntime();
   const clock = useClock();
   const [minted, setMinted] = useState<Minted | undefined>(undefined);
   const [expired, setExpired] = useState(false);
   const [refused, setRefused] = useState<string | undefined>(undefined);
+  const [manual, setManual] = useState(false);
 
   useEffect(() => {
     if (minted === undefined) return undefined;
@@ -98,38 +120,44 @@ export const PairingCode = ({ view, writable, grant, action = "Make a pairing co
     setRefused(undefined);
     const asked = { scopes: [...grant.scopes], ceiling: grant.ceiling };
     const outcome = await adminCall(() => runtime.requests.call(view.environmentId, "access.pairings.create", { commandId: uuidv7(clock.now()), ...asked }));
-    if (!outcome.ok || outcome.result === undefined) return setRefused(`No pairing code: ${outcome.ok ? "the environment answered none." : outcome.line}`);
+    if (!outcome.ok || outcome.result === undefined) return setRefused(outcome.ok ? "The computer answered with no code." : outcome.line);
     const left = Date.parse(outcome.result.expiresAt) - runtime.environmentNow(view.environmentId).getTime();
     setExpired(false);
-    setMinted({ pairing: outcome.result, until: new Date(clock.now().getTime() + left) });
+    setManual(false);
+    setMinted({ pairing: outcome.result, until: new Date(clock.now().getTime() + left), minutes: Math.max(1, Math.round(left / MINUTE_MS)) });
   };
 
   const live = expired ? undefined : minted;
-  const left = useCountdown(live?.until);
+  const left = useMinutesLeft(live?.until);
   const origin = live === undefined ? undefined : parsePairingLink(live.pairing.link)?.origin;
+  const local = live !== undefined && pairingLinkIsLocal(live.pairing.link);
   return (
     <>
       {live !== undefined && (
         <div role="group" aria-label="Pairing code" className="flex flex-wrap items-start gap-4">
-          <PairingQr link={live.pairing.link} />
-          <div className="flex min-w-0 flex-col gap-1 text-sm text-ink">
-            <p className="text-ink-muted">Open the link on the other client, scan the QR there, or type the address and code.</p>
-            <CopyLine label="Pairing link" text={live.pairing.link} copyLabel="Copy pairing link" />
-            {origin !== undefined && <p className="font-mono text-xs">Address: {origin.replace(/^http:\/\//, "")}</p>}
-            <CopyLine label="Pairing code" text={formatPairingCode(live.pairing.code)} copyLabel="Copy pairing code" />
-            <p>{grantWords(live.pairing.scopes, live.pairing.ceiling)}</p>
-            <p className="text-ink-muted">Expires at {clockTime(live.until.toISOString())}, for one use.</p>
+          {!local && <PairingQr link={live.pairing.link} />}
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5 text-sm text-ink">
+            {local ? <p className="text-amber">{ONLY_HERE}</p> : forDevice && <p className="text-ink">{HOW_TO_USE}</p>}
+            {!local && <CopyLine label="Pairing link" text={live.pairing.link} copyLabel="Copy pairing link" />}
+            <Fold summary="Type it instead" open={manual} onOpenChange={setManual}>
+              <div className="flex flex-col gap-1">
+                {origin !== undefined && <CopyLine label="Address" text={origin.replace(/^http:\/\//, "")} copyLabel="Copy address" />}
+                <CopyLine label="Code" text={formatPairingCode(live.pairing.code)} copyLabel="Copy pairing code" />
+              </div>
+            </Fold>
+            {grantShown && <p>{grantWords(live.pairing.scopes, live.pairing.ceiling)}</p>}
             <p role="timer" className="text-ink-muted">
-              {left}
+              This code works once, for {live.minutes} minutes. {left} min left.
             </p>
           </div>
         </div>
       )}
-      {minted !== undefined && expired && <p className="text-sm text-ink-muted">This code expired at {clockTime(minted.until.toISOString())}: make another.</p>}
-      {refused !== undefined && <p className="text-sm text-signal">{refused}</p>}
+      {minted !== undefined && expired && <p className="text-sm text-ink-muted">This code has run out.</p>}
+      {refused !== undefined && <PairingRefusal line={`Something went wrong. Choose ${action} to try again.`} details={[refused]} computer={nameOf(view)} />}
+      {warning}
       <div>
-        <Button variant="outline" title={`${action} (Enter or Space)`} disabled={!writable} onClick={() => void mint()}>
-          <KeyRound aria-hidden="true" data-icon="inline-start" />{action}
+        <Button variant="outline" title={`${minted !== undefined && expired ? "Make a new code" : action} (Enter or Space)`} disabled={!writable} onClick={() => void mint()}>
+          <KeyRound aria-hidden="true" data-icon="inline-start" />{minted !== undefined && expired ? "Make a new code" : action}
         </Button>
       </div>
     </>
