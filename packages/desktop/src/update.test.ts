@@ -251,7 +251,7 @@ describe("apply on macOS", () => {
     expect(readdirSync(mac.applications)).toEqual(["agent-harness.app"]);
   });
 
-  it("leaves unmarked folders, another bundle's receipt and symlinked cleanup paths alone", async () => {
+  it.each([".cleanup", ".cleanup-pending"])("leaves unmarked folders, foreign receipts and symlinked %s paths alone", async (suffix) => {
     const mac = macBundle();
     const unrelated = join(mac.applications, ".agent-harness.app-update-unrelated");
     const foreign = join(mac.applications, ".agent-harness.app-update-foreign");
@@ -259,14 +259,14 @@ describe("apply on macOS", () => {
     mkdirSync(unrelated);
     mkdirSync(foreign);
     writeFileSync(join(unrelated, "keep"), "keep-for-tests");
-    writeFileSync(foreign + ".cleanup", join(mac.applications, "another.app"));
+    writeFileSync(foreign + suffix, join(mac.applications, "another.app"));
     symlinkSync(unrelated, linked, "dir");
-    writeFileSync(linked + ".cleanup", mac.bundle);
+    writeFileSync(linked + suffix, mac.bundle);
     const markerLink = join(mac.applications, ".agent-harness.app-update-marker-link");
     mkdirSync(markerLink);
     const externalMarker = join(scratch(), "marker");
     writeFileSync(externalMarker, mac.bundle);
-    symlinkSync(externalMarker, markerLink + ".cleanup", "file");
+    symlinkSync(externalMarker, markerLink + suffix, "file");
 
     await (await installed("darwin", mac.executable, fakeSystem())).shell().update.current();
 
@@ -276,20 +276,45 @@ describe("apply on macOS", () => {
     expect(existsSync(markerLink)).toBe(true);
   });
 
-  it("still restarts the installed build when its cleanup receipt cannot be written", async () => {
+  it.each(["rejected", "partial"])("keeps the old build and leaves no staging on another start after a %s receipt write", async (failure) => {
     const mac = macBundle();
     const system = fakeSystem();
     unzipping(system, "0.6.0");
-    const receiptFailure = { ...system, files: { ...system.files, writeFile: async () => { throw new Error("receipt-write-refused-for-tests"); } } };
+    const receiptFailure = { ...system, files: { ...system.files, writeFile: async (path: Parameters<typeof system.files.writeFile>[0]) => {
+      if (failure === "partial") writeFileSync(String(path), mac.bundle.slice(0, 3));
+      throw new Error("receipt-write-refused-for-tests");
+    } } };
     const replacement = await installed("darwin", mac.executable, receiptFailure);
+
+    expect(await replacement.shell().update.apply(stagedBuild("0.6.0", "desktop.zip"), "now")).toMatchObject({
+      outcome: "failed", failure: "install", message: expect.stringMatching(/receipt-write-refused-for-tests.*0\.5\.0 stays installed/),
+    });
+    expect(mac.build()).toBe("0.5.0");
+    expect(replacement.electron.app.calls.map(([method]) => method)).not.toContain("relaunch");
+    await (await installed("darwin", mac.executable, system)).shell().update.current();
+    expect(mac.build()).toBe("0.5.0");
+    expect(readdirSync(mac.applications)).toEqual(["agent-harness.app"]);
+  });
+
+  it("recovers the prepared receipt on another start when activation fails after the swap", async () => {
+    const mac = macBundle();
+    const system = fakeSystem();
+    unzipping(system, "0.6.0");
+    system.fail("rename", (_from, to) => to.endsWith(".cleanup"));
+    const replacement = await installed("darwin", mac.executable, system);
 
     expect(await replacement.shell().update.apply(stagedBuild("0.6.0", "desktop.zip"), "now")).toMatchObject({
       outcome: "failed", failure: "cleanup", message: expect.stringMatching(/0\.6\.0 is installed.*could not be scheduled/),
     });
     await replacement.electron.app.quitted;
     expect(mac.build()).toBe("0.6.0");
+    expect(readFileSync(join(system.made[0]!, "previous", "Contents", "MacOS", "agent-harness"), "utf8")).toBe("0.5.0");
     expect(replacement.reported).toHaveLength(1);
     expect(replacement.electron.app.calls.map(([method]) => method)).toContain("relaunch");
+
+    await (await installed("darwin", mac.executable, system)).shell().update.current();
+    expect(mac.build()).toBe("0.6.0");
+    expect(readdirSync(mac.applications)).toEqual(["agent-harness.app"]);
   });
 });
 

@@ -154,8 +154,9 @@ interface HandedOver {
   readonly restart: boolean;
 }
 
-/** Written only after a successful swap; a stranded rollback has no cleanup authority. */
+/** Activated only after a successful swap; a stranded rollback has no cleanup authority. */
 const CLEANUP_MARKER = ".cleanup";
+const PENDING_CLEANUP_MARKER = ".cleanup-pending";
 const temporaryPrefix = (bundle: string): string => `.${basename(bundle)}-update-`;
 
 export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): ShellUpdate => {
@@ -169,9 +170,11 @@ export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): S
     if (bundle === undefined) return;
     const parent = dirname(bundle);
     for (const name of await files.readdir(parent)) {
-      if (!name.startsWith(temporaryPrefix(bundle)) || !name.endsWith(CLEANUP_MARKER)) continue;
+      const pending = name.endsWith(PENDING_CLEANUP_MARKER);
+      const suffix = pending ? PENDING_CLEANUP_MARKER : CLEANUP_MARKER;
+      if (!name.startsWith(temporaryPrefix(bundle)) || !name.endsWith(suffix)) continue;
       const marker = join(parent, name);
-      const temporary = marker.slice(0, -CLEANUP_MARKER.length);
+      const temporary = marker.slice(0, -suffix.length);
       try {
         // A filename alone never authorizes removal, nor does a symlink to an owned folder.
         if (!(await files.lstat(marker)).isFile()) continue;
@@ -181,6 +184,11 @@ export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): S
           throw error;
         });
         if (found !== undefined && !found.isDirectory()) continue;
+        if (pending && found !== undefined) {
+          // The incoming bundle remains here until the swap commits, including a stranded rollback.
+          if ((await files.readdir(temporary)).some((entry) => entry.endsWith(".app"))) continue;
+          if (!(await files.lstat(bundle)).isDirectory()) continue;
+        }
         await files.rm(temporary, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
         // Keep the receipt outside the tree: a partial removal must not erase retry authority.
         await files.rm(marker, { force: true });
@@ -213,6 +221,7 @@ export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): S
       return failed("install", `Could not make a folder beside ${bundle} to unpack ${staged.version} into (${messageOf(error)}), so ${stays()}.`);
     }
     const previous = join(temporary, "previous");
+    const pendingMarker = temporary + PENDING_CLEANUP_MARKER;
     /** Undefined once the new bundle is in place, else why it is not. A stranded app's temporary folder is kept. */
     const swap = async (): Promise<SwapFailure | undefined> => {
       const unpacked = await system.run("ditto", ["-x", "-k", staged.path, temporary]).catch((error: unknown) => ({ code: -1, stderr: messageOf(error) }));
@@ -220,6 +229,8 @@ export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): S
       const bundles = (await files.readdir(temporary)).filter((name) => name.endsWith(".app"));
       const [incoming] = bundles;
       if (incoming === undefined || bundles.length > 1) return { why: `The build of ${staged.version} does not hold one app bundle, so ${stays()}.` };
+      // Refuse the swap if ownership cannot be recorded; a partial write never strands an old bundle.
+      await files.writeFile(pendingMarker, bundle, { flag: "wx", mode: 0o600 });
       try {
         await files.rename(bundle, previous);
       } catch (error) {
@@ -241,9 +252,10 @@ export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): S
     if (failure?.stranded) return failed("install", failure.why);
     try {
       if (failure === undefined) {
-        await files.writeFile(temporary + CLEANUP_MARKER, bundle, { flag: "wx", mode: 0o600 });
+        await files.rename(pendingMarker, temporary + CLEANUP_MARKER);
       } else {
         await files.rm(temporary, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+        await files.rm(pendingMarker, { force: true });
       }
     } catch (error) {
       const cleanup = failure === undefined
