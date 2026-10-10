@@ -16,7 +16,7 @@ export async function sceneFiles(directory: string): Promise<readonly string[]> 
 
 /** look.md §16 names the light subset; every other scene still gets the dark ladder. */
 export function captureCases(scenes: readonly string[]) {
-  const light = (scene: string) => /^(window-empty|window-not-ready|window-start-failed|primitives|session-conversation|session-tools|dock-diff|prompt-.*|composer-.*|status-line|status-line-usage-details|context-usage|run-picker.*|palette-.*|dialogs|dialog-.*|notices|settings-accounts(?:-no-email)?|settings-permissions|settings-theme|settings-usage|setup-introduction.*|setup-account|setup-appearance.*|setup-close-confirmation)$/.test(scene);
+  const light = (scene: string) => /^(window-empty|window-not-ready|window-start-failed|primitives|session-conversation|session-tools|dock-diff|prompt-.*|composer-.*|status-line|status-line-usage-details|context-usage|run-picker.*|palette-.*|dialogs|dialog-.*|notices|settings-accounts(?:-no-email)?|settings-permissions|settings-theme|settings-usage|settings-bank-authoring-usage|setup-introduction.*|setup-account|setup-appearance.*|setup-close-confirmation)$/.test(scene);
   return scenes.filter(scene => !scene.startsWith("phone-")).flatMap((scene) => (light(scene) ? ["light", "dark"] as const : ["dark"] as const).map((ladder) => ({ scene, ladder, name: `${scene}.${ladder}` })));
 }
 
@@ -35,9 +35,10 @@ export const PHONE_PROFILES = [
  * keep their two sizes; the probes run once per scene, with its wide dark capture. The header's breadcrumb
  * is measured there too, where #1790 saw a scratch folder's identifier squeeze the session title, and the
  * status line beside a docked side pane, where #1892 saw a session column of about 640px cut the run's spend.
+ * The dedicated authoring usage scene also probes both ladders: #2069 clipped its full meter horizontally.
  */
 export const LAPTOP_PROBES = [{ width: 1280, height: 800 }, { width: 1280, height: 700 }] as const;
-const LAPTOP_SCENES: ReadonlySet<string> = new Set(["dialog-sign-in", "dialog-sign-in-refused", "window-session", "status-line-docked"]);
+const LAPTOP_SCENES: ReadonlySet<string> = new Set(["dialog-sign-in", "dialog-sign-in-refused", "window-session", "status-line-docked", "settings-bank-authoring-usage"]);
 
 export interface CaptureCase {
   readonly scene: string;
@@ -55,7 +56,7 @@ export function capturePlan(scenes: readonly string[]) {
   const desktop: CaptureCase[] = ([{ width: 1400, height: 900 }, { width: 1024, height: 768 }] as const).flatMap(viewport =>
     captureCases(scenes).map(({ scene, ladder }) => ({
       scene, ladder, viewport, name: captureName(scene, viewport.width, ladder), textSize: 14, platform: "desktop",
-      ...(LAPTOP_SCENES.has(scene) && ladder === "dark" && viewport.width === 1400 && { probes: LAPTOP_PROBES }),
+      ...(LAPTOP_SCENES.has(scene) && (ladder === "dark" || scene === "settings-bank-authoring-usage") && viewport.width === 1400 && { probes: LAPTOP_PROBES }),
     })),
   );
   const phone: CaptureCase[] = scenes.filter(scene => scene.startsWith("phone-")).flatMap(scene =>

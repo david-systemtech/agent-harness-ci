@@ -111,3 +111,46 @@ it("keeps a narrow desktop authoring pane's restore handle at its edge", async (
   await user.click(restore);
   expect(within(dialog).getByRole("region", { name: "Documents" })).toBeDefined();
 });
+
+it("bounds the authoring header's status row so its whole groups can wrap", async () => {
+  vi.stubGlobal("innerWidth", 1280);
+  vi.stubGlobal("innerHeight", 800);
+  const root = document.createElement("div"); root.id = "root"; document.body.append(root);
+  const gallery = await mountGallery(root, "settings-bank-authoring", "dark"); close = gallery.close;
+  expect(await gallery.ready).toBe(true);
+  const dialog = screen.getByRole("dialog", { name: "Authoring conversation" });
+  const line = within(dialog).getByRole("region", { name: "Status line" });
+  const sheet = document.createElement("style");
+  sheet.textContent = readFileSync(new URL("../src/setup/authoring-conversation.css", import.meta.url), "utf8");
+  document.head.append(sheet);
+  try {
+    const style = getComputedStyle(line);
+    expect(style.minWidth).toBe("0px");
+    expect(style.flexBasis).toBe("100%");
+    expect(style.width).toBe("100%");
+  } finally { sheet.remove(); }
+});
+
+it.each(["light", "dark"] as const)("the %s authoring usage scene measures every group and keeps the conversation available", async ladder => {
+  vi.stubGlobal("innerWidth", 1280);
+  vi.stubGlobal("innerHeight", 800);
+  const root = document.createElement("div"); root.id = "root"; document.body.append(root);
+  const gallery = await mountGallery(root, "settings-bank-authoring-usage", ladder); close = gallery.close;
+  expect(await gallery.ready).toBe(true);
+  const dialog = screen.getByRole("dialog", { name: "Authoring conversation" });
+  const line = within(dialog).getByRole("region", { name: "Status line" });
+  expect(within(line).getAllByRole("img").map(ring => ring.getAttribute("aria-label"))).toEqual([
+    "Context: 80%", "5-hour 42%", "Weekly 80%", "Weekly, Fable 95%", "Extra usage 30%",
+  ]);
+  const geometry = JSON.parse(root.dataset["galleryGeometry"] ?? "[]") as SceneGeometry[];
+  const checked = geometry.filter(check => check.visibleWithin === "[data-authoring-dialog]")
+    .flatMap(check => Array.from(document.querySelectorAll(check.selector)));
+  for (const child of [...line.children, ...line.querySelectorAll("button, svg[role=img], [data-status-chip]")]) expect(checked).toContain(child);
+  for (const reading of line.querySelectorAll('[aria-label="Usage details"] > span > span')) {
+    expect(geometry.some(check => check.contentFits && reading.matches(check.selector))).toBe(true);
+  }
+  expect(within(dialog).getByRole("heading", { name: "Describe project-memory" })).toBeDefined();
+  expect(within(dialog).getByRole("region", { name: "Transcript" })).toBeDefined();
+  expect(within(dialog).getByRole("textbox", { name: "Message" })).toBeDefined();
+  for (const check of geometry) expect(document.querySelector(check.selector)).not.toBeNull();
+});
