@@ -311,8 +311,8 @@ export interface StatusReadOptions {
  * Reads an account's sign-in state with the bundled binary's status command,
  * under the account's directory with the stripped variables absent (an
  * inherited `ANTHROPIC_API_KEY` would make a signed-out directory report
- * itself signed in, as the wrong account). Never rejects: what could not be
- * read is a signed-out state with the reason, the binary's own words first.
+ * itself signed in, as the wrong account). Cancellation and deadlines reject;
+ * other read failures carry the reason, the binary's own words first.
  */
 export const readClaudeStatus = async (options: StatusReadOptions): Promise<AuthStatus> => {
   options.signal?.throwIfAborted();
