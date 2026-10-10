@@ -599,6 +599,7 @@ quoted from the files named; a builder greps for them.
   in {the folder {folder} | this repository}.` or, when its skills have problems, `The skills in {…} cannot be used.`, then
   `These folders have skills: {folders}.` when others do.
 - A new Look for skills result clears the folder ticks; Add selected only sends folders in that result.
+  During an add batch, Look for skills is disabled and Enter in the address field cannot start a new look, so the batch's refusal stays visible.
 - Update now with no collection to update: `There is no collection to update.` Choose folders looks for a branch-following collection's folders
   again (`Found {n} skill folders:` …, **Cancel**); Add selected adds the chosen ones and removes the moved collection.
   Cancel stays disabled while that batch is running, through its adds and removal. At

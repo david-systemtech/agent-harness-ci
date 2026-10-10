@@ -457,6 +457,39 @@ describe("the Skills card's lines and actions", () => {
 });
 
 describe("the Skills card's Add from a link", () => {
+  it("keeps an in-flight add refusal visible when another address is typed and lookup is attempted", async () => {
+    const { app, desk } = await opened();
+    const other = "https://git.example.test/team/other";
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    desk.wire.answer("skills.probe", (params) => ({ result: params.url === linked ? found : {
+      ...found, identity: other, folders: [{ ...found.folders[0]!, folder: "agents" }],
+    } }));
+    desk.wire.answer("skills.sources.add", async () => {
+      await held;
+      return unreachable("network", "git.example.test did not answer in time. Try again.", "git was stopped after 60 seconds.");
+    });
+    await lookFor(app, linked);
+    const tick = await within(card()).findByRole("checkbox", { name: "skills · 2 skills" });
+    await app.user.click(tick);
+    try {
+      await app.user.click(within(card()).getByRole("button", { name: "Add selected" }));
+      await waitFor(() => expect(desk.requests("skills.sources.add")).toHaveLength(1));
+      const address = within(card()).getByRole("textbox", { name: "Repository address" });
+      await app.user.clear(address);
+      await app.user.type(address, other);
+      await app.user.click(within(card()).getByRole("button", { name: "Look for skills" }));
+      await app.user.type(address, "{Enter}");
+      await act(async () => release());
+      expect(await within(card()).findByText("git.example.test did not answer in time. Try again.")).toBeDefined();
+      expect(desk.requests("skills.probe")).toHaveLength(1);
+      expect(within(card()).getByRole("checkbox", { name: "skills · 2 skills" })).toBe(tick);
+      await app.user.click(within(card()).getByRole("button", { name: "Look for skills" }));
+      expect(await within(card()).findByRole("checkbox", { name: "agents · 2 skills" })).toBeDefined();
+      expect(desk.requests("skills.probe")).toHaveLength(2);
+    } finally { await act(async () => release()); }
+  });
+
   it("drops a selected folder absent from a repeated look and adds only a folder in the new result", async () => {
     const { app, desk } = await opened();
     let answer = found;

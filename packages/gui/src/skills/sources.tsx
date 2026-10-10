@@ -86,7 +86,9 @@ export const AddFromLink = ({ environmentId, say }: { readonly environmentId: st
   const [url, setUrl] = useState("");
   const [asked, setAsked] = useState<string | undefined>(undefined);
   const [bad, setBad] = useState(false);
+  const [adding, setAdding] = useState(false);
   const look = () => {
+    if (adding) return;
     const address = url.trim();
     if (!SkillSourceUrl.safeParse(address).success) {
       setAsked(undefined);
@@ -110,9 +112,9 @@ export const AddFromLink = ({ environmentId, say }: { readonly environmentId: st
         onChange={(event) => setUrl(event.target.value)}
         onKeyDown={(event) => { if (event.key === "Enter") look(); }}
       /></label>
-      <SkillButton environmentId={environmentId} method="skills.probe" onClick={look}>Look for skills</SkillButton>
+      <SkillButton environmentId={environmentId} method="skills.probe" busy={adding} onClick={look}>Look for skills</SkillButton>
       {bad && <RefusedLine environmentId={environmentId} refusal={{ line: NOT_AN_ADDRESS, details: [] }} />}
-      {asked !== undefined && <FoundFolders key={asked} environmentId={environmentId} url={asked} done={say} partly={say} />}
+      {asked !== undefined && <FoundFolders key={asked} environmentId={environmentId} url={asked} done={say} partly={say} onBusy={setAdding} />}
     </section>
   );
 };
