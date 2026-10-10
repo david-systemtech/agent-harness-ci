@@ -350,12 +350,13 @@ describe("carryOver.inventory", () => {
 });
 
 describe("carryOver.run's refusals", () => {
+  // Each refusal's words name no account id: it is in the data, which a client's Details show (setup-copy.md §5.3; #1844).
   it("refuses an account the environment does not hold, not_found", async () => {
     const { t } = await start([listed()]);
     const client = await t.client();
     expect((await run(client, { accountId: "someone-else" })).receipt).toMatchObject({
       status: "rejected",
-      error: { code: "not_found", data: { kind: "account", accountId: "someone-else" } },
+      error: { code: "not_found", message: "This account is not on this computer.", data: { kind: "account", accountId: "someone-else" } },
     });
     expect(await refusal(client.request("carryOver.inventory", { accountId: "someone-else" }))).toEqual({ code: "not_found", data: { kind: "account", accountId: "someone-else" } });
   });
@@ -367,7 +368,7 @@ describe("carryOver.run's refusals", () => {
 
     expect((await run(client, { accountId: added.account.id })).receipt).toMatchObject({
       status: "rejected",
-      error: { code: "conflict", data: { reason: "not_adopted", accountId: added.account.id } },
+      error: { code: "conflict", message: "This account has no Claude Code folder to bring over.", data: { reason: "not_adopted", accountId: added.account.id } },
     });
     expect(await refusal(client.request("carryOver.inventory", { accountId: added.account.id }))).toEqual({
       code: "conflict",
@@ -389,7 +390,7 @@ describe("carryOver.run's refusals", () => {
 
     expect((await run(client, { dryRun: true })).receipt).toMatchObject({
       status: "rejected",
-      error: { code: "conflict", data: { reason: "import_in_progress", accountId: ACCOUNT } },
+      error: { code: "conflict", message: "Bringing over past work is under way already. Wait for it to finish.", data: { reason: "import_in_progress", accountId: ACCOUNT } },
     });
     opened.open();
     expect((await first).result?.sessions).toMatchObject({ imported: 1 });

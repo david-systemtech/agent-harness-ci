@@ -10,8 +10,8 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-it.each(["light", "dark"] as const)("shows four bounded setup regions in %s", async (ladder) => {
-  for (const name of ["setup-browser", "setup-carry-over", "setup-bank-preview", "setup-authoring"]) {
+it.each(["light", "dark"] as const)("shows six bounded setup regions in %s", async (ladder) => {
+  for (const name of ["setup-browser", "setup-carry-over", "setup-carry-over-nothing", "setup-carry-over-after", "setup-bank-preview", "setup-authoring"]) {
     const container = document.createElement("div");
     document.body.append(container);
     const gallery = await mountGallery(container, name, ladder);
@@ -34,8 +34,24 @@ it.each(["light", "dark"] as const)("shows four bounded setup regions in %s", as
       expect(screen.getByText("Agents now use your Chrome.")).toBeDefined();
     }
     if (name === "setup-carry-over") {
-      expect(within(screen.getByLabelText("Sessions")).getByText("Sessions").nextElementSibling?.textContent).toBe("24");
-      expect(screen.getByRole("button", { name: "Import 8 new sessions" })).toBeDefined();
+      expect(screen.getByText("Project has past chats to bring over. Choose Bring them over.")).toBeDefined();
+      expect(screen.queryByText("Everything is already here.")).toBeNull();
+      expect(screen.getByText("Project: 24 past chats, 7 notes folders, 7 skills.")).toBeDefined();
+      expect(screen.getByRole("button", { name: "Bring them over" })).toBeDefined();
+      expect(screen.getByRole("button", { name: "What will come over" })).toBeDefined();
+      expect(screen.getByRole("button", { name: "What will not come over" })).toBeDefined();
+    }
+    if (name === "setup-carry-over-nothing") {
+      expect(screen.getByText("Nothing to bring over from this computer.")).toBeDefined();
+      expect(screen.getByText("You can continue.")).toBeDefined();
+    }
+    if (name === "setup-carry-over-after") {
+      expect(screen.getByText("1 item from Project did not come over. Choose Try again.")).toBeDefined();
+      expect(screen.queryByText("Everything is already here.")).toBeNull();
+      const after = within(screen.getByRole("region", { name: "What came over" }));
+      expect(after.getByText("Brought over 23 chats and 1 notes folder.")).toBeDefined();
+      expect(after.getByText("1 item from Project did not come over.")).toBeDefined();
+      expect(after.getByText("Your skills now live in agent-harness. Edit them there.")).toBeDefined();
     }
     if (name === "setup-bank-preview") {
       const preview = screen.getByRole("region", { name: "Notebook preview" });

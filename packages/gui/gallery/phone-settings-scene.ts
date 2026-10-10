@@ -68,7 +68,7 @@ export const phoneSettingsScene = (kind: "constrained" | "full" | "setup" | "pic
       advance();
       return () => observer.disconnect();
     },
-    readySelector: kind === "picker" ? '[aria-label="New-session defaults"] [role="menuitem"]' : kind === "constrained" ? "[data-phone-grant-guidance]" : (kind === "full" || kind === "qr") ? "[data-phone-sign-in-ready]" : '[data-phone-setup] [data-count-grid][aria-label="Sessions"]',
+    readySelector: kind === "picker" ? '[aria-label="New-session defaults"] [role="menuitem"]' : kind === "constrained" ? "[data-phone-grant-guidance]" : (kind === "full" || kind === "qr") ? "[data-phone-sign-in-ready]" : '[data-phone-setup] [data-carry-over-found]',
     geometry: ({ width, height }) => kind === "setup" ? [
       { selector: "[data-phone-setup]", width, height },
       { selector: '[aria-label="Step navigation"] button', minimumHeight: 44, minimumWidth: 44, visibleWithin: "[data-phone-setup]" },
