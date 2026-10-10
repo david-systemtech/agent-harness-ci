@@ -117,6 +117,7 @@ it("draws the Memory bank form after Create notebook was pressed with the Name e
   const card = await setupBankScene("setup-memory-bank-form-empty");
   expect(within(card).getByRole("alert").textContent).toBe("Error: Enter a name.");
   expect(within(card).getByRole("textbox", { name: "Name" }).getAttribute("aria-invalid")).toBe("true");
+  expect(document.activeElement).toBe(within(card).getByRole("textbox", { name: "Name" }));
 });
 
 it("draws a notebook just created, with what Describe it does beside it", async () => {

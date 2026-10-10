@@ -253,6 +253,19 @@ it.each<[StepId, string]>([["your-machines", "Your machines"], ["forges", "Forge
   } finally { view.unmount(); }
 });
 
+it.each([
+  ["forges-gh", "Use your GitHub sign-in from the gh tool (maintainer)"],
+  ["forges-add", "1. Create a token on git.example.test."],
+  ["forges-unknown", "agent-harness does not recognise this site. Choose what it runs:"],
+] as const)("drives the Forges card's %s scene to the state setup-copy.md §5.6 names", async (kind, line) => {
+  const Scene = setupRegionScene(kind);
+  const view = render(<Scene ladder="dark" />);
+  try {
+    const forges = await screen.findByRole("region", { name: "Forges" });
+    expect(await within(forges).findByText(line, {}, { timeout: 10_000 })).toBeDefined();
+  } finally { view.unmount(); }
+});
+
 it("captures the one-time close confirmation without completing set up", async () => {
   const Scene = setupRegionScene("close-confirmation");
   const view = render(<Scene ladder="dark" />);

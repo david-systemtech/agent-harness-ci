@@ -1,3 +1,5 @@
+import type { SetupAction } from "@agent-harness/contracts";
+import { useMemo } from "react";
 import type { StepCardProps } from "../setup/cards.js";
 import { StepStatus } from "../setup/step-status.js";
 import { useObservable, useRuntime } from "../window-context.js";
@@ -13,15 +15,24 @@ import { ForgesList } from "./forges-pane.js";
  * environment alone, since this machine's environment reads the same `gh`
  * as its own; and the environment's own `gh` wherever `forge.gh.probe`
  * finds one. Without the `forge` flag it holds the flag's line; without
- * `admin` it is read-only with the capability's line. No GitLab walkthrough
+ * `admin` it is read-only with the capability's line. Where the list draws
+ * what `forge.gh.probe` found (with `admin`, once it answers), Install gh and
+ * Update gh are drawn there, in place, never twice in the status line above;
+ * elsewhere the status line keeps them (#1849). No GitLab walkthrough
  * or expiry warning: both are milestone 2's (ADR 0033).
  */
+/** The step's gh fixes, which the list draws beside what it reads of gh. */
+const GH_FIXES: readonly SetupAction[] = ["install", "update"];
+
 export const ForgesCard = ({ environmentId, step }: StepCardProps) => {
   const runtime = useRuntime();
   const view = useObservable(runtime.projections.environments).find((environment) => environment.environmentId === environmentId);
+  const probed = useObservable(useMemo(() => runtime.requests.cached(environmentId, "forge.gh.probe", {}), [runtime, environmentId]));
+  // The list draws Install gh and Update gh only where it can add (`admin`) and the probe has answered; elsewhere the status line keeps them, with their reason.
+  const ghInPlace = runtime.capability(environmentId, "forge").status === "present" && runtime.capability(environmentId, "forge.accounts.add").status === "present" && probed.result !== null;
   return (
     <>
-      <StepStatus environmentId={environmentId} step={step} />
+      <StepStatus environmentId={environmentId} step={step} handledActions={ghInPlace ? GH_FIXES : []} />
       {view !== undefined && <ForgesList view={view} Account={ForgeAccountRow} gh={{ computer: view.kind !== "local", machine: true }} />}
     </>
   );

@@ -171,15 +171,19 @@ export {
   forgeOriginWords,
   forgeProblemAction,
   forgeRowProblem,
+  forgeRefusal,
+  forgeRowState,
   forgeStatusWords,
-  machineGhAbsence,
+  ghRoute,
   machineGhLogin,
   primaryWords,
   pullRequestNumber,
   pullRequestWords,
   shownPullRequest,
-  tokenPageWords,
+  tokenPermissionWords,
+  typedSite,
   type ForgeProblemAction,
+  type GhRoute,
 } from "./forges/words.js";
 export {
   addForgeAlias,
@@ -191,8 +195,10 @@ export {
   setPrimaryForge,
   signInForgeAgain,
   verifyForge,
+  ADDRESS_EXAMPLE,
   type Detection,
   type ForgeOutcome,
+  type ForgeRefused,
   type ForgeSender,
   type PastedForge,
 } from "./forges/actions.js";
@@ -622,6 +628,8 @@ export {
   startSignIn,
   type AccountAdded,
   type AttendedSignIn,
+  type CodeSent,
+  type SignInEnding,
 } from "./status/sign-in.js";
 export {
   DEFAULT_CHOICE_WORDS,

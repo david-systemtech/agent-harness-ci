@@ -18,6 +18,14 @@
         }
       ],
       "description": "What to tell a person when it did not: why, and what to do instead."
+    },
+    "reason": {
+      "description": "Why it did not start, as accounts.signin.start's refusal names it: signin_running (another account's sign-in is running) or signin_unavailable; absent when it started, and from environments that do not say.",
+      "type": "string",
+      "enum": [
+        "signin_running",
+        "signin_unavailable"
+      ]
     }
   },
   "required": [

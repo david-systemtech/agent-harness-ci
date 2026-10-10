@@ -218,9 +218,10 @@ export const usePickers = (host: PickersHost): Pickers => {
   const followed = (card: Extract<Panel, { kind: "signin" }>) =>
     followedSignIn(signIn?.read().result?.signIn, { accountId: card.accountId, startedAt: card.startedAt, starting: card.sending === "start" });
 
-  // A sign-in this card follows that ends closes it, and its end is said in one line.
+  // A sign-in this card follows that ends closes it, and its end is said in one line: what happened, since the
+  // terminal has no Start again (the account picker signs the account in again).
   const followedNow = panel?.kind === "signin" ? followed(panel) : undefined;
-  const ending = panel?.kind === "signin" && followedNow ? signInEnd(followedNow, panel.label, nameFor(panel.environmentId)) : undefined;
+  const ending = panel?.kind === "signin" && followedNow ? signInEnd(followedNow, panel.label)?.title : undefined;
   useEffect(() => {
     if (ending === undefined) return;
     host.close(isSignIn);
@@ -270,15 +271,15 @@ export const usePickers = (host: PickersHost): Pickers => {
     const code = card.text.trim();
     if (code === "" || card.accountId === null) return;
     host.change((c) => (c.kind === "signin" ? { ...c, sending: "code", error: null } : c));
-    void sendSignInCode(runtime, card.environmentId, card.accountId, code, host.newCommandId()).then((refused) => {
-      if (refused === undefined) void runtime.setup.check(card.environmentId, "account");
-      host.change((c) => (c.kind === "signin" ? { ...c, sending: null, ...(refused === undefined ? { text: "" } : { error: refused }) } : c));
+    void sendSignInCode(runtime, card.environmentId, card.accountId, code, host.newCommandId()).then((sent) => {
+      if (sent.kind === "taken") void runtime.setup.check(card.environmentId, "account");
+      host.change((c) => (c.kind === "signin" ? { ...c, sending: null, ...(sent.kind === "taken" ? { text: "" } : { error: sent.kind === "refused" ? sent.ending.line : sent.line }) } : c));
     });
   };
 
   const cancelSignIn = (card: Extract<Panel, { kind: "signin" }>) => {
     if (card.accountId === null) return;
-    void cancelSignInOn(runtime, card.environmentId, { id: card.accountId, label: card.label }, host.newCommandId(), nameFor(card.environmentId)).then(({ line }) => host.say(line));
+    void cancelSignInOn(runtime, card.environmentId, { id: card.accountId, label: card.label }, host.newCommandId()).then(({ line }) => host.say(line));
   };
 
   // Hand-off and the session's own settings.

@@ -274,23 +274,35 @@ describe("the Memory bank card", () => {
     expect(screen.queryByRole("region", { name: "Memory bank" })).toBeNull();
   });
 
-  it("keeps Create enabled and says Enter {field} beside each field a press found empty, sending nothing", async () => {
+  it.each(["Create notebook", "Keep it on this computer for now"])("keeps %s enabled and focuses each first empty field without losing values or sending", async (action) => {
     const { app, desk, card } = await open();
     const name = await within(card).findByRole("textbox", { name: "Name" });
     expect(within(card).getByText("Used as a folder name, for example personal.")).toBeDefined();
     expect(within(card).getByText("For example the name of a repository you work on.")).toBeDefined();
+    const work = within(card).getByRole("textbox", { name: "What do you call your own work?" });
+    await app.user.clear(work);
+    await app.user.type(work, "personal-work");
     await app.user.clear(name);
     await app.user.clear(within(card).getByRole("textbox", { name: "Your first project" }));
-    await app.user.click(within(card).getByRole("button", { name: "Create notebook" }));
+    await app.user.click(within(card).getByRole("button", { name: action }));
     const errors = within(card).getAllByRole("alert");
     expect(errors.map((error) => error.textContent)).toEqual(["Error: Enter a name.", "Error: Enter your first project."]);
     expect(name.getAttribute("aria-invalid")).toBe("true");
     expect(name.getAttribute("aria-describedby")).toContain(errors[0]!.id);
+    expect(document.activeElement).toBe(name);
     expect(desk.requests("banks.create")).toHaveLength(0);
+    expect((work as HTMLInputElement).value).toBe("personal-work");
+    await app.user.click(within(card).getByRole("button", { name: action }));
+    expect(document.activeElement).toBe(name);
     await app.user.type(name, "notes");
+    await app.user.click(within(card).getByRole("button", { name: action }));
+    expect(document.activeElement).toBe(within(card).getByRole("textbox", { name: "Your first project" }));
+    expect((name as HTMLInputElement).value).toBe("notes");
+    expect(desk.requests("banks.create")).toHaveLength(0);
     await app.user.type(within(card).getByRole("textbox", { name: "Your first project" }), "harness");
-    await app.user.click(within(card).getByRole("button", { name: "Create notebook" }));
+    await app.user.click(within(card).getByRole("button", { name: action }));
     await waitFor(() => expect(desk.requests("banks.create")).toHaveLength(1));
+    expect(desk.requests("banks.create")[0]?.params).toMatchObject({ name: "notes", creation: { org: "personal-work", project: "harness" } });
     expect(within(card).queryByText("Enter a name.")).toBeNull();
   });
 
@@ -299,23 +311,96 @@ describe("the Memory bank card", () => {
     await app.user.click(await within(card).findByRole("radio", { name: "Join my team's notebook" }));
     const preview = within(card).getByRole("button", { name: "Preview" }) as HTMLButtonElement;
     expect(preview.disabled).toBe(false);
+    const link = within(card).getByRole("textbox", { name: "Notebook link" });
+    await app.user.type(link, "   ");
     await app.user.click(preview);
     expect((await within(card).findByRole("alert")).textContent).toBe("Error: Enter a notebook link.");
-    const link = within(card).getByRole("textbox", { name: "Notebook link" });
     expect(link.getAttribute("aria-invalid")).toBe("true");
+    expect(document.activeElement).toBe(link);
+    expect((link as HTMLInputElement).value).toBe("   ");
+    await app.user.click(preview);
+    expect(document.activeElement).toBe(link);
     expect(desk.requests("banks.join.preview")).toHaveLength(0);
+    desk.wire.holdNext("banks.join.preview");
+    await app.user.clear(link);
+    await app.user.type(link, "https://git.example.test/team/notes");
+    await app.user.click(preview);
+    await waitFor(() => expect(desk.requests("banks.join.preview")).toHaveLength(1));
+    expect(desk.requests("banks.join.preview")[0]?.params).toMatchObject({ url: "https://git.example.test/team/notes" });
+    expect(link.hasAttribute("aria-invalid")).toBe(false);
   });
 
   it("puts Choose a forge on the Forge field when there is none, not on Owner", async () => {
     const { app, desk, card } = await open({ forges: { accounts: [] } });
     await app.user.click(await within(card).findByRole("radio", { name: "Create a notebook for my team" }));
+    await app.user.click(within(card).getByRole("button", { name: "Create notebook" }));
+    expect(document.activeElement).toBe(within(card).getByRole("combobox", { name: "Forge" }));
     await app.user.type(within(card).getByRole("textbox", { name: "Team name" }), "Platform");
     await app.user.type(within(card).getByRole("textbox", { name: "First projects (one per line)" }), "harness");
     await app.user.click(within(card).getByRole("button", { name: "Create notebook" }));
     expect((await within(card).findByRole("alert")).textContent).toBe("Error: Choose a forge.");
     expect(within(card).getByRole("combobox", { name: "Forge" }).getAttribute("aria-invalid")).toBe("true");
     expect(within(card).getByRole("combobox", { name: "Owner" }).hasAttribute("aria-invalid")).toBe(false);
+    expect(document.activeElement).toBe(within(card).getByRole("combobox", { name: "Forge" }));
+    expect((within(card).getByRole("textbox", { name: "Team name" }) as HTMLInputElement).value).toBe("Platform");
+    expect((within(card).getByRole("textbox", { name: "First projects (one per line)" }) as HTMLTextAreaElement).value).toBe("harness");
     expect(desk.requests("banks.create")).toHaveLength(0);
+  });
+
+  it("focuses the Owner message while its list is loading, then creates once with the preserved team fields", async () => {
+    const { app, desk, card } = await open();
+    desk.wire.holdNext("forge.orgs.list");
+    await app.user.click(await within(card).findByRole("radio", { name: "Create a notebook for my team" }));
+    const read = await desk.wire.server.request("forge.orgs.list");
+    const owner = within(card).getByRole("combobox", { name: "Owner" }) as HTMLSelectElement;
+    expect(owner.disabled).toBe(true);
+    await app.user.type(within(card).getByRole("textbox", { name: "Team name" }), "Platform");
+    await app.user.type(within(card).getByRole("textbox", { name: "First projects (one per line)" }), "harness");
+    await app.user.click(within(card).getByRole("button", { name: "Create notebook" }));
+    const error = within(card).getByRole("alert");
+    expect(error.textContent).toBe("Error: Choose the owner from the list.");
+    expect(document.activeElement).toBe(error);
+    expect(desk.requests("banks.create")).toHaveLength(0);
+    await app.user.click(within(card).getByRole("button", { name: "Create notebook" }));
+    expect(document.activeElement).toBe(error);
+    await act(() => desk.wire.server.send({ type: "response", id: read.id, result: { owners: [{ login: "team-org", kind: "organisation" }] } }));
+    await within(card).findByRole("option", { name: "team-org" });
+    expect(owner.disabled).toBe(false);
+    await app.user.click(within(card).getByRole("button", { name: "Create notebook" }));
+    await waitFor(() => expect(desk.requests("banks.create")).toHaveLength(1));
+    expect(desk.requests("banks.create")[0]?.params).toMatchObject({ name: "platform", creation: { owner: { login: "team-org" }, teamName: "Platform", projects: [{ name: "harness", folder: "harness" }] } });
+    expect(owner.hasAttribute("aria-invalid")).toBe(false);
+  });
+
+  it("focuses the Owner control before empty team fields when its loaded list has no owner", async () => {
+    const { app, desk, card } = await open();
+    desk.wire.answer("forge.orgs.list", () => ({ result: { owners: [] } }));
+    await app.user.click(await within(card).findByRole("radio", { name: "Create a notebook for my team" }));
+    const owner = within(card).getByRole("combobox", { name: "Owner" }) as HTMLSelectElement;
+    await waitFor(() => expect(owner.disabled).toBe(false));
+    await app.user.click(within(card).getByRole("button", { name: "Create notebook" }));
+    expect(owner.getAttribute("aria-invalid")).toBe("true");
+    expect(document.activeElement).toBe(owner);
+    expect(desk.requests("banks.create")).toHaveLength(0);
+  });
+
+  it("focuses empty team inputs and projects in order, then creates once", async () => {
+    const { app, desk, card } = await open();
+    desk.wire.answer("forge.orgs.list", () => ({ result: { owners: [{ login: "team-org", kind: "organisation" }] } }));
+    await app.user.click(await within(card).findByRole("radio", { name: "Create a notebook for my team" }));
+    await within(card).findByRole("option", { name: "team-org" });
+    const team = within(card).getByRole("textbox", { name: "Team name" });
+    const projects = within(card).getByRole("textbox", { name: "First projects (one per line)" });
+    await app.user.click(within(card).getByRole("button", { name: "Create notebook" }));
+    expect(document.activeElement).toBe(team);
+    await app.user.type(team, "Platform");
+    await app.user.click(within(card).getByRole("button", { name: "Create notebook" }));
+    expect(document.activeElement).toBe(projects);
+    expect((team as HTMLInputElement).value).toBe("Platform");
+    expect(desk.requests("banks.create")).toHaveLength(0);
+    await app.user.type(projects, "harness");
+    await app.user.click(within(card).getByRole("button", { name: "Create notebook" }));
+    await waitFor(() => expect(desk.requests("banks.create")).toHaveLength(1));
   });
 
   it("says the main forge's account needs a fix first, with Go to Forges, not No forge yet", async () => {

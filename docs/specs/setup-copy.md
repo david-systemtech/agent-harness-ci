@@ -295,6 +295,30 @@ quoted from the files named; a builder greps for them.
 | `{label} is signed in on {env}.` + Done | `{label} is signed in.` **Done** |
 | `Sign in again` disabled with `Finish or cancel the open sign-in first.` | stays |
 
+Added when the dialog was built (#1843), where the lines above did not reach the code:
+- Each end that is not a success or a person's cancel (a refused code, a failed CLI, an expiry, a cancel the system made) keeps
+  the dialog open as a notice (§1.14): its first sentence is the title, the second the description, then **Start again** and
+  Details (`Details:` the environment's own words). The footer's **Cancel the sign-in** becomes **Close**, which says nothing
+  more where the dialog was opened. A code agent-harness refused before the CLI saw it ends the sign-in that waited for it, and
+  Start again signs the same account in afresh.
+- A code that got no answer (no answer in time, a lost link: a failure the app met itself, not agent-harness's refusal) does not
+  end the sign-in, since agent-harness may already be checking it: the dialog stays on its steps with the mapper's line by
+  the code field (§3 patterns), and follows the sign-in to its end.
+- When the account was removed: `The sign-in stopped because {label} was removed.` (no Start again; an information notice).
+- `{m}` in `{m} min left` is whole minutes rounded up; from one minute down it reads `Less than a minute left.`
+- A start refused without the holder's name (an older agent-harness): `Another sign-in is running. Finish or cancel it first.`
+- A refused cancel: `The sign-in was not cancelled.` then the mapper's line (§3 patterns).
+- Details while it waits: `What we saw: Waiting for the code from the Claude page.` and `Sign-in page: {link}`.
+- A link too long for a QR: `This link is too long for a QR code. Choose Copy link instead.` The QR's name for screen readers:
+  `QR code of the Claude sign-in page`.
+- A copy the system refused (Copy link, the command's **Copy**): `Could not copy. Select the text and copy it manually.` with the
+  text in a field to select.
+- The terminal UI's account picker has no Start again: it says only the end's first sentence, and shows the link as text,
+  since a terminal cannot copy it for you.
+- §5.1's `{label} is added. Its sign-in did not start…` row, its other causes: the computer cannot sign Claude in there,
+  `{label} is added. agent-harness cannot sign it in on that computer. Sign in with Claude Code there instead.`; no reason given
+  (an older agent-harness), `{label} is added. Its sign-in did not start. Choose Sign in again.`
+
 ### 5.3 Carry over (gui/src/carry-over/*; environment/src/carry-over/step-checks.ts)
 - Title `Bring over your past work`. Why `Your old Claude Code chats and notes can come with you.`
 - What is this? `agent-harness can copy your past Claude Code chats, notes and skills from this computer. Nothing is deleted or changed where they came from.`
@@ -454,6 +478,18 @@ quoted from the files named; a builder greps for them.
   `The token for {host} cannot list organisations. Create a new token with that permission and add it.` (a refused token, a server error and no answer read as above, what the forge answered in Details);
   a token an older build recorded as another user's reads `The token for {host} belongs to another user, not {login}. Add a token for {login}.`, its old line in Details.
 - **Move to your key manager** shows only while a key manager is connected, as **Keep this token in your key manager**.
+- Words the card needs beyond these (#1849): looking the site up again is **Check address**, `Checking…` while it is on its way, and a site found
+  reads `{site} runs {kind}.`; the field's hint is `For example https://github.com/you/project`; Add with no token says `Paste the token here.`, and
+  an address that names no site `Enter an address like https://github.com/you/project.`; the plain list names what the token page shows: a fine-grained
+  GitHub token `All repositories, with Contents: Read and write, …`, a classic one its scopes (`repo and read:org`), Forgejo and Gitea each area
+  with `Read` or `Read and write`; an add answers `{login} on {host} is connected.`, or `{login} on {host} is added.` when the row then shows a problem;
+  **Make main** answers `{login} on {host} is your main forge. New notebooks go there.`; a problem's button is **Add token** for a forge copied with
+  no token and **Add a new token** for the rest; the capability list is `What the token can do`; under `Other addresses for this site` the field is
+  `Another address for this site` with **Add address**, answering `{alias} is another address for {login} on {host}.` or `{alias} did not answer. It is
+  used once it answers as {login}.`, and refusing `{alias} is this site's own address.`, `{alias} is already another address for this site.` or, empty,
+  `Enter the other address.`; gh signed out shows its command in mono with Copy (`The command to run there`); a hand-over whose gh fails rather than
+  being signed out reads `The gh tool did not give a token for {host}.`, gh's own cause in Details; an address that names no site is said once typing
+  pauses, and Enter before the kind is known checks the address.
 
 ### 5.7 Key manager (gui/src/key-managers/*; environment/src/key-managers/*)
 - Title `Use a key manager?` Why `If you keep passwords and keys in one, agents can fetch them when they need them.`
