@@ -1,5 +1,4 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { clockTime } from "@agent-harness/client-runtime";
 import { fakeShell } from "@agent-harness/client-runtime/testing";
 import { SETTINGS, PROTOCOL_VERSION } from "@agent-harness/contracts";
 import { encode } from "uqr";
@@ -45,12 +44,12 @@ const openMachines = async (app: RenderedApp) => {
   return within(settings).getByRole("region", { name: "Your machines" });
 };
 
-/** The environments' cards of the pane, each by its heading: Add a machine, the card after them, is none of them. */
+/** The environments' cards of the pane, each by its heading: Add a device, the card after them, is none of them. */
 const cardNames = (pane: HTMLElement) =>
   within(pane)
     .getAllByRole("heading", { level: 3 })
     .map((heading) => heading.textContent)
-    .filter((name) => name !== "Add a machine");
+    .filter((name) => name !== "Add a device");
 
 /** One environment's card, by its name. */
 const card = (pane: HTMLElement, name: string) => within(pane).getByRole("region", { name });
@@ -214,20 +213,19 @@ describe("Your machines", () => {
     expect(within(containment("desk")).queryByRole("group")).toBeNull();
   });
 
-  it("makes a pairing code for another client, with its link, its address and code, a QR of the link and its expiry, and says when it has expired", async () => {
+  it("makes a pairing code for another device, with its link, its address and code to type, a QR of the link and its minutes, and says when it has run out", async () => {
     const app = await opened();
     const pane = await openMachines(app);
     const laptop = app.environment("laptop");
     const pairing = () => within(card(pane, "laptop")).getByRole("region", { name: "Pair another client" });
-    const expiry = clockTime(new Date(app.clock.now().getTime() + 10 * 60_000).toISOString());
-
     await app.user.click(within(pairing()).getByRole("button", { name: "Make a pairing code" }));
     const link = `${laptop.wire.origin}/pair#K7Q2MXH4RV`;
     expect(await within(pairing()).findByText(link)).toBeDefined();
     expect(laptop.requests("access.pairings.create")).toHaveLength(1);
-    expect(within(pairing()).getByText("Address: laptop.test:7434")).toBeDefined();
+    await app.user.click(within(pairing()).getByRole("button", { name: "Type it instead" }));
+    expect(within(pairing()).getByText("laptop.test:7434")).toBeDefined();
     expect(within(pairing()).getByText("K7Q2M-XH4RV")).toBeDefined();
-    expect(within(pairing()).getByText(`Expires at ${expiry}, for one use.`)).toBeDefined();
+    expect(within(pairing()).getByRole("timer").textContent).toBe("This code works once, for 10 minutes. 10 min left.");
     const copy = within(pairing()).getByRole("button", { name: "Copy pairing link" });
     expect(copy.querySelector("svg")).not.toBeNull();
     await app.user.click(copy);
@@ -244,11 +242,11 @@ describe("Your machines", () => {
     expect([...qr.querySelectorAll("rect[data-module]")].map((module) => `${module.getAttribute("x")},${module.getAttribute("y")}`)).toEqual(dark);
 
     act(() => app.clock.advance(10 * 60_000));
-    expect(within(pairing()).getByText(`This code expired at ${expiry}: make another.`)).toBeDefined();
+    expect(within(pairing()).getByText("This code has run out.")).toBeDefined();
     expect(within(pairing()).queryByText(link)).toBeNull();
     expect(within(pairing()).queryByRole("img", { name: "QR code of the pairing link" })).toBeNull();
-    await app.user.click(within(pairing()).getByRole("button", { name: "Make a pairing code" }));
-    expect(await within(pairing()).findByText("K7Q2M-XH4RW")).toBeDefined();
+    await app.user.click(within(pairing()).getByRole("button", { name: "Make a new code" }));
+    expect(await within(pairing()).findByText(`${laptop.wire.origin}/pair#K7Q2MXH4RW`)).toBeDefined();
   });
 
   it("disables, enables and makes a connection primary from its card, and forgets it after asking once, revoking this client's session there", async () => {

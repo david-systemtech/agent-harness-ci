@@ -1,10 +1,10 @@
-import { blockWords, type EnvironmentView } from "@agent-harness/client-runtime";
+import { blockWords, type EnvironmentView, type PairingFailure } from "@agent-harness/client-runtime";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Settings, Plus, Link } from "lucide-react";
 import { BrowserPanesProvider } from "../browser/browser-panes.js";
 import { TerminalPanesProvider } from "../terminal/terminal-panes.js";
 import { LimitedAccess } from "../connections/limited-access.js";
-import { PairingForm } from "../connections/pairing.js";
+import { PairingForm, PairingRefusal } from "../connections/pairing.js";
 import { remedyOf } from "../connections/words.js";
 import { PaneGridProvider, usePaneGrid } from "../grid/grid.js";
 import { focusedPane, showSession } from "../grid/layout.js";
@@ -67,6 +67,8 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
   const settings = useSettings();
   const checklist = useChecklist();
   const [line, setLine] = useState<string>();
+  /** A handed link's refusal, said as the pairing form says one (setup-copy.md §4.2). */
+  const [refusal, setRefusal] = useState<PairingFailure>();
   /** The pairing form, shown in place of the conversation; `rePair` names the connection it replaces. */
   const [pairing, setPairing] = useState<{ readonly rePair?: string }>();
   const [handedLink, setHandedLink] = useState<string>();
@@ -83,8 +85,13 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
         setHandedLink("link" in input ? input.link : `${input.address}/pair#${input.code}`);
         setPairing({});
       }
-      setLine(outcome.status === "failed" ? outcome.failure.message : outcome.status === "re-pair-offered" ? "Already paired. Confirm this link to replace the connection deliberately." : undefined);
-    }, () => setLine("Pairing failed. Make a new code and try again."));
+      if (outcome.status === "failed") setRefusal(outcome.failure);
+      setLine(outcome.status === "re-pair-offered" ? "Already paired. Confirm this link to replace the connection deliberately." : undefined);
+    }, (error: unknown) => {
+      // A thrown failure reads §4.2's `Pairing did not work. Try again.`, its cause in Details, as the form says one.
+      setLine(undefined);
+      setRefusal({ reason: "refused", message: "Pairing did not work. Try again.", details: [error instanceof Error ? error.message : String(error)] });
+    });
   }, [runtime, route]);
   const openedRoute = useRef(false);
   useEffect(() => {
@@ -117,8 +124,9 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
     {selected && <LimitedAccess view={selected} />}
     {selected?.phase === "blocked" && <BlockedLine view={selected} onPair={() => setPairing({ rePair: selected.environmentId })} />}
     {line && <p role="status" className="shrink-0 px-3 py-2 text-sm">{line}</p>}
+    {refusal && <div className="shrink-0 px-3 py-2"><PairingRefusal line={refusal.message} details={refusal.details ?? []} /></div>}
     <WebRegisteredSurfaces />
-    {(paired.length === 0 || pairing !== undefined) ? <main className="min-h-0 flex-1 overflow-y-auto p-4"><h1 className="mb-3 text-lg">Pair with this environment</h1><p className="mb-4 text-sm text-ink-muted">Open a Phone link or scan its QR with your camera. You can also paste a link or enter the HTTPS address and code.</p><PairingForm link={handedLink} rePair={pairing?.rePair} onPaired={() => { setPairing(undefined); setHandedLink(undefined); setLine(undefined); }} toBrowserOrigins={(environmentId) => settings.open("environments.machines", environmentId, "browser-origins")} /></main> : <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+    {(paired.length === 0 || pairing !== undefined) ? <main className="min-h-0 flex-1 overflow-y-auto p-4"><h1 className="mb-3 text-lg">Pair with this environment</h1><p className="mb-4 text-sm text-ink-muted">Open a Phone link or scan its QR with your camera. You can also paste a link or enter the HTTPS address and code.</p><PairingForm link={handedLink} rePair={pairing?.rePair} onPaired={() => { setPairing(undefined); setHandedLink(undefined); setLine(undefined); setRefusal(undefined); }} toBrowserOrigins={(environmentId) => settings.open("environments.machines", environmentId, "browser-origins")} /></main> : <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <WindowNotices />
       <PaneGrid />
     </main>}

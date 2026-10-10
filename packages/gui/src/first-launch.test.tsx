@@ -145,7 +145,7 @@ describe("first launch", () => {
 
     expect(within(pane()).getByRole("status").textContent).not.toMatch(/remote method/i);
     await app.user.click(within(pane()).getByRole("button", { name: "Pair instead" }));
-    const pairing = await screen.findByRole("dialog", { name: "Pair with an environment" });
+    const pairing = await screen.findByRole("dialog", { name: "Connect to another computer" });
     expect(within(pairing).getByRole("textbox", { name: "Pairing link" })).toBeDefined();
     await app.user.keyboard("{Escape}");
     shell.answer("service.start", async () => app.environment("desk").discovery("ready"));

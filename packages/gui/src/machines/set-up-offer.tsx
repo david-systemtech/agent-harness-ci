@@ -13,7 +13,7 @@ import { useRuntime } from "../window-context.js";
  * on its first step needing attention, or its first step when none does or
  * the check could not run.
  */
-const useSetUpThisMachine = () => {
+export const useSetUpThisMachine = () => {
   const runtime = useRuntime();
   const { pick } = useSettings();
   const { open } = useChecklist();

@@ -22,7 +22,8 @@ export const pairingLine = (outcome: PairingOutcome, views: readonly Environment
     case "re-pair-offered":
       return `${outcome.name} is paired already. Pair it again in place? y/n`;
     case "failed":
-      return `Not paired: ${outcome.failure.message}`;
+      // A terminal has no Details fold: the raw failure (`fetch failed`, the HTTP status, the protocols) follows the plain line.
+      return `Not paired: ${outcome.failure.message}${outcome.failure.details?.length ? ` Details: ${outcome.failure.details.join("; ")}` : ""}`;
   }
 };
 

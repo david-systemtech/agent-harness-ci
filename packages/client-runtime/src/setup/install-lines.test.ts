@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { installLines } from "./install-lines.js";
 
 /**
- * Add a machine's Install on another machine (the Set up spec, "Add a
- * machine"; launcher-update spec; #577): a line per platform fetching the
+ * Add a device's Install agent-harness on another computer (setup-copy.md
+ * §5.5; launcher-update spec; #577, #1847): a line per platform fetching the
  * install script from the environment's own release, with the token handed
  * to curl on its standard input, run with the environment's channel and the
  * name given; and the container's compose snippet with the host-side

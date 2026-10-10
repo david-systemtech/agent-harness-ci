@@ -9,14 +9,17 @@ as do gallery scripts and workflows, the root dependency manifests/lockfile and
 `tsconfig.base.json`. The path rule lives in `.forgejo/scripts/gallery-needed.py`.
 Other changes succeed with `no GUI change: gallery skipped`, without dispatching
 a hosted render or posting a screenshot comment. Add the `gallery` label to
-force a render; adding or removing that label reevaluates the decision.
+force a render, including on an unchanged head. Other label additions skip in
+a separate `gallery / other-label` context, leaving the canonical geometry/pixel
+verdict intact; label removals trigger no gallery job. Opening, updating and
+reopening a PR still check its current head, even when it has no GUI changes.
 
-Events for the same PR head queue in Forgejo instead of cancelling one another.
+Capture events for the same PR head queue in Forgejo instead of cancelling one another.
 Forgejo publishes cancellation statuses outside the relay script; cancelling an
 older run could otherwise overwrite a replacement's success on the same head.
 Each new head has its own queue and hosted capture group, so queued work for an
-older head cannot cancel a newer head's captures. Label changes can wait for the
-active gallery to finish before their result appears.
+older head cannot cancel a newer head's captures. A force-label addition can wait
+for the active gallery to finish; unrelated labels dispatch no hosted capture.
 
 The hosted gallery workflow remains unchanged and installed byte for byte on
 the relay repository. The decision happens before dispatch. A PR changing this
@@ -24,6 +27,10 @@ rule must render because gallery machinery is an input; `pull_request_target`
 uses the trusted base's rule, so live skip verification needs a non-GUI PR after
 the rule lands. Then verify a GUI change (including one in an earlier commit)
 still renders and posts screenshots, and the label forces a non-GUI render.
+On that unchanged GUI head, add and remove an unrelated label and remove the
+force label: verify there is no new hosted capture and the canonical gallery
+status retains its completed verdict and target URL. The trusted-base workflow
+cannot exercise a PR's own event-filter changes until they reach main.
 
 Use this recipe when a deliberate GUI change produces reviewed pixel differences in a pull request.
 
