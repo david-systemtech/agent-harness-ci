@@ -45,12 +45,22 @@ export async function checkGoneConsole(helperPath, pid) {
   } finally { clearTimeout(deadline); if (helper.exitCode === null) helper.kill(); }
 }
 
+// The runtime boundary used by the packaged drain's terminal and update commands.
+export async function requestDrainCommand(runtime, environmentId, name, params, newCommandId) {
+  const answer = await runtime.requests.call(environmentId, name, { ...params, commandId: newCommandId() });
+  assert.ok(answer.ok, JSON.stringify(answer));
+  assert.equal(answer.result.receipt.status, "accepted", JSON.stringify(answer.result));
+  return answer.result.result;
+}
+
 // Real shipped CLI, launcher, environment, node-pty and OS processes. No service manager or owner data.
 export async function checkPackagedTerminalDrain(server) {
   assert.equal(process.platform, "win32", "This check needs real Windows ConPTY");
   const require = createRequire(join(server, "packages/cli/package.json"));
   const { startLauncher } = await import(pathToFileURL(join(server, "packages/cli/dist/launch/launcher.js")));
-  const { selectTerminalEnvironment } = await import(pathToFileURL(require.resolve("@agent-harness/tui/screenless")));
+  const screenless = require.resolve("@agent-harness/tui/screenless");
+  const { selectTerminalEnvironment } = await import(pathToFileURL(screenless));
+  const { uuidv7 } = await import(pathToFileURL(createRequire(screenless).resolve("@agent-harness/client-runtime")));
   const version = JSON.parse(readFileSync(join(server, "packages/cli/package.json"))).version;
   const target = version === "99.0.0" ? "99.0.1" : "99.0.0";
   const work = mkdtempSync(join(tmpdir(), "packaged-terminal-drain-"));
@@ -108,6 +118,7 @@ export async function checkPackagedTerminalDrain(server) {
       assert.ok(answer.ok, JSON.stringify(answer));
       return answer.result;
     };
+    const request = (name, params) => requestDrainCommand(selection.runtime, environmentId, name, params, () => uuidv7(new Date()));
     const sessionId = randomUUID();
     await command("sessions.create", { id: sessionId, title: "Terminal drain smoke", workspace: { kind: "directory", path: work } });
     const gonePidFile = join(work, "gone-pid");
@@ -126,20 +137,20 @@ export async function checkPackagedTerminalDrain(server) {
     `);
     const quote = (text) => `'${text.replaceAll("'", "''")}'`;
     const runningId = randomUUID();
-    await command("terminals.open", { id: runningId, sessionId });
-    await command("terminals.write", { id: runningId, data: `Set-Content -LiteralPath ${quote(shellPidFile)} -Value $PID; & ${quote(process.execPath)} ${quote(fixture)} ${quote(childPidFile)}\r` });
+    await request("terminals.open", { id: runningId, sessionId });
+    await request("terminals.write", { id: runningId, data: `Set-Content -LiteralPath ${quote(shellPidFile)} -Value $PID; & ${quote(process.execPath)} ${quote(fixture)} ${quote(childPidFile)}\r` });
     await waitFor(() => existsSync(childPidFile) && readPid(shellPidFile) !== undefined, "shell and its child/grandchild ready");
     owned.add(readPid(shellPidFile));
     for (const pid of JSON.parse(readFileSync(childPidFile))) owned.add(pid);
     assert.equal(owned.size, 4, "Owns a shell, command, child and grandchild");
     for (const pid of owned) assert.ok(alive(pid), `Owned process ${pid} is running before drain`);
     const goneId = randomUUID();
-    await command("terminals.open", { id: goneId, sessionId });
-    await command("terminals.write", { id: goneId, data: `Set-Content -LiteralPath ${quote(gonePidFile)} -Value $PID; exit\r` });
+    await request("terminals.open", { id: goneId, sessionId });
+    await request("terminals.write", { id: goneId, data: `Set-Content -LiteralPath ${quote(gonePidFile)} -Value $PID; exit\r` });
     await waitFor(() => readPid(gonePidFile) !== undefined && !alive(readPid(gonePidFile)), "second console exited before drain");
     const nativeRequire = createRequire(require.resolve("@agent-harness/environment"));
     await checkGoneConsole(nativeRequire.resolve("node-pty/lib/conpty_console_list_agent.js"), readPid(gonePidFile));
-    await command("updates.apply", { version: target, artefactPath: candidate, when: "now" });
+    await request("updates.apply", { version: target, artefactPath: candidate, when: "now" });
     await waitFor(() => [...owned].every((pid) => !alive(pid)), "all terminal-owned processes exited during update drain");
     await waitFor(() => ready(target), "packaged update trial committed and ready");
     const state = JSON.parse(readFileSync(join(dataDir, "service-state.json")));
