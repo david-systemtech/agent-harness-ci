@@ -46,8 +46,10 @@ import { unreadStore } from "./failures.js";
 
 /** Seams a test reaches the import through: after the plan, and after each item carried. */
 export interface StateImportHooks {
-  /** Heard once an import has planned, before it looks at the stores again and applies anything. */
+  /** Heard once an import has planned, before applying anything. */
   readonly planned?: () => void | Promise<void>;
+  /** Heard once a preview has planned, before returning its report. */
+  readonly previewPlanned?: () => void | Promise<void>;
   /** Heard after each item an import carried commits: a test stops the import there, as a crash would. */
   readonly carried?: (item: Pick<ImportItem, "kind" | "sourceId">) => void | Promise<void>;
 }
@@ -60,6 +62,8 @@ export interface StateImportOptions extends OrganisationOwners, Omit<PlanSkillsO
   readonly environmentId: string;
   /** The environment's one import coordinator. */
   readonly coordinator: ImportCoordinator;
+  /** Refreshes Set up after preparation releases the coordinator, including previews and failures that append no finished notice. */
+  readonly onSettled?: () => void;
   readonly accounts: AccountService;
   readonly banks: BankService;
   readonly carryOver: CarryOverService;
@@ -84,7 +88,7 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
   const detect: MethodHandler<"stateImport.detect"> = () => detectSource(machine);
 
   const run: PreparedCommand<"stateImport.run"> = {
-    prepare: ({ commandId: importId, dryRun }, caller) => {
+    prepare: async ({ commandId: importId, dryRun }, caller) => {
       const refused =
         (rejected: CommandRejection<"conflict">): MethodHandler<"stateImport.run"> =>
         () => ({ aggregate: environmentStream, rejected });
@@ -143,6 +147,7 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
           }), preview });
         };
         if (dryRun) {
+          await hooks?.previewPlanned?.();
           const org = organisation(true, withOrganisation);
           const report = reportOf({ ...withOrganisation, stores: [...withOrganisation.stores, { snapshot: { path: "", digest: null }, label: "Organisation", items: org.items }], notCarried: [...withOrganisation.notCarried, ...org.notCarried] }, null);
           return () => ({ aggregate: environmentStream, result: { ...report, ...(sharedProjects.length > 0 && { sharedProjects }) } });
@@ -175,10 +180,12 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
           return { aggregate: environmentStream, result: { ...report, ...(sharedProjects.length > 0 && { sharedProjects }) } };
         };
       });
-      return (
-        held ??
-        refused({ code: "conflict", message: "A state import is under way on this environment: try again once it has finished.", data: { reason: "import_in_progress" } })
-      );
+      if (held === null) return refused({ code: "conflict", message: "A state import is under way on this environment: try again once it has finished.", data: { reason: "import_in_progress" } });
+      try {
+        return await held;
+      } finally {
+        options.onSettled?.();
+      }
     },
   };
 
