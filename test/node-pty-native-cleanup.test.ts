@@ -9,7 +9,18 @@ import { expect, it } from "vitest";
 const require = createRequire(join(import.meta.dirname, "../packages/environment/package.json"));
 const dependency = dirname(require.resolve("node-pty/package.json"));
 
-it("keeps the native console owned through natural exit and closes it exactly once on either exit path", () => {
+// Hosted suites compile this fixture on Linux. Windows installs use MSVC for the actual addon;
+// keep this separate portable C++ fixture optional only when Windows has no c++ driver.
+const nativeCompilerAvailable = (): boolean => {
+  if (process.platform !== "win32") return true;
+  try { execFileSync("c++", ["--version"], { stdio: "pipe" }); return true; }
+  catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return false;
+    throw error;
+  }
+};
+
+it.skipIf(!nativeCompilerAvailable())("keeps the native console owned through natural exit and closes it exactly once on either exit path", () => {
   const native = readFileSync(join(dependency, "src/win/conpty.cc"), "utf8");
   // Compile the pinned implementation, replacing only Windows/Napi boundaries.
   const declarations = native.slice(native.indexOf("struct pty_baton"), native.indexOf("void SetupExitCallback"));
@@ -22,11 +33,11 @@ it("keeps the native console owned through natural exit and closes it exactly on
   const scratch = mkdtempSync(join(tmpdir(), "pty-native-cleanup-"));
   try {
     const input = join(scratch, "cleanup.cc");
-    const binary = join(scratch, "cleanup");
+    const binary = join(scratch, process.platform === "win32" ? "cleanup.exe" : "cleanup");
     writeFileSync(input, fixture.replace("// NATIVE DECLARATIONS", declarations).replace("// NATIVE KILL", kill)
       .replace("// NATIVE CALLBACK", callback).replace("// NATIVE WAIT", wait));
     execFileSync("c++", ["-std=c++17", "-Wall", "-Wextra", "-Werror", input, "-o", binary], { stdio: "pipe" });
-    expect(execFileSync(binary, [], { encoding: "utf8" })).toBe("native ownership released exactly once\n");
+    expect(execFileSync(binary, [], { encoding: "utf8" }).replaceAll("\r\n", "\n")).toBe("native ownership released exactly once\n");
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
