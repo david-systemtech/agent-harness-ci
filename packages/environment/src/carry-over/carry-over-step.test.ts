@@ -173,6 +173,34 @@ describe("the Carry over step with an adopted directory to carry", () => {
     expect(await checkCarryOver(client)).toMatchObject({ state: "done", reason: BROUGHT_OVER });
   });
 
+  it("says past work is being brought over while an account's Carry over runs, never the earlier work (#2098)", async () => {
+    const session = listed();
+    let listingStarted!: () => void;
+    const listing = new Promise<void>((resolve) => (listingStarted = resolve));
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let holdNext = false;
+    const client = await start({ sessions: async () => {
+      if (holdNext) {
+        holdNext = false;
+        listingStarted();
+        await released;
+      }
+      return [session];
+    } });
+    await importNow(client);
+    holdNext = true;
+    const run = importNow(client);
+    onCleanup(async () => { release(); await run.catch(() => undefined); });
+    await listing;
+    expect(await checkCarryOver(client)).toMatchObject({ state: "done", reason: "Bringing your past work over now…" });
+    // It still holds the one coordinator: the earlier work waits for it.
+    await expect(client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).resolves.toMatchObject({ receipt: { status: "rejected", error: { data: { reason: "import_in_progress" } } } });
+    release();
+    await run;
+    expect(await checkCarryOver(client)).toMatchObject({ state: "done", reason: BROUGHT_OVER });
+  });
+
   it("is not done by a dry run", async () => {
     const client = await start({ sessions: [listed()] });
     await client.request("carryOver.run", { commandId: randomUUID(), accountId: ACCOUNT, dryRun: true, skills: false });

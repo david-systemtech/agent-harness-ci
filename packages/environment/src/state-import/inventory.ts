@@ -13,7 +13,7 @@ export const sourceAccountInventories = (options: Omit<PlanAccountsOptions, "sou
   readonly coordinator: ImportCoordinator;
   readonly inventory: (source: DirectorySource) => Promise<CarryOverInventory>;
 }) => async (): Promise<StateImportAccountInventories> => {
-  const held = options.coordinator.exclusive("state-import.inventory", true, async () => {
+  const held = options.coordinator.exclusive({ importId: "state-import.inventory", dryRun: true, kind: "state-import" }, async () => {
     const { dataFolder } = await detectSource(options.machine);
     if (dataFolder === null) return { accounts: [], failed: [], later: [] };
     const sourceKey = await realpath(dataFolder.path);

@@ -92,7 +92,7 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
       const refused =
         (rejected: CommandRejection<"conflict">): MethodHandler<"stateImport.run"> =>
         () => ({ aggregate: environmentStream, rejected });
-      const held = coordinator.exclusive(importId, dryRun, async (applying): Promise<MethodHandler<"stateImport.run">> => {
+      const held = coordinator.exclusive({ importId, dryRun, kind: "state-import" }, async (applying): Promise<MethodHandler<"stateImport.run">> => {
         const { dataFolder, terminalFolder } = await detectSource(machine);
         const folder = dataFolder ?? terminalFolder;
         if (folder === null) {

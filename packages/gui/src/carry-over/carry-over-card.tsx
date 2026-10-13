@@ -10,7 +10,7 @@ import { StepStatus } from "../setup/step-status.js";
 import { Button, Fold } from "../ui/index.js";
 import { useClock, useFollowed, useObservable, useRuntime } from "../window-context.js";
 import { CheckoutOffer } from "./checkout-offer.js";
-import { useBringOverEarlierWork } from "./earlier-work.js";
+import { useEarlierWork } from "./earlier-work.js";
 import { counted, ImportReport, type AccountReport } from "./import-report.js";
 import { MemoryAssignment } from "./memory-assignment.js";
 import { useNoticeDetails } from "./notice-details.js";
@@ -36,6 +36,9 @@ interface Found {
 
 /** The step's line when bringing the earlier work over stopped part way (setup-copy.md §5.3): the one case for Continue bringing it over. */
 const EARLIER_WORK_STOPPED = "Bringing over your earlier work stopped before the end.";
+
+/** The button for that case, which its refusal names. */
+const CONTINUE = "Continue bringing it over";
 
 /** Whether the account's directory holds anything to bring over at all. */
 const holdsAnything = ({ sessions, memory, skills }: CarryOverInventory): boolean => sessions.total + memory.folders + skills.skills + skills.commands > 0;
@@ -107,7 +110,7 @@ export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
   }, [runtime, environmentId, ids]);
   const detection = useFollowed(useMemo(() => runtime.capability(environmentId, "stateImport").status === "present" ? runtime.requests.cached(environmentId, "stateImport.detect", {}) : undefined, [runtime, environmentId]));
   const earlierWorkFound = detection?.result !== null && detection?.result !== undefined && (detection.result.dataFolder !== null || detection.result.terminalFolder !== null);
-  const bringOverEarlierWork = useBringOverEarlierWork(environmentId);
+  const earlierWork = useEarlierWork(environmentId);
   const noticeDetails = useNoticeDetails(environmentId, step);
   const [skillsChoice, setSkillsChoice] = useState<boolean | undefined>(undefined);
   const [busy, setBusy] = useState(false);
@@ -151,20 +154,22 @@ export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
     ? { ...step, result: { ...step.result, reason: `${primary}.` } }
     : step;
 
-  const bringOver = async (accountsToRun: readonly Found[], withEarlierWork: boolean) => {
+  // A refusal asks the person to choose again the button they chose (setup-copy.md §5.3).
+  const bringOver = async (accountsToRun: readonly Found[], withEarlierWork: boolean, pressed: string) => {
     setBusy(true);
     setRefusals([]);
     const ran: AccountReport[] = [];
     const refused: PlainRefusal[] = [];
     for (const { account } of accountsToRun) {
       const answer = await adminCall(() => runtime.requests.call(environmentId, "carryOver.run", { commandId: uuidv7(clock.now()), accountId: account.id, dryRun: false, skills }));
-      if (!answer.ok) refused.push(plainRefusal(answer.refusal, primary ?? "Bring them over"));
+      if (!answer.ok) refused.push(plainRefusal(answer.refusal, pressed));
       else if (answer.result !== undefined) ran.push({ label: account.label, report: answer.result });
       runtime.requests.refresh(environmentId, "carryOver.inventory", { accountId: account.id });
     }
+    // The earlier work's report is the section's, which says what came over (#2098).
     if (withEarlierWork) {
-      const answer = await bringOverEarlierWork();
-      if (!answer.ok) refused.push(plainRefusal(answer.refusal, "Continue bringing it over"));
+      const answer = await earlierWork.run(false);
+      if (!answer.ok) refused.push(plainRefusal(answer.refusal, pressed));
       else setEarlierWorkBrought(true);
     }
     setBusy(false);
@@ -179,7 +184,7 @@ export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
   const neverBrought = ({ account, inventory }: Found) => !holdsAnything(inventory) || (answered ? named.includes(account.id) && !leftBehind(account) : !broughtBefore(inventory));
   // The earlier work comes over with the first bring-over here, before any account has been, or after it stopped:
   // a re-run would apply its window preferences again.
-  const bringThemOver = () => void bringOver(found, earlierWorkFound && ((!earlierWorkBrought && found.every(neverBrought)) || earlierWorkStopped));
+  const bringThemOver = () => void bringOver(found, earlierWorkFound && ((!earlierWorkBrought && found.every(neverBrought)) || earlierWorkStopped), primary ?? "Bring them over");
   const checkAgain = () => {
     runtime.requests.refresh(environmentId, "accounts.list", {});
     for (const { account } of unread) runtime.requests.refresh(environmentId, "carryOver.inventory", { accountId: account.id });
@@ -224,7 +229,7 @@ export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
             </label>
           )}
           {primary !== undefined && (
-            <Button variant="default" title={`${primary} · Tab, Enter or Space`} className="self-start" disabled={!writable || busy} onClick={bringThemOver}>
+            <Button variant="default" title={`${primary} · Tab, Enter or Space`} className="self-start" disabled={!writable || busy || earlierWork.busy} onClick={bringThemOver}>
               <Download aria-hidden="true" />{primary}
             </Button>
           )}
@@ -236,8 +241,8 @@ export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
         </div>
       )}
       {earlierWorkStopped && earlierWorkFound && (
-        <Button variant="outline" title="Continue bringing it over · Tab, Enter or Space" className="self-start" disabled={busy || runtime.capability(environmentId, "stateImport.run").status === "absent"} onClick={() => void bringOver([], true)}>
-          <Download aria-hidden="true" />Continue bringing it over
+        <Button variant="outline" title={`${CONTINUE} · Tab, Enter or Space`} className="self-start" disabled={busy || earlierWork.busy || runtime.capability(environmentId, "stateImport.run").status === "absent"} onClick={() => void bringOver([], true, CONTINUE)}>
+          <Download aria-hidden="true" />{CONTINUE}
         </Button>
       )}
       {refusals.map((refusal, index) => <SetupNotice key={`${index}:${refusal.line}`} tone="error" title={refusal.line} details={noticeDetails(refusal.line, refusal.details)} />)}
@@ -246,7 +251,7 @@ export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
       {found.flatMap(({ inventory }) =>
         inventory.memory.unmappable.map((folder) => <MemoryAssignment key={`${inventory.accountId}/${folder.folder}`} environmentId={environmentId} accountId={inventory.accountId} folder={folder} details={noticeDetails} />),
       )}
-      <StateImportSection environmentId={environmentId} />
+      <StateImportSection environmentId={environmentId} earlierWork={earlierWork} />
     </>
   );
 };

@@ -1764,9 +1764,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     detectStateImport: () => detectSource(stateImportSource),
     stateImport: {
       environmentId: record.id,
+      // A preview or inventory writes nothing, so Set up says nothing of it (#2074); an account's Carry over is named as one (#2098).
       underWay: () => {
         const active = stateImports.underWay();
-        return active !== null && !active.dryRun ? active.importId : null;
+        return active !== null && !active.dryRun ? { importId: active.importId, kind: active.kind } : null;
       },
     },
     containment,

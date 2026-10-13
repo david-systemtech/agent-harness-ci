@@ -344,7 +344,7 @@ Added when the dialog was built (#1843), where the lines above did not reach the
   (`1 item` for one) Details: the list; earlier-work stopped `Bringing over your earlier work stopped before the end. Choose Continue bringing it over.`
   (the card's **Continue bringing it over**; Details: the folder; the step's target for it is labelled `Your earlier work`);
   earlier-work partial `{n} items from your earlier work did not come over. See what to do below each one.`;
-  default waits `Your default account waits for {label} to sign in. Choose Sign in {label}.` (opens §5.2 in place); running `Bringing your earlier work over now…`.
+  default waits `Your default account waits for {label} to sign in. Choose Sign in {label}.` (opens §5.2 in place); earlier work running `Bringing your earlier work over now…`; an account's own Carry over running `Bringing your past work over now…`.
 
 | Old | New |
 | --- | --- |

@@ -7,17 +7,23 @@
  * is refused, which `stateImport.run` answers `conflict` (reason
  * `import_in_progress`). A dry run holds it as an import does, so a preview
  * never reads a plan an import is changing under it, but reserves nothing
- * once it ends: an import plans again.
+ * once it ends: an import plans again. A Carry over run of one adopted
+ * account holds it too, and says so by its kind, so Set up names what is
+ * under way truthfully (#2098).
  */
 
 /** Where an import or dry run is: preparing and applying hold the environment; finished and failed have released it. */
 export type ImportPhase = "preparing" | "applying" | "finished" | "failed";
 
+/** What holds the environment: the state import (`stateImport.run`, its preview or inventory), or a Carry over run of one adopted account (`carryOver.run`). */
+export type ImportKind = "state-import" | "carry-over";
+
 /** The import or dry run under way, or the last one, and where it is. */
 export interface ImportState {
-  /** The command id of the `stateImport.run` that asked for it. */
+  /** The command id of the `stateImport.run` or `carryOver.run` that asked for it. */
   readonly importId: string;
   readonly dryRun: boolean;
+  readonly kind: ImportKind;
   readonly phase: ImportPhase;
 }
 
@@ -31,7 +37,7 @@ export interface ImportCoordinator {
    * it calls `applying`: null, and `work` never runs, while another holds the
    * environment. Whatever `work` answers or throws is this answer's.
    */
-  exclusive<T>(importId: string, dryRun: boolean, work: (applying: () => void) => Promise<T>): Promise<T> | null;
+  exclusive<T>(holder: Omit<ImportState, "phase">, work: (applying: () => void) => Promise<T>): Promise<T> | null;
 }
 
 export const createImportCoordinator = (): ImportCoordinator => {
@@ -40,9 +46,9 @@ export const createImportCoordinator = (): ImportCoordinator => {
   return {
     state: () => current,
     underWay: () => (holds() ? current : null),
-    exclusive(importId, dryRun, work) {
+    exclusive({ importId, dryRun, kind }, work) {
       if (holds()) return null;
-      let state: ImportState = { importId, dryRun, phase: "preparing" };
+      let state: ImportState = { importId, dryRun, kind, phase: "preparing" };
       current = state;
       const enter = (phase: ImportPhase): void => {
         state = { ...state, phase };
