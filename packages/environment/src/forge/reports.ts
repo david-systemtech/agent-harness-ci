@@ -19,14 +19,29 @@ const valueOf = <T>(answer: ForgeAnswer<T>): T => {
   throw new ContractError({ code: "verification_failed", message: `GitHub refused the report operation (HTTP ${answer.status}). Check the GitHub account's issue and contents permissions in Settings → Forges.`, data: { origin: GITHUB_ORIGIN, status: answer.status } });
 };
 
+/**
+ * The atoms a QuickTime movie may open with: its `ftyp` is optional (Apple's
+ * QuickTime File Format, "File type compatibility atom"), so an older movie
+ * opens with its movie data, its movie atom, or free space before them.
+ */
+const QUICKTIME_LEADING_ATOMS: ReadonlySet<string> = new Set(["ftyp", "moov", "mdat", "wide", "free", "skip", "pnot"]);
+
+/** Whether `bytes` open with a QuickTime atom: a size that can be one (0 to the end, 1 for a 64-bit size, else at least its own 8-byte header) and a leading atom's type. */
+const opensWithQuickTimeAtom = (bytes: Buffer): boolean => {
+  if (bytes.length < 8) return false;
+  const size = bytes.readUInt32BE(0);
+  return (size === 0 || size === 1 || size >= 8) && QUICKTIME_LEADING_ATOMS.has(bytes.subarray(4, 8).toString("latin1"));
+};
+
 /** Check media signatures before writing anything to the public repository. */
-const mediaMatches = (mediaType: string, bytes: Buffer): boolean => {
+export const mediaMatches = (mediaType: string, bytes: Buffer): boolean => {
   switch (mediaType) {
     case "image/png": return bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
     case "image/jpeg": return bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
     case "image/gif": return ["GIF87a", "GIF89a"].includes(bytes.subarray(0, 6).toString("ascii"));
     case "image/webp": return bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP";
-    case "video/mp4": case "video/quicktime": return bytes.subarray(4, 8).toString("ascii") === "ftyp";
+    case "video/mp4": return bytes.subarray(4, 8).toString("ascii") === "ftyp";
+    case "video/quicktime": return opensWithQuickTimeAtom(bytes);
     case "video/webm": return bytes.subarray(0, 4).equals(Buffer.from([26, 69, 223, 163]));
     default: return false;
   }

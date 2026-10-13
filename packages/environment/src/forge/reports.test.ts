@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { GITHUB_ORIGIN } from "@agent-harness/contracts";
+import { GITHUB_ORIGIN, type ParamsOf } from "@agent-harness/contracts";
 import { expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge } from "../../test/fake-forge.js";
@@ -8,9 +8,12 @@ import { startTestEnvironment } from "../../test/helper.js";
 import { NO_SETUP_STEPS } from "../../test/setup-steps.js";
 import type { ForgeFetch } from "./providers.js";
 import { RELEASE_SOURCE } from "../updates/channel.js";
+import { mediaMatches } from "./reports.js";
 
 const { onCleanup } = useCleanups();
-const report = { kind: "bug", level: "major", name: "Reporter", description: "The sidebar freezes.", client: { version: "0.1.0", kind: "desktop" }, attachments: [] } as const;
+/** A report as the wire takes one, its arrays mutable as the params type has them, so `client.request` answers it typed. */
+type Report = ParamsOf<"reports.submit">["report"];
+const report: Report = { kind: "bug", level: "major", name: "Reporter", description: "The sidebar freezes.", client: { version: "0.1.0", kind: "desktop" }, attachments: [] };
 
 it("publishes a report through the environment's GitHub credential and replays its receipt without another issue", async () => {
   const forge = await startFakeForge();
@@ -34,7 +37,7 @@ it("publishes a report through the environment's GitHub credential and replays i
 
 const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).toString("base64");
 const webm = Buffer.from([26, 69, 223, 163]).toString("base64");
-const mediaReport = { ...report, attachments: [{ name: "screenshot.png", mediaType: "image/png", content: png }, { name: "recording.webm", mediaType: "video/webm", content: webm }] } as const;
+const mediaReport: Report = { ...report, attachments: [{ name: "screenshot.png", mediaType: "image/png", content: png }, { name: "recording.webm", mediaType: "video/webm", content: webm }] };
 
 const withGitHub = async (wrap: (fetch: ForgeFetch) => ForgeFetch = (fetch) => fetch) => {
   const forge = await startFakeForge();
@@ -110,4 +113,16 @@ it("refuses a private attachment repository and a failed upload before creating 
   // The forge's unscripted PUT rejects the upload.
   await expect(client.request("reports.submit", { commandId: randomUUID(), report: mediaReport })).rejects.toMatchObject({ code: "verification_failed" });
   expect(forge.requests.filter((request) => request.method === "POST" && request.path.endsWith("/issues"))).toHaveLength(0);
+});
+
+it("takes a QuickTime movie that opens with any of its leading atoms, ftyp being optional, and an MP4 only with its ftyp", () => {
+  const atom = (size: number, type: string) => Buffer.concat([Buffer.from([size >>> 24, (size >>> 16) & 255, (size >>> 8) & 255, size & 255]), Buffer.from(type, "latin1")]);
+  for (const type of ["ftyp", "moov", "mdat", "wide", "free", "skip", "pnot"]) expect(mediaMatches("video/quicktime", atom(8, type)), type).toBe(true);
+  expect(mediaMatches("video/quicktime", atom(0, "mdat"))).toBe(true);
+  expect(mediaMatches("video/quicktime", atom(1, "mdat"))).toBe(true);
+  expect(mediaMatches("video/quicktime", atom(4, "moov"))).toBe(false);
+  expect(mediaMatches("video/quicktime", atom(8, "RIFF"))).toBe(false);
+  expect(mediaMatches("video/quicktime", Buffer.from("moov"))).toBe(false);
+  expect(mediaMatches("video/mp4", atom(8, "ftyp"))).toBe(true);
+  expect(mediaMatches("video/mp4", atom(8, "moov"))).toBe(false);
 });
