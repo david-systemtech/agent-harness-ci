@@ -113,6 +113,9 @@ export const startDesktop = async (
   { reportError = console.error, serviceWait, updateSystem = NODE_UPDATE_SYSTEM, ghProcess = NODE_GH_PROCESS, environment = process.env, macCredentials, credentialClock }: DesktopOptions = {},
 ): Promise<void> => {
   const { app, protocol } = electron;
+  const startingAt = Date.now();
+  const afterUpdate = platform.os === "win32" && platform.argv.includes("--updated");
+  let finishingUpdate = false;
   // First: Electron keeps the single-instance lock in the data directory in force when it is asked for.
   app.setPath("userData", platform.paths.data);
   if (!app.requestSingleInstanceLock()) {
@@ -125,7 +128,7 @@ export const startDesktop = async (
   // Once, both schemes together: Electron takes this call only once, before the app is ready.
   protocol.registerSchemesAsPrivileged([APP_SCHEME_REGISTRATION, PREVIEW_SCHEME_REGISTRATION]);
   if (platform.relaunch) app.setAsDefaultProtocolClient(APP_SCHEME, platform.relaunch.executable, [...platform.relaunch.args]);
-  else app.setAsDefaultProtocolClient(APP_SCHEME);
+  else if (platform.os !== "win32" || !app.isPackaged) app.setAsDefaultProtocolClient(APP_SCHEME);
 
   const links = deepLinkInbox();
   const launchLink = deepLinkIn(platform.argv);
@@ -138,9 +141,15 @@ export const startDesktop = async (
     if (shown.window) bringForward(shown.window);
   });
   app.on("second-instance", (_details, argv) => {
-    if (shown.window) bringForward(shown.window);
     const link = deepLinkIn(argv);
     if (link !== undefined) links.open(link);
+    if (platform.os === "win32" && (finishingUpdate || (afterUpdate && shown.window === undefined))) {
+      void app.whenReady().then(() => electron.dialog.showMessageBox({
+        type: "info", title: PRODUCT_NAME, message: "agent-harness is finishing its update; it will open by itself", buttons: ["OK"],
+      })).catch(reportError);
+      return;
+    }
+    if (shown.window) bringForward(shown.window);
   });
   app.on("window-all-closed", () => app.quit());
 
@@ -182,7 +191,7 @@ export const startDesktop = async (
   const localGrant = grantFile(platform.paths.environment, reportError);
   const credentialAccess = credentialAccessFile(platform.paths.environment);
   const service = bundledService({ os: platform.os, environmentDir: platform.paths.environment, server: platform.paths.server, ...(serviceWait && { wait: serviceWait }) });
-  const update = desktopUpdate({ app, platform, system: updateSystem, report: reportError });
+  const update = desktopUpdate({ app, platform, system: updateSystem, report: reportError, onInstalling: () => { finishingUpdate = true; } });
   const installer = bundledInstaller(platform.paths.server, platform.paths.environment);
   const gh = computerGh({ os: platform.os, process: ghProcess, environment });
   const notifications = desktopNotifications({ notification: electron.notification, window });
@@ -191,5 +200,6 @@ export const startDesktop = async (
     shellMembers({ electron, secrets, localGrant, credentialAccess, service, update, installer, platform, window, canvas, network, links, notifications, preview, gh, webView }),
     reportError,
   );
-  await window.loadURL(APP_URL).catch(reportError);
+  await window.loadURL(afterUpdate ? `${APP_URL}?updated` : APP_URL).catch(reportError);
+  if (afterUpdate) reportError(`Desktop update ${app.getVersion()}: app start ${Date.now() - startingAt}ms (main entry to renderer loaded).`);
 };

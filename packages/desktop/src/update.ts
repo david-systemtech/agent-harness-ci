@@ -17,7 +17,7 @@ import type { DesktopPlatform } from "./platform.js";
  * channel as the server (no desktop forge credential), each platform its
  * own way. A macOS
  * bundle is swapped by rename, the old one renamed back when the swap
- * fails; a Windows install hands over to its NSIS setup, run silently once
+ * fails; a Windows install hands over to its NSIS setup, showing progress once
  * the desktop has quit; an Arch install runs `pacman -U` through `pkexec`.
  * An AppImage, a `.deb` or a bundle that cannot be replaced has no format:
  * the runtime reports it `unsupported`, with the release page.
@@ -80,6 +80,7 @@ export const NODE_UPDATE_SYSTEM: UpdateSystem = {
 };
 
 export interface UpdateParts {
+  readonly onInstalling?: () => void;
   readonly app: ElectronApp;
   readonly platform: DesktopPlatform;
   readonly system: UpdateSystem;
@@ -159,7 +160,7 @@ const CLEANUP_MARKER = ".cleanup";
 const PENDING_CLEANUP_MARKER = ".cleanup-pending";
 const temporaryPrefix = (bundle: string): string => `.${basename(bundle)}-update-`;
 
-export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): ShellUpdate => {
+export const desktopUpdate = ({ app, platform, system, report, onInstalling }: UpdateParts): ShellUpdate => {
   const { files } = system;
   const stays = () => `${app.getVersion()} stays installed`;
 
@@ -266,10 +267,11 @@ export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): S
     return failure === undefined ? APPLIED : failed("install", failure.why);
   };
 
-  /** Hands the NSIS setup over, to run silently once the desktop has quit, and to start it again after when `restart`. */
+  /** Hands the NSIS setup over, with visible progress on a restart once the desktop has quit, and to start it again after when `restart`. */
   const runSetup = async (staged: ShellStagedBuild, restart: boolean): Promise<ShellApplyOutcome> => {
     try {
-      await system.start(staged.path, ["/S", "--updated", ...(restart ? ["--force-run"] : [])]);
+      onInstalling?.();
+      await system.start(staged.path, [...(restart ? [] : ["/S"]), "--updated", ...(restart ? ["--force-run"] : [])]);
       return APPLIED;
     } catch (error) {
       return failed("install", `The setup of ${staged.version} could not be started (${messageOf(error)}), so ${stays()}.`);

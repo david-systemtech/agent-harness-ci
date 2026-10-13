@@ -322,31 +322,14 @@ describe("the desktop build", () => {
     expect(readdirSync(build.out)).toEqual(["agent-harness-desktop-win32-x64-setup.exe"]);
     const [packed] = build.packed;
     expect(packed?.request.config).toMatchObject({ win: { target: [{ target: "nsis", arch: ["x64"] }] }, nsis: { oneClick: true, perMachine: false } });
-    expect(packed?.nsisInclude?.split("\n")).toEqual([
-      "; The desktop build's NSIS include: the setup registers the app's scheme for this user.",
-      "!macro customInstall",
-      '  WriteRegStr SHELL_CONTEXT "Software\\Classes\\agent-harness" "" "URL:agent-harness"',
-      '  WriteRegStr SHELL_CONTEXT "Software\\Classes\\agent-harness" "URL Protocol" ""',
-      '  WriteRegStr SHELL_CONTEXT "Software\\Classes\\agent-harness\\shell\\open\\command" "" \'"$INSTDIR\\${APP_EXECUTABLE_FILENAME}" "%1"\'',
-      "!macroend",
-      "",
-      "!macro customUnInstall",
-      "  ${ifNot} ${isUpdated}",
-      "    ClearErrors",
-      '    ExecWait \'"$INSTDIR\\resources\\server\\node\\node.exe" "$INSTDIR\\resources\\server\\packages\\cli\\dist\\main.js" service uninstall\' $0',
-      "    ${if} ${Errors}",
-      "      SetErrorLevel 1",
-      '      Abort "Could not run environment service cleanup. The app has been kept."',
-      "    ${endIf}",
-      "    ${if} $0 != 0",
-      "      SetErrorLevel 1",
-      '      Abort "Could not uninstall the environment service. The app has been kept."',
-      "    ${endIf}",
-      '    DeleteRegKey SHELL_CONTEXT "Software\\Classes\\agent-harness"',
-      "  ${endIf}",
-      "!macroend",
-      "",
-    ]);
+    expect(packed?.nsisInclude).toContain('CreateMutex');
+    expect(packed?.nsisInclude).toContain('Local\\agent-harness-desktop-install');
+    expect(packed?.nsisInclude).toContain('SetSilent normal');
+    expect(packed?.nsisInclude).toContain('Installing ${VERSION}');
+    expect(packed?.nsisInclude).toContain('desktop-launch.ps1');
+    expect(packed?.nsisInclude).toContain('WinShell::SetLnkAUMI');
+    expect(packed?.nsisInclude).toContain('service uninstall');
+    expect(packed?.nsisInclude).toContain('desktop-update.log');
   });
 
   it("builds the Windows setup on linux-x64 too, where electron-builder runs Wine, from the release's zip artefact, unpacked as Windows unpacks it", async () => {

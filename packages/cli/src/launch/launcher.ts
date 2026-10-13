@@ -369,7 +369,7 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
     trial.cancelWait?.();
     trial.committed = true;
     tell(trial, { type: "committed" });
-    log(`${version} committed: update ${update.updateId} from ${update.fromVersion}, watched until ${watchDeadline}`);
+    log(`${version} committed: update ${update.updateId} from ${update.fromVersion}, watched until ${watchDeadline}; environment trial ${timer.now() - trial.spawnedAt}ms`);
     watchExits = 0;
     watch();
   };

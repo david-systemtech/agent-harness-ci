@@ -87,7 +87,11 @@ export const serveApp =
     const file = fileAt(resolve(renderer), url.pathname);
     if (file === undefined) return notFound();
     try {
-      return answer(200, await readFile(file), MEDIA_TYPES[extname(file).toLowerCase()] ?? "application/octet-stream");
+      let bytes = await readFile(file);
+      if (url.pathname === "/" && url.searchParams.has("updated")) {
+        bytes = Buffer.from(bytes.toString("utf8").replace(/(<div\b[^>]*\bid=["']root["'][^>]*>)(\s*<\/div>)/, '$1<p role="status">Updating the local environment, about a minute…</p>$2'));
+      }
+      return answer(200, bytes, MEDIA_TYPES[extname(file).toLowerCase()] ?? "application/octet-stream");
     } catch {
       return notFound();
     }

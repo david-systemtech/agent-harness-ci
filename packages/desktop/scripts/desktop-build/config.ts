@@ -51,17 +51,69 @@ const PACMAN_DEPENDS: readonly string[] = [
 
 /**
  * The NSIS include that registers the app's scheme for the user installing
- * it, as `app.setAsDefaultProtocolClient` does at each launch, so a link
+ * it through the stable launch helper, so a link
  * opens the app before its first launch. The uninstaller first stops and
  * unregisters the environment through the bundled CLI, retaining personal data. An update keeps both registrations.
  */
-export const nsisSchemeInclude = (scheme: string): string =>
+export const nsisSchemeInclude = (scheme: string, launcher: string): string =>
   [
     "; The desktop build's NSIS include: the setup registers the app's scheme for this user.",
+    "!macro customHeader",
+    '  Var desktopInstallMutex',
+    '  Var desktopInstallStarted',
+    '  Caption "Installing ${VERSION}..."',
+    "!macroend",
+    "",
+    // Redirect launch routes before uninstallOldVersion removes any file, including on the first update to this build.
+    "!macro desktopLaunchRoutes",
+    '  ${if} ${FileExists} "$newStartMenuLink"',
+    '    CreateShortCut "$newStartMenuLink" "$SYSDIR\\WindowsPowerShell\\v1.0\\powershell.exe" \'-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$LOCALAPPDATA\\agent-harness\\desktop\\desktop-launch.ps1" -App "$INSTDIR\\${APP_EXECUTABLE_FILENAME}"\' "$INSTDIR\\${APP_EXECUTABLE_FILENAME}"',
+    '    WinShell::SetLnkAUMI "$newStartMenuLink" "${APP_ID}"',
+    '  ${endIf}',
+    '  ${if} ${FileExists} "$newDesktopLink"',
+    '    CreateShortCut "$newDesktopLink" "$SYSDIR\\WindowsPowerShell\\v1.0\\powershell.exe" \'-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$LOCALAPPDATA\\agent-harness\\desktop\\desktop-launch.ps1" -App "$INSTDIR\\${APP_EXECUTABLE_FILENAME}"\' "$INSTDIR\\${APP_EXECUTABLE_FILENAME}"',
+    '    WinShell::SetLnkAUMI "$newDesktopLink" "${APP_ID}"',
+    '  ${endIf}',
+    `  WriteRegStr SHELL_CONTEXT "Software\\Classes\\${scheme}\\shell\\open\\command" "" '"$SYSDIR\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$LOCALAPPDATA\\agent-harness\\desktop\\desktop-launch.ps1" -App "$INSTDIR\\\${APP_EXECUTABLE_FILENAME}" -Link "%1"'`,
+    "!macroend",
+    "",
+    "!macro customInit",
+    '  System::Call \'kernel32::CreateMutex(p 0, i 1, t "Local\\agent-harness-desktop-install") p.s\'',
+    '  Pop $desktopInstallMutex',
+    '  ${if} $desktopInstallMutex == 0',
+    '    Abort "Could not protect the desktop installation. The app has been kept."',
+    '  ${endIf}',
+    '  System::Call "kernel32::GetTickCount() i.s"',
+    '  Pop $desktopInstallStarted',
+    '  SetOutPath "$LOCALAPPDATA\\agent-harness\\desktop"',
+    `  File "${launcher}"`,
+    '  !insertmacro setLinkVars',
+    '  !insertmacro desktopLaunchRoutes',
+    '  ExecWait \'"$SYSDIR\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$LOCALAPPDATA\\agent-harness\\desktop\\desktop-launch.ps1" -App "$INSTDIR\\${APP_EXECUTABLE_FILENAME}" -Prepare\' $0',
+    '  ${if} $0 != 0',
+    '    Abort "Could not protect the desktop taskbar launch. The app has been kept."',
+    '  ${endIf}',
+    '  SetOutPath "$INSTDIR"',
+    '  ${if} ${isUpdated}',
+    '  ${andIf} ${isForceRun}',
+    '    SetSilent normal',
+    '  ${endIf}',
+    "!macroend",
+    "",
     "!macro customInstall",
     `  WriteRegStr SHELL_CONTEXT "Software\\Classes\\${scheme}" "" "URL:${scheme}"`,
     `  WriteRegStr SHELL_CONTEXT "Software\\Classes\\${scheme}" "URL Protocol" ""`,
-    `  WriteRegStr SHELL_CONTEXT "Software\\Classes\\${scheme}\\shell\\open\\command" "" '"$INSTDIR\\\${APP_EXECUTABLE_FILENAME}" "%1"'`,
+    '  !insertmacro desktopLaunchRoutes',
+    // This link remains available even when the person deleted their Start menu shortcut.
+    '  CreateShortCut "$LOCALAPPDATA\\agent-harness\\desktop\\launch.lnk" "$SYSDIR\\WindowsPowerShell\\v1.0\\powershell.exe" \'-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$LOCALAPPDATA\\agent-harness\\desktop\\desktop-launch.ps1" -App "$INSTDIR\\${APP_EXECUTABLE_FILENAME}"\' "$INSTDIR\\${APP_EXECUTABLE_FILENAME}"',
+    '  StrCpy $launchLink "$LOCALAPPDATA\\agent-harness\\desktop\\launch.lnk"',
+    '  System::Call "kernel32::GetTickCount() i.s"',
+    '  Pop $0',
+    '  IntOp $0 $0 - $desktopInstallStarted',
+    '  CreateDirectory "$LOCALAPPDATA\\agent-harness\\desktop\\logs"',
+    '  FileOpen $1 "$LOCALAPPDATA\\agent-harness\\desktop\\logs\\desktop-update.log" a',
+    '  FileWrite $1 "${VERSION} setup $0ms$\\r$\\n"',
+    '  FileClose $1',
     "!macroend",
     "",
     "!macro customUnInstall",
@@ -128,7 +180,7 @@ const platformSection = (target: DesktopTarget, folders: BuildFolders): Configur
     case "win32":
       return {
         win: { target: targets },
-        // Per user with no window: `<setup> /S` is silent, and electron-builder's setup takes `--updated` (wait for the
+        // Per user: restart updates show native progress, while `<setup> /S` stays silent. The setup takes `--updated` (wait for the
         // app to exit) and `--force-run` (start it once installed), the hand-over #355 makes.
         nsis: { oneClick: true, perMachine: false, artifactName: target.name, differentialPackage: false, include: folders.nsisInclude },
       };

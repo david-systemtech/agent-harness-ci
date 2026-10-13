@@ -234,6 +234,7 @@ export interface DialogFilter {
 
 /** The native dialogs: file pickers attached to the window, and an asynchronous message. */
 export interface ElectronDialog {
+  showMessageBox(options: { type: "info"; title: string; message: string; buttons: string[] }): Promise<{ response: number }>;
   showOpenDialog(
     window: ElectronWindow,
     options: { title?: string; filters?: DialogFilter[]; properties: ("openFile" | "openDirectory" | "multiSelections" | "createDirectory")[] },

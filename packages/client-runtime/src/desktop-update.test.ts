@@ -283,6 +283,35 @@ describe("the desktop's own update", () => {
     expect(build()).toEqual({ state: "applying", version: RUNNING, staged: STAGED });
   });
 
+  it("requests the already staged local server before the desktop quits, without downloading or forcing busy work", async () => {
+    const pending = { state: "waiting" as const, updateId: "0199aa00-0000-4000-8000-00000000000a", toVersion: "0.6.0", source: "channel" as const, since: "2026-09-24T00:00:00.000Z", deferUntil: "2026-09-25T00:00:00.000Z", image: null, waitsOn: { reason: "run-running" as const, until: null } };
+    let requestedBeforeQuit = false;
+    const { runtime, until, build, desk } = await launch({
+      updates: { status: { version: RUNNING, newest: "0.6.0", pending }, desktopBuild: STAGED },
+      shell: shell => shell.answer("update.apply", async (_staged, when) => {
+        if (when === "now") requestedBeforeQuit = params(desk, "updates.apply").length === 1;
+        return { outcome: "applied" };
+      }),
+    });
+    await until(() => build().state === "ready", "staged the desktop");
+    await runtime.desktopUpdate.restart();
+    expect(params(desk, "updates.apply")).toEqual([expect.objectContaining({ version: "0.6.0", when: "idle" })]);
+    expect(requestedBeforeQuit).toBe(true);
+  });
+
+  it.each([
+    { name: "auto-update off", settings: { "updates.autoUpdate": false }, failedVersions: [] },
+    { name: "a pin", settings: { "updates.pinnedVersion": "0.6.0" }, failedVersions: [] },
+    { name: "a failed target", settings: {}, failedVersions: ["0.6.0"] },
+  ])("still installs the desktop without requesting an overlapping server update with $name", async ({ settings, failedVersions }) => {
+    const pending = { state: "waiting" as const, updateId: "0199aa00-0000-4000-8000-00000000000a", toVersion: "0.6.0", source: "channel" as const, since: "2026-09-24T00:00:00.000Z", deferUntil: "2026-09-25T00:00:00.000Z", image: null, waitsOn: null };
+    const { runtime, until, build, desk, shellCalls } = await launch({ settings, updates: { status: { version: RUNNING, newest: "0.6.0", pending, failedVersions }, desktopBuild: STAGED } });
+    await until(() => build().state === "ready", "staged the desktop");
+    await runtime.desktopUpdate.restart();
+    expect(params(desk, "updates.apply")).toEqual([]);
+    expect(shellCalls("update.apply")).toContainEqual([STAGED, "now"]);
+  });
+
   it("hands the shell a build for the next quit once, and a newer one staged later in its place", async () => {
     const { clock, desk, until, build, shellCalls } = await launch({ updates: { status: { newest: "0.6.0" }, desktopBuild: STAGED } });
     await until(() => build().state === "ready", "reported the build ready");

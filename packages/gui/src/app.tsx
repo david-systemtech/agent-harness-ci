@@ -1,8 +1,8 @@
 import { WebFrame, type WebFrameProps } from "./platform/web-frame.js";
 import type { Clock, Runtime, Shell } from "@agent-harness/client-runtime";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useRef, type ReactNode } from "react";
 import { WindowAttention } from "./attention/window-attention.js";
-import { LocalServiceProvider } from "./connections/local-service.js";
+import { LocalServiceProvider, useLocalService } from "./connections/local-service.js";
 import { PairingProvider } from "./connections/pairing.js";
 import { Frame } from "./frame/frame.js";
 import { KeyDispatch } from "./keys/key-dispatch.js";
@@ -19,6 +19,7 @@ import { TooltipProvider } from "./ui/tooltip.js";
 import { WindowProvider, useObservable, usePresentation, useRuntime } from "./window-context.js";
 
 export interface AppProps {
+  readonly afterUpdate?: boolean;
   /** The window's one client runtime, which every component renders from (ADR 0004). */
   readonly web?: WebFrameProps | undefined;
   readonly runtime: Runtime;
@@ -55,6 +56,17 @@ const WindowEnvironmentState = () => {
   return <span hidden data-window-environments={JSON.stringify(state)} />;
 };
 
+/** Keep the first-frame words through reconnect, but never show them for a later outage. */
+const UpdateStartup = () => {
+  const environments = useObservable(useRuntime().projections.environments);
+  const { failure } = useLocalService();
+  const finished = useRef(false);
+  const local = environments.find(view => view.kind === "local");
+  if (local?.phase === "ready" || local?.phase === "blocked" || failure !== undefined) finished.current = true;
+  if (finished.current || local?.credentialPrompt !== undefined) return null;
+  return <p role="status" className="p-3 text-ink">Updating the local environment, about a minute…</p>;
+};
+
 /**
  * The desktop window's renderer (docs/specs/gui.md): the frame over one
  * client runtime, painted with the home environment's theme from its first
@@ -69,11 +81,12 @@ const WindowEnvironmentState = () => {
  * is held for the life of the window (`RunChoicesProvider`), as is what the
  * sidebar keeps while it is hidden (`WindowSidebarProvider`).
  */
-export const App = ({ runtime, presentation, clock, version, macOS, shell, web, stepCards = STEP_CARDS }: AppProps) => (
+export const App = ({ runtime, presentation, clock, version, macOS, shell, web, afterUpdate = false, stepCards = STEP_CARDS }: AppProps) => (
   <WindowProvider runtime={runtime} presentation={presentation} clock={clock} version={version} shell={shell}>
     <WindowThemeProvider>
       <TooltipProvider>
         <LocalServiceProvider>
+          {afterUpdate && <UpdateStartup />}
           <PairingProvider>
             <WindowKeys macOS={macOS}>
               <SettingsProvider>
