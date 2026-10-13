@@ -4,7 +4,7 @@ import { FolderGit2, PanelLeftClose, Plug, Plus, RotateCcw, Search } from "lucid
 import { useFirstKey } from "../keys/key-dispatch.js";
 import { NewSessionButton } from "../new-session/control.js";
 import { useOpenPairing } from "../connections/pairing.js";
-import { focusedPane } from "../grid/layout.js";
+import { focusedPane, paneShowing } from "../grid/layout.js";
 import { useOpenInPane } from "../session/pane-line.js";
 import { classes } from "../ui/classes.js";
 import { Button, IconButton, Input, Tooltip } from "../ui/index.js";
@@ -81,19 +81,23 @@ const Headings = ({ onOpenSession }: SidebarProps) => {
     });
 
   const views = new Map(environments.map((view) => [view.environmentId, view]));
-  const shown = focusedPane(layout).session;
+  const focused = focusedPane(layout);
   /** Each row, taking a session dropped on it at its place in its heading's block, or refusing it in the filtered list (null). */
   const rows = (lines: readonly HeadingRow[], heading: SessionHeading | null) =>
-    lines.map((line) => (
-      <SessionRowView
-        key={line.key}
-        line={line}
-        environment={views.get(line.row.environmentId)}
-        current={shown?.environmentId === line.row.environmentId && shown.sessionId === line.row.summary.id}
-        drop={heading === null ? { kind: "filtered" } : { kind: "row", heading, at: heading.block.rows.findIndex((held) => rowKey(held) === line.key) }}
-        open={() => { onOpenSession?.(line.row.environmentId, line.row.summary.id); openInPane(line.row.environmentId, line.row.summary.id); if (phone.narrow) phone.showDrawer(false); }}
-      />
-    ));
+    lines.map((line) => {
+      const pane = paneShowing(layout, { environmentId: line.row.environmentId, sessionId: line.row.summary.id });
+      return (
+        <SessionRowView
+          key={line.key}
+          line={line}
+          environment={views.get(line.row.environmentId)}
+          current={pane?.id === focused.id}
+          inPane={pane !== undefined}
+          drop={heading === null ? { kind: "filtered" } : { kind: "row", heading, at: heading.block.rows.findIndex((held) => rowKey(held) === line.key) }}
+          open={() => { onOpenSession?.(line.row.environmentId, line.row.summary.id); openInPane(line.row.environmentId, line.row.summary.id); if (phone.narrow) phone.showDrawer(false); }}
+        />
+      );
+    });
 
   return (
     <nav aria-label="Sessions" className="flex h-full min-h-0 flex-col overflow-hidden">

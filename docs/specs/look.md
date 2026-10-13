@@ -520,8 +520,10 @@ outranks running cyan pulse, title truncates; trailing mono 2xs/faint relative
 age. Second line mono 2xs/faint:10px branch, account 8px square swatch/radius 3,
 account label capped 176, environment badge and the GUI's tags/receipt/PR data.
 Do not fabricate an account for unrecorded attribution. Hover wash; a session
-shown in the grid uses wash-strong/ink, archived 60% opaque, unreachable dim with
-its sentence. No active left rule. Counts have a gap, never join the heading.
+shown in the focused pane uses wash-strong/ink; sessions open in other panes
+use beam/10 with ink and an accessible "Open in a pane" description. Archived
+rows are 60% opaque; unreachable rows stay dim with their connection sentence.
+No active left rule. Counts have a gap, never join the heading.
 
 Headings: ChevronDown 10 rotates−90° when folded, Pin/Layers/Folder 10 beam-text,
 Archive 10 faint; label chrome-label, right count mono/faint. Rich row tooltip
