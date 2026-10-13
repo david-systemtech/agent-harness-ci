@@ -141,7 +141,7 @@ the environment runs on the host.
    version=0.1.20
    curl -fsSL -o compose.yaml "https://raw.githubusercontent.com/david-systemtech/agent-harness/v$version/scripts/compose.yaml"
    curl -fsSL -o host-updater.sh "https://raw.githubusercontent.com/david-systemtech/agent-harness/v$version/scripts/host-updater.sh"
-   printf '%s\n' "AGENT_HARNESS_IMAGE=ghcr.io/david-systemtech/agent-harness:$version" >> .env
+   printf '\n%s\n' "AGENT_HARNESS_IMAGE=ghcr.io/david-systemtech/agent-harness:$version" >> .env
    chmod +x host-updater.sh
    ```
 

@@ -66,7 +66,7 @@ export const installLines = (target: InstallTarget): InstallLines => {
       `${curl} -o compose.yaml ${release}/compose.yaml`,
       `${curl} -o host-updater.sh ${release}/host-updater.sh`,
       "chmod +x host-updater.sh",
-      `printf '%s\\n' ${shWord(`AGENT_HARNESS_IMAGE=${image}`)} >> .env`,
+      `printf '\\n%s\\n' ${shWord(`AGENT_HARNESS_IMAGE=${image}`)} >> .env`,
       ...(kind === "github" ? [] : [`docker login ${origin.replace(/^https?:\/\//, "")}`]),
       `${composeVariables} docker compose up -d`,
       "docker compose logs environment",

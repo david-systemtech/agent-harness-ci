@@ -219,7 +219,7 @@ describe("Add a device, Part 3: install agent-harness on another computer", () =
         `${tokenToCurl} -o compose.yaml ${release}/compose.yaml`,
         `${tokenToCurl} -o host-updater.sh ${release}/host-updater.sh`,
         "chmod +x host-updater.sh",
-        "printf '%s\\n' AGENT_HARNESS_IMAGE=git.example.test/david/agent-harness:0.0.0-fake >> .env",
+        "printf '\\n%s\\n' AGENT_HARNESS_IMAGE=git.example.test/david/agent-harness:0.0.0-fake >> .env",
       "docker login git.example.test",
         "AGENT_HARNESS_CHANNEL=beta AGENT_HARNESS_NAME='Build box' docker compose up -d",
         "docker compose logs environment",

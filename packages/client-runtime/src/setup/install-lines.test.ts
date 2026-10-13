@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ReleaseSource } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { installLines } from "./install-lines.js";
@@ -16,6 +20,24 @@ const RELEASE = "https://git.example.test/david/agent-harness/raw/tag/v0.4.2/scr
 const TOKEN_TO_CURL = `printf 'header = "Authorization: token %s"\\n' "$AGENT_HARNESS_TOKEN" | curl -K - -fsSL`;
 
 describe("the install lines", () => {
+  it.each([undefined, "", "AGENT_HARNESS_WEB_ORIGIN=https://host.test", "AGENT_HARNESS_WEB_ORIGIN=https://host.test\n"])("preserves existing settings when pinning the image in .env containing %j", (contents) => {
+    const cwd = mkdtempSync(join(tmpdir(), "install-lines-"));
+    try {
+      if (contents !== undefined) writeFileSync(join(cwd, ".env"), contents);
+      const lines = installLines({ releaseSource: FORGEJO, version: "0.4.2", channel: "stable", name: "" });
+      const pin = lines.compose[3];
+      if (pin === undefined) throw new Error("Missing compose image pin");
+      execFileSync("sh", ["-c", pin], { cwd });
+      const settings = readFileSync(join(cwd, ".env"), "utf8").split("\n").filter(Boolean);
+      expect(settings).toEqual([
+        ...(contents ? ["AGENT_HARNESS_WEB_ORIGIN=https://host.test"] : []),
+        "AGENT_HARNESS_IMAGE=git.example.test/david/agent-harness:0.4.2",
+      ]);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("downloads public GitHub installers anonymously, even when a private forge token is set in the user's shell", () => {
     const lines = installLines({ releaseSource: { origin: "https://github.com", kind: "github", repository: "owner/name" }, version: "0.4.2", channel: "beta", name: "Build box" });
     expect(lines.unix).toBe("curl -fsSL https://raw.githubusercontent.com/owner/name/v0.4.2/scripts/install.sh | sh -s -- --channel beta --name 'Build box'");
@@ -29,7 +51,7 @@ describe("the install lines", () => {
       "curl -fsSL -o compose.yaml https://raw.githubusercontent.com/owner/name/v0.4.2/scripts/compose.yaml",
       "curl -fsSL -o host-updater.sh https://raw.githubusercontent.com/owner/name/v0.4.2/scripts/host-updater.sh",
       "chmod +x host-updater.sh",
-      "printf '%s\\n' AGENT_HARNESS_IMAGE=ghcr.io/owner/name:0.4.2 >> .env",
+      "printf '\\n%s\\n' AGENT_HARNESS_IMAGE=ghcr.io/owner/name:0.4.2 >> .env",
       "AGENT_HARNESS_CHANNEL=beta AGENT_HARNESS_NAME=box docker compose up -d",
       "docker compose logs environment",
     ]);
@@ -56,7 +78,7 @@ describe("the install lines", () => {
       `${TOKEN_TO_CURL} -o compose.yaml ${RELEASE}/compose.yaml`,
       `${TOKEN_TO_CURL} -o host-updater.sh ${RELEASE}/host-updater.sh`,
       "chmod +x host-updater.sh",
-      "printf '%s\\n' AGENT_HARNESS_IMAGE=git.example.test/david/agent-harness:0.4.2 >> .env",
+      "printf '\\n%s\\n' AGENT_HARNESS_IMAGE=git.example.test/david/agent-harness:0.4.2 >> .env",
       "docker login git.example.test",
       "AGENT_HARNESS_CHANNEL=beta AGENT_HARNESS_NAME=box docker compose up -d",
       "docker compose logs environment",
