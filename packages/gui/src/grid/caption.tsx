@@ -42,7 +42,7 @@ const CaptionBar = ({ marked, close, children }: CaptionProps & { readonly child
     <div
       data-pane-caption
       hidden={close === undefined}
-      className={classes("h-8 shrink-0 items-center gap-1.5 border-b border-hairline px-2.5 text-sm", close === undefined ? "hidden" : "flex", marked && "bg-wash")}
+      className={classes("h-8 shrink-0 border-b border-hairline text-sm", close === undefined ? "hidden" : "flex", marked && "bg-wash")}
       draggable={close !== undefined && id !== null}
       onPointerDownCapture={(event) => {
         pressedControl.current = event.target instanceof Element && event.target.closest("button, input, a") !== null;
@@ -55,15 +55,17 @@ const CaptionBar = ({ marked, close, children }: CaptionProps & { readonly child
       }}
       onDragEnd={() => grid.drag(null)}
     >
-      {children}
-      {close !== undefined && (
-        <IconButton label="Close the pane" size="icon-xs"
-          onPointerDown={(event) => event.stopPropagation()}
-          onFocus={(event) => event.stopPropagation()}
-          onClick={close}>
-          <X aria-hidden="true" />
-        </IconButton>
-      )}
+      <div data-caption-content className="flex h-full min-w-0 flex-1 items-center gap-1.5 px-2.5">
+        {children}
+        {close !== undefined && (
+          <IconButton label="Close the pane" size="icon-xs"
+            onPointerDown={(event) => event.stopPropagation()}
+            onFocus={(event) => event.stopPropagation()}
+            onClick={close}>
+            <X aria-hidden="true" />
+          </IconButton>
+        )}
+      </div>
     </div>
   );
 };
@@ -89,21 +91,25 @@ export const SessionCaption = ({ session, ...bar }: CaptionProps & { readonly se
 
   return (
     <CaptionBar {...bar}>
-      <EnvironmentGlyph view={environment} label={environment?.name ?? THIS_MACHINE} />
-      {summary !== null && <WorkspaceNote workspace={summary.workspace} />}
-      <ChevronRight aria-hidden="true" className="size-3 shrink-0 text-ink-faint" />
-      {editing ? (
-        <RenameField label={`Rename ${quoted(name)}`} value={name} maxLength={TITLE_MOST} close={() => setEditing(false)} commit={rename} />
-      ) : (
-        <Tooltip content={`Rename “${name}”`}><button
-          type="button"
-          aria-label={`Rename ${quoted(name)}`}
-          className="min-w-0 truncate rounded-sm px-1 text-left font-medium text-ink outline-none hover:bg-wash focus-visible:outline-2 focus-visible:outline-beam"
-          onClick={() => setEditing(true)}
-        >
-          <Pencil aria-hidden="true" className="mr-1 inline size-3" />{name}
-        </button></Tooltip>
-      )}
+      <div data-caption-identity className="flex min-w-0 flex-1 items-center gap-1">
+        <EnvironmentGlyph view={environment} label={environment?.name ?? THIS_MACHINE} />
+        {summary !== null && <WorkspaceNote workspace={summary.workspace} />}
+        <ChevronRight data-caption-divider aria-hidden="true" className="size-3 shrink-0 text-ink-faint" />
+        <div data-caption-title className="min-w-0 flex-1">
+          {editing ? (
+            <RenameField label={`Rename ${quoted(name)}`} value={name} maxLength={TITLE_MOST} close={() => setEditing(false)} commit={rename} />
+          ) : (
+            <Tooltip content={`Rename “${name}”`}><button
+              type="button"
+              aria-label={`Rename ${quoted(name)}`}
+              className="w-full min-w-0 truncate rounded-sm px-1 text-left font-medium text-ink outline-none hover:bg-wash focus-visible:outline-2 focus-visible:outline-beam"
+              onClick={() => setEditing(true)}
+            >
+              <Pencil aria-hidden="true" className="mr-1 inline size-3" />{name}
+            </button></Tooltip>
+          )}
+        </div>
+      </div>
       <PullRequestLinks pullRequests={summary?.pullRequests ?? []} />
       <span title={["Run info", infoKeys].filter(Boolean).join(" · ")} data-caption-run-info className="relative ml-auto shrink-0 [&>button]:size-6 [&>button]:p-0 [&>button]:text-[0px]">
           <RunInfo environmentId={environmentId} sessionId={sessionId} />
@@ -121,9 +127,9 @@ export const SessionCaption = ({ session, ...bar }: CaptionProps & { readonly se
 const WorkspaceNote = ({ workspace }: { readonly workspace: Workspace }) => {
   const label = workspaceLabel(workspace);
   return (
-    <span role="note" aria-label={`Workspace: ${label}`} title={workspace.path} className="flex min-w-0 shrink items-center gap-1 rounded-md bg-wash px-1.5 py-0.5 text-xs text-ink-muted">
-      <Folder aria-hidden="true" className="size-3 shrink-0" /><span className="truncate">{workspaceName(workspace)}</span>
-      {workspace.kind === "worktree" && <span className="max-w-20 shrink-0 truncate rounded-sm bg-wash-strong px-1 font-mono text-2xs">{workspace.branch}</span>}
+    <span role="note" aria-label={`Workspace: ${label}`} title={workspace.path} className="flex min-w-0 max-w-[30%] shrink items-center gap-1 rounded-md bg-wash px-1.5 py-0.5 text-xs text-ink-muted">
+      <Folder aria-hidden="true" className="size-3 shrink-0" /><span data-caption-workspace-name className="min-w-0 flex-1 truncate">{workspaceName(workspace)}</span>
+      {workspace.kind === "worktree" && <span data-caption-workspace-branch className="min-w-0 max-w-[40%] shrink truncate rounded-sm bg-wash-strong px-1 font-mono text-2xs">{workspace.branch}</span>}
     </span>
   );
 };
