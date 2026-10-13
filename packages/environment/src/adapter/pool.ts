@@ -28,7 +28,8 @@ import type { ProcessPort } from "./contract.js";
  * idle for the idle time with no held work (a live background task, a
  * registered schedule) stops, the time counted from the end of its last
  * turn or the release of its last hold, whichever is later; a process parked
- * for the idle time is handed to the host, which ends its run `interrupted`
+ * with no held work waits from parking or its last hold's release, whichever
+ * is later, then is handed to the host, which ends its run `interrupted`
  * with cause `parked` and stops it. Each wait is one timer on the
  * environment's clock, armed when it begins and cancelled when it ends, so a
  * stop falls exactly on its instant and nothing wakes while nothing waits.
@@ -72,7 +73,7 @@ export interface ProcessPoolOptions {
   readonly stopProcess: (sessionId: string, provider: string, options?: { readonly kill?: boolean }) => void | Promise<void>;
   /** How long closing waits for the stops before it kills what is left, on the clock. Preset: `PROCESS_STOP_TIMEOUT_MS`. */
   readonly stopTimeoutMs?: number;
-  /** The session's process has been parked for the idle time: the host ends its run `interrupted`, cause `parked`, and stops it. */
+  /** The session's process has been parked with no held work for the idle time: the host ends its run `interrupted`, cause `parked`, and stops it. */
   readonly onParkedTooLong: (sessionId: string) => void;
   /** The current process stopped or exited; a replaced process never calls this. */
   readonly onStopped?: (sessionId: string) => void;
@@ -83,7 +84,7 @@ export interface ProcessPool {
   begin(sessionId: string, provider: string, runId: string): void;
   /** The run's provider has answered (its first event): a starting process is busy; a parked one stays parked. */
   answered(sessionId: string, runId: string): void;
-  /** The run waits on a raised prompt: a starting or busy process parks, and its parked wait begins. */
+  /** The run waits on a raised prompt: a starting or busy process parks, and its parked wait begins unless held. */
   park(sessionId: string, runId: string): void;
   /** The run's prompts are answered: it is busy again. */
   unpark(sessionId: string, runId: string): void;
@@ -210,11 +211,11 @@ export const createProcessPool = (options: ProcessPoolOptions): ProcessPool => {
     });
   };
 
-  /** A parked process waits out its idle time, then is handed to the host. */
-  const waitParked = (entry: ProcessEntry): void => {
-    if (entry.state !== "parked" || entry.parkedSince === null) return disarm(entry);
-    arm(entry, entry.parkedSince, () => {
-      if (entry.state !== "parked") return;
+  /** A parked process with no held work waits out its idle time, then is handed to the host. */
+  const waitParked = (entry: ProcessEntry, from = entry.parkedSince): void => {
+    if (entry.state !== "parked" || entry.holds.size > 0 || from === null) return disarm(entry);
+    arm(entry, from, () => {
+      if (entry.state !== "parked" || entry.holds.size > 0) return;
       try {
         options.onParkedTooLong(entry.sessionId);
       } catch (error) {
@@ -279,14 +280,16 @@ export const createProcessPool = (options: ProcessPoolOptions): ProcessPool => {
       const key = `${kind}:${id}`;
       if (entry.holds.has(key)) return;
       entry.holds.set(key, { kind, id });
-      if (entry.state === "idle") disarm(entry);
+      if (entry.state === "idle" || entry.state === "parked") disarm(entry);
     },
     unhold(kind: ProcessHoldKind, id: string) {
       if (entry.state === "stopping" || entry.state === "stopped") return;
-      if (!entry.holds.delete(`${kind}:${id}`) || entry.holds.size > 0 || entry.state !== "idle") return;
-      entry.idleSince = now();
-      if (draining) void stop(entry, "drain");
-      else waitIdle(entry);
+      if (!entry.holds.delete(`${kind}:${id}`) || entry.holds.size > 0) return;
+      if (entry.state === "idle") {
+        entry.idleSince = now();
+        if (draining) void stop(entry, "drain");
+        else waitIdle(entry);
+      } else if (entry.state === "parked") waitParked(entry, now());
     },
     exited() {
       if (entry.state === "stopping" || entry.state === "stopped") return;

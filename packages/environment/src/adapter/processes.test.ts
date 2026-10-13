@@ -475,6 +475,89 @@ describe("a stop by another cause", () => {
 });
 
 describe("a parked process", () => {
+  it("cancels a parked wait for new background work, restarts after each release, and resumes when answered", async () => {
+    const addTask = gate();
+    const task = gate();
+    const addSchedule = gate();
+    const schedule = gate();
+    const t = await start({
+      script: async function* (args) {
+        void addTask.opened.then(() => args.context.process.hold("task", "agent_1"));
+        void task.opened.then(() => args.context.process.unhold("task", "agent_1"));
+        void addSchedule.opened.then(() => args.context.process.hold("schedule", "cron_1"));
+        void schedule.opened.then(() => args.context.process.unhold("schedule", "cron_1"));
+        yield* askingScript(Promise.resolve())(args);
+      },
+    });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { runId } = await startRun(client, id);
+    await vi.waitFor(async () => expect(await processOf(client, id)).toMatchObject({ state: "parked", stopsAt: at(IDLE) }));
+
+    t.clock.advance(IDLE - 1);
+    addTask.open();
+    await addTask.opened;
+    t.clock.advance(IDLE);
+    expect(await processOf(client, id)).toMatchObject({ state: "parked", holds: [{ kind: "task", id: "agent_1" }], stopsAt: null });
+    expect(endOf(t, id, runId)).toBeUndefined();
+
+    task.open();
+    await task.opened;
+    expect(await processOf(client, id)).toMatchObject({ holds: [], stopsAt: at(3 * IDLE - 1) });
+    t.clock.advance(IDLE - 1);
+    addSchedule.open();
+    await addSchedule.opened;
+    t.clock.advance(IDLE);
+    expect(await processOf(client, id)).toMatchObject({ state: "parked", holds: [{ kind: "schedule", id: "cron_1" }], stopsAt: null });
+
+    schedule.open();
+    await schedule.opened;
+    const answeredAt = 4 * IDLE - 2;
+    expect(await processOf(client, id)).toMatchObject({ parkedSince: at(0), holds: [], stopsAt: at(answeredAt + IDLE) });
+    await answerOldest(client);
+    expect(await untilEnded(t, id, runId)).toMatchObject({ payload: { reason: "completed" } });
+    expect(await processOf(client, id)).toMatchObject({ state: "idle", parkedSince: null, stopsAt: at(answeredAt + IDLE) });
+    expect(await parkedPrompts(client)).toEqual([]);
+    t.clock.advance(IDLE);
+    expect(await processOf(client, id)).toMatchObject({ state: "stopped", stopReason: "idle" });
+  });
+
+  it("keeps background work while parked and starts its idle wait only after the last hold releases", async () => {
+    const task = gate();
+    const schedule = gate();
+    const adapter = fakeAdapter();
+    adapter.nextScripts.push(backgroundTask("agent_1", task.opened), backgroundTask("cron_1", schedule.opened, "schedule"), askingScript(Promise.resolve()));
+    const t = await start(adapter);
+    const client = await t.client();
+    const { id } = await create(client);
+    await untilEnded(t, id, (await startRun(client, id, "Start a background agent")).runId);
+    await untilEnded(t, id, (await startRun(client, id, "Register a schedule")).runId);
+    const { runId } = await startRun(client, id);
+    await vi.waitFor(async () => expect(await processOf(client, id)).toMatchObject({ state: "parked", runId }));
+
+    t.clock.advance(2 * IDLE);
+    expect(await processOf(client, id)).toMatchObject({ state: "parked", runId, parkedSince: at(0), stopsAt: null });
+    expect(endOf(t, id, runId)).toBeUndefined();
+    expect(adapter.processesOf(id)[0]?.stopped).toBe(false);
+    expect((await parkedPrompts(client)).map((prompt) => prompt.sessionId)).toEqual([id]);
+
+    task.open();
+    await task.opened;
+    expect(await processOf(client, id)).toMatchObject({ holds: [{ kind: "schedule", id: "cron_1" }], stopsAt: null });
+    t.clock.advance(IDLE);
+    schedule.open();
+    await schedule.opened;
+    const releasedAt = 3 * IDLE;
+    expect(await processOf(client, id)).toMatchObject({ state: "parked", parkedSince: at(0), holds: [], stopsAt: at(releasedAt + IDLE) });
+
+    t.clock.advance(IDLE - 1);
+    expect(endOf(t, id, runId)).toBeUndefined();
+    t.clock.advance(1);
+    expect(await untilEnded(t, id, runId)).toMatchObject({ payload: { reason: "interrupted", cause: "parked" } });
+    expect(await processOf(client, id)).toMatchObject({ state: "stopped", stopReason: "parked", stoppedAt: at(releasedAt + IDLE) });
+    expect((await parkedPrompts(client)).map((prompt) => prompt.sessionId)).toEqual([id]);
+  });
+
   it("counts as busy for ten minutes only, and stops once parked for the idle time: its run ends interrupted with cause parked, and its prompt stays open", async () => {
     const ask = gate();
     const t = await start({ script: askingScript(ask.opened) });
