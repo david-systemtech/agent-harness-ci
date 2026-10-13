@@ -1,5 +1,5 @@
 import { uuidv4, type NewSessionChips } from "@agent-harness/client-runtime";
-import { createContext, use, useMemo, useState, useCallback, useEffect, useRef, type ReactNode } from "react";
+import { createContext, use, useMemo, useState, useCallback, useEffect, useRef, type ReactNode, type RefCallback } from "react";
 import { usePhoneFrame } from "../frame/phone-frame.js";
 import { toast } from "../ui/toaster.js";
 import type { Offer } from "../keys/key-dispatch.js";
@@ -13,7 +13,7 @@ import {
   chooseChips,
   focusPane,
   focusedPane,
-  isFull,
+  paneAdditionReason,
   openBeside,
   paneShowing,
   removePane,
@@ -32,6 +32,26 @@ import {
  * does something clears it.
  */
 
+interface RowSizes {
+  readonly widths: Readonly<Record<string, number>>;
+  measure(rowId: string, width: number | undefined): void;
+}
+const RowSizeContext = createContext<RowSizes | null>(null);
+
+/** Measures the row's visible width; a retained wide layout may scroll inside it. */
+export const useMeasureGridRow = (rowId: string): RefCallback<HTMLDivElement> => {
+  const sizes = use(RowSizeContext);
+  const measure = sizes?.measure;
+  return useCallback(node => {
+    if (node === null || measure === undefined) return;
+    const update = () => measure(rowId, node.offsetWidth);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => { observer.disconnect(); measure(rowId, undefined); };
+  }, [rowId, measure]);
+};
+
 const DragContext = createContext<readonly [string | null, (id: string | null) => void] | null>(null);
 
 const PHONE_SPLIT_REASON = "Split needs a wide layout: at least 640px and not a short touch screen.";
@@ -43,6 +63,15 @@ const RefusalContext = createContext<((message: string | undefined) => void) | n
 
 /** Holds caption drags and the refusal toast around the window's grid controls. */
 export const PaneGridProvider = ({ children }: { readonly children: ReactNode }) => {
+  const [widths, setWidths] = useState<Readonly<Record<string, number>>>({});
+  const measure = useCallback((rowId: string, width: number | undefined) => setWidths(held => {
+    if (held[rowId] === width) return held;
+    const next = { ...held };
+    if (width === undefined) delete next[rowId];
+    else next[rowId] = width;
+    return next;
+  }), []);
+  const sizes = useMemo(() => ({ widths, measure }), [widths, measure]);
   const [dragged, drag] = useState<string | null>(null);
   const carried = useMemo(() => [dragged, drag] as const, [dragged]);
   const currentToast = useRef<string | number | null>(null);
@@ -60,7 +89,7 @@ export const PaneGridProvider = ({ children }: { readonly children: ReactNode })
     currentToast.current = id;
   }, []);
   useEffect(() => () => { if (currentToast.current !== null) toast.dismiss(currentToast.current); }, []);
-  return <RefusalContext value={say}><DragContext value={carried}>{children}</DragContext></RefusalContext>;
+  return <RowSizeContext value={sizes}><RefusalContext value={say}><DragContext value={carried}>{children}</DragContext></RefusalContext></RowSizeContext>;
 };
 
 const useRefusal = () => {
@@ -93,17 +122,19 @@ export interface PaneGrid {
   move(paneId: string, zone: "centre" | SplitDirection): void;
   drag(id: string | null): void;
   readonly focused: GridPane;
-  /** Whether a pane can be added now: absent, with `GRID_FULL`, while the grid holds eight. */
+  /** Whether a pane can be added to the focused row now, with a reason when it cannot fit. */
   readonly adding: Offer;
+  addingBeside(paneId: string, direction: SplitDirection): Offer;
+  movingBeside(paneId: string, direction: SplitDirection): Offer;
   /** Adds a pane beside the focused one, with no session, and focuses it; or says the grid is full. */
   split(direction: SplitDirection): void;
   /** Opens `session` in a pane added beside the pane `paneId` (a session shown already is focused where it is); or says the grid is full. */
   openBeside(paneId: string, direction: SplitDirection, session: PaneSession): void;
   /** Whether `session` can be opened in a new pane now: absent, with `GRID_FULL`, while that would add a pane to a grid of eight. */
-  openingBeside(session: PaneSession): Offer;
+  openingBeside(session: PaneSession, paneId?: string, direction?: SplitDirection): Offer;
   /** Shows `session` in the pane `paneId`, focused (a session shown already is focused where it is). */
   show(paneId: string, session: PaneSession): void;
-  /** Closes the pane `paneId`, its space going to its neighbour. */
+  /** Closes the pane `paneId`, sharing its row equally. */
   close(paneId: string): void;
   /** Focuses the pane `paneId`. */
   focus(paneId: string): void;
@@ -129,28 +160,37 @@ export interface PaneGrid {
 export const usePaneGrid = (): PaneGrid => {
   const { narrow } = usePhoneFrame();
   const [layout, setLayout] = usePresentation("paneLayout");
+  const widths = use(RowSizeContext)?.widths ?? {};
   const runtime = useRuntime();
   const { messages } = useSurfaces();
   const say = useRefusal();
   const [dragged, drag] = use(DragContext) ?? [null, () => {}];
   return useMemo<PaneGrid>(() => {
-    /** Makes the change, saying the grid is full when it cannot be made; answers whether it was made. */
-    const add = (change: (held: PaneLayout) => PaneLayout | undefined): boolean => {
+    const rowWidth = (held: PaneLayout, paneId: string) => widths[held.rows.find(row => row.panes.some(pane => pane.id === paneId))?.id ?? ""];
+    const reason = (held: PaneLayout, paneId: string, direction: SplitDirection) => paneAdditionReason(held, paneId, direction, rowWidth(held, paneId));
+    const addingBeside = (paneId: string, direction: SplitDirection): Offer => {
+      const message = narrow ? PHONE_SPLIT_REASON : reason(layout, paneId, direction);
+      return message === undefined ? PRESENT : { status: "absent", message };
+    };
+    /** Makes the change, saying why it cannot fit; answers whether it was made. */
+    const add = (paneId: string, direction: SplitDirection, change: (held: PaneLayout, width: number | undefined) => PaneLayout | undefined, session?: PaneSession): boolean => {
       if (narrow) { say(PHONE_SPLIT_REASON); return false; }
       let refused = false;
+      let message: string | undefined;
       setLayout((held) => {
-        const next = change(held);
+        const alreadyShown = session !== undefined && paneShowing(held, session) !== undefined;
+        message = alreadyShown ? undefined : reason(held, paneId, direction);
+        const next = message === undefined ? change(held, rowWidth(held, paneId)) : undefined;
         refused = next === undefined;
         return next ?? held;
       });
-      say(refused ? GRID_FULL : undefined);
+      say(refused ? message ?? GRID_FULL : undefined);
       return !refused;
     };
     const change = (step: (held: PaneLayout) => PaneLayout) => {
       say(undefined);
       setLayout(step);
     };
-    const full: Offer = { status: "absent", message: GRID_FULL };
     return {
       dragged, drag,
       move: (paneId, zone) => {
@@ -164,16 +204,25 @@ export const usePaneGrid = (): PaneGrid => {
             focused: from.id,
             rows: held.rows.map((row) => ({ ...row, panes: row.panes.map((pane) => pane.id === from.id ? { ...to, width: pane.width } : pane.id === to.id ? { ...from, width: pane.width } : pane) })),
           };
-          const next = addPane(removePane(held, from.id), to.id, zone);
+          const removed = removePane(held, from.id);
+          const message = reason(removed, to.id, zone);
+          if (message !== undefined) { say(message); return held; }
+          const next = addPane(removed, to.id, zone, null, rowWidth(held, to.id));
           if (next === undefined) return held;
           return { focused: from.id, rows: next.rows.map((row) => ({ ...row, panes: row.panes.map((pane) => pane.id === next.focused ? { ...from, width: pane.width } : pane) })) };
         });
       },
       focused: focusedPane(layout),
-      adding: narrow ? { status: "absent", message: PHONE_SPLIT_REASON } : isFull(layout) ? full : PRESENT,
-      split: (direction) => add((held) => addPane(held, held.focused, direction)),
-      openBeside: (paneId, direction, session) => add((held) => openBeside(held, paneId, direction, session)),
-      openingBeside: (session) => narrow ? { status: "absent", message: PHONE_SPLIT_REASON } : (isFull(layout) && paneShowing(layout, session) === undefined ? full : PRESENT),
+      adding: addingBeside(layout.focused, "right"),
+      addingBeside,
+      movingBeside: (paneId, direction) => {
+        const removed = dragged === null ? layout : removePane(layout, dragged);
+        const message = narrow ? PHONE_SPLIT_REASON : reason(removed, paneId, direction);
+        return message === undefined ? PRESENT : { status: "absent", message };
+      },
+      split: (direction) => add(layout.focused, direction, (held, width) => addPane(held, held.focused, direction, null, width)),
+      openBeside: (paneId, direction, session) => add(paneId, direction, (held, width) => openBeside(held, paneId, direction, session, width), session),
+      openingBeside: (session, paneId = layout.focused, direction = "right") => narrow || paneShowing(layout, session) === undefined ? addingBeside(paneId, direction) : PRESENT,
       show: (paneId, session) => change((held) => showSession(held, paneId, session)),
       close: (paneId) => change((held) => removePane(held, paneId)),
       focus: (paneId) => setLayout((held) => focusPane(held, paneId)),
@@ -208,10 +257,10 @@ export const usePaneGrid = (): PaneGrid => {
       },
       newSessionBeside: (paneId, direction, carried) => {
         const id = uuidv4();
-        return add((held) => addNewSession(held, paneId, direction, carried, id)) ? id : undefined;
+        return add(paneId, direction, (held, width) => addNewSession(held, paneId, direction, carried, id, width)) ? id : undefined;
       },
       chooseChips: (id, choose) => setLayout((held) => chooseChips(held, id, choose)),
       refuse: (line = GRID_FULL) => say(line),
     };
-  }, [layout, setLayout, say, dragged, drag, narrow, runtime, messages]);
+  }, [layout, setLayout, say, dragged, drag, narrow, runtime, messages, widths]);
 };

@@ -1,5 +1,6 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { expect, it } from "vitest";
+import { script as threeScript, presentation as threePresentation } from "../gallery/scenes/grid-three.js";
 import GridTwo from "../gallery/scenes/grid-two.js";
 import GridDrop from "../gallery/scenes/grid-drop.js";
 import { geometry as gridTwoGeometry, script, presentation } from "../gallery/scenes/grid-two.js";
@@ -62,4 +63,18 @@ it("the gallery panes use a complete workspace-check script", async () => {
     expect(await screen.findAllByText("After-edit check: off")).toHaveLength(2);
     expect(screen.queryByText(/The fake environment has no method/)).toBeNull();
   } finally { view.unmount(); }
+});
+
+it("grid-three opens three actual conversations in equal shares, with a scrollport retaining their pixel floor", async () => {
+  await renderApp(threeScript, { presentation: threePresentation });
+  await screen.findByRole("button", { name: "Rename “Compare the totals”" });
+  expect(screen.getAllByRole("button", { name: "Close the pane" })).toHaveLength(3);
+  await waitFor(() => {
+    const dividers = screen.getAllByRole("separator", { name: "Resize the panes" });
+    expect(dividers).toHaveLength(2);
+    for (const divider of dividers) expect(Number(divider.getAttribute("aria-valuenow"))).toBeCloseTo(100 / 3, 2);
+  });
+  const viewport = document.querySelector("[data-grid-row-viewport]")!;
+  expect(viewport.classList.contains("overflow-x-auto")).toBe(true);
+  expect((viewport.firstElementChild as HTMLElement).style.minWidth).toBe("1094px");
 });

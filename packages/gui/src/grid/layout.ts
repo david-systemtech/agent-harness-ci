@@ -6,8 +6,9 @@ import { PANES_MOST, type GridPane, type GridRow, type PaneLayout, type PaneSess
  * grid"; #407): rows of session panes, eight at most, the layout
  * presentation keeps (`paneLayout`). Right grows the pane's row; down adds a
  * row across the grid under the pane's row, so a third pane under a pair
- * spans the window rather than quartering it. A pane closed gives its space
- * to its neighbour, a row with it when it was the row's last, and the grid
+ * spans the window rather than quartering it. Opening or closing a pane
+ * shares its row equally, including after divider adjustments. A row goes
+ * with its last pane, and the grid
  * keeps at least one pane. A session shows in one pane at a time: opening
  * one already shown focuses its pane. A pane shows a session, the
  * new-session surface (#420), or neither. Each function takes the layout
@@ -16,6 +17,20 @@ import { PANES_MOST, type GridPane, type GridRow, type PaneLayout, type PaneSess
 
 /** What each way of adding a pane says while the grid holds eight. */
 export const GRID_FULL = "The grid holds eight panes; close one first.";
+
+/** Pixel floor shared by admission and divider constraints. */
+export const PANE_LEAST = 360;
+export const PANE_DIVIDER = 7;
+export const ROW_TOO_NARROW = "This row needs more width for another 360px pane; widen the window or split down.";
+export const rowMinimumWidth = (count: number): number => count * PANE_LEAST + (count - 1) * PANE_DIVIDER;
+
+/** Why adding here cannot fit, using the row's measured viewport, including its dividers. */
+export const paneAdditionReason = (layout: PaneLayout, paneId: string, direction: SplitDirection, rowWidth?: number): string | undefined => {
+  if (isFull(layout)) return GRID_FULL;
+  const row = layout.rows.find(row => row.panes.some(pane => pane.id === paneId));
+  const count = direction === "right" ? (row?.panes.length ?? 0) + 1 : 1;
+  return rowWidth !== undefined && rowWidth < rowMinimumWidth(count) ? ROW_TOO_NARROW : undefined;
+};
 
 /** Where a pane is added beside another: after it in its row, or in a row of its own under the pane's row. */
 export type SplitDirection = "right" | "down";
@@ -117,26 +132,26 @@ const freshId = (layout: PaneLayout, kind: "row" | "pane", after = 0): string =>
 
 /**
  * Adds a pane beside the pane `paneId`, showing `session` (none by default),
- * and focuses it: `right` puts it after the pane in its row, the two sharing
- * the pane's width; `down` puts a row across the grid under the pane's row,
+ * and focuses it: `right` puts it after the pane in its row, every pane
+ * sharing the row equally; `down` puts a row across the grid under the pane's row,
  * the two rows sharing its height. Undefined while the grid holds eight
- * panes, or holds no pane `paneId`.
+ * panes, cannot fit the measured row width, or holds no pane `paneId`.
  */
-export const addPane = (layout: PaneLayout, paneId: string, direction: SplitDirection, session: PaneSession | null = null): PaneLayout | undefined =>
-  addBeside(layout, paneId, direction, { session });
+export const addPane = (layout: PaneLayout, paneId: string, direction: SplitDirection, session: PaneSession | null = null, rowWidth?: number): PaneLayout | undefined =>
+  addBeside(layout, paneId, direction, { session }, rowWidth);
 
 /**
  * Adds a pane beside the pane `paneId` as `addPane` does, holding a
  * new-session surface under the id `id`, preset beside that pane for the
  * environment `carried` (`newSessionFocus`), and focuses it; no pane's
  * session is replaced. Undefined while the grid holds eight panes, or holds
- * no pane `paneId`.
+ * no pane `paneId`, or cannot fit the measured row width.
  */
-export const addNewSession = (layout: PaneLayout, paneId: string, direction: SplitDirection, carried: string | null, id: string): PaneLayout | undefined =>
-  addBeside(layout, paneId, direction, { session: null, newSession: { id, focus: newSessionFocus(layout, carried, paneId), chips: {} } });
+export const addNewSession = (layout: PaneLayout, paneId: string, direction: SplitDirection, carried: string | null, id: string, rowWidth?: number): PaneLayout | undefined =>
+  addBeside(layout, paneId, direction, { session: null, newSession: { id, focus: newSessionFocus(layout, carried, paneId), chips: {} } }, rowWidth);
 
-const addBeside = (layout: PaneLayout, paneId: string, direction: SplitDirection, contents: PaneContents): PaneLayout | undefined => {
-  if (isFull(layout) || !holds(layout, paneId)) return undefined;
+const addBeside = (layout: PaneLayout, paneId: string, direction: SplitDirection, contents: PaneContents, rowWidth?: number): PaneLayout | undefined => {
+  if (paneAdditionReason(layout, paneId, direction, rowWidth) !== undefined || !holds(layout, paneId)) return undefined;
   const added: GridPane = { id: freshId(layout, "pane"), width: 100, ...contents };
   const rows = layout.rows.flatMap((row): GridRow[] => {
     const at = row.panes.findIndex((pane) => pane.id === paneId);
@@ -146,8 +161,8 @@ const addBeside = (layout: PaneLayout, paneId: string, direction: SplitDirection
       const height = row.height / 2;
       return [{ ...row, height }, { id: freshId(layout, "row", 1), panes: [added], height }];
     }
-    const width = beside.width / 2;
-    return [{ ...row, panes: [...row.panes.slice(0, at), { ...beside, width }, { ...added, width }, ...row.panes.slice(at + 1)] }];
+    const panes = [...row.panes.slice(0, at + 1), added, ...row.panes.slice(at + 1)];
+    return [{ ...row, panes: equalWidths(panes) }];
   });
   return { rows, focused: added.id };
 };
@@ -155,19 +170,21 @@ const addBeside = (layout: PaneLayout, paneId: string, direction: SplitDirection
 /**
  * Opens `session` in a pane added beside the pane `paneId` (`addPane`); a
  * session another pane shows already is focused there instead, and nothing
- * is added. Undefined when a pane would be added to a grid of eight.
+ * is added. Undefined when a new pane cannot fit the grid or measured row.
  */
-export const openBeside = (layout: PaneLayout, paneId: string, direction: SplitDirection, session: PaneSession): PaneLayout | undefined => {
+export const openBeside = (layout: PaneLayout, paneId: string, direction: SplitDirection, session: PaneSession, rowWidth?: number): PaneLayout | undefined => {
   const showing = paneShowing(layout, session);
-  return showing === undefined ? addPane(layout, paneId, direction, session) : focusPane(layout, showing.id);
+  return showing === undefined ? addPane(layout, paneId, direction, session, rowWidth) : focusPane(layout, showing.id);
 };
 
+const equalWidths = (panes: readonly GridPane[]): readonly GridPane[] => panes.map(pane => ({ ...pane, width: 100 / panes.length }));
+
 /**
- * Closes the pane `paneId`. Its width goes to its neighbour in its row, the
- * pane before it (after it, for the first); a row it leaves empty goes, its
+ * Closes the pane `paneId`, sharing its row equally, including after divider
+ * adjustments. A row it leaves empty goes, its
  * height to the row above (below, for the first). The focus, when it was on
- * the pane closed, moves to the pane that took its space (the first of the
- * row that did). The grid's last pane is not closed.
+ * the pane closed, moves to its neighbour (the first pane of the
+ * neighbouring row when its row went). The grid's last pane is not closed.
  */
 export const removePane = (layout: PaneLayout, paneId: string): PaneLayout => {
   const r = layout.rows.findIndex((row) => row.panes.some((pane) => pane.id === paneId));
@@ -176,10 +193,9 @@ export const removePane = (layout: PaneLayout, paneId: string): PaneLayout => {
   const heir = (id: string) => (layout.focused === paneId ? id : layout.focused);
   if (row.panes.length > 1) {
     const at = row.panes.findIndex((pane) => pane.id === paneId);
-    const closed = row.panes[at] as GridPane;
     const n = at === 0 ? 1 : at - 1;
     const neighbour = row.panes[n] as GridPane;
-    const panes = row.panes.flatMap((pane, index) => (index === at ? [] : index === n ? [{ ...pane, width: pane.width + closed.width }] : [pane]));
+    const panes = equalWidths(row.panes.filter(pane => pane.id !== paneId));
     return { rows: layout.rows.map((held, index) => (index === r ? { ...held, panes } : held)), focused: heir(neighbour.id) };
   }
   const n = r === 0 ? 1 : r - 1;

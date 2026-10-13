@@ -6,8 +6,8 @@ import { KeysAnswered } from "../keys/key-dispatch.js";
 import type { GridPane, GridRow } from "../presentation.js";
 import { usePresentation } from "../window-context.js";
 import { DropZones } from "./drop-zones.js";
-import { InGridPane, usePaneGrid } from "./grid.js";
-import { panesOf, resizeRow, resizeRows, sharesOf } from "./layout.js";
+import { InGridPane, useMeasureGridRow, usePaneGrid } from "./grid.js";
+import { panesOf, resizeRow, resizeRows, sharesOf, PANE_LEAST, rowMinimumWidth } from "./layout.js";
 import { classes } from "../ui/classes.js";
 import { EmptyPane, NewSessionPane, SessionPane } from "./session-pane.js";
 
@@ -23,7 +23,6 @@ import { EmptyPane, NewSessionPane, SessionPane } from "./session-pane.js";
  */
 
 /** The least a pane's width and a row's height may be, in pixels (chosen defaults): a composer and a few lines stay usable. */
-const PANE_LEAST = 360;
 const ROW_LEAST = 220;
 
 const DIVIDER = "bg-transparent outline-none hover:bg-beam/30 focus-visible:bg-beam/30 data-[separator=active]:bg-beam/50";
@@ -34,8 +33,7 @@ const DIVIDER = "bg-transparent outline-none hover:bg-beam/30 focus-visible:bg-b
  * itself, as it mounts or as its panels change, is put back to `shares` when
  * it differs: a group remembers the layout it last had for each set of
  * panels, and would take that back for a set it held before (a pane closed
- * after one was added) rather than the grid's, where the space went to a
- * neighbour.
+ * after one was added) rather than the grid's, whose surviving panes now share the row equally.
  */
 const useShares = (shares: Readonly<Record<string, number>>, keep: (layout: Layout) => void) => {
   const handle = useGroupRef();
@@ -96,21 +94,24 @@ type PaneTargets = RefObject<Map<string, HTMLDivElement>>;
 /** A row of the grid, named by its place from the top. */
 const PaneRow = ({ row, place, targets }: { readonly row: GridRow; readonly place: number; readonly targets: PaneTargets }) => {
   const [, setLayout] = usePresentation("paneLayout");
+  const measure = useMeasureGridRow(row.id);
   const widths = useShares(
     sharesOf(row.panes, (pane) => pane.width),
     (shares) => setLayout((held) => resizeRow(held, row.id, shares)),
   );
   return (
-    <Group key={row.panes.map((pane) => pane.id).join(" ")} role="group" aria-label={`Row ${place}`} {...widths} className="h-full">
-      {row.panes.map((pane, at) => (
-        <Fragment key={pane.id}>
-          {at > 0 && <Separator aria-label="Resize the panes" className={`w-[7px] ${DIVIDER}`} />}
-          <Panel id={pane.id} minSize={PANE_LEAST}>
-            <div className="h-full" ref={(node) => { if (node !== null) targets.current.set(pane.id, node); }} />
-          </Panel>
-        </Fragment>
-      ))}
-    </Group>
+    <div ref={measure} data-grid-row-viewport className="flex h-full min-w-0 overflow-x-auto">
+      <Group style={{ minWidth: rowMinimumWidth(row.panes.length), height: "auto" }} key={row.panes.map((pane) => pane.id).join(" ")} role="group" aria-label={`Row ${place}`} {...widths} className="h-full">
+        {row.panes.map((pane, at) => (
+          <Fragment key={pane.id}>
+            {at > 0 && <Separator aria-label="Resize the panes" className={`w-[7px] ${DIVIDER}`} />}
+            <Panel id={pane.id} minSize={PANE_LEAST}>
+              <div className="h-full" ref={(node) => { if (node !== null) targets.current.set(pane.id, node); }} />
+            </Panel>
+          </Fragment>
+        ))}
+      </Group>
+    </div>
   );
 };
 
