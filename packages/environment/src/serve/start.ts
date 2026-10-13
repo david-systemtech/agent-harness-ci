@@ -147,6 +147,7 @@ import { scrubDiagnosticOutput } from "../scrub/diagnostic-output.js";
 import { createScrubRegistry, type ScrubRegistry } from "../scrub/registry.js";
 import { createCompactionSweep } from "../sessions/compaction.js";
 import { createDeletion } from "../sessions/deletion.js";
+import { sessionNotFound } from "../sessions/decider.js";
 import { createForgeService, type ForgeService } from "../forge/forge-service.js";
 import { forgeAccountsProjector } from "../forge/forge-store.js";
 import { createCredentialRoute } from "../forge/credential-route.js";
@@ -1913,7 +1914,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...settingsHandlers,
     ...accessMethods({ pairings, clientSessions, accessLog }),
     ...sessionHandlers,
-    "transcript.image": ({ sessionId, hash }) => ({ image: log.read("SELECT id FROM sessions WHERE id = ?", sessionId).length === 0 ? null : transcriptImages.read(sessionId, hash) }),
+    // A deleted session answers not_found as every session query does; a purged or unknown one states the gap with null.
+    "transcript.image": ({ sessionId, hash }) => {
+      const [row] = log.read<{ deleted_at: string | null }>("SELECT deleted_at FROM sessions WHERE id = ?", sessionId);
+      if (row === undefined) return { image: null };
+      if (row.deleted_at !== null) throw new ContractError(sessionNotFound(sessionId));
+      return { image: transcriptImages.read(sessionId, hash) };
+    },
     // A missing session given another workspace (#328), from a request the create's resolver serves.
     ...setWorkspaceMethods({ log, host, resolver: workspaceResolver, availability, autoMemory }),
     ...groupMethods({ log, clock: now }),

@@ -481,6 +481,7 @@ describe("the method registry", () => {
       | "groups.reorder"
       | "groups.delete"
       | "sessions.list"
+      | "transcript.image"
       | "sessions.get"
       | "sessions.listDeleted"
       | "groups.list"

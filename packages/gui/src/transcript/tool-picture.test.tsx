@@ -22,7 +22,7 @@ it("waits for viewport intersection before fetching and states the gap after evi
     }
     disconnect() {}
   });
-  onTestFinished(() => vi.unstubAllGlobals());
+  onTestFinished(() => { vi.unstubAllGlobals(); });
   const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Pictures" }] }] });
   app.open("desk");
   const transcript = await screen.findByRole("region", { name: "Transcript" });

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { fakeAdapter } from "../../test/fake-adapter.js";
 import { startTestEnvironment } from "../../test/helper.js";
-import { create, deleteSession, purgeSession } from "../../test/sessions.js";
+import { command, create, deleteSession, purgeSession, refusal } from "../../test/sessions.js";
 
 const { onCleanup } = useCleanups();
 const image = { type: "image", source: { type: "base64", media_type: "image/png", data: "cGljdHVyZQ==" } };
@@ -44,8 +44,12 @@ describe("transcript images over the wire", () => {
     await deleteSession(client, forkId, false);
     await purgeSession(client, forkId);
     expect(await client.request("transcript.image", { sessionId: nestedFork, hash: reference.hash })).toEqual({ image: { mediaType: "image/png", data: image.source.data } });
+    // Deleted, the session answers not_found like every session query; its images are kept for a restore until the purge.
     await deleteSession(client, id, false);
+    expect(await refusal(client.request("transcript.image", { sessionId: id, hash: reference.hash }))).toEqual({ code: "not_found", data: { kind: "session", sessionId: id } });
+    await command(client, "sessions.restore", { sessionId: id });
     expect(await client.request("transcript.image", { sessionId: id, hash: reference.hash })).toEqual({ image: { mediaType: "image/png", data: image.source.data } });
+    await deleteSession(client, id, false);
     await purgeSession(client, id);
     expect(recorder!("image/png", image.source.data).hash).toBeUndefined();
     expect(await client.request("transcript.image", { sessionId: nestedFork, hash: reference.hash })).toEqual({ image: { mediaType: "image/png", data: image.source.data } });
