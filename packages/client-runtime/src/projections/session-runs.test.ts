@@ -290,6 +290,22 @@ const said = (runId: string, itemId: string, text: string) => recorded("assistan
 const attachment = { kind: "image", name: "screen.png", mediaType: "image/png", size: 2048 };
 
 describe("a queue on projections.runs", () => {
+  it("keeps draft-only updates quiet without a queue, but updates withdrawal capacity with queued text", async () => {
+    const { runtime, env, sessionId, runs, play } = await opened();
+    const before = runs.read();
+    runtime.drafts.set(env, sessionId, "short");
+    expect(runs.read()).toBe(before);
+    await play(
+      ["run.started", started(RUN, PROMPT), { activity: { state: "running", since: "2026-09-24T01:02:03.456Z" } }],
+      ["message.sent", sent(RUN, ALSO, "Also the tests", "environment")],
+    );
+    expect(runs.read().verbs.withdraw).toEqual(PRESENT);
+    runtime.drafts.set(env, sessionId, "x".repeat(65_530));
+    expect(runs.read().verbs.withdraw).toMatchObject({ status: "absent", reason: "draft_full" });
+    runtime.drafts.set(env, sessionId, null);
+    expect(runs.read().verbs.withdraw).toEqual(PRESENT);
+  });
+
   it("is steered, withdrawn, re-owned by an interrupt and read now, in turn, each change on every client's queue", async () => {
     const { runtime, wire, env, runs, play, session } = await opened();
     await play(

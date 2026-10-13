@@ -61,7 +61,7 @@ export interface Activity {
 
 export interface StatusInput {
   /** The session's projection: its summary, runs, entries and own containment level. */
-  readonly projection: Pick<SessionProjection, "summary" | "runs" | "items" | "containment">;
+  readonly projection: Pick<SessionProjection, "runs" | "items" | "containment"> & { readonly summary: Pick<NonNullable<SessionProjection["summary"]>, "accountId" | "runChoice" | "model" | "mode"> | null };
   readonly runState: RunState | undefined;
   /** The run a send joins and an interrupt stops (`liveRunIdOf`). */
   readonly liveRunId: string | undefined;

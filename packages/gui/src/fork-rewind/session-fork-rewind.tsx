@@ -9,13 +9,14 @@ import {
   userMessagesOf,
   type RewindAnswer,
   type RewoundAt,
+  type SessionProjection,
   type VerbAvailability,
 } from "@agent-harness/client-runtime";
 import { createContext, use, useMemo, useRef, type ReactNode } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import { useOpenInPane, usePaneLine, useSayUnder } from "../session/pane-line.js";
 import { useHandoffPicker, type MessageAnchor } from "../status/pane-dialogs.js";
-import { useObservable, useRuntime } from "../window-context.js";
+import { useObservable, useObservableSelector, useRuntime } from "../window-context.js";
 
 /**
  * A session's fork and rewind in its pane (docs/specs/gui.md, "A session
@@ -92,10 +93,12 @@ export interface SessionForkRewindProps {
   readonly children: ReactNode;
 }
 
+const rewindFields = (projection: SessionProjection) => ({ items: projection.items, runs: projection.runs, workspace: projection.summary?.workspace.path });
+
 /** The session's fork and rewind for the pane it holds. */
 export const SessionForkRewindProvider = ({ environmentId, sessionId, children }: SessionForkRewindProps) => {
   const runtime = useRuntime();
-  const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
+  const projection = useObservableSelector(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]), rewindFields);
   const runs = useObservable(useMemo(() => runtime.projections.runs.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const [, say] = usePaneLine();
   const sayUnder = useSayUnder();
@@ -159,7 +162,7 @@ export const SessionForkRewindProvider = ({ environmentId, sessionId, children }
   /** Rewinds the session to `message`, stopping the live run first when `stopFirst`, else refused with `verb`'s reason while it is absent; `tell` says what came of it. */
   const rewind = (message: MessageAnchor, tell: Tell, stopFirst: boolean, verb: VerbAvailability) => {
     if (!stopFirst && verb.status === "absent") return tell(refused("Not rewound", verb));
-    const workspace = projection.summary?.workspace.path;
+    const workspace = projection.workspace;
     once("rewind", async () => {
       const options = stopFirst ? { stopFirst: true, onStopping: () => tell(`Stopping the run; the rewind to ${messageWords(message.text)} follows once it has ended.`) } : {};
       answered(message, workspace, tell, await runtime.commands.rewind(environmentId, sessionId, message.messageId, options));

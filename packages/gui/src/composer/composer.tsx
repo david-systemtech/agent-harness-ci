@@ -166,6 +166,9 @@ export const Composer = ({ environmentId, sessionId, authoring = false }: Compos
   const liveRunId = liveRunIdOf(projection, runs);
   const live = isLive(runs.state) || liveRunId !== undefined;
   const [interruptAsked, askInterrupt] = useState<string | undefined>(undefined);
+  const stopping = liveRunId !== undefined && interruptAsked === liveRunId;
+  const activity = useMemo(() => <Activity environmentId={environmentId} sessionId={sessionId} stopping={stopping} />, [environmentId, sessionId, stopping]);
+  const backgroundWork = useMemo(() => <BackgroundWork environmentId={environmentId} sessionId={sessionId} />, [environmentId, sessionId]);
   const stoppable = stopOffer(runtime.capability(environmentId, "runs.interrupt"), live, liveRunId, interruptAsked);
   const runShellLine = useShellLines({ environmentId, sessionId, line, say, lock, live });
 
@@ -253,11 +256,11 @@ export const Composer = ({ environmentId, sessionId, authoring = false }: Compos
   return (
     <>
       <div ref={above} data-composer-above>
-      {!authoring && <Activity environmentId={environmentId} sessionId={sessionId} stopping={liveRunId !== undefined && interruptAsked === liveRunId} />}
+      {!authoring && activity}
       <RewoundStrip />
       {!authoring && gone === undefined && !compact && <WorkspaceRow environmentId={environmentId} sessionId={sessionId} />}
       {!authoring && <PromptCard environmentId={environmentId} sessionId={sessionId} />}
-      <BackgroundWork environmentId={environmentId} sessionId={sessionId} />
+      {backgroundWork}
       <QueueStrip />
       {narrow && !compact && gone === undefined && (!authoring || runs.state !== "parked") && <div className="px-3"><WorkspaceCheck view={checks} sendFailure={sendFailure} sending={sending} /></div>}
       </div>
