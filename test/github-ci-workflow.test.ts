@@ -10,10 +10,10 @@ const job = (name: string): string => {
 };
 
 describe("the hosted CI workflow", () => {
-  it.each(["checks", "root-user"])("initializes %s without Docker Hub's anonymous pull quota", (name) => {
-    // The official mirror retains the Node and Debian versions required by the checks.
-    expect(job(name)).toMatch(/^ {4}container: public\.ecr\.aws\/docker\/library\/node:24-bookworm$/m);
-    expect(job(name)).not.toContain("continue-on-error");
+  it("initializes the root-only job without Docker Hub's anonymous pull quota", () => {
+    // The official mirror retains Node and Debian for the root-only tests.
+    expect(job("root-user")).toMatch(/^ {4}container: public\.ecr\.aws\/docker\/library\/node:24-bookworm$/m);
+    expect(job("root-user")).not.toContain("continue-on-error");
   });
 
   it("retains every required check and checks out the dispatched commit", () => {
@@ -26,7 +26,14 @@ describe("the hosted CI workflow", () => {
     expect(checks).toContain("exit 1");
     for (const name of ["checks", "test", "root-user"]) {
       expect(job(name)).toContain("ref: ${{ github.event.client_payload.sha }}");
-      expect(job(name)).not.toContain("continue-on-error");
+      // Only the first Node setup attempt may recover; required checks and
+      // the final attempt still fail the job normally.
+      const recoverable = job(name).split("      - ").filter((step) => step.includes("continue-on-error"));
+      expect(recoverable).toHaveLength(name === "checks" ? 1 : 0);
+      if (name === "checks") {
+        expect(recoverable[0]).toContain("uses: actions/setup-node@");
+        expect(recoverable[0]).toContain("id: node");
+      }
       expect(job(name)).not.toMatch(/^ {4}if:/m);
     }
   });
