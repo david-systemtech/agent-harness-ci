@@ -2488,6 +2488,28 @@ describe("a run that joins a kept process", () => {
     expect(port).not.toContain("unhold task:task_1");
   });
 
+  it("keeps a held run's latest mode local until its attachment slot opens (#2126)", async () => {
+    const adapter = adapterWith();
+    const input = runInput();
+    const first = adapter.createRun(input, contextWith());
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("first", [input.prompt[0]?.messageId as string]), sdk.text("first", "Working."));
+    const read = reading(first);
+    await vi.waitFor(() => expect(read.events.some((event) => event.type === "assistant.text")).toBe(true));
+    const next = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION }, mode: "acceptEdits" });
+    const held = adapter.createRun(next, contextWith());
+    await held.setMode?.("plan");
+    await held.setMode?.("auto");
+    expect(query.modes).toEqual([]);
+    expect(query.prompts).toHaveLength(1);
+    query.emit(sdk.result(PROVIDER_SESSION));
+    await read.done;
+    await query.promptsPushed(2);
+    expect(query.modes).toEqual(["auto"]);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("next", [next.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION));
+    expect(ends(await drain(held))).toEqual([expect.objectContaining({ reason: "completed" })]);
+  });
+
   it("holds a new run and its sends behind the current turn, and withdraws or interrupts them locally (#2126)", async () => {
     const adapter = adapterWith();
     const input = runInput();

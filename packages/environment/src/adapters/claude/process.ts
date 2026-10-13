@@ -400,6 +400,8 @@ export class ClaudeProcess implements TurnControl {
   #suggestionTurn: ClaudeTurn | undefined;
   /** Runs held until the process can apply their settings and enqueue their prompts, in arrival order. */
   readonly #attaching = new Set<ClaudeTurn>();
+  /** A held run's latest mode, until its settings begin moving onto the process. */
+  readonly #attachmentModes = new WeakMap<ClaudeTurn, Mode>();
   readonly #attachmentWaiters: (() => void)[] = [];
   /** Runs whose prompt is queued at the CLI, not yet opened, in order. */
   readonly #waiting: ClaudeTurn[] = [];
@@ -547,11 +549,12 @@ export class ClaudeProcess implements TurnControl {
   attach(input: RunInput, context: RunContext): ClaudeTurn {
     const turn = this.#runTurn(input, false);
     this.#attaching.add(turn);
+    this.#attachmentModes.set(turn, input.mode);
     void (async () => {
       try {
         await this.#attachmentSlot(turn);
         if (this.closed || turn.ended) return;
-        await this.#apply(input);
+        await this.#apply(input, turn);
         await this.#attachmentSlot(turn);
       } catch (error) {
         this.#waitingEnds(turn, { reason: "error", error: { message: `Moving the Claude process onto this run failed: ${describe(error)}`, code: "settings" } });
@@ -613,16 +616,18 @@ export class ClaudeProcess implements TurnControl {
     const at = this.#waiting.indexOf(turn);
     if (at !== -1) this.#waiting.splice(at, 1);
     this.#attaching.delete(turn);
+    this.#attachmentModes.delete(turn);
     turn.end(end);
     this.#wakeAttachments();
     this.#armOpenWatch();
   }
 
-  #apply(input: RunInput): Promise<void> {
+  #apply(input: RunInput, turn: ClaudeTurn): Promise<void> {
     return this.#serially(async () => {
       const query = this.#query;
       if (query === undefined) return;
-      const mode = claudeMode(input.mode);
+      const mode = claudeMode(this.#attachmentModes.get(turn) ?? input.mode);
+      this.#attachmentModes.delete(turn);
       const effort = claudeEffort(input.effort);
       const limit = this.#deps.timings.controlTimeoutMs;
       // Each setting is recorded as it lands, so a call that fails part way leaves the record true to the CLI.
@@ -1551,7 +1556,8 @@ export class ClaudeProcess implements TurnControl {
    * A live run's mode change (`modeChange`, `permissions.mode.set`), already
    * clamped by the host to the run's ceiling: the SDK's mode setter on the
    * spawned CLI, under the control timeout, which moves every turn after it;
-   * before the spawn, the mode the spawn takes. Bypass needs the SDK's opt-in
+   * before the spawn, the mode the spawn takes; before an attachment slot,
+   * the mode held for that run's admission. Bypass needs the SDK's opt-in
    * at spawn, which a process started under a lower ceiling lacks.
    */
   setMode(turn: ClaudeTurn, mode: Mode): Promise<void> {
@@ -1562,6 +1568,10 @@ export class ClaudeProcess implements TurnControl {
       const next = claudeMode(mode);
       if (next === "bypassPermissions" && !this.#spawn.bypassAllowed) {
         throw new Error("This Claude process was started without the bypass opt-in (its run's ceiling was below bypassPermissions), so it cannot change to bypassPermissions.");
+      }
+      if (this.#attachmentModes.has(turn)) {
+        this.#attachmentModes.set(turn, mode);
+        return;
       }
       if (next === this.#applied.mode) return;
       const query = this.#query;
