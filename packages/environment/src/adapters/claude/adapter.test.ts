@@ -2460,7 +2460,7 @@ describe("a run that joins a kept process", () => {
     query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("background", []));
     await vi.waitFor(() => expect(context.adopted).toHaveLength(1));
     const background = context.adopted[0] as ProviderTurn;
-    background.onAdopted("background-run");
+    background.onAdopted?.("background-run");
     const resume = { kind: "resume", providerSessionId: PROVIDER_SESSION } as const;
     const next = runInput({ target: resume, model: "sonnet", mode: "plan", effort: "high" });
     const run = adapter.createRun(next, contextWith());
@@ -2503,7 +2503,7 @@ describe("a run that joins a kept process", () => {
     await next.send(withdrawn);
     await next.send(held);
     expect(query.prompts).toHaveLength(1);
-    expect(await next.withdraw(withdrawn.messageId)).toEqual({ withdrawn: true });
+    expect(await next.withdraw?.(withdrawn.messageId)).toEqual({ withdrawn: true });
     expect(await next.interrupt()).toEqual({ stillQueued: [held.messageId] });
     expect(ends(await drain(next))).toEqual([expect.objectContaining({ reason: "interrupted" })]);
     expect(query.cancelRequests).toEqual([]);
