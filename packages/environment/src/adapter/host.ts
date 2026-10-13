@@ -1720,8 +1720,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     let slash: SlashScope;
     const start = (composed: ComposedInstructions, skillSet: RunSkillSet): void =>
       attach(entry, () => {
-        // At a workspace level the directories it may write in are there before the provider is.
-        if (entry.containment.level !== "off") directories.make(plan.sessionId);
+        // Session scratch also holds file attachments added after the provider starts, at every level.
+        directories.make(plan.sessionId);
         // The composed text, then what the run appends after it (a completions request's, #138), never in its place; no
         // text at all through a channel of kind none.
         const handed = plan.account.descriptor.instructionChannel.kind === "none" ? [] : [composed.text, plan.appendedInstructions];

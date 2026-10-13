@@ -52,7 +52,7 @@ export { CLAUDE_PROVIDER };
  * removes the CLI's own files for the session. Session listing lists an
  * account directory's sessions for Carry over (#578), through the SDK's own
  * listing under the config-directory queue (`session-listing.ts`).
- * File attachments wait on staging not yet ported here.
+ * File attachments are staged under the session scratch directory and named in the prompt for file tools.
  */
 export const CLAUDE_DESCRIPTOR: AdapterDescriptor = {
   provider: CLAUDE_PROVIDER,
@@ -77,7 +77,7 @@ export const CLAUDE_DESCRIPTOR: AdapterDescriptor = {
   liveModels: true,
   commands: true,
   imageInput: true,
-  fileInput: false,
+  fileInput: true,
   modeChange: true,
   // The run's containment is the SDK's sandbox for its commands (`options.ts`, #140), and the tool gate, asked from the
   // `PreToolUse` hook before every call, denies the rest: a write outside the writable set, a fetch or search with no network.

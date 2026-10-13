@@ -344,7 +344,8 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
   }, input.supplied);
   return {
     cwd: run.workspace.path,
-    ...(run.additionalDirectories !== undefined && run.additionalDirectories.length > 0 && { additionalDirectories: [...run.additionalDirectories] }),
+    // Session scratch holds attachments added on any turn, including after this process starts.
+    additionalDirectories: [...new Set([...(run.additionalDirectories ?? []), run.containment.scratchDirectory])],
     ...projectOptions(run.trusted, input.checkoutRoot),
     env,
     ...(input.executablePath !== null && { pathToClaudeCodeExecutable: input.executablePath }),

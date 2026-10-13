@@ -17,7 +17,7 @@ import { commonGitDirectory } from "../workspace/repository-key.js";
  * rather than each run's: a session's runs share its provider process (ADR
  * 0015), whose environment is fixed when it starts, and one per run would
  * mean a cold start for every run. Both are made, owner-only, when a run
- * starts at a workspace level, and removed when the session is purged; a
+ * starts, at every level (scratch holds file attachments), and removed when the session is purged; a
  * sweep at startup removes those of sessions that are gone.
  */
 

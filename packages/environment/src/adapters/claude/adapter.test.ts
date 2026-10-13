@@ -1,14 +1,18 @@
 import { createTranscriptImages } from "../../transcript-images/store.js";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
-import { EMPTY_RUN_SKILL_SET, type AccountIdentity, type RunSkillSet } from "@agent-harness/contracts";
+import { basename, join } from "node:path";
+import { EMPTY_RUN_SKILL_SET, registry, type AccountIdentity, type RunSkillSet } from "@agent-harness/contracts";
 import type { Options, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { manualClock, type ManualClock } from "../../../test/clock.js";
 import { FakeSdk, sdk, type FakeQuery } from "../../../test/fake-claude-sdk.js";
 import { git } from "../../../test/workspaces.js";
+import { fakeAdapter } from "../../../test/fake-adapter.js";
+import { startTestEnvironment } from "../../../test/helper.js";
+import { create, deleteSession, purgeSession } from "../../../test/sessions.js";
+import { WAIT_MS } from "../../../test/wire-client.js";
 import {
   WithdrawUnsupported,
   type AdapterEvent,
@@ -412,6 +416,131 @@ describe("a run in a worktree", () => {
 });
 
 describe("the streaming input", () => {
+  it.each(["plan", "acceptEdits", "auto", "bypassPermissions"] as const)("carries files by named paths under the session scratch directory on start and send in %s", async (mode) => {
+    const root = mkdtempSync(join(tmpdir(), "agent-harness-files-"));
+    const scratchDirectory = join(root, "scratch");
+    const first = { ...message("Read the JSON"), attachments: [{ kind: "file" as const, name: "settings.json", mediaType: "application/json", data: Buffer.from('{"enabled":true}') }] };
+    const containment = { ...runInput().containment, level: "workspace" as const, mechanism: "bubblewrap" as const, scratchDirectory, writable: ["/work/repo", scratchDirectory] };
+    const input = runInput({ mode, containment, prompt: [first] });
+    const adapter = adapterWith();
+    try {
+      const run = adapter.createRun(input, contextWith());
+      const query = await started();
+      expect(query.options.permissionMode).toBe(mode);
+      expect(query.options.sandbox?.filesystem?.allowWrite).toContain(scratchDirectory);
+      const content = query.prompts[0]?.message.content;
+      expect(content).toContain("Attached files (read with file tools):");
+      const reference = JSON.parse(String(content).split("\n").at(-1) ?? "") as { path: string; mediaType: string; size: number };
+      expect(reference).toEqual({ path: expect.stringContaining(join(scratchDirectory, "attachments")), mediaType: "application/json", size: 16 });
+      expect(basename(reference.path)).toBe("settings.json");
+      expect(readFileSync(reference.path, "utf8")).toBe('{"enabled":true}');
+      if (process.platform !== "win32") expect(statSync(reference.path).mode & 0o777).toBe(0o600);
+      await run.send({ ...first, messageId: randomUUID(), attachments: [{ ...first.attachments[0]!, data: Buffer.from("second") }] });
+      await query.promptsPushed(2);
+      const sent = JSON.parse(String(query.prompts[1]?.message.content).split("\n").at(-1) ?? "") as { path: string; size: number };
+      expect(sent.size).toBe(6);
+      expect(sent.path).not.toBe(reference.path);
+      expect(readFileSync(sent.path, "utf8")).toBe("second");
+      expect(readFileSync(reference.path, "utf8")).toBe('{"enabled":true}');
+      expect(adapter.descriptor.fileInput).toBe(true);
+      await adapter.stopProcess(SESSION, { kill: true });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps path-like file names inside staging and carries files beside image blocks", async () => {
+    const root = mkdtempSync(join(tmpdir(), "agent-harness-files-"));
+    const scratchDirectory = join(root, "scratch");
+    const attached = { ...message("Read both"), attachments: [
+      { kind: "file" as const, name: "../../report.txt", mediaType: "text/plain", data: Buffer.from("text bytes") },
+      { kind: "file" as const, name: "..\\..\\report.txt", mediaType: "application/octet-stream", data: Uint8Array.of(0, 255) },
+      { kind: "image" as const, name: "shot.png", mediaType: "image/png", data: Uint8Array.of(1, 2, 3) },
+    ] };
+    const adapter = adapterWith();
+    try {
+      adapter.createRun(runInput({ containment: { ...runInput().containment, scratchDirectory }, prompt: [attached] }), contextWith());
+      const query = await started();
+      const content = query.prompts[0]?.message.content;
+      expect(content).toEqual([
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "AQID" } },
+        { type: "text", text: expect.stringContaining("Read both\nAttached files (read with file tools):") },
+      ]);
+      const text = (content as { type: string; text: string }[])[1]?.text ?? "";
+      const references = text.split("\n").slice(2).map((line) => JSON.parse(line) as { path: string });
+      expect(references).toHaveLength(2);
+      for (const reference of references) {
+        expect(reference.path.startsWith(join(scratchDirectory, "attachments"))).toBe(true);
+        expect(basename(reference.path)).toBe("report.txt");
+      }
+      expect(readFileSync(references[0]!.path, "utf8")).toBe("text bytes");
+      expect(readFileSync(references[1]!.path)).toEqual(Buffer.from([0, 255]));
+    } finally {
+      await adapter.stopProcess(SESSION, { kill: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("refuses to stage through an attachment-directory symlink", async () => {
+    const root = mkdtempSync(join(tmpdir(), "agent-harness-files-"));
+    const scratchDirectory = join(root, "scratch");
+    const outside = join(root, "outside");
+    mkdirSync(scratchDirectory);
+    mkdirSync(outside);
+    symlinkSync(outside, join(scratchDirectory, "attachments"));
+    const adapter = adapterWith();
+    try {
+      const run = adapter.createRun(runInput({ containment: { ...runInput().containment, scratchDirectory }, prompt: [{ ...message("Read"), attachments: [{ kind: "file", name: "report.txt", mediaType: "text/plain", data: Buffer.from("file bytes") }] }] }), contextWith());
+      expect(ends(await drain(run))).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ message: expect.stringContaining("symbolic link") }) })]);
+      expect(fake.queries).toHaveLength(0);
+      expect(readdirSync(outside)).toEqual([]);
+    } finally {
+      await adapter.stopProcess(SESSION, { kill: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("advertises file input over providers.list and retains the named file until session purge", async () => {
+    // Account probes remain scripted; run creation is the real adapter over the SDK transport.
+    const real = adapterWith();
+    const t = await startTestEnvironment({ adapter: { ...fakeAdapter(), descriptor: real.descriptor, createRun: real.createRun } });
+    let sessionId: string | undefined;
+    try {
+      const client = await t.client();
+      const providers = registry["providers.list"].result.parse(await client.request("providers.list", {}));
+      expect(providers.providers[0]?.fileInput).toBe(true);
+      const { id } = await create(client);
+      sessionId = id;
+      const answer = registry["runs.start"].response.parse(await client.request("runs.start", {
+        commandId: randomUUID(), sessionId: id, text: "A file will follow",
+      }));
+      expect(answer.receipt.status).toBe("accepted");
+      const query = await started();
+      const scratch = join(t.dataDir, "containment", id, "scratch");
+      expect(query.options.additionalDirectories).toContain(scratch);
+      expect(existsSync(scratch)).toBe(true);
+      const sent = registry["runs.send"].response.parse(await client.request("runs.send", {
+        commandId: randomUUID(), sessionId: id, text: "Read this file", attachments: [{ kind: "file", name: "notes.pdf", mediaType: "application/pdf", data: Buffer.from("pdf bytes").toString("base64") }],
+      }));
+      expect(sent.receipt.status).toBe("accepted");
+      await query.promptsPushed(2);
+      const reference = JSON.parse(String(query.prompts[1]?.message.content).split("\n").at(-1) ?? "") as { path: string };
+      expect(reference.path.startsWith(join(scratch, "attachments"))).toBe(true);
+      expect(readFileSync(reference.path, "utf8")).toBe("pdf bytes");
+      // The real gate leaves session scratch reads outside the data-directory denylist.
+      expect(await query.preToolUse("Read", { file_path: reference.path }, { toolUseID: "read_attachment" })).not.toEqual(expect.objectContaining({ hookSpecificOutput: expect.objectContaining({ permissionDecision: "deny" }) }));
+      query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("file_reply", query.prompts.map((prompt) => prompt.uuid as string)), sdk.text("file_reply", "Read it."), sdk.result(PROVIDER_SESSION));
+      await vi.waitFor(() => expect(t.env.log.readStream({ kind: "session", id }).some((event) => event.type === "run.ended")).toBe(true), { timeout: WAIT_MS });
+      await deleteSession(client, id);
+      expect(existsSync(reference.path)).toBe(true);
+      await purgeSession(client, id);
+      await vi.waitFor(() => expect(existsSync(reference.path)).toBe(false), { timeout: WAIT_MS });
+    } finally {
+      if (sessionId !== undefined) await real.stopProcess(sessionId, { kill: true });
+      await t.close();
+    }
+  });
+
   it("seeds the prompt pump with the run's messages, stamped with their ids, images ahead of the text", async () => {
     const adapter = adapterWith();
     const first = message("Look at this");
@@ -1855,14 +1984,14 @@ describe("the process across turns", () => {
     await vi.waitFor(() => expect(port).toContain("unhold task:task_1"));
     const second = await oneTurn(adapter, runInput({ additionalDirectories: ["/data/banks/team"], target: resume }));
     expect(first.query.closed).toBe(true);
-    expect(second.query.options.additionalDirectories).toEqual(["/data/banks/team"]);
+    expect(second.query.options.additionalDirectories).toEqual(["/data/banks/team", "/data/containment/session/scratch"]);
     await second.finish();
     const third = await oneTurn(adapter, runInput({ additionalDirectories: ["/data/banks/team"], target: resume }), second.query);
     await third.finish();
     expect(fake.queries).toHaveLength(2);
     const fourth = await oneTurn(adapter, runInput({ additionalDirectories: [], target: resume }));
     expect(second.query.closed).toBe(true);
-    expect(fourth.query.options.additionalDirectories).toBeUndefined();
+    expect(fourth.query.options.additionalDirectories).toEqual(["/data/containment/session/scratch"]);
     await fourth.finish();
   });
 
