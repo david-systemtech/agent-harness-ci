@@ -1,4 +1,4 @@
-import { elapsedClock, liveRun, liveRunIdOf, liveTasks, oneLine, statusOf, type SessionProjection } from "@agent-harness/client-runtime";
+import { elapsedClock, liveRun, liveRunIdOf, liveTasks, oneLine, sessionTasks, statusOf, type SessionProjection } from "@agent-harness/client-runtime";
 import { useEffect, useMemo, useReducer } from "react";
 import { ListTodo } from "lucide-react";
 import { showPane, useSideColumn } from "../side-column/column.js";
@@ -43,12 +43,17 @@ export const BackgroundWork = ({ environmentId, sessionId }: { readonly environm
   const runtime = useRuntime();
   const projection = useObservableSelector(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]), taskFields);
   const tasks = useMemo(() => liveTasks(projection, liveRun(projection)?.runId), [projection]);
+  const visibleTasks = useMemo(() => tasks.length > 3
+    ? sessionTasks(projection).live.filter((row) => row.runId === liveRun(projection)?.runId).slice(0, 2).map((row) => row.task)
+    : tasks, [projection, tasks]);
   const [, changeColumn] = useSideColumn({ environmentId, sessionId });
+  const openTasks = () => changeColumn((column) => showPane(column, "tasks"));
   if (tasks.length === 0) return null;
   return <div className="flex shrink-0 items-center gap-2 border-b border-hairline px-3 py-1 text-xs text-ink-muted">
-    <ul aria-label="Delegated work" className="min-w-0 flex-1">
-      {tasks.map((task) => <li key={task.taskId} className="truncate" title={task.description}><span className="text-cyan">{task.subagentType ?? task.kind}</span>: {oneLine(task.description, 120)} · {task.status}</li>)}
+    <ul aria-label="Delegated work" className="h-[3lh] min-w-0 flex-1">
+      {visibleTasks.map((task) => <li key={task.taskId} className="truncate" title={task.description}><span className="text-cyan">{task.subagentType ?? task.kind}</span>: {oneLine(task.description, 120)} · {task.status}</li>)}
+      {tasks.length > 3 && <li><button type="button" aria-label="Open background work in Tasks" onClick={openTasks} className="block h-[1lh] max-w-full truncate text-left hover:text-ink focus-visible:outline-2 focus-visible:outline-beam">and {tasks.length - 2} others</button></li>}
     </ul>
-    <Tooltip content="Open background work in Tasks · /tasks"><Button aria-label="Open background work in Tasks" size="xs" onClick={() => changeColumn((column) => showPane(column, "tasks"))}><ListTodo aria-hidden="true" />Tasks</Button></Tooltip>
+    <Tooltip content="Open background work in Tasks · /tasks"><Button aria-label="Open background work in Tasks" size="xs" onClick={openTasks}><ListTodo aria-hidden="true" />Tasks</Button></Tooltip>
   </div>;
 };

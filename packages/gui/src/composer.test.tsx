@@ -1,7 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { DRAFT_DEBOUNCE_MS } from "@agent-harness/client-runtime";
 import { fakeShell, type FakeShell } from "@agent-harness/client-runtime/testing";
-import { MAX_ATTACHMENT_BYTES } from "@agent-harness/contracts";
+import { type DelegatedWorkRow, MAX_ATTACHMENT_BYTES } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 import { MENU_ROWS } from "./composer/menus.js";
@@ -60,6 +60,54 @@ describe("the composer card", () => {
     expect(activity.textContent).toBe(announcement);
     env.endRun(session, runId);
     await waitFor(() => expect(screen.queryByRole("status", { name: "Run activity" })).toBeNull());
+  });
+});
+
+describe("background work above the composer", () => {
+  const task = (minute: number, status: DelegatedWorkRow["status"] = "running"): DelegatedWorkRow => ({
+    taskId: `task-${minute}`, kind: "local_agent", description: `Check receipt ${minute}`, status,
+    startedAt: `2026-09-29T10:${String(minute).padStart(2, "0")}:00.000Z`,
+    endedAt: status === "completed" ? "2026-09-29T11:00:00.000Z" : null,
+    subagentType: "Explore", toolCallId: null, error: null,
+  });
+  const rows = () => within(screen.getByRole("list", { name: "Delegated work" })).getAllByRole("listitem").map((row) => row.textContent);
+
+  it("shows the two most recently started live tasks and opens Tasks from the others row with the keyboard", async () => {
+    const { app, env, session } = await opened();
+    const { runId } = env.startRun(session, "Check the receipts");
+    env.emit(session, "tasks.changed", { runId, tasks: [task(3, "paused"), task(1), task(5, "completed"), task(4, "pending"), task(2)] });
+    await screen.findByRole("list", { name: "Delegated work" });
+    expect(rows()).toEqual(["Explore: Check receipt 4 · pending", "Explore: Check receipt 3 · paused", "and 2 others"]);
+    const others = within(screen.getByRole("list", { name: "Delegated work" })).getByRole("button", { name: "Open background work in Tasks" });
+    act(() => others.focus());
+    await app.user.keyboard("{Enter}");
+    expect(await screen.findByRole("region", { name: "Tasks" })).toBeDefined();
+  });
+  it("keeps three or fewer live rows in ledger order as tasks start and finish, removing the strip when none remain", async () => {
+    const { env, session } = await opened();
+    const { runId } = env.startRun(session, "Check the receipts");
+    const ledger = (tasks: DelegatedWorkRow[]) => env.emit(session, "tasks.changed", { runId, tasks });
+    ledger([task(3), task(1), task(2)]);
+    await screen.findByRole("list", { name: "Delegated work" });
+    expect(rows()).toEqual(["Explore: Check receipt 3 · running", "Explore: Check receipt 1 · running", "Explore: Check receipt 2 · running"]);
+    ledger([task(3), task(1), task(2), task(4)]);
+    await waitFor(() => expect(rows()).toEqual(["Explore: Check receipt 4 · running", "Explore: Check receipt 3 · running", "and 2 others"]));
+    ledger([task(3), task(1), task(2), task(4, "completed")]);
+    await waitFor(() => expect(rows()).toEqual(["Explore: Check receipt 3 · running", "Explore: Check receipt 1 · running", "Explore: Check receipt 2 · running"]));
+    ledger([task(3), task(2), task(1, "completed")]);
+    await waitFor(() => expect(rows()).toEqual(["Explore: Check receipt 3 · running", "Explore: Check receipt 2 · running"]));
+    ledger([task(3), task(2, "completed")]);
+    await waitFor(() => expect(rows()).toEqual(["Explore: Check receipt 3 · running"]));
+    ledger([task(3, "completed")]);
+    await waitFor(() => expect(screen.queryByRole("list", { name: "Delegated work" })).toBeNull());
+  });
+
+  it("uses later start order to break ties in the newest live tasks", async () => {
+    const { env, session } = await opened();
+    const { runId } = env.startRun(session, "Check the receipts");
+    env.emit(session, "tasks.changed", { runId, tasks: [1, 2, 3, 4, 5].map((minute) => ({ ...task(minute), startedAt: "2026-09-29T10:00:00.000Z" })) });
+    await screen.findByRole("list", { name: "Delegated work" });
+    expect(rows()).toEqual(["Explore: Check receipt 5 · running", "Explore: Check receipt 4 · running", "and 3 others"]);
   });
 });
 
