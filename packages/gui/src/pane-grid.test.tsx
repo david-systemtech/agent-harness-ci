@@ -1,7 +1,7 @@
 import { useToastTimers } from "../test/toast-timers.js";
 import { chooseHeaderAction, openHeaderMenu } from "../test/header-actions.js";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderApp, type RenderedApp } from "../test/harness.js";
 import { LAPTOP_ID, TRAIN, inUtc, row, settled, sidebar, two } from "../test/sidebar-fixtures.js";
 
@@ -132,6 +132,33 @@ describe("splitting", () => {
     await press(app, "{Control>}f{/Control}");
     expect(within(paneOf("Train tidy")).getByRole("search", { name: "Find in the conversation" })).toBeDefined();
     expect(within(paneOf("Fix the rail")).queryByRole("search")).toBeNull();
+  });
+});
+
+describe("the row's pixel floor", () => {
+  it("refuses a third pane when the row only fits two, for keys, new sessions and edge drops; another row still opens", async () => {
+    // Browser geometry is the boundary: two 360px panes plus their 7px divider fit.
+    const width = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(727);
+    try {
+      const app = await withTrain();
+      await press(app, SPLIT_RIGHT);
+      expect(panes()).toHaveLength(2);
+      await press(app, SPLIT_RIGHT);
+      expect(panes()).toHaveLength(2);
+      const reason = "This row needs more width for another 360px pane; widen the window or split down.";
+      await waitFor(() => expect(screen.getAllByText(reason).some(node => node.closest("[data-sonner-toast]") !== null)).toBe(true));
+      const more = await openHeaderMenu(app);
+      expect(within(more).getByRole("menuitem", { name: "Split right" }).getAttribute("aria-disabled")).toBe("true");
+      expect(within(more).getByRole("menuitem", { name: "Split down" }).getAttribute("aria-disabled")).not.toBe("true");
+      await app.user.keyboard("{Escape}");
+      await press(app, "{Control>}{Shift>}n{/Shift}{/Control}");
+      expect(panes()).toHaveLength(2);
+      expect(dropOn("Fix the rail", () => paneOf("Train tidy"), "Open to the right")).toBe(false);
+      expect(panes()).toHaveLength(2);
+      await press(app, SPLIT_DOWN);
+      expect(panes()).toHaveLength(3);
+      expect(grid()).toEqual([["Train tidy", "·"], ["*·"]]);
+    } finally { width.mockRestore(); }
   });
 });
 
@@ -309,19 +336,25 @@ describe("closing a pane", () => {
       .queryAllByRole("separator", { name: "Resize the panes" })
       .map((divider) => Number(divider.getAttribute("aria-valuenow")));
 
-  it("is done from its caption, its space going to its neighbour, a row with its last pane; the grid keeps one pane", async () => {
+  const expectDividers = (...widths: readonly number[]) => {
+    const held = dividers();
+    expect(held).toHaveLength(widths.length);
+    widths.forEach((width, at) => expect(held[at]).toBeCloseTo(width, 2));
+  };
+
+  it("is done from its caption, sharing the row equally; the last pane takes its row and the grid keeps one pane", async () => {
     const app = await withTrain();
     await press(app, SPLIT_RIGHT);
     await press(app, SPLIT_RIGHT);
     await app.user.click(row("Fix the rail"));
-    // The pane split twice holds a half, then two quarters.
-    await waitFor(() => expect(dividers()).toEqual([50, 25]));
+    // Each pane takes an equal third of the row.
+    await waitFor(() => expectDividers(100 / 3, 100 / 3));
     expect(grid()).toEqual([["Train tidy", "·", "*Fix the rail"]]);
 
-    // The middle pane goes: the one before it takes its quarter.
+    // The middle pane goes: both survivors share the row equally.
     await app.user.click(within(paneOf("·")).getByRole("button", { name: "Close the pane" }));
     expect(grid()).toEqual([["Train tidy", "*Fix the rail"]]);
-    await waitFor(() => expect(dividers()).toEqual([75]));
+    await waitFor(() => expect(dividers()).toEqual([50]));
 
     await press(app, SPLIT_DOWN);
     expect(grid()).toEqual([["Train tidy", "Fix the rail"], ["*·"]]);
@@ -338,20 +371,20 @@ describe("closing a pane", () => {
     expect(row("Train tidy")).toBeDefined();
   });
 
-  it("gives its space to its neighbour when the panes left are ones the row held before, with its dividers moved since", async () => {
+  it("shares the row equally on close even after its dividers were adjusted", async () => {
     const app = await withTrain();
     await press(app, SPLIT_RIGHT);
     await waitFor(() => expect(dividers()).toEqual([50]));
     await press(app, SPLIT_RIGHT);
-    await waitFor(() => expect(dividers()).toEqual([50, 25]));
+    await waitFor(() => expectDividers(100 / 3, 100 / 3));
     const first = within(screen.getByRole("main")).getAllByRole("separator", { name: "Resize the panes" })[0] as HTMLElement;
     act(() => first.focus());
     await app.user.keyboard("{ArrowLeft}");
-    await waitFor(() => expect(dividers()).toEqual([45, 30]));
+    await waitFor(() => expectDividers(100 / 3 - 5, 100 / 3 + 5));
 
-    // The last pane goes: the one before it takes its quarter, not the half the row's two panes last held.
+    // Closing resets the row to equal shares, including previously held pane sets.
     await app.user.click(within(panes()[2] as HTMLElement).getByRole("button", { name: "Close the pane" }));
-    await waitFor(() => expect(dividers()).toEqual([45]));
+    await waitFor(() => expect(dividers()).toEqual([50]));
   });
 
   it("is done from its caption while it waits on this machine's environment, before any environment is ready", async () => {

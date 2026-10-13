@@ -1,7 +1,7 @@
 import { MenuShortcut } from "../ui/menu.js";
 import { Plus, SquarePlus } from "lucide-react";
 import type { DragEvent, ReactNode } from "react";
-import { GRID_FULL, type SplitDirection } from "../grid/layout.js";
+import { type SplitDirection } from "../grid/layout.js";
 import { usePaneGrid } from "../grid/grid.js";
 import { usePhoneFrame } from "../frame/phone-frame.js";
 import { useFirstKey, useKeyAction } from "../keys/key-dispatch.js";
@@ -71,7 +71,7 @@ const useDragControl = (control: NewSessionControl) => {
       // A drop on the grid has taken it already.
       if (draggedNow() === null) return;
       setDragged(null);
-      grid.refuse(grid.adding.status === "absent" ? GRID_FULL : OFF_GRID);
+      grid.refuse(grid.adding.status === "absent" ? grid.adding.message : OFF_GRID);
     },
   };
 };

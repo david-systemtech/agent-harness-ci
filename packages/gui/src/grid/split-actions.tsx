@@ -12,7 +12,7 @@ import { usePaneGrid } from "./grid.js";
  */
 export const SplitActions = () => {
   const grid = usePaneGrid();
-  useKeyAction("app.pane.splitRight", () => grid.split("right"), grid.adding);
-  useKeyAction("app.pane.splitDown", () => grid.split("down"), grid.adding);
+  useKeyAction("app.pane.splitRight", () => grid.split("right"), grid.addingBeside(grid.focused.id, "right"));
+  useKeyAction("app.pane.splitDown", () => grid.split("down"), grid.addingBeside(grid.focused.id, "down"));
   return null;
 };

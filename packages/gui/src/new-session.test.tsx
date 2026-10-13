@@ -1,7 +1,7 @@
 import { useToastTimers } from "../test/toast-timers.js";
 import { chooseHeaderAction, openHeaderMenu } from "../test/header-actions.js";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import type { ScriptedReceipt } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { RenderedApp, ScriptedEnvironment } from "../test/harness.js";
 import { renderApp } from "../test/harness.js";
@@ -592,10 +592,17 @@ const twoPanes = async () => {
   return app;
 };
 
+/** A row wide enough for four panes: four 360px panes and their dividers need 1461px, and the default 1280px window fits three. */
+const fourPaneRow = () => {
+  const width = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(1600);
+  onTestFinished(() => { width.mockRestore(); });
+};
+
 const DESK_CHIPS = ["Environment: desk", "Account: Work milo@work.test", "Model: Opus 5", "Workspace: directory harness"];
 
 describe("a new session in a new pane", () => {
   it("opens from Mod+Shift+N and the palette's New session in a new pane, splitting the focused pane right and replacing no session", async () => {
+    fourPaneRow();
     const app = await twoPanes();
     await app.user.keyboard(NEW_IN_PANE);
     expect(grid()).toEqual([["Train tidy", "Fix the rail", "*+"]]);
@@ -623,6 +630,7 @@ describe("a new session in a new pane", () => {
   });
 
   it("opens where a New session control is dropped on the grid: a pane's edge splits it, anywhere else splits the focused pane right, and the chips preset from the pane landed beside", async () => {
+    fourPaneRow();
     const app = await twoPanes();
     // Onto the grid of two, at a pane's centre: a third pane beside the focused one, replacing neither.
     await openHeaderMenu(app);

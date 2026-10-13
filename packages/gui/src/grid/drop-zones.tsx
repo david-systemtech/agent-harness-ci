@@ -5,7 +5,7 @@ import type { PaneSession } from "../presentation.js";
 import { useDraggedRow } from "../sidebar/window-sidebar.js";
 import { classes } from "../ui/classes.js";
 import { usePaneGrid } from "./grid.js";
-import { GRID_FULL, type SplitDirection } from "./layout.js";
+import { type SplitDirection } from "./layout.js";
 
 /**
  * Where a session dragged from the sidebar, or a New session control, lands
@@ -38,7 +38,7 @@ const NEW_SESSION_LABELS: Readonly<Record<Zone, string>> = { centre: "New sessio
 
 /** What a target does with the drop: whether it refuses it, adding a pane to a grid of eight, and what landing does. */
 interface Landing {
-  readonly refused: boolean;
+  readonly reason: string | undefined;
   land(): void;
 }
 
@@ -49,29 +49,38 @@ export const DropZones = ({ paneId }: { readonly paneId: string }) => {
   const start = useStartNewSession();
   if (grid.dragged !== null) {
     if (grid.dragged === paneId) return null;
-    return <Zones labels={PANE_LABELS} landing={(zone) => ({ refused: false, land: () => grid.move(paneId, zone) })} effect="move" />;
+    return <Zones labels={PANE_LABELS} landing={(zone) => {
+      const offer = zone === "centre" ? undefined : grid.movingBeside(paneId, zone);
+      return { reason: offer?.status === "absent" ? offer.message : undefined, land: () => grid.move(paneId, zone) };
+    }} effect="move" />;
   }
   if (row !== null) {
     const session: PaneSession = { environmentId: row.environmentId, sessionId: row.summary.id };
-    const landing = (zone: Zone): Landing => ({
-      refused: zone !== "centre" && grid.openingBeside(session).status === "absent",
-      land: () => {
-        setRow(null);
-        if (zone === "centre") grid.show(paneId, session);
-        else grid.openBeside(paneId, zone, session);
-      },
-    });
+    const landing = (zone: Zone): Landing => {
+      const offer = grid.openingBeside(session, paneId, zone === "centre" ? "right" : zone);
+      return {
+        reason: zone !== "centre" && offer.status === "absent" ? offer.message : undefined,
+        land: () => {
+          setRow(null);
+          if (zone === "centre") grid.show(paneId, session);
+          else grid.openBeside(paneId, zone, session);
+        },
+      };
+    };
     return <Zones labels={SESSION_LABELS} landing={landing} effect="move" />;
   }
   if (control !== null) {
-    const landing = (zone: Zone): Landing => ({
-      refused: grid.adding.status === "absent",
-      land: () => {
-        setControl(null);
-        if (zone === "centre") start.beside(grid.focused.id, "right", control);
-        else start.beside(paneId, zone, control);
-      },
-    });
+    const landing = (zone: Zone): Landing => {
+      const offer = grid.addingBeside(zone === "centre" ? grid.focused.id : paneId, zone === "centre" ? "right" : zone);
+      return {
+        reason: offer.status === "absent" ? offer.message : undefined,
+        land: () => {
+          setControl(null);
+          if (zone === "centre") start.beside(grid.focused.id, "right", control);
+          else start.beside(paneId, zone, control);
+        },
+      };
+    };
     return <Zones labels={NEW_SESSION_LABELS} landing={landing} effect="copy" />;
   }
   return null;
@@ -106,8 +115,8 @@ const DropZone = ({ label, place, landing, effect }: DropZoneProps) => {
         place,
       )}
       onDragOver={(event) => {
-        if (landing.refused) {
-          grid.refuse();
+        if (landing.reason !== undefined) {
+          grid.refuse(landing.reason);
           return setOver(false);
         }
         event.preventDefault();
@@ -118,11 +127,10 @@ const DropZone = ({ label, place, landing, effect }: DropZoneProps) => {
       onDrop={(event) => {
         event.preventDefault();
         setOver(false);
-        if (landing.refused) grid.refuse();
-        else landing.land();
+        landing.land();
       }}
     >
-      <span data-drop-label className="max-w-full rounded-md border border-dashed border-beam/70 bg-panel px-3 py-1.5 shadow-lg shadow-scrim/40">{landing.refused ? GRID_FULL : label}</span>
+      <span data-drop-label className="max-w-full rounded-md border border-dashed border-beam/70 bg-panel px-3 py-1.5 shadow-lg shadow-scrim/40">{landing.reason ?? label}</span>
     </div>
   );
 };
