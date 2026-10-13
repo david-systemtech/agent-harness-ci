@@ -13,7 +13,7 @@ import {
   type ToolCategory,
 } from "@agent-harness/client-runtime";
 import { Bot, Check, ChevronRight, CircleX, FilePenLine, FileText, Globe, ListChecks, Plug, Search, SquareTerminal, Wrench, type LucideIcon } from "lucide-react";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Fold, Tooltip } from "../ui/index.js";
 import { classes } from "../ui/classes.js";
 import type { Revealed } from "../session/pane-documents.js";
@@ -73,16 +73,21 @@ const CATEGORY_ICONS: Readonly<Record<ToolCategory, LucideIcon>> = {
 };
 
 interface CallsRowProps {
+  /** The row the group draws, named when its fold reports opening or shutting to `facts.callsOpenChanged`. */
+  readonly rowId?: string | undefined;
   readonly previousTime?: string | undefined;
   readonly calls: readonly ToolCallEntry[];
   readonly facts: RowFacts;
 }
 
-export const CallsRow = ({ calls, facts, previousTime }: CallsRowProps) => {
+export const CallsRow = ({ rowId, calls, facts, previousTime }: CallsRowProps) => {
   const [choices, setChoices] = useState<Readonly<Record<string, CallChoices>>>({});
   const retain = (id: string, choice: CallChoices) => setChoices((held) => ({ ...held, [id]: choice }));
   const done = calls.filter(folded);
   const [open, setOpen] = useOpenedFor(done, facts.revealed);
+  const { callsOpenChanged } = facts;
+  // However the fold opened, by hand or by a reveal, the following row compares against the clock it now shows.
+  useEffect(() => { if (rowId !== undefined) callsOpenChanged?.(rowId, open); }, [rowId, open, callsOpenChanged]);
   const standing = calls.filter((call) => !folded(call));
   const summary = describeActivity(countsOf(done));
   const categories = [...new Set(done.map((call) => classifyTool(call.name)))].slice(0, 3);
