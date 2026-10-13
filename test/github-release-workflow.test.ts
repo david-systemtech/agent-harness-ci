@@ -411,6 +411,16 @@ esac
     expect(windows).toContain("https://github.com/david-systemtech/agent-harness/releases/download/");
   });
 
+  it("checks manifest verification in every platform smoke and the built release before upload", () => {
+    for (const name of ["smoke-linux", "smoke-macos", "smoke-windows"]) {
+      expect(job(name).join("\n")).toContain("^Digest: .*release.json");
+    }
+    const check = step("release", "Verify manifest digests and compatibility sidecars");
+    expect(check).toContain("node scripts/check-release-assets.mjs release-assets");
+    const release = job("release").join("\n");
+    expect(release.indexOf(check)).toBeLessThan(release.indexOf("Keep all artefacts, including for a dry run"));
+  });
+
   it("hands the manifest writer every asset, the tag and exact ghcr image through the runner's shell", async () => {
     scratch = mkdtempSync(join(tmpdir(), "github-release-workflow-"));
     const log = join(scratch, "args");
@@ -424,9 +434,6 @@ esac
     const args = readFileSync(log, "utf8").trim().split("\n");
     expect(args.slice(0, 13)).toEqual(["--filter", "agent-harness", "build-artefacts", "--tag", "v1.2.3-beta.2", "--out", "release-assets", "--windows-pty-build", "windows-pty", "--image-reference", "ghcr.io/david-systemtech/agent-harness:1.2.3-beta.2", "--image-digest", `sha256:${"0".repeat(64)}`]);
     expect(args.slice(13)).toEqual([
-      "--asset", "schema=packages/contracts/schema", "--asset", "install-script=scripts/install.sh",
-      "--asset", "install-script=scripts/install.ps1", "--asset", "compose=scripts/compose.yaml",
-      "--asset", "host-updater=scripts/host-updater.sh",
       "--asset", "desktop:darwin-arm64:zip=desktop/agent-harness-desktop-darwin-arm64.zip",
       "--asset", "desktop:win32-x64:nsis=desktop/agent-harness-desktop-win32-x64-setup.exe",
       "--asset", "desktop:linux-x64:pacman=desktop/agent-harness-desktop-linux-x64.pacman",

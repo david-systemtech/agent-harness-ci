@@ -30,7 +30,7 @@
 #
 # A release publishes agent-harness-win32-<arch>.zip (Node's names), holding the
 # version's node\node.exe and packages\cli\dist\main.js, and beside it
-# <asset>.sha256, whose first word is the SHA-256 of the zip.
+# release.json with size and SHA-256. Older releases use <asset>.sha256.
 #
 # It runs under Windows PowerShell 5.1 and PowerShell 7, as a file
 # (powershell -File install.ps1 ...) or as a script block made from its text.
@@ -290,6 +290,24 @@ function Test-Running([hashtable]$Cli) {
   try { return (($answer -join "`n") | ConvertFrom-Json).running -eq $true } catch { return $false }
 }
 
+# A present manifest must be valid; never downgrade a bad digest to a sidecar.
+function Read-ReleaseManifest([string]$text, [string]$url, [string]$ExpectedVersion) {
+  # PowerShell 5.1 enumerates top-level arrays; check the root before parsing.
+  if (-not $text.TrimStart().StartsWith('{')) { Stop-Install "invalid public release manifest at ${url}; nothing was installed." }
+  try { $manifest = ConvertFrom-Json $text } catch { Stop-Install "invalid public release manifest at ${url}; nothing was installed." }
+  if ($manifest -isnot [PSCustomObject]) { Stop-Install "invalid public release manifest at ${url}; nothing was installed." }
+  $resolved = $manifest.version
+  if ($resolved -isnot [string] -or -not (Test-ReleaseVersion $resolved) -or ($ExpectedVersion -and $resolved -cne $ExpectedVersion) -or (-not $ExpectedVersion -and ($resolved -split '\+', 2)[0].Contains('-'))) {
+    Stop-Install "invalid release version in the public manifest at ${url}; nothing was installed."
+  }
+  $entries = @($manifest.assets | Where-Object { $_ -is [PSCustomObject] -and $_.name -is [string] -and $_.name -ceq $asset })
+  if ($manifest.assets -isnot [Array] -or $entries.Count -ne 1 -or $entries[0].sha256 -isnot [string] -or $entries[0].sha256 -cnotmatch '^[0-9a-f]{64}\z' -or ($entries[0].size -isnot [int] -and $entries[0].size -isnot [long]) -or $entries[0].size -le 0) {
+    Stop-Install "public release manifest v$resolved has no valid ${asset}; nothing was installed."
+  }
+  $tag = "v$resolved"
+  return @{ Tag = $tag; Version = $resolved; AssetUrl = "$PublicReleases/download/$tag/$asset"; ChecksumUrl = $url; Digest = $entries[0].sha256; Size = $entries[0].size }
+}
+
 # Public release assets remain available when the anonymous API cannot be read.
 # GitHub's latest asset redirect names the stable release; pins use their exact tag.
 # Beta selection still requires the API, since latest does not select prereleases.
@@ -299,20 +317,7 @@ function Resolve-PublicManifest {
   else { $url = "$PublicReleases/latest/download/release.json" }
   $text = Get-ForgeText $url 2>$null
   if ($null -eq $text) { return $null }
-  # PowerShell 5.1 enumerates top-level arrays; check the root before parsing.
-  if (-not $text.TrimStart().StartsWith('{')) { Stop-Install "invalid public release manifest at ${url}; nothing was installed." }
-  try { $manifest = ConvertFrom-Json $text } catch { Stop-Install "invalid public release manifest at ${url}; nothing was installed." }
-  if ($manifest -isnot [PSCustomObject]) { Stop-Install "invalid public release manifest at ${url}; nothing was installed." }
-  $resolved = $manifest.version
-  if ($resolved -isnot [string] -or -not (Test-ReleaseVersion $resolved) -or ($Version -and $resolved -cne $Version) -or (-not $Version -and ($resolved -split '\+', 2)[0].Contains('-'))) {
-    Stop-Install "invalid release version in the public manifest at ${url}; nothing was installed."
-  }
-  $entries = @($manifest.assets | Where-Object { $_ -is [PSCustomObject] -and $_.name -is [string] -and $_.name -ceq $asset })
-  if ($manifest.assets -isnot [Array] -or $entries.Count -ne 1 -or $entries[0].sha256 -isnot [string] -or $entries[0].sha256 -cnotmatch '^[0-9a-f]{64}\z' -or ($entries[0].size -isnot [int] -and $entries[0].size -isnot [long]) -or $entries[0].size -le 0) {
-    Stop-Install "public release manifest v$resolved has no valid ${asset}; nothing was installed."
-  }
-  $tag = "v$resolved"
-  return @{ Tag = $tag; Version = $resolved; AssetUrl = "$PublicReleases/download/$tag/$asset"; ChecksumUrl = "$PublicReleases/download/$tag/$asset.sha256" }
+  return Read-ReleaseManifest $text $url $Version
 }
 
 # Finds the release to install, the channel's newest or the one -Version names, and
@@ -345,6 +350,15 @@ function Resolve-Release {
   $tag = [string]$release.tag_name
   $assetUrl = Get-AssetUrl $release $asset
   if (-not $assetUrl) { Stop-Install "release $tag has no ${asset}: nothing is built for Windows on $arch in it." }
+  $manifestUrl = Get-AssetUrl $release 'release.json'
+  if ($manifestUrl) {
+    $manifestText = Get-ForgeText $manifestUrl
+    if ($null -ne $manifestText) {
+      $identity = Read-ReleaseManifest $manifestText $manifestUrl $tag.Substring(1)
+      $identity.AssetUrl = $assetUrl
+      return $identity
+    }
+  }
   $checksumUrl = Get-AssetUrl $release "$asset.sha256"
   if (-not $checksumUrl) {
     Stop-Install "release $tag publishes no digest for $asset ($asset.sha256), so it cannot be verified; nothing was installed."
@@ -372,8 +386,12 @@ function Expand-Release([hashtable]$Release) {
   $sidecar = Join-Path $run.Work "$asset.sha256"
   Write-Host "Downloading $asset $($Release.Tag)."
   if (-not (Invoke-Forge @('-o', $zip, $Release.AssetUrl))) { Stop-Install "could not download $($Release.AssetUrl)." }
-  if (-not (Invoke-Forge @('-o', $sidecar, $Release.ChecksumUrl))) { Stop-Install "could not download $($Release.ChecksumUrl)." }
-  $expected = (([IO.File]::ReadAllText($sidecar) -split '\r?\n', 2)[0] -split '\s+', 2)[0]
+  $expected = $Release.Digest
+  if (-not $expected) {
+    if (-not (Invoke-Forge @('-o', $sidecar, $Release.ChecksumUrl))) { Stop-Install "could not download $($Release.ChecksumUrl)." }
+    $expected = (([IO.File]::ReadAllText($sidecar) -split '\r?\n', 2)[0] -split '\s+', 2)[0]
+  }
+  if ($Release.Size -and (Get-Item -LiteralPath $zip).Length -ne $Release.Size) { Stop-Install "the size of $asset is not the published $($Release.Size); nothing was installed." }
   if ($expected -cnotmatch '^[0-9a-f]{64}\z') { Stop-Install "$($Release.ChecksumUrl) holds no SHA-256 for $asset; nothing was installed." }
   $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($actual -cne $expected) { Stop-Install "the SHA-256 of $asset is $actual, not the published $expected; nothing was installed." }

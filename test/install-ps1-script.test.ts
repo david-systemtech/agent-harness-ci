@@ -360,6 +360,33 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
     expect(f.calls()).toEqual([`curl ${LIST}`]);
   });
 
+  it("installs from release.json without a sidecar when the API is available", async () => {
+    const f = fixture([{ tag: "v0.1.0", checksum: "none" }]);
+    const zip = readFileSync(join(f.root, "assets", "v0.1.0", ASSET));
+    const manifest = JSON.stringify({ version: "0.1.0", assets: [{ name: ASSET, size: zip.length, sha256: createHash("sha256").update(zip).digest("hex") }] });
+    write(join(f.root, "assets", "v0.1.0", "release.json"), manifest);
+    write(join(f.root, "releases", "list.json"), JSON.stringify([releaseJson({ tag: "v0.1.0" }, [ASSET, "release.json"])]));
+    const result = await install(f);
+    expect(result.code, result.stderr).toBe(0);
+    expect(f.calls().some((call) => call.endsWith(".sha256"))).toBe(false);
+    expect(existsSync(join(f.dataDir, "versions", "0.1.0", ".complete"))).toBe(true);
+  });
+
+  it.each(["digest", "size"])("refuses an API-selected manifest with the wrong %s even when a good sidecar exists", async (field) => {
+    const f = fixture();
+    const zip = readFileSync(join(f.root, "assets", "v0.1.0", ASSET));
+    const entry = { name: ASSET, size: zip.length, sha256: createHash("sha256").update(zip).digest("hex") };
+    if (field === "digest") entry.sha256 = "0".repeat(64);
+    else entry.size++;
+    write(join(f.root, "assets", "v0.1.0", "release.json"), JSON.stringify({ version: "0.1.0", assets: [entry] }));
+    write(join(f.root, "releases", "list.json"), JSON.stringify([releaseJson({ tag: "v0.1.0" }, [ASSET, `${ASSET}.sha256`, "release.json"])]));
+    const result = await install(f);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("not the published");
+    expect(f.calls().some((call) => call.endsWith(".sha256"))).toBe(false);
+    expect(existsSync(join(f.dataDir, "versions", "0.1.0", ".complete"))).toBe(false);
+  });
+
   it("ignores an inherited private forge token without sending or storing it", async () => {
     const f = fixture();
     expect((await install(f)).code).toBe(0);
@@ -376,7 +403,7 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("Release: v0.1.0");
     expect(result.stdout).toContain(`Download: ${DOWNLOAD}/v0.1.0/${ASSET}`);
-    expect(result.stdout).toContain(`Digest: ${DOWNLOAD}/v0.1.0/${ASSET}.sha256`);
+    expect(result.stdout).toContain(`Digest: ${latest}`);
     expect(f.calls()).toEqual([`curl ${LIST}`, `curl ${latest}`]);
     expect(readFileSync(f.log, "utf8")).not.toContain(TOKEN);
     expect(readdirSync(f.localAppData)).toEqual([]);
@@ -397,7 +424,7 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
 
   it("still rejects a corrupt archive digest when using the public manifest", async () => {
     const f = fixture([{ tag: "v0.1.0", checksum: "wrong" }]);
-    write(join(f.root, "releases", "latest-manifest.json"), JSON.stringify({ version: "0.1.0", assets: [{ name: ASSET, size: 1, sha256: "0".repeat(64) }] }));
+    write(join(f.root, "releases", "latest-manifest.json"), JSON.stringify({ version: "0.1.0", assets: [{ name: ASSET, size: readFileSync(join(f.root, "assets", "v0.1.0", ASSET)).length, sha256: "0".repeat(64) }] }));
     const result = await install(f, [], { FAKE_API_ERROR: "403" });
     expect(result.code).toBe(1);
     expect(result.stderr).toContain(`the SHA-256 of ${ASSET}`);
@@ -704,6 +731,9 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
 
   it("runs the release's Windows headless smoke against anonymous public assets", async () => {
     const f = fixture();
+    const zip = readFileSync(join(f.root, "assets", "v0.1.0", ASSET));
+    write(join(f.root, "assets", "v0.1.0", "release.json"), JSON.stringify({ version: "0.1.0", assets: [{ name: ASSET, size: zip.length, sha256: createHash("sha256").update(zip).digest("hex") }] }));
+    write(join(f.root, "releases", "list.json"), JSON.stringify([releaseJson({ tag: "v0.1.0" }, [ASSET, "release.json"])]));
     write(join(f.root, "install.ps1"), readFileSync(script, "utf8"));
     const workflow = releaseWorkflowInput(join(import.meta.dirname, "..")).hosted;
     const start = workflow.indexOf("          Remove-Item Env:");
@@ -715,10 +745,10 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
     expect(result.code).toBe(0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain(`${DOWNLOAD}/v0.1.0/${ASSET}`);
-    expect(f.calls()).toEqual([`curl ${LIST}`]);
+    expect(f.calls()).toEqual([`curl ${LIST}`, `curl ${DOWNLOAD}/v0.1.0/release.json`]);
   });
 
-  it("passes the unchanged hosted Windows headless smoke when the API returns 403", async () => {
+  it("passes the hosted Windows headless smoke when the API returns 403", async () => {
     const f = fixture();
     write(join(f.root, "install.ps1"), readFileSync(script, "utf8"));
     write(join(f.root, "releases", "latest-manifest.json"), JSON.stringify({ version: "0.1.0", assets: [{ name: ASSET, size: 1, sha256: "0".repeat(64) }] }));

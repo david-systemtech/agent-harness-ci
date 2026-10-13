@@ -12,23 +12,24 @@ import { installLines } from "./install-lines.js";
  */
 
 const FORGEJO: ReleaseSource = { origin: "https://git.example.test", kind: "forgejo", repository: "david/agent-harness" };
-const RELEASE = "https://git.example.test/david/agent-harness/releases/download/v0.4.2";
+const RELEASE = "https://git.example.test/david/agent-harness/raw/tag/v0.4.2/scripts";
 const TOKEN_TO_CURL = `printf 'header = "Authorization: token %s"\\n' "$AGENT_HARNESS_TOKEN" | curl -K - -fsSL`;
 
 describe("the install lines", () => {
   it("downloads public GitHub installers anonymously, even when a private forge token is set in the user's shell", () => {
     const lines = installLines({ releaseSource: { origin: "https://github.com", kind: "github", repository: "owner/name" }, version: "0.4.2", channel: "beta", name: "Build box" });
-    expect(lines.unix).toBe("curl -fsSL https://github.com/owner/name/releases/download/v0.4.2/install.sh | sh -s -- --channel beta --name 'Build box'");
-    expect(lines.windows).toBe("& ([scriptblock]::Create((curl.exe -fsSL https://github.com/owner/name/releases/download/v0.4.2/install.ps1) -join \"`n\")) -Channel beta -Name 'Build box'");
+    expect(lines.unix).toBe("curl -fsSL https://raw.githubusercontent.com/owner/name/v0.4.2/scripts/install.sh | sh -s -- --channel beta --name 'Build box'");
+    expect(lines.windows).toBe("& ([scriptblock]::Create((curl.exe -fsSL https://raw.githubusercontent.com/owner/name/v0.4.2/scripts/install.ps1) -join \"`n\")) -Channel beta -Name 'Build box'");
     expect([lines.unix, lines.windows].join("\n")).not.toMatch(/AGENT_HARNESS_TOKEN|Authorization/);
   });
 
   it("fetches the versioned public compose file and updater together, makes the updater executable and starts without a registry login", () => {
     const lines = installLines({ releaseSource: { origin: "https://github.com", kind: "github", repository: "owner/name" }, version: "0.4.2", channel: "beta", name: "box" });
     expect(lines.compose).toEqual([
-      "curl -fsSL -o compose.yaml https://github.com/owner/name/releases/download/v0.4.2/compose.yaml",
-      "curl -fsSL -o host-updater.sh https://github.com/owner/name/releases/download/v0.4.2/host-updater.sh",
+      "curl -fsSL -o compose.yaml https://raw.githubusercontent.com/owner/name/v0.4.2/scripts/compose.yaml",
+      "curl -fsSL -o host-updater.sh https://raw.githubusercontent.com/owner/name/v0.4.2/scripts/host-updater.sh",
       "chmod +x host-updater.sh",
+      "printf '%s\\n' AGENT_HARNESS_IMAGE=ghcr.io/owner/name:0.4.2 >> .env",
       "AGENT_HARNESS_CHANNEL=beta AGENT_HARNESS_NAME=box docker compose up -d",
       "docker compose logs environment",
     ]);
@@ -55,6 +56,7 @@ describe("the install lines", () => {
       `${TOKEN_TO_CURL} -o compose.yaml ${RELEASE}/compose.yaml`,
       `${TOKEN_TO_CURL} -o host-updater.sh ${RELEASE}/host-updater.sh`,
       "chmod +x host-updater.sh",
+      "printf '%s\\n' AGENT_HARNESS_IMAGE=git.example.test/david/agent-harness:0.4.2 >> .env",
       "docker login git.example.test",
       "AGENT_HARNESS_CHANNEL=beta AGENT_HARNESS_NAME=box docker compose up -d",
       "docker compose logs environment",
@@ -66,8 +68,8 @@ describe("the install lines", () => {
   });
 
   it("start the container with the channel alone when no name is given, and the name quoted for sh when one is", () => {
-    expect(installLines({ releaseSource: FORGEJO, version: "0.4.2", channel: "stable", name: "  " }).compose[4]).toBe("AGENT_HARNESS_CHANNEL=stable docker compose up -d");
-    expect(installLines({ releaseSource: FORGEJO, version: "0.4.2", channel: "beta", name: "  Milo's box " }).compose[4]).toBe(
+    expect(installLines({ releaseSource: FORGEJO, version: "0.4.2", channel: "stable", name: "  " }).compose[5]).toBe("AGENT_HARNESS_CHANNEL=stable docker compose up -d");
+    expect(installLines({ releaseSource: FORGEJO, version: "0.4.2", channel: "beta", name: "  Milo's box " }).compose[5]).toBe(
       "AGENT_HARNESS_CHANNEL=beta AGENT_HARNESS_NAME='Milo'\\''s box' docker compose up -d",
     );
   });

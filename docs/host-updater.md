@@ -3,8 +3,8 @@
 A container never updates itself (ADR 0007). When the agent-harness
 environment runs in a container, from the release's `compose.yaml`, the
 host-side updater carries out its updates from the Docker host:
-`host-updater.sh`, a POSIX shell script published with every release beside
-`compose.yaml`.
+`host-updater.sh`, a POSIX shell script in the repository at each release tag,
+beside `scripts/compose.yaml`.
 
 The environment keeps the plan. Its channel, its pinned version and whether it
 updates by itself are its own settings, changed on its Your machines card as
@@ -135,8 +135,18 @@ the environment runs on the host.
 2. Start the environment once, as `compose.yaml`'s header says:
    `docker compose up -d` in that folder. The public image is
    `ghcr.io/david-systemtech/agent-harness:<version>`; no registry login is
-   required. Obtain the compose file and updater from the same release at
-   <https://github.com/david-systemtech/agent-harness/releases>. Put the
+   required. Fetch both files from the release's tag and pin the image in `.env`:
+
+   ```sh
+   version=0.1.20
+   curl -fsSL -o compose.yaml "https://raw.githubusercontent.com/david-systemtech/agent-harness/v$version/scripts/compose.yaml"
+   curl -fsSL -o host-updater.sh "https://raw.githubusercontent.com/david-systemtech/agent-harness/v$version/scripts/host-updater.sh"
+   printf '%s\n' "AGENT_HARNESS_IMAGE=ghcr.io/david-systemtech/agent-harness:$version" >> .env
+   chmod +x host-updater.sh
+   ```
+
+   The updater takes its image digest from the environment's manifest-backed
+   update plan. It downloads no script or checksum sidecar. Put the
    environment's settings, such as the phone address
    `AGENT_HARNESS_WEB_ORIGIN` ([phone guide](phone.md)), in the `.env` file
    beside `compose.yaml`, never in edits to `compose.yaml`: replacing the

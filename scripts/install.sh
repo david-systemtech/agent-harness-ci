@@ -5,7 +5,7 @@
 #
 # It resolves the channel's newest release at run time (--version names one
 # instead), downloads the artefact for this platform, checks its SHA-256
-# against the digest the release publishes beside it, and unpacks it into the
+# against release.json, falling back to the digest beside it, and unpacks it into the
 # data directory's versions directory, the version's sentinel written last.
 # Then it runs the version's `service install` and `service start`, waits for
 # the environment's health URL to say ready, sets the channel with `update
@@ -24,7 +24,7 @@
 #
 # A release publishes agent-harness-<os>-<arch>.tar.gz (Node's names), holding
 # the version's bin/agent-harness at its root, and beside it
-# <asset>.sha256, whose first word is the SHA-256 of the tarball.
+# release.json with size and SHA-256. Older releases use <asset>.sha256.
 
 set -eu
 
@@ -299,8 +299,8 @@ double_quoted() {
 
 # Parse the public manifest without adding a runtime dependency. Unlike the API's
 # line reader, this validates JSON structure and field types before using a version.
-manifest_version() {
-  LC_ALL=C awk -v wanted="$asset" -v pinned="$version" -v channel="$channel" -v pattern="$VERSION_PATTERN" '
+manifest_identity() {
+  LC_ALL=C awk -v wanted="$asset" -v pinned="$1" -v channel="$channel" -v pattern="$VERSION_PATTERN" '
     function invalid() { failed = 1; exit 1 }
     function space() { while (substr(text, at, 1) ~ /^[ \t\r\n]$/) at++ }
     function take(c) { space(); if (substr(text, at++, 1) != c) invalid() }
@@ -344,8 +344,8 @@ manifest_version() {
             if (role == "root" && key == "version") { if (kind != "string") invalid(); version = scalar }
             if (role == "root" && key == "assets") { if (kind != "array") invalid(); assets = 1 }
             if (role == "asset" && key == "name") { if (kind != "string") invalid(); name = scalar }
-            if (role == "asset" && key == "size") { if (kind != "number" || scalar !~ /^[1-9][0-9]*$/) invalid(); size = 1 }
-            if (role == "asset" && key == "sha256") { if (kind != "string" || length(scalar) != 64 || scalar ~ /[^0-9a-f]/) invalid(); digest = 1 }
+            if (role == "asset" && key == "size") { if (kind != "number" || scalar !~ /^[1-9][0-9]*$/) invalid(); size = scalar }
+            if (role == "asset" && key == "sha256") { if (kind != "string" || length(scalar) != 64 || scalar ~ /[^0-9a-f]/) invalid(); digest = scalar }
             space(); c = substr(text, at++, 1)
             if (c == "}") break
             if (c != ",") invalid()
@@ -359,7 +359,7 @@ manifest_version() {
         }
         if (role == "asset") {
           if (name == "" || !size || !digest) invalid()
-          if (name == wanted) matches++
+          if (name == wanted) { matches++; wanted_digest = digest; wanted_size = size }
         }
         kind = "object"; scalar = ""; return
       }
@@ -390,7 +390,7 @@ manifest_version() {
       if (failed) exit 1
       at = 1; value("root", 0); space()
       if (kind != "object" || at <= length(text) || matches != 1 || resolved == "") invalid()
-      print resolved
+      print resolved, wanted_digest, wanted_size
     }
   '
 }
@@ -406,11 +406,14 @@ resolve_public_manifest() {
     return 1
   fi
   manifest=$(forge_curl "$manifest_url" 2>/dev/null) || return 1
-  release_version=$(printf '%s\n' "$manifest" | manifest_version) ||
+  identity=$(printf '%s\n' "$manifest" | manifest_identity "$version") ||
     fail "invalid public release manifest at $manifest_url for $asset; nothing was installed."
+  read -r release_version expected expected_size <<EOF
+$identity
+EOF
   tag="v$release_version"
   asset_url="$PUBLIC_RELEASES/download/$tag/$asset"
-  checksum_url="$asset_url.sha256"
+  checksum_url="$manifest_url"
 }
 
 # Finds the release to install, the channel's newest or the one --version names,
@@ -440,6 +443,18 @@ resolve_release() {
   release_version=${tag#v}
   asset_url=$(printf '%s\n' "$members" | download_url "$tag" "$asset")
   [ -n "$asset_url" ] || fail "release $tag has no $asset: nothing is built for $os on $arch in it."
+  expected=""
+  expected_size=""
+  manifest_url=$(printf '%s\n' "$members" | download_url "$tag" "release.json")
+  if [ -n "$manifest_url" ] && manifest=$(forge_curl "$manifest_url" 2>/dev/null); then
+    identity=$(printf '%s\n' "$manifest" | manifest_identity "$release_version") ||
+      fail "invalid public release manifest at $manifest_url for $asset; nothing was installed."
+    read -r release_version expected expected_size <<EOF
+$identity
+EOF
+    checksum_url="$manifest_url"
+    return
+  fi
   checksum_url=$(printf '%s\n' "$members" | download_url "$tag" "$asset.sha256")
   [ -n "$checksum_url" ] ||
     fail "release $tag publishes no digest for $asset ($asset.sha256), so it cannot be verified; nothing was installed."
@@ -462,8 +477,13 @@ unpack_release() {
   work=$(mktemp -d)
   printf 'Downloading %s %s.\n' "$asset" "$tag"
   forge_curl -o "$work/$asset" "$asset_url" || fail "could not download $asset_url."
-  forge_curl -o "$work/$asset.sha256" "$checksum_url" || fail "could not download $checksum_url."
-  expected=$(awk 'NR == 1 { print $1 }' "$work/$asset.sha256")
+  if [ -z "${expected:-}" ]; then
+    forge_curl -o "$work/$asset.sha256" "$checksum_url" || fail "could not download $checksum_url."
+    expected=$(awk 'NR == 1 { print $1 }' "$work/$asset.sha256")
+  fi
+  if [ -n "${expected_size:-}" ] && [ "$(wc -c < "$work/$asset" | tr -d ' ')" != "$expected_size" ]; then
+    fail "the size of $asset is not the published $expected_size; nothing was installed."
+  fi
   case $expected in
     "" | *[!0-9a-f]*) fail "$checksum_url holds no SHA-256 for $asset; nothing was installed." ;;
   esac

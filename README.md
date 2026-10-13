@@ -97,6 +97,27 @@ and gives the command that installs the build it downloaded,
 `sudo pacman -U <path>`; installing a newer release's package with
 `sudo pacman -U` as above works too.
 
+### Headless install (macOS, Linux or Windows)
+
+The install scripts live in the repository at each release's tag. Set `version`
+to your chosen release; the script follows the stable channel unless given a
+channel or an exact version. It verifies the server build against `release.json`,
+with a sidecar fallback for older releases.
+
+```sh
+version=0.1.20
+curl -fsSL "https://raw.githubusercontent.com/david-systemtech/agent-harness/v$version/scripts/install.sh" | sh -s -- --channel stable
+```
+
+```powershell
+$version = '0.1.20'
+& ([scriptblock]::Create((curl.exe -fsSL "https://raw.githubusercontent.com/david-systemtech/agent-harness/v$version/scripts/install.ps1") -join "`n")) -Channel stable
+```
+
+The contracts' JSON schemas are in
+[`packages/contracts/schema/`](https://github.com/david-systemtech/agent-harness/tree/v0.1.20/packages/contracts/schema)
+at the same tag.
+
 ### Docker (Linux x64 host)
 
 The public image is `ghcr.io/david-systemtech/agent-harness`. Each release
@@ -104,10 +125,19 @@ has a version tag without the leading `v`; `latest` follows stable releases.
 No registry login is needed to pull the public image.
 
 On a Linux machine with Docker Engine and the Compose plugin, download
-`compose.yaml` and `host-updater.sh` from the same GitHub release into one
-directory. The release's compose file selects that release's image and
-keeps the environment's data and workspaces in named volumes. In that
-directory, run:
+`compose.yaml` and `host-updater.sh` from the repository at the release's tag
+into one directory. Set `version` to the release you chose, without `v`:
+
+```sh
+version=0.1.20
+curl -fsSL -o compose.yaml "https://raw.githubusercontent.com/david-systemtech/agent-harness/v$version/scripts/compose.yaml"
+curl -fsSL -o host-updater.sh "https://raw.githubusercontent.com/david-systemtech/agent-harness/v$version/scripts/host-updater.sh"
+chmod +x host-updater.sh
+printf '%s\n' "AGENT_HARNESS_IMAGE=ghcr.io/david-systemtech/agent-harness:$version" >> .env
+```
+
+The `.env` image selects that release. Compose keeps the environment's data
+and workspaces in named volumes. In that directory, run:
 
 ```sh
 docker compose up -d
