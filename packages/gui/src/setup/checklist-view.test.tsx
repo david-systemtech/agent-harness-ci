@@ -1,7 +1,9 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
+import { fakeShell } from "@agent-harness/client-runtime/testing";
 import { STEP_HINTS, STEP_LABELS, STEP_ORDER } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type ScriptedEnvironment } from "../../test/harness.js";
+import { useHoldContinue } from "./continue-hold.js";
 import { STEP_WORDS } from "./step-words.js";
 
 /**
@@ -32,14 +34,24 @@ const firstLaunch = async (given: Partial<ScriptedEnvironment> = {}) => {
 };
 
 describe("the header", () => {
-  it("says Set up, Setting up: with the computer picker in place of Environment, and Close", async () => {
-    await firstLaunch();
+  it.each(["win32", "linux"] as const)("keeps %s window controls in the header and Close Set up below it", async (platform) => {
+    const shell = fakeShell();
+    shell.answer("window.state", async () => ({ platform, focused: true, maximized: false, fullScreen: false }));
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", accounts: [{}] }] }, { firstLaunch: true, shell });
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     const header = checklist().querySelector(":scope > header") as HTMLElement;
     expect(within(header).getByRole("heading", { name: "Set up", level: 1 })).toBeDefined();
     expect(within(header).getByText("Setting up:")).toBeDefined();
     expect(within(within(header).getByRole("combobox", { name: "Setting up" })).getByRole("option", { selected: true }).textContent).toBe("desk");
     expect(within(header).queryByText("Environment")).toBeNull();
-    expect(within(header).getByRole("button", { name: "Close Set up" }).textContent).toBe("Close");
+    expect(within(header).queryByRole("button", { name: "Close Set up" })).toBeNull();
+    expect(await within(header).findByRole("button", { name: "Close window" })).toBeDefined();
+    const close = within(checklist()).getByRole("button", { name: "Close Set up" });
+    expect(close.textContent).toBe("Close Set up");
+    expect(header.compareDocumentPosition(close) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await app.user.click(close);
+    expect(screen.queryByRole("region", { name: "Set up" })).toBeNull();
+    expect(shell.calls).not.toContainEqual(["window.close"]);
   });
 });
 
@@ -124,6 +136,35 @@ describe("a card's head", () => {
 });
 
 describe("the footer", () => {
+  it.each([false, true])("offers a working Close Set up beside a held Finish with signed-in account: %s", async (signedIn) => {
+    const HeldCard = () => {
+      useHoldContinue("Wait for the theme to save.");
+      return <p>Saving the theme…</p>;
+    };
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", accounts: signedIn ? [{}] : [] }] }, { firstLaunch: true, stepCards: { appearance: HeldCard } });
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
+    expect(within(footer()).queryByRole("button", { name: "Close Set up" })).toBeNull();
+    await app.user.click(within(rail()).getByRole("button", { name: "Appearance" }));
+    const finish = within(footer()).getByRole("button", { name: "Finish set up" });
+    await waitFor(() => expect(finish.hasAttribute("disabled")).toBe(true));
+    expect(within(footer()).getByText("Wait for the theme to save.")).toBeDefined();
+    const close = within(footer()).getByRole("button", { name: "Close Set up" });
+    expect(close.hasAttribute("disabled")).toBe(false);
+    expect(close.compareDocumentPosition(finish) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(checklist()).getAllByRole("button", { name: "Close Set up" })).toHaveLength(2);
+    await app.user.click(close);
+    if (!signedIn) {
+      const confirmation = screen.getByRole("dialog", { name: "Leave set up without an account?" });
+      await app.user.click(within(confirmation).getByRole("button", { name: "Keep setting up" }));
+      expect(card("Appearance")).toBeDefined();
+      await app.user.click(within(footer()).getByRole("button", { name: "Close Set up" }));
+      await app.user.click(screen.getByRole("button", { name: "Leave for now" }));
+    }
+    expect(screen.queryByRole("heading", { name: "Set up", level: 1 })).toBeNull();
+    await app.remount();
+    expect(screen.queryByRole("heading", { name: "Welcome to agent-harness" })).toBeNull();
+  });
+
   it("on Account with no one signed in, holds Skip for now and Continue with the reason as visible text beside them", async () => {
     await firstLaunch();
     const reason = "Sign in to continue. Account is the one required step.";
@@ -161,6 +202,9 @@ describe("the lines before there is a step to show", () => {
     const release = app.environment("desk").holdSetupChecks();
     await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     expect((await within(checklist()).findByText("Reading desk's setup…")).getAttribute("role")).toBe("status");
+    const close = within(checklist()).getByRole("button", { name: "Close Set up" });
+    expect(close.closest("header")).toBeNull();
+    expect(close.hasAttribute("disabled")).toBe(false);
     release();
     await waitFor(() => expect(within(checklist()).queryByText("Reading desk's setup…")).toBeNull());
   });
@@ -173,6 +217,11 @@ describe("the lines before there is a step to show", () => {
     expect(within(rail()).getAllByRole("listitem")).toHaveLength(11);
     await act(async () => { await app.runtime.connections.remove(app.environment("laptop").environmentId); });
     expect(await within(checklist()).findByText("Choose a computer to set up.")).toBeDefined();
+    const close = within(checklist()).getByRole("button", { name: "Close Set up" });
+    expect(close.closest("header")).toBeNull();
     expect(within(checklist()).queryByRole("navigation", { name: "Step navigation" })).toBeNull();
+    await app.user.click(close);
+    await app.user.click(screen.getByRole("button", { name: "Leave for now" }));
+    expect(screen.queryByRole("heading", { name: "Set up", level: 1 })).toBeNull();
   });
 });

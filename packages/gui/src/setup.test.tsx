@@ -295,8 +295,9 @@ describe("the Set up pane", () => {
     await app.user.click(within(within(within(settings()).getByRole("region", { name: "Set up" })).getByRole("list", { name: "Steps" })).getByRole("button", { name: "Appearance" }));
     expect(screen.queryByRole("region", { name: "Settings" })).toBeNull();
     expect(within(steps()).getByRole("button", { name: "Appearance" }).getAttribute("aria-current")).toBe("step");
-    expect(within(within(checklist() as HTMLElement).getByRole("region", { name: "Appearance" })).getByText("Some colours in Olive were adjusted so text stays readable.")).toBeDefined();
-    await app.user.click(screen.getByRole("button", { name: "Close Set up" }));
+    const appearance = within(checklist() as HTMLElement).getByRole("region", { name: "Appearance" });
+    expect(within(appearance).getByText("Some colours in Olive were adjusted so text stays readable.")).toBeDefined();
+    await app.user.click(within(appearance).getByRole("button", { name: "Close Set up" }));
     await app.user.click(screen.getByRole("button", { name: "Leave for now" }));
 
     // Settings is back as Set up closes. The full checklist's rail draws the steps the same.
