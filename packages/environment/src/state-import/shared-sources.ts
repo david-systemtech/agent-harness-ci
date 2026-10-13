@@ -33,7 +33,12 @@ export const selectSharedSources = async (
     const projectsPath = await realpath(join(entry.directory, "projects")).catch(() => null);
     const sharedProjectsWith = projectsPath === null ? undefined : projects.get(projectsPath);
     if (projectsPath !== null && sharedProjectsWith === undefined) projects.set(projectsPath, entry.sourceId);
-    const sessions = await listSessions(entry.directory).catch(() => []);
+    // Carry over lists the directory again and reports a listing that fails as its failure; here it is only logged, and
+    // shares nothing (#2098).
+    const sessions = await listSessions(entry.directory).catch((thrown: unknown) => {
+      console.error(`Listing the sessions in ${entry.directory} failed, so none of them is matched as shared:`, thrown);
+      return [];
+    });
     const paths = await transcriptPaths(entry.directory);
     const excludedSessions: string[] = [];
     for (const session of sessions) {

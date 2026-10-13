@@ -11,6 +11,12 @@ import { derivedUuid, mappedTarget, stateImportStream } from "./items.js";
 import { directoriesOf, type ImportPlan } from "./plan.js";
 import { profileName } from "./accounts.js";
 
+/** What a thrown failure said, as a line for the report's Details; none when it said nothing. */
+const causeOf = (thrown: unknown): string[] => {
+  const said = thrown instanceof Error ? thrown.message : String(thrown);
+  return said.trim() === "" ? [] : [`Cause: ${said}`];
+};
+
 /** Each listed directory runs the Carry over owner under the state import's shared coordinator.
  * Session mappings commit with their records; memory and skills still refresh on a fresh parent command.
  */
@@ -54,7 +60,10 @@ export const carryListedSources = async (plan: ImportPlan, options: {
           }
           return { aggregate: stateImportStream(options.environmentId), result: {} };
         });
-      } catch { failures.push({ label: "Shared sessions", message: "Shared imported sessions could not be reconciled; retained history needs repair before retrying." }); }
+      } catch (thrown) {
+        console.error(`Reconciling shared session ${group.providerSessionId} of ${owner.directory} failed:`, thrown);
+        failures.push({ label: "Shared sessions", message: "Shared imported sessions could not be reconciled; retained history needs repair before retrying.", details: [`Session: ${group.providerSessionId}`, `Folder: ${owner.directory}`, ...causeOf(thrown)] });
+      }
     }
   };
   aliasSharedSessions(true);
@@ -89,17 +98,14 @@ export const carryListedSources = async (plan: ImportPlan, options: {
       accepted = run.receipt.status === "accepted";
       if (!accepted) failures.push({ label: `Carry over ${profileName(entry)}`, message: run.receipt.status === "rejected" ? run.receipt.error.message : "Carry over failed." });
       else for (const failure of (!run.replayed ? run.result?.failed : []) ?? []) failures.push({ label: `Carry over ${profileName(entry)}`, message: failure.message });
-    } catch (error) {
-      console.error("State import could not carry source:", entry.directory, error);
-      failures.push({ label: `Carry over ${profileName(entry)}`, message: "Its source could not be carried; retained files are needed for a retry." });
+    } catch (thrown) {
+      console.error(`Carrying ${entry.directory} for ${profileName(entry)} failed:`, thrown);
+      failures.push({ label: `Carry over ${profileName(entry)}`, message: "Its source could not be carried; retained files are needed for a retry.", details: [`Folder: ${entry.directory}`, ...causeOf(thrown)] });
     } finally {
+      // One cleanup failing leaves the rest to run and the import to go on: the carry's own failure is already reported.
       if (!accepted) for (const undo of undos.reverse()) {
-        try {
-          await undo();
-        } catch (error) {
-          console.error("State import could not undo source:", entry.directory, error);
-          failures.push({ label: `Carry over ${profileName(entry)}`, message: "Its copied files could not all be removed; check them before retrying." });
-        }
+        try { await undo(); }
+        catch (thrown) { console.error(`Cleaning up after carrying ${entry.directory} for ${profileName(entry)} failed:`, thrown); }
       }
     }
     await options.afterSource?.(entry.sourceId);

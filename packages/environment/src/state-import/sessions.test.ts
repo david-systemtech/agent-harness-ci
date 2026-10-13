@@ -16,6 +16,13 @@ import { git } from "../../test/workspaces.js";
 import { autoMemoryName } from "../workspace/auto-memory.js";
 import { createClaudeAdapter } from "../adapters/claude/index.js";
 import { machinePointedAt } from "./source/folders.js";
+import type { AccountService } from "../accounts/account-service.js";
+import type { CarryOverService } from "../carry-over/methods.js";
+import type { EventLog } from "../event-log/event-log.js";
+import type { MethodContext } from "../serve/methods.js";
+import type { ImportPlan } from "./plan.js";
+import { carryListedSources } from "./sessions.js";
+import { selectSharedSources } from "./shared-sources.js";
 
 // Filesystem faults leave the real import pipeline and its owning services in place.
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -500,4 +507,73 @@ it("retains a live shared row when a deleted duplicate has continued history", a
   expect((await client.request("sessions.restore", { commandId: randomUUID(), sessionId: continuedId })).receipt.status).toBe("accepted");
   await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
   expect((await client.request("sessions.list", {})).sessions.map((session) => session.id)).toEqual([continuedId]);
+});
+
+it("goes on to the next directory when carrying one and its cleanup both fail, reporting the carry with its cause and logging both (#2098)", async () => {
+  const first = tempDir();
+  const second = tempDir();
+  const log = {
+    read: (sql: string, ...params: unknown[]) => (sql.includes("FROM state_import_items") && params[1] === "profiles" ? [{ target_id: `account-${String(params[2])}` }] : []),
+    receipt: () => null,
+    command: () => {
+      throw new Error("No carry reaches its transaction here.");
+    },
+  } as unknown as EventLog;
+  const accounts = { list: () => [{ id: "account-a", directory: { path: first } }, { id: "account-b", directory: { path: second } }] } as unknown as AccountService;
+  const prepared: string[] = [];
+  const carryOver: CarryOverService = {
+    methods: {},
+    prepareSource: async (params, context) => {
+      prepared.push(params.accountId);
+      context.onUndo(() => {
+        throw new Error("The copied folder is in use.");
+      });
+      throw new Error("The transcript folder went away.");
+    },
+  };
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  onCleanup(() => logged.mockRestore());
+  const plan: ImportPlan = {
+    sourceKey: "/source",
+    stores: [{ snapshot: { path: "", digest: null }, label: "Accounts", items: [], directories: [{ sourceId: "a", label: "Personal", directory: first }, { sourceId: "b", label: "Work", directory: second }] }],
+    failed: [],
+    notCarried: [],
+    clientLocal: {},
+  };
+  const after: string[] = [];
+  const failures = await carryListedSources(plan, {
+    environmentId: randomUUID(),
+    reconcileSessions: (() => undefined) as unknown as Parameters<typeof carryListedSources>[1]["reconcileSessions"],
+    listSessions: async () => [],
+    log,
+    accounts,
+    carryOver,
+    caller: { clientSession: {} } as unknown as MethodContext,
+    actor: "client_session:test",
+    importId: randomUUID(),
+    afterSource: (sourceId) => void after.push(sourceId),
+  });
+  expect(prepared).toEqual(["account-a", "account-b"]);
+  expect(after).toEqual(["a", "b"]);
+  const carried = (label: string, directory: string) => ({
+    label: `Carry over Claude profile "${label}"`,
+    message: "Its source could not be carried; retained files are needed for a retry.",
+    details: [`Folder: ${directory}`, "Cause: The transcript folder went away."],
+  });
+  expect(failures).toEqual([carried("Personal", first), carried("Work", second)]);
+  for (const [directory, label] of [[first, "Personal"], [second, "Work"]] as const) {
+    expect(logged).toHaveBeenCalledWith(`Carrying ${directory} for Claude profile "${label}" failed:`, expect.objectContaining({ message: "The transcript folder went away." }));
+    expect(logged).toHaveBeenCalledWith(`Cleaning up after carrying ${directory} for Claude profile "${label}" failed:`, expect.objectContaining({ message: "The copied folder is in use." }));
+  }
+});
+
+it("logs a directory whose sessions cannot be listed and matches none of them as shared, leaving the failure to Carry over's own listing (#2098)", async () => {
+  const directory = tempDir();
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  onCleanup(() => logged.mockRestore());
+  const selected = await selectSharedSources([{ sourceId: "a", directory }], async () => {
+    throw new Error("The projects folder is not readable.");
+  });
+  expect(selected).toEqual({ sources: [{ sourceId: "a", directory, sessions: [], excludedSessions: [], excludedMemory: [] }], sharedSessions: [] });
+  expect(logged).toHaveBeenCalledWith(`Listing the sessions in ${directory} failed, so none of them is matched as shared:`, expect.objectContaining({ message: "The projects folder is not readable." }));
 });
