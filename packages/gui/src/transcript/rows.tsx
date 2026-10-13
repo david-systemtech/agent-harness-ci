@@ -32,6 +32,7 @@ import { DocumentTiles } from "./document-tiles.js";
 import { Marked } from "./find.js";
 import { Markdown } from "./markdown.js";
 import { TranscriptTime } from "./time.js";
+import { useRowTimes } from "./row-times.js";
 import { StreamingText } from "./streaming-text.js";
 
 /**
@@ -56,6 +57,8 @@ export interface RowFacts {
    */
   readonly verbs: boolean;
   readonly checkOutput?: ChecksView["runningOutput"];
+  /** Presentation of a tool group determines the preceding visible clock of the following row. */
+  readonly callsOpenChanged?: (id: string, open: boolean) => void;
 }
 
 /** Shared label spine; messages reverse it, keeping the bubble against the right edge. */
@@ -108,7 +111,7 @@ const RowBody = ({ row, facts, previousTime }: { readonly row: TranscriptRow; re
         <AssistantText text={row.entry.text} streaming={row.entry.streaming} arrived={arrived(row.entry.sequence)} />
       );
     case "calls":
-      return <CallsRow calls={row.calls} facts={facts} previousTime={previousTime} />;
+      return <CallsRow rowId={row.id} calls={row.calls} facts={facts} previousTime={previousTime} />;
     case "subagent":
       return <Subagent entry={row.entry} facts={facts} />;
     case "prompt":
@@ -155,7 +158,7 @@ const RowBody = ({ row, facts, previousTime }: { readonly row: TranscriptRow; re
       return (
         <ForkedRow entry={row.entry}>
           <div role="group" aria-label="Copied fork history" className="flex flex-col gap-3 border-l border-hairline pl-3">
-            {row.rows.map((inner, index) => <TranscriptRowView key={inner.id} row={inner} facts={{ ...facts, verbs: false }} previousTime={row.rows[index - 1] === undefined ? undefined : transcriptRowTime(row.rows[index - 1]!)} />)}
+            <TranscriptRowSequence rows={row.rows} facts={{ ...facts, verbs: false }} />
           </div>
         </ForkedRow>
       );
@@ -167,6 +170,12 @@ const RowBody = ({ row, facts, previousTime }: { readonly row: TranscriptRow; re
         <Notice warning>The history could not be read: {row.entry.message}</Notice>
       );
   }
+};
+
+/** Copied and cut history keeps its own preceding visible timestamp. */
+const TranscriptRowSequence = ({ rows, facts }: { readonly rows: readonly TranscriptRow[]; readonly facts: RowFacts }) => {
+  const { previousTimes, callsOpenChanged } = useRowTimes(rows.map(row => ({ kind: "row", row })));
+  return rows.map((row, index) => <TranscriptRowView key={row.id} row={row} facts={{ ...facts, callsOpenChanged }} previousTime={previousTimes[index]} />);
 };
 
 /**
@@ -191,9 +200,7 @@ const RewoundFold = ({ row, facts }: { readonly row: Extract<TranscriptRow, { ki
       >
         <div role="group" aria-label="What the rewind cut" className="flex flex-col gap-3 border-l border-hairline pl-3 opacity-60">
           <p className="text-[0.85em] text-ink-muted">Files are not restored: a rewind takes back the conversation, never what the agent changed.</p>
-          {row.rows.map((inner) => (
-            <TranscriptRowView key={inner.id} row={inner} facts={read} />
-          ))}
+          <TranscriptRowSequence rows={row.rows} facts={read} />
         </div>
       </Fold>
       {facts.verbs && <UndoOnFold row={row} />}
