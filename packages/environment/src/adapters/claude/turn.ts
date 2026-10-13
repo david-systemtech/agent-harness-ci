@@ -36,6 +36,7 @@ export interface TurnControl {
 }
 
 export interface TurnOptions {
+  readonly recordImage?: MapperState["recordImage"];
   readonly origin: "run" | "provider";
   /** The host's run id; empty for a provider turn until it is adopted. */
   readonly runId: string;
@@ -74,7 +75,7 @@ export class ClaudeTurn implements ProviderTurn {
     this.promptIds = options.promptIds;
     this.messageIds = options.messageIds;
     this.#control = options.control;
-    this.state = createMapperState({ ledger: options.ledger, spend: options.spend, now: () => options.clock.now().getTime() });
+    this.state = createMapperState({ recordImage: options.recordImage, ledger: options.ledger, spend: options.spend, now: () => options.clock.now().getTime() });
     this.#adopted = new Promise((resolve) => (this.#resolveAdopted = resolve));
     if (options.origin === "run") this.#resolveAdopted(options.runId);
     this.#batcher = createDeltaBatcher(options.clock, (event) => {

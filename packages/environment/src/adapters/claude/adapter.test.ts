@@ -1,3 +1,4 @@
+import { createTranscriptImages } from "../../transcript-images/store.js";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -207,6 +208,31 @@ const started = async (index = 1): Promise<FakeQuery> => {
 };
 
 describe("a run", () => {
+  it("retains SDK tool images through the run context and emits only references", async () => {
+    const root = mkdtempSync(join(tmpdir(), "transcript-images-"));
+    try {
+      const store = createTranscriptImages(root);
+      const adapter = adapterWith();
+      const input = runInput();
+      const run = adapter.createRun(input, { ...contextWith(), recordImage: (mediaType, data) => store.retain(SESSION, mediaType, data) });
+      const query = await started();
+      query.emit(
+        sdk.init(PROVIDER_SESSION), sdk.replyStart("shot-message", input.prompt.map((message) => message.messageId)),
+        { type: "assistant", message: { id: "shot-message", role: "assistant", content: [{ type: "tool_use", id: "shot", name: "mcp__browser__screenshot", input: {} }] } },
+        { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "shot", content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: "cGljdHVyZQ==" } }] }] } },
+        sdk.result(PROVIDER_SESSION),
+      );
+      const events = await drain(run);
+      const ended = events.find((event) => event.type === "tool.ended");
+      expect(ended?.type).toBe("tool.ended");
+      if (ended?.type !== "tool.ended") throw new Error("No image result.");
+      const [image] = ended.payload.output as { hash: string }[];
+      expect(store.read(SESSION, image!.hash)).toEqual({ mediaType: "image/png", data: "cGljdHVyZQ==" });
+      expect(JSON.stringify(events)).not.toContain("cGljdHVyZQ==");
+      await adapter.stopProcess(SESSION);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it("streams the mapped events and ends once, on the result", async () => {
     const adapter = adapterWith();
     const input = runInput();

@@ -397,6 +397,10 @@ const sessionCommand = { params: { valid: [target], invalid: noTarget }, result:
 
 /** Params and results for every session and group method. */
 export const sessionMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
+  "transcript.image": {
+    params: { valid: [{ sessionId, hash: "a".repeat(64) }], invalid: [{ sessionId, hash: "../outside" }, { hash: "a".repeat(64) }] },
+    result: { valid: [{ image: null }, { image: { mediaType: "image/png", data: "cGljdHVyZQ==" } }], invalid: [{}, { image: { data: "image-for-tests" } }] },
+  },
   "sessions.create": {
     params: {
       valid: [

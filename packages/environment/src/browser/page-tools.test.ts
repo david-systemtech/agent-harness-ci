@@ -411,7 +411,7 @@ describe("the verbs' arguments", () => {
 });
 
 describe("browser_screenshot", () => {
-  it("answers an image beside a line of text, which the transcript records as its type and size", async () => {
+  it("answers an image beside text and lets the client fetch its retained transcript image", async () => {
     const { t } = await start();
     const { id, answers } = await runIn(t, HEADLESS, ["browser_open", { address: "example.com", snapshot: false }], ["browser_screenshot"]);
     const [, shot] = answers;
@@ -421,8 +421,11 @@ describe("browser_screenshot", () => {
     const ended = payloadsOf<{ output: unknown }>(t, id, "tool.ended").at(-1);
     expect(ended?.output).toEqual([
       { type: "text", text: shot?.text },
-      { type: "image", mediaType: "image/jpeg", size: bytes.byteLength },
+      { type: "image", mediaType: "image/jpeg", size: bytes.byteLength, hash: expect.any(String), sensitive: true },
     ]);
+    const [, reference] = ended?.output as { hash: string }[];
+    const client = await t.client();
+    expect(await client.request("transcript.image", { sessionId: id, hash: reference!.hash })).toEqual({ image: { mediaType: "image/jpeg", data: FIXTURE_JPEG } });
   });
 });
 

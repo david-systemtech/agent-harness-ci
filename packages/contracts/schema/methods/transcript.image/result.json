@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "transcript.image result",
+  "type": "object",
+  "properties": {
+    "image": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "mediaType": {
+              "type": "string",
+              "minLength": 1
+            },
+            "data": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "mediaType",
+            "data"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "image"
+  ]
+}

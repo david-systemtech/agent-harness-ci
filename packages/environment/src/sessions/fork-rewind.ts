@@ -1,3 +1,4 @@
+import type { TranscriptImages } from "../transcript-images/store.js";
 import {
   ContractError,
   MAX_DRAFT_LENGTH,
@@ -232,6 +233,7 @@ export interface ForkStore {
 }
 
 export interface ForkRewindMethodsOptions {
+  readonly transcriptImages?: TranscriptImages;
   readonly log: EventLog;
   readonly host: AdapterHost;
   /** The SDK session store (`provider-transcripts/store.ts`); preset: none, as with an adapter that keeps its own. */
@@ -486,6 +488,7 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
     events.push({ type: "session.forked", payload: forked });
     log.append(aggregate, events, { tx: context.tx, actor: context.actor, commandId: context.commandId });
     if (fromProviderSessionId !== null) options.store?.copySession(context.tx, sourceId, id);
+    context.tx.afterCommit(() => options.transcriptImages?.copyHistory(sourceId, id, copied));
     const summary = readSummary(reader, id);
     if (summary === null) throw new Error(`The fork ${id} is not in the list after its creation.`);
     return { aggregate, result: { summary } };

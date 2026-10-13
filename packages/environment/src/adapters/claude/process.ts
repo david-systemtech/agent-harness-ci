@@ -1,3 +1,4 @@
+import { recordedImage } from "../../adapter/contract.js";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -609,6 +610,7 @@ export class ClaudeProcess implements TurnControl {
   #runTurn(input: RunInput, waiting = true): ClaudeTurn {
     const turn = new ClaudeTurn({
       origin: "run",
+      recordImage: (mediaType, data) => this.#context.recordImage?.(mediaType, data) ?? recordedImage(mediaType, Buffer.byteLength(data, "base64")),
       runId: input.runId,
       promptIds: input.prompt.map((message) => message.messageId),
       messageIds: [],
@@ -1047,7 +1049,7 @@ export class ClaudeProcess implements TurnControl {
    * one carrying a subagent's prompt between the CLI's turns.
    */
   #providerTurn(messageIds: readonly string[], forPrompt: boolean): ClaudeTurn {
-    const turn = new ClaudeTurn({ origin: "provider", runId: "", promptIds: [], messageIds, control: this, clock: this.#deps.clock, ledger: this.#ledger, spend: this.#spend });
+    const turn = new ClaudeTurn({ recordImage: (mediaType, data) => this.#context.recordImage?.(mediaType, data) ?? recordedImage(mediaType, Buffer.byteLength(data, "base64")), origin: "provider", runId: "", promptIds: [], messageIds, control: this, clock: this.#deps.clock, ledger: this.#ledger, spend: this.#spend });
     turn.markOpened();
     if (forPrompt) this.#forPrompt.add(turn);
     else {

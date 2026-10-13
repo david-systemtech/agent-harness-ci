@@ -1,13 +1,14 @@
+import { recordToolImages, type RecordPicture } from "../../transcript-images/output.js";
 import type { ContextReading, JsonObject, ModelUsage, RunError } from "@agent-harness/contracts";
-import { recordedImage, type AdapterEvent, type RunEnd, type ToolDenial, type TranscriptEvent } from "../../adapter/contract.js";
+import { type AdapterEvent, type RunEnd, type ToolDenial, type TranscriptEvent } from "../../adapter/contract.js";
 import type { SpendMeter } from "./spend.js";
 import type { TaskLedger } from "./tasks.js";
 
 /**
  * The mapper (claude-adapter spec, "The Claude adapter, ported after the
  * audit's fixes"): one SDK message in, the transcript events it means out,
- * for one turn. Pure
- * over its arguments: everything it remembers is on the turn's state, which
+ * for one turn. Apart from handing image bytes to the environment recorder,
+ * it works over its arguments: everything it remembers is on the turn's state, which
  * the process owns and hands in (the ledger is the process's, shared by its
  * turns). Deltas come out one per stream fragment; the delta batcher gathers
  * them. SDK messages are read structurally rather than through the SDK's
@@ -41,6 +42,7 @@ interface OpenItem {
 }
 
 export interface MapperState {
+  readonly recordImage?: RecordPicture | undefined;
   /** Whether this turn has reported the provider's session (once per run). */
   linked: boolean;
   providerSessionId: string | null;
@@ -67,7 +69,8 @@ export interface MapperState {
   readonly now: () => number;
 }
 
-export const createMapperState = (options: { readonly ledger: TaskLedger; readonly spend: SpendMeter; readonly now: () => number }): MapperState => ({
+export const createMapperState = (options: { readonly ledger: TaskLedger; readonly spend: SpendMeter; readonly now: () => number; readonly recordImage?: RecordPicture | undefined }): MapperState => ({
+  recordImage: options.recordImage,
   linked: false,
   providerSessionId: null,
   ended: false,
@@ -112,26 +115,11 @@ const toJsonObject = (value: unknown): JsonObject => {
  * A tool's result as the transcript records it (#540): each image block in
  * it (`{type: image, source: {type: base64, media_type, data}}`, what the
  * CLI hands the model for an MCP tool's image) as its media type and size
- * (`recordedImage`), never its bytes, which the model read and the log never
- * holds. A structured Read image or PDF (#621) keeps its file metadata with the
+ * (`recordedImage`), never its bytes. The environment retains those bytes when its recorder
+ * is supplied and the result carries the returned reference. A structured Read image or PDF (#621) keeps its file metadata with the
  * base64 replaced by the returned media type and byte size; everything else
  * as it is.
  */
-const withoutFileBytes = (output: unknown): unknown => {
-  if (isRecord(output) && (output["type"] === "image" || output["type"] === "pdf") && isRecord(output["file"]) && typeof output["file"]["base64"] === "string") {
-    const { base64, ...file } = output["file"];
-    const mediaType = output["type"] === "pdf" ? "application/pdf" : typeof file["type"] === "string" ? file["type"] : "application/octet-stream";
-    return { ...output, file: { ...file, mediaType, size: Buffer.byteLength(base64, "base64") } };
-  }
-  if (!Array.isArray(output)) return output;
-  return output.map((block: unknown) => {
-    if (!isRecord(block) || block["type"] !== "image" || !isRecord(block["source"])) return block;
-    const { source } = block;
-    if (source["type"] !== "base64" || typeof source["data"] !== "string") return block;
-    return recordedImage(typeof source["media_type"] === "string" ? source["media_type"] : "application/octet-stream", Buffer.byteLength(source["data"], "base64"));
-  });
-};
-
 /** The stream a message belongs to: a subagent's under its tool call, else the main thread's. */
 const MAIN = "";
 const streamOf = (message: Record_): string => text(message["parent_tool_use_id"]) ?? MAIN;
@@ -159,7 +147,7 @@ const endTool = (state: MapperState, id: string, status: "ok" | "error" | "cance
   if (open === undefined) return [];
   state.openTools.delete(id);
   state.closedTools.add(id);
-  return [event("tool.ended", { toolCallId: id, status, output: toJson(withoutFileBytes(output)) as never, durationMs: Math.max(0, state.now() - open.startedAt) })];
+  return [event("tool.ended", { toolCallId: id, status, output: toJson(recordToolImages(output, state.recordImage)) as never, durationMs: Math.max(0, state.now() - open.startedAt) })];
 };
 
 /** The kind of reason a denial report names (`decision_reason_type`), as the harness's deciders read it: anything else is the provider's own. */

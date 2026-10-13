@@ -33,3 +33,24 @@ describe("tool card details", () => {
     expect(within(transcript).getByRole("button", { name: "Result" }).getAttribute("aria-expanded")).toBe("true");
   });
 });
+
+it.each([false, true])("draws a retained image beside its tool text (delegated=%s)", async (delegated) => {
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Pictures" }] }] });
+  app.open("desk");
+  const transcript = await screen.findByRole("region", { name: "Transcript" });
+  await within(transcript).findByText("Nothing said yet.");
+  const env = app.environment("desk"), session = env.sessionId();
+  env.wire.answer("transcript.image", () => ({ result: { image: { mediaType: "image/png", data: "cGljdHVyZQ==" } } }));
+  const { runId } = env.startRun(session, "Screenshot");
+  if (delegated) env.emit(session, "tool.started", { runId, toolCallId: "parent", name: "Task", input: {}, title: null, agentId: null, parentToolCallId: null });
+  env.emit(session, "tool.started", { runId, toolCallId: "shot", name: "mcp__browser__screenshot", input: {}, title: null, agentId: delegated ? "agent" : null, parentToolCallId: delegated ? "parent" : null });
+  env.emit(session, "tool.ended", { runId, toolCallId: "shot", status: "ok", output: [{ type: "text", text: "The page" }, { type: "image", hash: "a".repeat(64), mediaType: "image/png", size: 7, sensitive: true }], durationMs: 1 });
+  const image = await within(transcript).findByRole("img", { name: "Returned by mcp__browser__screenshot" });
+  expect(image.getAttribute("src")).toBe("data:image/png;base64,cGljdHVyZQ==");
+  expect(env.requests("transcript.image")).toHaveLength(1);
+  await app.user.click(within(transcript).getByRole("button", { name: delegated ? /Agent · 1 call/ : /Called an MCP tool/ }));
+  await app.user.click(within(transcript).getByRole("button", { name: "mcp__browser__screenshot" }));
+  await app.user.click(within(transcript).getByRole("button", { name: "Result" }));
+  expect(within(transcript).getByText(/The page/)).toBeDefined();
+  expect(within(transcript).queryByText(/"hash"/)).toBeNull();
+});

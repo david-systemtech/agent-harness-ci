@@ -26,7 +26,7 @@ import { classes } from "../ui/classes.js";
 import { Fold } from "../ui/index.js";
 import { usePresentation } from "../window-context.js";
 import type { Revealed } from "../session/pane-documents.js";
-import { CallCard, CallsRow, useOpenedFor } from "./calls.js";
+import { CallCard, CallsPictures, CallsRow, useOpenedFor } from "./calls.js";
 import { DocumentTiles } from "./document-tiles.js";
 import { Marked } from "./find.js";
 import { Markdown } from "./markdown.js";
@@ -38,6 +38,7 @@ import { StreamingText } from "./streaming-text.js";
  * are the session's own to act on.
  */
 export interface RowFacts {
+  readonly imageTarget?: { readonly environmentId: string; readonly sessionId: string };
   /** Whether the entry at `sequence` arrived while the transcript was watching, rather than being there when it opened. */
   arrived(sequence: number): boolean;
   /** How long a running call has said nothing, in milliseconds. */
@@ -323,6 +324,7 @@ const Subagent = ({ entry, facts }: { readonly entry: SubagentEntry; readonly fa
           ))}
         </div>
       </Fold>
+      <CallsPictures calls={entry.calls} facts={facts} />
       <DocumentTiles calls={entry.calls} workspace={facts.workspace} />
     </div>
   );

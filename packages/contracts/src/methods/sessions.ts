@@ -603,3 +603,11 @@ export const sessionsSubscribeSession = defineMethod({
   result: SessionSnapshot,
   errors: [],
 });
+
+/** Read one retained image; null states the gap after eviction or purge. */
+export const transcriptImage = defineMethod({
+  name: "transcript.image", scope: "read", kind: "query",
+  params: z.object({ sessionId: SessionId, hash: z.string().regex(/^[a-f0-9]{64}$/) }),
+  result: z.object({ image: z.object({ mediaType: z.string().min(1), data: z.string() }).nullable() }),
+  errors: [],
+});
