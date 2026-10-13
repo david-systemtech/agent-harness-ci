@@ -68,7 +68,7 @@ export const phoneRunPickerScene = (stage: RunStage, otherModels = false): Scene
   geometry: ({ width }) => [
     { selector: "[data-run-sheet]", width: width - 16, visibleWithin: "[data-run-sheet]" },
     { selector: '[data-run-sheet] [role="menuitem"]', renderedOnly: true, minimumHeight: 44, minimumWidth: 44, contentFits: true },
-    { selector: '[data-run-sheet] button', renderedOnly: true, minimumHeight: 44, minimumWidth: 44, visibleWithin: '[data-run-sheet]' },
+    { selector: '[data-run-sheet] button', renderedOnly: true, hitArea: 44, visibleWithin: '[data-run-sheet]' },
     ...otherModels ? [{ selector: '[data-other-models-list] [role="menuitem"]', renderedOnly: true, minimumHeight: 44, minimumWidth: 44, contentFits: true, hitTestable: true }] : [],
     // The ring line scales with the text size, so here it is checked to fit the sheet, not for its 16px.
     ...(stage === "Accounts" ? [{ selector: "[data-run-sheet] [data-usage-rings]", renderedOnly: true, visibleWithin: "[data-run-sheet]" },

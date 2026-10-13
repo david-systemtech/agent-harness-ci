@@ -17,7 +17,7 @@ const VARIANTS: Readonly<Record<ButtonVariant, string>> = {
 const SIZES: Readonly<Record<ButtonSize, string>> = {
   default: "h-8 gap-1.5 px-2.5 has-data-[icon=inline-start]:pl-2 has-data-[icon=inline-end]:pr-2",
   xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs has-data-[icon=inline-start]:pl-1.5 has-data-[icon=inline-end]:pr-1.5 [&_svg]:size-3",
-  sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] has-data-[icon=inline-start]:pl-1.5 has-data-[icon=inline-end]:pr-1.5 [&_svg]:size-3.5",
+  sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[length:var(--phone-text-callout,0.8rem)] has-data-[icon=inline-start]:pl-1.5 has-data-[icon=inline-end]:pr-1.5 [&_svg]:size-3.5",
   lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-start]:pl-2 has-data-[icon=inline-end]:pr-2",
   icon: "size-8",
   "icon-xs": "size-6 rounded-md [&_svg]:size-3",
@@ -34,7 +34,7 @@ export const Button = ({ variant = "ghost", size = "default", type = "button", c
     data-variant={variant}
     data-size={size}
     className={cn(
-      "inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent text-sm font-medium whitespace-nowrap outline-none transition-colors select-none active:not-aria-[haspopup]:translate-y-px focus-visible:border-beam focus-visible:ring-3 focus-visible:ring-beam/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-signal aria-invalid:ring-3 aria-invalid:ring-signal/20 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+      "touch-target inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent text-sm font-medium whitespace-nowrap outline-none transition-colors select-none active:not-aria-[haspopup]:translate-y-px focus-visible:border-beam focus-visible:ring-3 focus-visible:ring-beam/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-signal aria-invalid:ring-3 aria-invalid:ring-signal/20 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
       VARIANTS[variant], SIZES[size], className,
     )}
     {...props}

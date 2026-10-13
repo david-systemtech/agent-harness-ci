@@ -1264,43 +1264,67 @@ improvement names its geometry/state change and updates this contract if it
 changes a stated value. Neither private screenshots nor private names are
 committed as baselines; baseline scenes contain invented neutral data.
 
-## 17. Phone browser projection (milestone 1)
+## 17. Phone design system
 
-The owner's 2026-10-04 milestone amendment is specified in
-[web-client.md](web-client.md). Desktop dimensions above still govern the
-wide layout; the following rules govern phone use and its gallery evidence.
+The owner's 2026-10-13 decisions on #2131 govern the phone layer. Desktop
+measurements above remain unchanged. The phone uses its own type, spacing and
+corner tokens in `packages/gui/src/phone/tokens.css`, over the colour tokens
+from ADR 0023. Follow the OS light/dark ladder. Use flat abyss/panel/float
+surfaces with few hairlines, system UI sans for human text and JetBrains Mono
+for commands, paths, ids, code and output. Keep focus and contrast tokens.
 
-Phone projection uses one shared layout decision: width below 640px, or a
-coarse primary pointer without hover at width 640–960px inclusive and layout
-height at most 500px. Short landscape 844×390 and 740×360 retain one conversation;
-keyboard VisualViewport shrink and pinch zoom never classify an ordinary desktop
-as a phone. Returning portrait keeps the drawer, active session, draft and run;
-returning to a genuinely wide non-phone viewport restores the held desktop panes.
-Phone styles and viewport fitting consume this decision.
+### Foundation
 
-Show one conversation with a session drawer and phone header
-(More, Settings, attention). Preserve the desktop pane arrangement for return
-to wide mode; disable Split with a width reason. The existing below-900px
-pane-width dock rule becomes the side-column sheet, `min(480px, 85%)`. Closing
-or switching hides work without stopping a run, delegated task or terminal.
-Drawers/sheets trap and restore focus and close predictably.
-The session drawer consumes those shared visible bounds with no extra viewport
-observer. Open it onto a non-input focus target; only tapping Filter raises the
-search keyboard. Keep results scrolling internally, with Close, New session and
-footer actions above the keyboard. Restore focus with no document scroll on
-close or result selection. Hosted long-results evidence keeps a tall layout
-while visual height shrinks to 480 and offsetTop becomes 120, including text 20.
+One layout predicate governs the frame, Settings, viewport fitting, overlays
+and tokens: width below 640px, or a coarse primary pointer without hover at
+width 640–960px inclusive and layout height at most 500px. Short landscape
+844×390 and 740×360 retain the phone projection. Keyboard VisualViewport shrink
+and pinch zoom never classify an ordinary desktop as a phone.
 
-The Mode bottom sheet follows §10.5: one labelled choice per row, current
-selection and disabled ceiling reason, a fixed Close header and a scrolling
-choice list. It traps/restores focus without moving the conversation dock.
+At the default text size 16, the phone type ramp is:
 
-Keep abyss/panel/float/hairline tokens, rounded human controls and square
-machine output wells, the icon names, focus and contrast. Phone preset text
-size 16 uses the existing 11–20 preference; inputs are at least 16 CSS px and
-all tap hit areas at least 44px, including icons. Touch exposes actions that
-otherwise need hover. Long labels wrap without horizontal page overflow;
-keep pinch zoom and enlarged text at 20.
+| Token | CSS px | Use |
+| --- | --- | --- |
+| display / hero | 30 / 26 | Page titles / pairing |
+| title / headline | 20 / 17 | Content headings / bar and sheet titles |
+| body / callout | 16 / 15 | Prose, inputs and row labels / actions |
+| subhead / footnote | 14 / 13 | Secondary rows / section labels and times |
+| caption / badge | 12 / 11 | Metadata / counts |
+| mono-command / mono-output | 13 / 12 | Commands / output |
+
+Body line height is 1.5; headings use 1.3 and display uses 1.25. The text-size
+preference scales type alone; root rem stays 16px on phone. Inputs stay at
+least 16px to avoid focus zoom. Use the fixed spacing grid 2, 4, 8, 12, 16,
+20, 24, 32 and 40px. Screen gutters are 16px plus safe insets. Comfortable rows
+have 48px minimum height, 64px with details, and grow for wrapped larger text.
+Bars are 52px and toolbars 48px. Control corners are 8px; machine wells are square.
+
+`touch-target` expands a compact control's pointer box to at least 44×44px
+without enlarging its painted surface. Owners reserve space around compact
+controls so expanded targets cannot overlap a neighbour or be clipped by a
+scrollport. Gallery `hitArea: 44` checks target size and pointer reception at
+its centre and edges, including the transparent pseudo-element and borders.
+Row controls may use a full 48–64px visible row. Labels wrap between words;
+long machine strings belong in a scrolling or deliberately wrapping well.
+Never apply `overflow-wrap:anywhere` to every phone action or dialog.
+
+### Navigation and surface ownership
+
+The redesign progresses through #2148–#2153: a page stack with Back (Sessions,
+Conversation, Workspace and Settings), keeping the top-left sessions drawer for
+quick switching. Later phases provide the one-surface composer, grouped-list
+Settings and unified sheets. Until each phase lands, preserve the current phone
+header, drawer, overlays and registered Settings navigation. Closing or
+switching hides work without stopping a run, delegated task or terminal.
+Drawers/sheets trap and restore focus and close predictably. Preserve the
+held desktop pane arrangement when returning to a wide non-phone layout.
+
+The foundation specimen captures type, compact and text buttons, comfortable
+rows and a sheet header in both ladders, at 360/390px, text 20 and keyboard
+height. Re-accept deliberate phone type/spacing differences through
+[the gallery](../agents/gallery.md); desktop captures must remain identical.
+
+### Viewport and interaction contracts
 
 Use one phone web-frame viewport owner for VisualViewport height and offsetTop
 at scale 1, with `100dvh`/window-height fallback, `viewport-fit=cover` and

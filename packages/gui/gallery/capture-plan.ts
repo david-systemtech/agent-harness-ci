@@ -21,11 +21,11 @@ export function captureCases(scenes: readonly string[]) {
 }
 
 export const PHONE_PROFILES = [
-  { suffix: "phone-390", viewport: { width: 390, height: 844 }, textSize: 14 },
-  { suffix: "phone-360", viewport: { width: 360, height: 740 }, textSize: 14 },
+  { suffix: "phone-390", viewport: { width: 390, height: 844 }, textSize: 16 },
+  { suffix: "phone-360", viewport: { width: 360, height: 740 }, textSize: 16 },
   { suffix: "phone-390-text-20", viewport: { width: 390, height: 844 }, textSize: 20 },
   // A reduced visual viewport exercises the keyboard layout without an OS keyboard.
-  { suffix: "phone-390-keyboard", viewport: { width: 390, height: 480 }, textSize: 14 },
+  { suffix: "phone-390-keyboard", viewport: { width: 390, height: 480 }, textSize: 16 },
 ] as const;
 
 /** Theme instructions at both phone widths, supported larger text and keyboard height (#2080). */

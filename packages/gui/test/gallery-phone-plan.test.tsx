@@ -9,16 +9,16 @@ it("preserves desktop captures and names the bounded phone profiles distinctly",
     "window-empty.light", "window-empty.dark", "window-empty-narrow.light", "window-empty-narrow.dark",
   ]);
   expect(plan.captures.filter(c => c.platform === "web").map(c => [c.name, c.viewport, c.textSize])).toEqual([
-    ["phone-gallery-conversation-phone-390.light", { width: 390, height: 844 }, 14],
-    ["phone-gallery-conversation-phone-390.dark", { width: 390, height: 844 }, 14],
+    ["phone-gallery-conversation-phone-390.light", { width: 390, height: 844 }, 16],
+    ["phone-gallery-conversation-phone-390.dark", { width: 390, height: 844 }, 16],
   ]);
 });
 
 it("captures the phone pairing screen's refused origin once, in the 390 px phone it was seen on (ticket 1739)", () => {
   const plan = capturePlan(["phone-pairing-unlisted-origin"]);
   expect(plan.captures.map(c => [c.name, c.viewport, c.textSize])).toEqual([
-    ["phone-pairing-unlisted-origin-phone-390.light", { width: 390, height: 844 }, 14],
-    ["phone-pairing-unlisted-origin-phone-390.dark", { width: 390, height: 844 }, 14],
+    ["phone-pairing-unlisted-origin-phone-390.light", { width: 390, height: 844 }, 16],
+    ["phone-pairing-unlisted-origin-phone-390.dark", { width: 390, height: 844 }, 16],
   ]);
 });
 

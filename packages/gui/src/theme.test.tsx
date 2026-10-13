@@ -28,7 +28,7 @@ const THEME_KEY: ParamsOf<"settings.get"> = { keys: ["appearance.theme"] };
  * switch of it: jsdom has no `matchMedia`, so each test that reads the OS
  * gives one, which hears a change as the browser's does.
  */
-const theOs = (scheme: LadderName) => {
+const theOs = (scheme: LadderName, phone = false) => {
   let now = scheme;
   const heard = new Set<EventListenerOrEventListenerObject>();
   const had = Object.getOwnPropertyDescriptor(window, "matchMedia");
@@ -36,7 +36,7 @@ const theOs = (scheme: LadderName) => {
     ({
       media: query,
       get matches() {
-        return query === `(prefers-color-scheme: ${now})`;
+        return query === `(prefers-color-scheme: ${now})` || (phone && query === "(width < 640px)");
       },
       addEventListener: (_type: string, listener: EventListenerOrEventListenerObject) => void heard.add(listener),
       removeEventListener: (_type: string, listener: EventListenerOrEventListenerObject) => void heard.delete(listener),
@@ -298,4 +298,14 @@ describe("an environment colour", () => {
     expect(root().style.getPropertyValue(variable)).toBe(cssVariables(derive(EMBER).light)[variable]);
     expect(root().style.getPropertyValue(variable)).not.toBe(dark);
   });
+});
+
+
+it("follows the OS ladder on phone without changing the held desktop preference", async () => {
+  const os = theOs("light", true);
+  const app = await renderApp({ environments: [] }, { presentation: { lightOrDark: "dark" } });
+  expectPainted(DEFAULT_THEME, "light");
+  os.switchTo("dark");
+  expectPainted(DEFAULT_THEME, "dark");
+  expect(app.presentation.values.read().lightOrDark).toBe("dark");
 });

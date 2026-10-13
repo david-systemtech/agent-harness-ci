@@ -22,6 +22,8 @@ export interface SceneGeometry {
   readonly minimumTop?: number;
   /** The control must receive a pointer at its centre, including through clipping ancestors. */
   readonly hitTestable?: boolean;
+  /** Minimum pointer target, including the touch-target pseudo-element; every edge must receive hits. */
+  readonly hitArea?: number;
   /** No word in the element's text may wrap mid-word onto another line; wraps between words and at hyphens are fine. */
   readonly wordsIntact?: boolean;
   /** The element's text sits on one line: it may move to the next line whole, but never wraps inside, not even at a hyphen. */

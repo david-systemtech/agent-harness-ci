@@ -1,7 +1,7 @@
 /* Settings owns its phone geometry, including content reached through registered rows. */
-@media (max-width: 639px) {
+@media (width < 640px), (pointer: coarse) and (hover: none) and (640px <= width <= 960px) and (height <= 500px) {
   body:has([data-settings-dialog], [data-phone-setup]) :is([role="dialog"], [role="menu"]) :is(button, input:not([type="radio"]):not([type="checkbox"]), select, [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]) { min-height: 44px; }
-  body:has([data-settings-dialog], [data-phone-setup]) [role="dialog"] :is(input, textarea, select) { font-size: max(16px, 1rem); }
+  body:has([data-settings-dialog], [data-phone-setup]) [role="dialog"] :is(input, textarea, select) { font-size: max(16px, var(--phone-text-body, 1rem)); }
   body:has([data-settings-dialog], [data-phone-setup]) [role="dialog"] button { min-width: 44px; height: auto; white-space: normal; }
   [data-settings-dialog] {
     inset: 0;
@@ -19,7 +19,7 @@
   [data-settings-pane] :is(p, h2, h3, label, dd) { overflow-wrap: anywhere; }
   [data-settings-dialog] :is(button, select, input:not([type="radio"]):not([type="checkbox"])), [data-phone-navigation] :is(button, input), [data-phone-setup] :is(button, input:not([type="radio"]):not([type="checkbox"]), select) { min-height: 44px; }
   [data-settings-dialog] button, [data-phone-navigation] button, [data-phone-setup] button { min-width: 44px; }
-  [data-settings-dialog] :is(input, select, textarea), [data-phone-navigation] input, [data-phone-setup] :is(input, select, textarea) { font-size: max(16px, 1rem); }
+  [data-settings-dialog] :is(input, select, textarea), [data-phone-navigation] input, [data-phone-setup] :is(input, select, textarea) { font-size: max(16px, var(--phone-text-body, 1rem)); }
   [data-settings-dialog] button { white-space: normal; height: auto; }
   [data-phone-navigation] { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
   [data-phone-navigation] nav { width: 100%; min-height: 0; flex: 1; border-right: 0; }
