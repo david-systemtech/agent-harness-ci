@@ -245,9 +245,14 @@ describe("the Memory bank card", () => {
       desk.startRun(id, "Describe this bank.");
       return accepted({ sessionId: id });
     });
-    await app.user.click(within(card).getByRole("button", { name: "Describe it" }));
-    expect(await within(await screen.findByRole("dialog", { name: "Authoring conversation" })).findByRole("textbox", { name: "Message" })).toBeDefined();
+    const start = within(card).getByRole("button", { name: "Describe it" });
+    expect(start.getAttribute("data-variant")).toBe("default");
+    await app.user.click(start);
+    const dialog = await screen.findByRole("dialog", { name: "Authoring conversation" });
+    expect(await within(dialog).findByRole("textbox", { name: "Message" })).toBeDefined();
     expect(desk.requests("setup.mint").at(-1)?.params).toMatchObject({ step: "memory-bank", subject: desk.requests("banks.create").at(-1)?.params["bankId"], variant: "first" });
+    await app.user.click(within(dialog).getByRole("button", { name: "Close dialog" }));
+    expect(within(card).getByRole("button", { name: "Describe it" }).getAttribute("data-variant")).toBe("outline");
   });
   // setup-copy.md §5.8: the question and its three choices, and the ready-to-go row as visible text (#1853).
   it("asks what you would like and shows the forge a new notebook goes to", async () => {

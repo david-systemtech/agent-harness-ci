@@ -55,7 +55,9 @@ describe("the minted session on its card", () => {
     await app.user.type(within(request).getAllByRole("textbox", { name: "Your own answer" })[0]!, "Working agreements");
     await app.user.click(within(dialog).getByRole("button", { name: "Close dialog" }));
     expect(screen.queryByRole("dialog", { name: "Authoring conversation" })).toBeNull();
-    await app.user.click(screen.getByRole("button", { name: "Continue authoring" }));
+    const reopen = screen.getByRole("button", { name: "Continue authoring" });
+    expect(reopen.getAttribute("data-variant")).toBe("outline");
+    await app.user.click(reopen);
     const resumed = await screen.findByRole("dialog", { name: "Authoring conversation" });
     expect(within(resumed).getAllByRole("textbox", { name: "Your own answer" })[0]).toHaveProperty("value", "Working agreements");
     await app.user.click(within(resumed).getByRole("button", { name: "Send answers" }));
@@ -333,7 +335,9 @@ describe("the minted session on its card", () => {
     const FirstCard = (props: StepCardProps) => <MintedSessionCard {...props} subject="bank-1" artefact={{ kind: "folder", path: "/banks/receipts" }} words={{ start: "Describe it" }} startLine="Now describe your notebook. An agent asks a few questions and writes the description." />;
     const app = await openCard({ setup: { "memory-bank": { state: "needs-attention", reason: "BANK.md is missing.", actions: [] } } }, false, FirstCard);
     expect(screen.getByText("Now describe your notebook. An agent asks a few questions and writes the description.")).toBeDefined();
-    await app.user.click(screen.getByRole("button", { name: "Describe it" }));
+    const start = screen.getByRole("button", { name: "Describe it" });
+    expect(start.getAttribute("data-variant")).toBe("default");
+    await app.user.click(start);
     await screen.findByRole("textbox", { name: "Message" });
     expect(app.environment("desk").requests("setup.mint").at(-1)?.params).toMatchObject({ variant: "first", subject: "bank-1" });
   });

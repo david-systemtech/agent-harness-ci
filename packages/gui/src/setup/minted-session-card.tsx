@@ -118,7 +118,7 @@ export const MintedSessionCard = ({ environmentId, step, subject, artefact, outc
     <AuthoringPicker picker={picker} />
     {sessionId === undefined && !step.result?.actions.includes("start-over") && <>
       {startLine !== undefined && <p className="text-sm text-ink">{startLine}</p>}
-      <Button title={`${words.start} · Tab, Enter or Space`} className="self-start" onClick={() => void mint()}><BookOpen aria-hidden="true" />{words.start}</Button>
+      <Button variant="default" title={`${words.start} · Tab, Enter or Space`} className="self-start" onClick={() => void mint()}><BookOpen aria-hidden="true" />{words.start}</Button>
     </>}
     {line !== undefined && <BankRefusal refusal={line} />}
     {sessionId !== undefined && <MintedConversation key={sessionId} environmentId={environmentId} sessionId={sessionId} expanded={expanded} setExpanded={setExpanded} words={words} outcome={outcome ?? (step.result?.state === "done" ? "landed" : undefined)} />}
