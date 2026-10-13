@@ -15,7 +15,13 @@ import { DATA_DIRECTORY_PRESET_ID, describeDenylistMatch, quoteDenylistMatched, 
  * - **The same entry again**: when the run asked about an entry this prompt
  *   matches before, how often and the last answer, so a person sees a loop
  *   rather than a new question.
+ * - **Every mode** (#2095): that the denylist asks whatever the mode,
+ *   bypass included, so a person tells it from a permission prompt, and
+ *   where the list is changed, the Permissions row's always-ask list.
  */
+
+/** What every denylist prompt's card says of the denylist (#2095): it asks in every mode, bypass included, and where it is changed. */
+export const DENYLIST_EVERY_MODE = "The denylist asks in every mode, bypass included. Change it in Settings › Permissions, under Always-ask list.";
 
 /** One matched entry in words: what it protects, and what the agent may do instead. */
 export interface DenylistMatchWords {

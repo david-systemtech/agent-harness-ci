@@ -1,7 +1,7 @@
 import { useComposition } from "../composer/composition.js";
-import { buttonRows, denylistCardWords, denylistRepeatWords, noteOf, oneLine, rowAnswer, ttlWords, type CapabilityAnswer, type ChoiceRow, type PromptEntry, type RowOutcome } from "@agent-harness/client-runtime";
+import { DENYLIST_EVERY_MODE, buttonRows, denylistCardWords, denylistRepeatWords, noteOf, oneLine, rowAnswer, ttlWords, type CapabilityAnswer, type ChoiceRow, type PromptEntry, type RowOutcome } from "@agent-harness/client-runtime";
 import { type ParkedPrompt, type PromptAnswerInput, type PromptKind, type PromptOpenedPayload } from "@agent-harness/contracts";
-import { ChevronDown, ChevronUp, ClipboardList, MessageCircleQuestionMark, ShieldAlert, StickyNote } from "lucide-react";
+import { ChevronDown, ChevronUp, ClipboardList, MessageCircleQuestionMark, Settings, ShieldAlert, StickyNote } from "lucide-react";
 import { Kbd } from "../ui/kbd.js";
 import { createContext, use, useEffect, useId, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useEnvironmentCountdown } from "../environment-countdown.js";
@@ -10,6 +10,7 @@ import { KeyContext, useEscapeStep, useFirstKey, useKeyAction } from "../keys/ke
 import { Markdown } from "../transcript/markdown.js";
 import { Button, Textarea } from "../ui/index.js";
 import { classes } from "../ui/classes.js";
+import { useSettingsIfHeld } from "../settings/settings-window.js";
 import { useObservable, useRuntime, useShell } from "../window-context.js";
 import { Answer, PromptEscape, PromptTooltip } from "./answer-button.js";
 import { usePhoneOverlay } from "../ui/phone.js";
@@ -59,7 +60,9 @@ export const PromptFieldsProvider = ({ children }: { readonly children: ReactNod
  *   person present may allow a denylisted call); it names what was asked,
  *   then each entry it matched in words with what the agent may do instead,
  *   each once (#1905), and says when the run asked about the same entry
- *   before (#1820).
+ *   before (#1820); and says that the denylist asks in every mode, bypass
+ *   included, with Open Permissions to the environment's Permissions row,
+ *   where the list is changed (#2095).
  * - **A question** offers its options, several at once where it allows, and
  *   an answer in the person's own words; Mod+Enter sends, Esc skips (a deny).
  * - **A plan** offers Keep planning (Esc) and one approval per mode, the
@@ -156,6 +159,12 @@ const ParkedCard = ({ environmentId, parked, place, repeat, capability, fields, 
   const inConversationDialog = use(FieldsContext) !== null;
   const phone = narrow && shell === undefined && !inConversationDialog;
   useEffect(() => { if (!phone) setDetails(false); }, [phone]);
+  // A denylist prompt's way to its list (#2095): the environment's Permissions row, a phone's details closed first; none where nothing holds Settings.
+  const settings = useSettingsIfHeld();
+  const openPermissions = settings === null ? undefined : () => {
+    setDetails(false);
+    settings.open("access.permissions", environmentId);
+  };
   const bodyId = useId();
   const noteId = useId();
   const denyKey = useFirstKey("permission.deny");
@@ -212,7 +221,7 @@ const ParkedCard = ({ environmentId, parked, place, repeat, capability, fields, 
     </PromptTooltip>
   </>;
 
-  const request = <PromptBody prompt={prompt} repeat={repeat} fields={fields} setFields={setFields} full={phone} />;
+  const request = <PromptBody prompt={prompt} repeat={repeat} fields={fields} setFields={setFields} full={phone} openPermissions={openPermissions} />;
 
   const actions = <div data-prompt-actions className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
     {prompt.kind === "question" ? <>
@@ -296,7 +305,15 @@ const ParkedCard = ({ environmentId, parked, place, repeat, capability, fields, 
 };
 
 /** What the prompt asks, by its kind. */
-const PromptBody = ({ prompt, repeat, fields, setFields, full = false }: { readonly prompt: PromptOpenedPayload; readonly repeat?: string | undefined; readonly fields: CardFields; setFields(fields: CardFields): void; readonly full?: boolean }) => {
+const PromptBody = ({ prompt, repeat, fields, setFields, full = false, openPermissions }: {
+  readonly prompt: PromptOpenedPayload;
+  readonly repeat?: string | undefined;
+  readonly fields: CardFields;
+  setFields(fields: CardFields): void;
+  readonly full?: boolean;
+  /** Opens the environment's Permissions row, where the denylist is changed; undefined where nothing holds Settings. */
+  readonly openPermissions?: (() => void) | undefined;
+}) => {
   if (prompt.kind === "question") return <QuestionForm prompt={prompt} picks={fields.picks} setPicks={(picks) => setFields({ ...fields, picks })} />;
   if (prompt.kind === "plan") return <PlanBody text={prompt.plan ?? prompt.summary} />;
   const input = inputText(prompt.input);
@@ -319,6 +336,17 @@ const PromptBody = ({ prompt, repeat, fields, setFields, full = false }: { reado
         </ul>
       )}
       {repeat !== undefined && <p className="text-xs font-medium text-signal">{repeat}</p>}
+      {/* So a person tells it from a permission prompt, which bypass never parks (#2095). */}
+      {prompt.kind === "denylist" && (
+        <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
+          <span>{DENYLIST_EVERY_MODE}</span>
+          {openPermissions !== undefined && (
+            <PromptTooltip content="Open Permissions" keys="Enter or Space">
+              <Button size="sm" onClick={openPermissions}><Settings aria-hidden="true" data-icon="inline-start" />Open Permissions</Button>
+            </PromptTooltip>
+          )}
+        </div>
+      )}
       {input !== undefined && (
         <pre aria-label="Arguments" className={classes("max-h-[224px] overflow-auto rounded-none border border-hairline bg-inset px-3 py-2 font-mono text-xs whitespace-pre-wrap break-words text-ink-muted", prompt.kind === "permission" && "min-h-0")}>{input}</pre>
       )}

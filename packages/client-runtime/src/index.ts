@@ -539,7 +539,7 @@ export {
 export { xtermFull, xtermScreen, xtermText, type TextScreen, type TextScreens, type Xterm } from "./terminals/text-screen.js";
 export { TERMINAL_WRITE_CAP, nextWrite } from "./terminals/writes.js";
 export { buttonRows, choiceRows, joinAnswers, noteOf, rowAnswer, ttlWords, type ChoiceRow, type RowOutcome } from "./prompts/card.js";
-export { denylistCardWords, denylistMatchWords, denylistRepeatWords, type AskedPrompt, type DenylistCardEntry, type DenylistCardWords, type DenylistMatchWords } from "./prompts/denylist.js";
+export { DENYLIST_EVERY_MODE, denylistCardWords, denylistMatchWords, denylistRepeatWords, type AskedPrompt, type DenylistCardEntry, type DenylistCardWords, type DenylistMatchWords } from "./prompts/denylist.js";
 export { answerPrompt, type AnswerOutcome, type PromptTarget } from "./prompts/answer.js";
 export { BULK_LEAST, askDetail, bulkAsks, bulkQuestion, decidable, inBulk } from "./prompts/asks.js";
 export {
