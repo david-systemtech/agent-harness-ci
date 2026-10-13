@@ -1133,6 +1133,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       join(dataDir, SNAPSHOTS_DIRECTORY),
       join(dataDir, GENERATIONS_DIRECTORY),
       join(dataDir, BANKS_DIRECTORY),
+      // And each repository's auto-memory directory (ADR 0018), which the Claude adapter points every run at and whose
+      // model is told to keep its memory in: a memory read or write parks no denylist prompt, in bypass or any mode (#2095).
+      // An unattended run's projection carries it too (`providerDenylist` below), so a contained run's sandbox reads it.
+      join(dataDir, AUTO_MEMORY_DIRECTORY),
     ],
     ...(user !== undefined && { user }),
   };
