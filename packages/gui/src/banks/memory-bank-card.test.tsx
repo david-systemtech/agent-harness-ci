@@ -96,10 +96,14 @@ it("keeps an invalid bank's repair message off a ready bank, including after Che
     desk.startRun(sessionId, "Describe this notebook.");
     return { result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: { sessionId } } };
   });
-  await app.user.click(within(ready).getByRole("button", { name: "Describe it" }));
+  const start = within(ready).getByRole("button", { name: "Describe it" });
+  expect(start.getAttribute("data-variant")).toBe("default");
+  await app.user.click(start);
   expect((await screen.findByRole("status", { name: "Authoring status" })).textContent).toBe("Writing the description…");
   act(() => desk.endRun(sessionId, desk.liveRun(sessionId) ?? ""));
   await waitFor(() => expect(screen.getByRole("status", { name: "Authoring status" }).textContent).toBe("Saved"));
+  await app.user.click(within(screen.getByRole("dialog", { name: "Authoring conversation" })).getByRole("button", { name: "Close dialog" }));
+  expect(within(ready).getByRole("button", { name: "Describe it" }).getAttribute("data-variant")).toBe("outline");
 });
 
 it("keeps a healthy bank's stopped describing conversation controls on its own card", async () => {
