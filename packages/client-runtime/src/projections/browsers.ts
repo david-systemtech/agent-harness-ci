@@ -1,7 +1,7 @@
 import { PRODUCT_NAME, type PairedChrome, type SessionBrowser } from "@agent-harness/contracts";
 import type { CapabilityAnswer } from "../capabilities.js";
 import { LOCAL_PLACEHOLDER_ID, type ConnectionRecord } from "../connections/records.js";
-import { dynamic, type Observable } from "../observable.js";
+import { derived, dynamic, type Observable } from "../observable.js";
 import type { CachedAnswer } from "../requests.js";
 import type { SessionListView } from "./session-list.js";
 
@@ -262,9 +262,9 @@ export const browserRows = (sources: BrowserSources, environmentId: string, chos
 export const browsersProjection = (host: BrowsersHost, environmentId: string, sessionId: string): Observable<BrowsersView> => {
   const id = sessionId.toLowerCase();
   /** The session's browser as its list row holds it; undefined while the lists do not hold the session. */
-  const chosen = () => host.sessionList.read().rows.find((row) => row.environmentId === environmentId && row.summary.id === id)?.summary.browser;
+  const chosen = derived([host.sessionList] as const, (list) => list.rows.find((row) => row.environmentId === environmentId && row.summary.id === id)?.summary.browser);
   return dynamic(
-    () => [host.sessionList, ...browserInputs(host, environmentId)],
-    (): BrowsersView => ({ environmentId, sessionId: id, rows: browserRows(host, environmentId, chosen()), chromes: pairedChromes(host, environmentId), status: host.status(environmentId).read(), dock: host.webView }),
+    () => [chosen, ...browserInputs(host, environmentId)],
+    (): BrowsersView => ({ environmentId, sessionId: id, rows: browserRows(host, environmentId, chosen.read()), chromes: pairedChromes(host, environmentId), status: host.status(environmentId).read(), dock: host.webView }),
   );
 };

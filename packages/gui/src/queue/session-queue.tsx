@@ -1,8 +1,8 @@
-import { readQueueNow, withdrawQueued, type SessionRunsView, type VerbAvailability } from "@agent-harness/client-runtime";
+import { readQueueNow, withdrawQueued, type SessionProjection, type SessionRunsView, type VerbAvailability } from "@agent-harness/client-runtime";
 import { createContext, use, useMemo, useRef, type ReactNode } from "react";
 import { usePaneLine } from "../session/pane-line.js";
 import { useProvider } from "../session/provider.js";
-import { useObservable, useRuntime } from "../window-context.js";
+import { useObservable, useObservableSelector, useRuntime } from "../window-context.js";
 
 /**
  * A session's queue and its two verbs (docs/specs/gui.md, "A session pane";
@@ -38,6 +38,7 @@ export interface SessionQueue {
 }
 
 const QueueContext = createContext<SessionQueue | null>(null);
+const providerFields = (projection: SessionProjection) => ({ accountId: projection.summary?.accountId ?? null });
 
 /** Why a verb was not done, in one line: nothing queued is said as it is, any other reason after what was not done. */
 const refused = (what: string, verb: Extract<VerbAvailability, { status: "absent" }>): string => (verb.reason === "no_queue" ? verb.message : `${what}: ${verb.message}`);
@@ -52,9 +53,9 @@ export interface SessionQueueProps {
 export const SessionQueueProvider = ({ environmentId, sessionId, children }: SessionQueueProps) => {
   const runtime = useRuntime();
   const [, say] = usePaneLine();
-  const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
+  const { accountId } = useObservableSelector(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]), providerFields);
   const runs = useObservable(useMemo(() => runtime.projections.runs.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
-  const steers = useProvider(environmentId, projection)?.steering === true;
+  const steers = useProvider(environmentId, { summary: { accountId } })?.steering === true;
   // The messages this window has asked to take back and not heard about: asking again meanwhile could only be refused.
   const withdrawing = useRef(new Set<string>());
   const sayRefusal = (line: string | undefined) => {
