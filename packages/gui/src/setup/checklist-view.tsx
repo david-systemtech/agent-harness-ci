@@ -67,7 +67,8 @@ const RailRow = ({ step, index, state, shown, choose }: { readonly step: SetupSt
  * Set up as the whole window (docs/specs/gui.md, "Set up in the window";
  * ADR 0016; setup-copy.md §4.4): "Setting up:" with the computer picker (the
  * one the last `environment` pane picked, else the home environment) and
- * Close across the top, the eleven steps on a rail with their state words,
+ * the window controls in the header, Close Set up below it, the eleven
+ * steps on a rail with their state words,
  * and the chosen step's card beside it; a line in their place while there is
  * no computer, and one saying it reads the computer's setup until the first
  * result comes. Opening it, or pointing it at another computer, checks every
@@ -111,11 +112,13 @@ export const ChecklistView = () => {
         <Tooltip content="Choose a computer to set up" keys="Tab, arrow keys">
           <span className="inline-flex items-center gap-2"><ListChecks aria-hidden="true" className="size-4 text-ink-muted" /><EnvironmentPicker label="Setting up:" /></span>
         </Tooltip>
-        <Tooltip content="Close Set up" keys="Tab, Enter">
-          <Button aria-label="Close Set up" className="ml-auto" onClick={close}><X aria-hidden="true" />Close</Button>
-        </Tooltip>
-        <WindowControls state={frame} />
+        <div className="ml-auto"><WindowControls state={frame} /></div>
       </header>
+      <div data-setup-actions className="flex shrink-0 justify-end border-b border-hairline px-4 py-2">
+        <Tooltip content="Close Set up" keys="Tab, Enter">
+          <Button variant="outline" aria-label="Close Set up" onClick={close}><X aria-hidden="true" />Close Set up</Button>
+        </Tooltip>
+      </div>
       <CredentialNoticeHost />
       {picked === undefined ? (
         <p className="px-4 py-[34px] text-sm text-ink-muted md:px-10">Choose a computer to set up.</p>

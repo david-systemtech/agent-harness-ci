@@ -1,5 +1,5 @@
 import { STEP_ORDER, type StepId } from "@agent-harness/contracts";
-import { ArrowLeft, ArrowRight, BookOpen, Brain, Check, Download, Globe, KeyRound, Monitor, Palette, Shield, SkipForward, Sparkles, UserRound, type LucideIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, Brain, Check, Download, Globe, KeyRound, Monitor, Palette, Shield, SkipForward, Sparkles, UserRound, X, type LucideIcon } from "lucide-react";
 import { useId, useState } from "react";
 import { Button, Tooltip } from "../ui/index.js";
 import { useRegisteredCard, type StepCardProps } from "./cards.js";
@@ -82,6 +82,11 @@ export const StepCard = ({ environmentId, step, state, computer }: StepCardFrame
           <Tooltip content="Skip for now" keys="Tab, Enter">
             <Button variant="outline" disabled={required} aria-describedby={required ? reasonId : undefined} onClick={forward}><SkipForward aria-hidden="true" />Skip for now</Button>
           </Tooltip>
+          {next === undefined && (
+            <Tooltip content="Close Set up" keys="Tab, Enter">
+              <Button variant="outline" aria-label="Close Set up" onClick={close}><X aria-hidden="true" />Close Set up</Button>
+            </Tooltip>
+          )}
           <Tooltip content={next === undefined ? "Finish set up" : "Continue"} keys="Tab, Enter">
             <Button variant="default" disabled={held !== undefined} aria-describedby={held === undefined ? undefined : reasonId} onClick={forward}>
               {next === undefined ? <Check aria-hidden="true" /> : <ArrowRight aria-hidden="true" />}{next === undefined ? "Finish set up" : "Continue"}

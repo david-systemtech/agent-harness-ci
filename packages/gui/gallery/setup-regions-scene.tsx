@@ -427,6 +427,9 @@ export function setupRegionScene(kind: SetupRegion) {
 
 /** look.md §13.2: rail and footer geometry apply to all four setup cards. */
 export const setupGeometry = [
+  { selector: '[data-phone-setup] > header', height: 44 },
+  { selector: '[data-setup-actions]', minimumHeight: 48 },
+  { selector: '[data-setup-actions] button', height: 32 },
   { selector: 'nav[aria-label="Set up steps"]', width: 280 },
   { selector: '[data-setup-scroll] > div', maxWidth: 620 },
   { selector: 'footer[aria-label="Step navigation"]', minimumHeight: 67 },

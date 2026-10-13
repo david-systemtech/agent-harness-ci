@@ -191,14 +191,14 @@ Field `Pairing link` (no example value as placeholder), button **Pair**; **Scan 
 Words stay: `Leave set up without an account?` / `You can look around, but you will need to sign in before starting a session. Set up will be waiting in Settings.` / **Keep setting up** / **Leave for now**. In the full checklist, it asks about the accounts on the computer shown in the header, matching the Account gate and Continue (#2018). On the introduction, which has no computer picker, it asks about the home computer's accounts.
 
 ### 4.4 Checklist frame (checklist-view.tsx, step-card.tsx)
-- Header: `Set up` · `Setting up:` {picker} (replaces the label "Environment") · **Close**.
+- Header: `Set up` · `Setting up:` {picker} (replaces the label "Environment") · window controls. **Close Set up** sits at the top right of the screen below the header, including with no computer picked or while the first result is loading (#2097).
 - Rail rows: number, label, hint, the state word (§3), and the tag `Required` / `Optional`. Hints (contracts STEP_HINTS):
   Account `Sign in to Claude`; Carry over `Bring your past chats`; Your machines `Use it from other devices`; Forges `Connect GitHub and others`;
   Key manager `Use your key manager`; Memory bank `A notebook agents keep`; Skills `Ready-made agent skills`; Instructions `Notes every agent reads`;
   Browser `Let agents use Chrome`; Permissions `When agents must ask`; Appearance `Light, dark and colours`.
 - A step the computer's version does not have: state `Not available`, line `{name} runs an older agent-harness without this step. Update {name} to set it up.`
 - No computer picked: `Choose a computer to set up.`; still loading: `Reading {name}'s setup…`.
-- Footer: **Back**, **Skip for now**, **Continue**; step 11 **Finish set up**. On Account, Skip and Continue are disabled and the
+- Footer: **Back**, **Skip for now**, **Continue**; step 11 **Close Set up** beside **Finish set up**, with Close enabled even while Finish is held (#2097). On Account, Skip and Continue are disabled and the
   visible line beside them reads `Sign in to continue. Account is the one required step.`
   Once an account is signed in, Continue is enabled and Skip stays disabled, so the line reads `Account is the one required step.`
 
