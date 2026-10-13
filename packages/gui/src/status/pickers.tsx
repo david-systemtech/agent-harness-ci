@@ -16,6 +16,7 @@ import {
   type CapabilityName,
   type ContainmentBadge,
   type RunChoice,
+  type SessionProjection,
 } from "@agent-harness/client-runtime";
 import { ArrowRightLeft, Box, Check, Cpu, KeyRound, Plus, RefreshCw, Shield, SlidersHorizontal } from "lucide-react";
 import { BYPASS_SENTENCE, CONTAINMENT_LEVELS, type AccountRecord, type Mode } from "@agent-harness/contracts";
@@ -26,7 +27,7 @@ import type { Offer } from "../keys/key-dispatch.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { classes } from "../ui/classes.js";
 import { Button, Menu, MenuItem, MenuSeparator, Tooltip } from "../ui/index.js";
-import { useFollowed, useObservable, useRuntime } from "../window-context.js";
+import { useFollowed, useObservable, useObservableSelector, useRuntime } from "../window-context.js";
 import { useHandOffOnto } from "./hand-off.js";
 import { useSignInCard } from "./pane-dialogs.js";
 import { MenuSub, MenuSubContent, MenuSubTrigger } from "../ui/menu.js";
@@ -183,10 +184,12 @@ const useEnvironmentName = (environmentId: string): string => {
 };
 
 /** The session's title as a line says it. */
+const sessionName = (projection: SessionProjection) => ({ title: projection.summary?.title });
+
 const useSessionName = (environmentId: string, sessionId: string): string => {
   const runtime = useRuntime();
-  const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
-  return projection.summary?.title ?? "this session";
+  const projection = useObservableSelector(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]), sessionName);
+  return projection.title ?? "this session";
 };
 
 interface RunPickerProps {

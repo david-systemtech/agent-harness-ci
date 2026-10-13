@@ -1,16 +1,19 @@
-import { elapsedClock, liveRun, liveRunIdOf, liveTasks, oneLine, statusOf } from "@agent-harness/client-runtime";
+import { elapsedClock, liveRun, liveRunIdOf, liveTasks, oneLine, statusOf, type SessionProjection } from "@agent-harness/client-runtime";
 import { useEffect, useMemo, useReducer } from "react";
 import { ListTodo } from "lucide-react";
 import { showPane, useSideColumn } from "../side-column/column.js";
 import { Button, Tooltip } from "../ui/index.js";
 import { classes } from "../ui/classes.js";
-import { useClock, useObservable, useRuntime } from "../window-context.js";
+import { useClock, useObservable, useObservableSelector, useRuntime } from "../window-context.js";
+
+const activityFields = (projection: SessionProjection) => ({ items: projection.items, runs: projection.runs, containment: projection.containment, summary: null });
+const taskFields = (projection: SessionProjection) => ({ items: projection.items, runs: projection.runs });
 
 /** The run's seam and labelled tail, in environment time; settled has only its hairline. */
 export const Activity = ({ environmentId, sessionId, stopping }: { readonly environmentId: string; readonly sessionId: string; readonly stopping: boolean }) => {
   const runtime = useRuntime();
   const clock = useClock();
-  const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
+  const projection = useObservableSelector(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]), activityFields);
   const runs = useObservable(useMemo(() => runtime.projections.runs.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const facts = statusOf({ projection, runState: runs.state, liveRunId: liveRunIdOf(projection, runs), ceiling: null, forkedOnto: undefined, containmentDefault: undefined, recommendation: undefined, now: () => runtime.environmentNow(environmentId).getTime() });
   const latest = projection.runs.at(-1);
@@ -38,7 +41,7 @@ export const Activity = ({ environmentId, sessionId, stopping }: { readonly envi
 /** Live delegated work stays a projection of the ledger; the strip opens the pane that owns its controls. */
 export const BackgroundWork = ({ environmentId, sessionId }: { readonly environmentId: string; readonly sessionId: string }) => {
   const runtime = useRuntime();
-  const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
+  const projection = useObservableSelector(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]), taskFields);
   const tasks = useMemo(() => liveTasks(projection, liveRun(projection)?.runId), [projection]);
   const [, changeColumn] = useSideColumn({ environmentId, sessionId });
   if (tasks.length === 0) return null;

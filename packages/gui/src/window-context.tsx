@@ -1,4 +1,4 @@
-import type { Clock, Observable, Runtime, Shell } from "@agent-harness/client-runtime";
+import { derived, type Clock, type Observable, type Runtime, type Shell } from "@agent-harness/client-runtime";
 import { createContext, use, useCallback, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import type { Presentation, PresentationKey, PresentationValues } from "./presentation.js";
 
@@ -47,6 +47,22 @@ export const useShell = (): Shell | undefined => useWindow().shell;
 
 /** A runtime observable's value, read for React and followed while the component is mounted. */
 export const useObservable = <T,>(observable: Observable<T>): T => useSyncExternalStore(observable.subscribe, observable.read);
+
+/** Follow only the fields a view uses, retaining its snapshot while those fields stay the same. */
+export const useObservableSelector = <T, S extends object>(observable: Observable<T>, select: (value: T) => S): S => {
+  const selected = useMemo(() => {
+    let held: S | undefined;
+    return derived([observable] as const, (value) => {
+      const next = select(value);
+      const previous = held;
+      const keys = Object.keys(next) as (keyof S)[];
+      if (previous !== undefined && keys.length === Object.keys(previous).length && keys.every((key) => Object.is(next[key], previous[key]))) return previous;
+      held = next;
+      return next;
+    });
+  }, [observable, select]);
+  return useObservable(selected);
+};
 
 const NOT_FOLLOWED = { subscribe: () => () => undefined, read: () => undefined };
 

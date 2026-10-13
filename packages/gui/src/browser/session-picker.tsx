@@ -1,14 +1,17 @@
+import type { SessionProjection } from "@agent-harness/client-runtime";
 import { PRODUCT_NAME, type SessionBrowser } from "@agent-harness/contracts";
 import { useMemo, useState } from "react";
 import { usePaneLine } from "../session/pane-line.js";
-import { useObservable, useRuntime } from "../window-context.js";
+import { useObservable, useObservableSelector, useRuntime } from "../window-context.js";
 import { BrowserChoiceMenu, BrowserChoiceSubmenu } from "./choice-menu.js";
 
 /** The session field changes through its command; a running browser remains the run's resolution. */
+const browserFields = (projection: SessionProjection) => ({ title: projection.summary?.title, runs: projection.runs, browserResolutions: projection.browserResolutions });
+
 export const SessionBrowserPicker = ({ environmentId, sessionId, submenu = false }: { readonly environmentId: string; readonly sessionId: string; readonly submenu?: boolean }) => {
   const runtime = useRuntime();
   const picker = useObservable(useMemo(() => runtime.projections.browsers(environmentId, sessionId), [runtime, environmentId, sessionId]));
-  const session = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
+  const session = useObservableSelector(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]), browserFields);
   const [busy, setBusy] = useState(false);
   const [, say] = usePaneLine();
   const capability = runtime.capability(environmentId, "sessions.setBrowser");

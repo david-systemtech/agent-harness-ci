@@ -7,6 +7,7 @@ import {
   liveRunIdOf,
   statusOf,
   type StatusFacts,
+  type SessionProjection,
 } from "@agent-harness/client-runtime";
 import { ArrowRightLeft, ChevronDown, Settings2 } from "lucide-react";
 import { useMemo, useState, useId } from "react";
@@ -15,7 +16,7 @@ import { usePaneLine } from "../session/pane-line.js";
 import { EnvironmentBadge } from "../connections/environment-badge.js";
 import { PhoneComposerSheet } from "../composer/phone-composer-sheet.js";
 import { Button, Dialog, DialogTrigger, Tooltip } from "../ui/index.js";
-import { useFollowed, useObservable, useRuntime, useShell } from "../window-context.js";
+import { useFollowed, useObservable, useObservableSelector, useRuntime, useShell } from "../window-context.js";
 import { useHandoffPicker } from "./pane-dialogs.js";
 import { AccountPicker, ContainmentPicker, ModePicker, ModelPicker, RunPickerRequest, modeLabel, type RunPickerCommand } from "./pickers.js";
 import { useHandedOnto } from "./run-choices.js";
@@ -23,6 +24,8 @@ import { SessionBrowserPicker } from "../browser/session-picker.js";
 import { UsageMeter } from "./usage-meter.js";
 import { SessionContextMeter } from "./context-meter.js";
 import { WebRegisteredSurfaces } from "../platform/web-registrations.js";
+
+const statusFields = (projection: SessionProjection) => ({ runs: projection.runs, items: projection.items, containment: projection.containment, accountId: projection.summary?.accountId ?? null, runChoice: projection.summary?.runChoice ?? null, model: projection.summary?.model ?? null, mode: projection.summary?.mode ?? null });
 
 export interface StatusLineProps {
   readonly environmentId: string;
@@ -57,17 +60,17 @@ export const StatusLine = ({ environmentId, sessionId, compact = false }: Status
   const runtime = useRuntime();
   const environments = useObservable(runtime.projections.environments);
   const environment = environments.find((view) => view.environmentId === environmentId);
-  const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
+  const projection = useObservableSelector(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]), statusFields);
   const runs = useObservable(useMemo(() => runtime.projections.runs.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const permissions = useFollowed(useMemo(() => runtime.requests.cached(environmentId, "permissions.settings.get", {}), [runtime, environmentId]));
   const handedOnto = useHandedOnto(environmentId, sessionId);
-  const accountId = projection.summary?.accountId ?? handedOnto ?? null;
+  const accountId = projection.accountId ?? handedOnto ?? null;
   const recommendation = useFollowed(
     useMemo(() => (accountId === null ? undefined : runtime.requests.cached(environmentId, "accounts.handoff.recommend", { fromAccountId: accountId })), [runtime, environmentId, accountId]),
   );
   const ceiling = environment?.ceiling ?? null;
   const facts = statusOf({
-    projection,
+    projection: { ...projection, summary: projection },
     runState: runs.state,
     liveRunId: liveRunIdOf(projection, runs),
     ceiling,

@@ -506,7 +506,8 @@ export const sessionRunsProjection = (host: SessionRunsHost, environmentId: stri
     const record = records.find((candidate) => candidate.environmentId === environmentId);
     const row = list.rows.find((candidate) => candidate.environmentId === environmentId && candidate.summary.id === sessionId);
     const gone = row === undefined || row.summary.workspaceMissingSince === null ? null : row.summary.workspace.path;
-    const inputs = [run?.state, run?.runId, run?.since, session, record, providers.result, accounts.result, gone];
+    // Drafts only affect withdrawal capacity while a message is queued.
+    const inputs = [run?.state, run?.runId, run?.since, session.runs, session.items, session.queued, session.rewound, session.summary?.accountId, session.queued.length > 0 ? session.draft : null, record, providers.result, accounts.result, gone];
     if (last !== undefined && last.inputs.every((input, i) => Object.is(input, inputs[i]))) return last.value;
     const value = sessionRunsOf({
       environmentId,

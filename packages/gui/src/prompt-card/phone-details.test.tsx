@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { phoneLayoutMedia } from "../frame/phone-frame.js";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { DATA_DIRECTORY_PRESET_ID, describeDenylistMatch, type DenylistMatch, type PromptKind } from "@agent-harness/contracts";
+import { DENYLIST_EVERY_MODE } from "@agent-harness/client-runtime";
 import type { ScriptedPrompt } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { mountGallery } from "../../gallery/mount.js";
@@ -88,6 +89,18 @@ it("says a one-match denylist card's request, why and what instead once each in 
   expect(within(sheet).getAllByText("Read: /srv/harness/environment.json")).toHaveLength(1);
   const entry = within(within(sheet).getByRole("list", { name: "On the denylist" })).getByRole("listitem");
   expect(entry.textContent).toBe("This is the environment's data directory: its event log, keys and accounts.Instead, the agent may work in its own working directory, and ask you for anything it needs from the environment's records.");
+});
+
+it("says in Details that the denylist asks in every mode, and opens Permissions with the sheet closed, answering nothing", async () => {
+  const gallery = await phone("denylist", 390, { mode: "bypassPermissions", ceiling: "bypassPermissions" });
+  fireEvent.click(within(screen.getByRole("region", { name: "Parked prompt" })).getByRole("button", { name: "Details" }));
+  const sheet = await screen.findByRole("dialog", { name: "Denylist" });
+  expect(within(sheet).getByText(DENYLIST_EVERY_MODE)).toBeDefined();
+  fireEvent.click(within(sheet).getByRole("button", { name: "Open Permissions" }));
+  const settings = await screen.findByRole("region", { name: "Settings" });
+  expect(await within(settings).findByRole("region", { name: "Permissions" })).toBeDefined();
+  expect(screen.queryByRole("dialog", { name: "Denylist" })).toBeNull();
+  expect(gallery.world.world.environment("desk").answered()).toEqual([]);
 });
 
 it("keeps question choices and IME words across dismissal and sends only after composition", async () => {
