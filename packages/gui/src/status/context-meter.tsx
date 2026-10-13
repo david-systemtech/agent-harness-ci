@@ -3,6 +3,7 @@ import { CircleGauge } from "lucide-react";
 import { useMemo } from "react";
 import { Button, Popover, PopoverContent, PopoverTrigger, Tooltip } from "../ui/index.js";
 import { useFollowed, useObservable, useObservableSelector, useRuntime } from "../window-context.js";
+import { UsageRing } from "./window-reading.js";
 
 const contextFields = (projection: SessionProjection) => ({ runs: projection.runs });
 
@@ -28,8 +29,6 @@ export const SessionContextMeter = ({ environmentId, sessionId, accountId, model
 /** A current context ring. Unknown input and unknown scale both keep the arc empty. */
 export const ContextMeter = ({ facts }: { readonly facts: ContextFacts }) => {
   if (!facts.supported) return null;
-  const value = facts.percent === null ? "—" : String(facts.percent);
-  const tone = facts.percent === null ? "text-ink-faint" : facts.percent >= 90 ? "text-signal" : facts.percent >= 75 ? "text-amber" : "text-sage";
   const detail = facts.tokens === null ? "Context reading unknown" : facts.window === null ? `${facts.tokens.toLocaleString("en-US")} tokens · unknown scale` : `${facts.tokens.toLocaleString("en-US")} / ${facts.window.toLocaleString("en-US")} tokens`;
   return (
     <Popover>
@@ -37,12 +36,10 @@ export const ContextMeter = ({ facts }: { readonly facts: ContextFacts }) => {
         <PopoverTrigger asChild>
           <Button aria-label="Context usage" className="h-6 min-w-0 shrink gap-1 px-1 text-xs font-normal [&_svg]:size-6">
             <span className="min-w-0 truncate">Context</span>
-            <svg role="img" aria-label={`Context: ${facts.percent === null ? "unknown" : `${facts.percent}%`}`} viewBox="0 0 36 36" className={`h-6 w-6 shrink-0 ${tone}`}>
-              <circle cx="18" cy="18" r="16" fill="currentColor" fillOpacity="0.12" />
-              <circle cx="18" cy="18" r="16" fill="none" stroke="currentColor" strokeOpacity="0.2" strokeWidth="4" />
-              <circle cx="18" cy="18" r="16" fill="none" stroke="currentColor" strokeWidth="4" pathLength="100" strokeDasharray={`${facts.percent ?? 0} 100`} transform="rotate(-90 18 18)" className="transition-[stroke-dasharray] duration-300" />
-              <text x="18" y="18" textAnchor="middle" dominantBaseline="central" fill="currentColor" fontSize={facts.percent === 100 ? 8 : 9}>{value}</text>
-            </svg>
+            <UsageRing reading={{
+              window: "context", label: "Context:", value: facts.percent === null ? "unknown" : `${facts.percent}%`,
+              utilisation: facts.percent === null ? null : facts.percent / 100, pressure: undefined, resetsAt: null,
+            }} />
           </Button>
         </PopoverTrigger>
       </Tooltip>
