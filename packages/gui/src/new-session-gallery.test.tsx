@@ -20,17 +20,22 @@ it.each(["new-session", "new-session-not-ready"])("renders %s with the welcome, 
   expect(surface.getByRole("textbox", { name: "Message" })).toBeDefined();
   expect(surface.getByRole("button", { name: "Send" }).querySelector("svg")).not.toBeNull();
   expect(surface.getByRole("heading", { name: "agent-harness" })).toBeDefined();
-  expect(within(surface.getByRole("group", { name: "Where it starts" })).getAllByRole("button")).toHaveLength(5);
+  expect(within(surface.getByRole("group", { name: "Where it starts" })).getAllByRole("button").filter(button => /^(Environment|Account|Model|Workspace|Browser):/.test(button.getAttribute("aria-label") ?? ""))).toHaveLength(5);
   if (scene === "new-session-not-ready") {
     expect(surface.getByRole("alert").textContent).toContain("No account on desk is signed in.");
     expect(surface.getByRole("button", { name: "Sign in" })).toBeDefined();
+    expect(surface.queryByRole("group", { name: "Plan usage" })).toBeNull();
+  } else {
+    const usage = within(surface.getByRole("group", { name: "Plan usage" }));
+    expect(usage.getByRole("img", { name: "5-hour 42%" })).toBeDefined();
+    expect(usage.getByRole("img", { name: "Weekly 67%" })).toBeDefined();
   }
   expect(JSON.parse(container.dataset["galleryGeometry"] ?? "null")).toEqual(expect.arrayContaining([
     { selector: "[data-welcome-tile]", width: 44, height: 44 },
     { selector: "[data-welcome-tile] svg", width: 22, height: 22 },
     { selector: '[aria-label="Message"]', height: 44 },
     { selector: '[aria-label="Send"]', width: 28, height: 28 },
-    { selector: '[aria-label="Where it starts"] button', height: 22 },
+    { selector: '[aria-label="Where it starts"] fieldset button', height: 22 },
   ]));
   expect(gallery.world.world.environment("desk").requests("sessions.create")).toEqual([]);
 });

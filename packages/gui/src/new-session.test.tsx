@@ -103,6 +103,7 @@ const surfaces = () => panes().flatMap((pane) => surfaceOf(pane) ?? []);
 const chipsOf = (surface: HTMLElement) =>
   within(within(surface).getByRole("group", { name: "Where it starts" }))
     .getAllByRole("button")
+    .filter((chip) => /^(Environment|Account|Model|Workspace|Browser):/.test(chip.getAttribute("aria-label") ?? ""))
     .map((chip) => chip.getAttribute("aria-label"));
 
 /** Waits for the surface's chips to read `chips`. */
@@ -295,6 +296,7 @@ describe("the chips", () => {
     await app.user.click(await screen.findByRole("menuitem", { name: /^desk/ }));
     await within(surface).findByRole("button", { name: "Account: none" });
     await within(surface).findByRole("button", { name: "Model: none" });
+    expect(within(surface).queryByRole("group", { name: "Plan usage" })).toBeNull();
     await openChip(app, surface, "Account");
     const menu = await screen.findByRole("menu");
     expect(within(menu).getByText("The environment holds no account yet.")).toBeDefined();

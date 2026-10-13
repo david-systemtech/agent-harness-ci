@@ -10,6 +10,7 @@ import { AttachmentChips, AttachmentPicker, useAttachments } from "../composer/a
 import { useSettings } from "../settings/settings-window.js";
 import { Alert, AlertDescription, AlertTitle, Button, IconButton, Tooltip } from "../ui/index.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
+import { UsageMeter } from "../status/usage-meter.js";
 import { Welcome } from "../session/empty-state.js";
 import { COLUMN_WIDTHS } from "../transcript/transcript.js";
 import { CHIPS } from "./chips.js";
@@ -230,6 +231,7 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
           <fieldset disabled={starting || creationAccepted} className="contents">
             {CHIPS.map((Chip, at) => <Chip key={at} view={view} sessionId={id} choose={choose} say={say} />)}
           </fieldset>
+          {destination !== null && view.account.value !== null && <UsageMeter environmentId={destination} accountId={view.account.value.id} />}
           {creationAccepted && !starting && <p className="w-full text-xs text-ink-muted">The session was created with these choices. Send again to retry its first message.</p>}
         </div>
       </div>
