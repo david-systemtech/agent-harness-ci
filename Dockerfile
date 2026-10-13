@@ -58,8 +58,15 @@ FROM node:24-bookworm-slim
 # user's keys are not in the image: mounted into its home they authenticate,
 # and without them ssh's refusal is answered as `authentication`, not the
 # shell's `ssh: not found`.
+# The everyday tools an agent working in /work reaches for, so this
+# repository's documented workflows run here as on any Linux machine (#2121):
+# python3 and python3-venv (the snapshot publisher, the gallery and CI
+# scripts), curl, jq, ripgrep, unzip, procps (ps, free) and less, about 37 MiB
+# installed; and make, g++ and python3-dev, about 285 MiB, so `pnpm install`
+# in a checkout compiles node-pty for its terminals rather than leaving it
+# unbuilt, and a venv can build a package's C extension.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates git bubblewrap socat openssh-client \
+  && apt-get install -y --no-install-recommends ca-certificates curl git bubblewrap socat openssh-client python3 python3-venv jq ripgrep unzip procps less make g++ python3-dev \
   && rm -rf /var/lib/apt/lists/*
 # The non-root user, and the mount points of the two volumes given to it
 # before they are declared, so a named volume starts with its owner.
