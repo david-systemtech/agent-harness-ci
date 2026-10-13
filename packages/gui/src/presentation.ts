@@ -127,6 +127,8 @@ export type LightOrDark = (typeof LIGHT_OR_DARK)[number];
 
 /** Every key the presentation holds, and its value. */
 export interface PresentationValues {
+  /** The name the public report dialog presets on this client. */
+  readonly reporterName: string;
   /**
    * The sidebar region's integer width in pixels, as the
    * frame's divider last left it; null until it is first moved, when the
@@ -207,6 +209,7 @@ export type PresentationKey = keyof PresentationValues;
 
 /** What each key holds before anything is set. */
 export const PRESENTATION_DEFAULTS: PresentationValues = Object.freeze({
+  reporterName: "",
   sidebarWidth: null,
   sidebarShown: true,
   sidebarView: "groups",
@@ -362,6 +365,7 @@ const readPaneLayout = (stored: unknown): PaneLayout | undefined => {
 
 /** How each key's stored value is read back: undefined for a value this build cannot read, which takes the default. */
 const READERS: { readonly [K in PresentationKey]: (stored: unknown) => PresentationValues[K] | undefined } = {
+  reporterName: (stored) => typeof stored === "string" && stored.length <= 100 ? stored : undefined,
   sidebarWidth: (stored) => stored === null ? null : typeof stored === "number" && Number.isFinite(stored) ? Math.round(Math.max(200, Math.min(460, stored))) : undefined,
   sidebarShown: (stored) => (typeof stored === "boolean" ? stored : undefined),
   sidebarView: (stored) => SIDEBAR_VIEWS.find((view) => view === stored),

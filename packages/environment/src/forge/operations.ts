@@ -156,6 +156,8 @@ export interface ForgeOperations {
     /** Creates a repository, private or public, under the user or an organisation the forge account may create under (`createRepository`). */
     create(request: RepositoryCreationRequest): Promise<ForgeAnswer<ForgeRepository>>;
     /** Reads the content of the file at `path` on the branch `ref`. */
+    /** Creates a public report attachment on GitHub. */
+    upload(request: RepositoryTarget & { readonly path: string; readonly content: string }): Promise<ForgeAnswer<null>>;
     file(request: RepositoryTarget & { readonly path: string; readonly ref: string }): Promise<ForgeAnswer<ForgeFile>>;
     /** The owners the forge account may create a repository under: its user, as the forge answers it now, then the organisations it is a member of. */
     owners(request: ForgeTarget): Promise<ForgeAnswer<ForgeOwner[]>>;
@@ -424,6 +426,17 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
           return learnFrom(reached, "createRepository", "create a repository", await forge.createRepository(origin, token, creation, call));
         }),
 
+      async upload(request) {
+        const fullName = fullNameOf(request.repository);
+        const path = filePathOf(request.path);
+        return withAccount(request, async (reached) => {
+          const { provider: forge, origin, token, call } = reached;
+          const target = await forge.repository(origin, token, fullName, call);
+          if (target.outcome !== "done") return target;
+          return forge.upload(origin, token, fullName, path, request.content, call);
+        });
+      },
+
       async file(request) {
         const fullName = fullNameOf(request.repository);
         const path = filePathOf(request.path);
@@ -471,7 +484,7 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
           const { provider: forge, origin, token, call } = reached;
           const target = await forge.repository(origin, token, fullName, call);
           if (target.outcome !== "done") return target;
-          return learnFrom(reached, "writeIssues", "create an issue", await forge.createIssue(origin, token, fullName, { title: request.title, body: request.body }, call));
+          return learnFrom(reached, "writeIssues", "create an issue", await forge.createIssue(origin, token, fullName, { title: request.title, body: request.body, ...(request.labels !== undefined && { labels: request.labels }) }, call));
         });
       },
     },

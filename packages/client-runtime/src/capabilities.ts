@@ -46,6 +46,7 @@ const gatedByPrefix = (prefix: string, flag: KnownCapabilityFlag): Partial<Recor
  * environment keeps no bank registry.
  */
 export const METHOD_FLAGS: Partial<Readonly<Record<MethodName, KnownCapabilityFlag>>> = {
+  "reports.submit": "forge",
   ...gatedByPrefix("checks.", "workspaceChecks"),
   "files.undo": "fileUndo",
   ...gatedByPrefix("forge.", "forge"),

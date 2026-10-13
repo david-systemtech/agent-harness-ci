@@ -1,3 +1,5 @@
+import { reportCommand } from "./reports.js";
+import type { ScrubRegistry } from "../scrub/registry.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import type { ForgeService } from "./forge-service.js";
 
@@ -14,7 +16,8 @@ import type { ForgeService } from "./forge-service.js";
  * the session's stream, and `refresh` at `read`. The rules are the
  * ForgeService's.
  */
-export const forgeMethods = (forge: ForgeService): MethodHandlers => ({
+export const forgeMethods = (forge: ForgeService, reports: { readonly environmentId: string; readonly version: string; readonly scrub: ScrubRegistry }): MethodHandlers => ({
+  "reports.submit": reportCommand(forge, reports),
   "forge.accounts.list": () => ({ accounts: forge.list() }),
   "forge.accounts.add": forge.add,
   "forge.accounts.update": forge.update,

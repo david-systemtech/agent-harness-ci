@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "reports.submit params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "report": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 20000
+            },
+            "client": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "desktop",
+                    "web",
+                    "gui"
+                  ],
+                  "description": "The client submitting the report: desktop window, browser tab, or another GUI client."
+                }
+              },
+              "required": [
+                "version",
+                "kind"
+              ]
+            },
+            "attachments": {
+              "maxItems": 4,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120,
+                    "pattern": "^[\\w .()-]+$"
+                  },
+                  "mediaType": {
+                    "type": "string",
+                    "enum": [
+                      "image/png",
+                      "image/jpeg",
+                      "image/gif",
+                      "image/webp",
+                      "video/mp4",
+                      "video/webm",
+                      "video/quicktime"
+                    ],
+                    "description": "The image or video media type of a public report attachment."
+                  },
+                  "content": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 6990508,
+                    "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+                  }
+                },
+                "required": [
+                  "name",
+                  "mediaType",
+                  "content"
+                ]
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "bug"
+            },
+            "level": {
+              "type": "string",
+              "enum": [
+                "critical",
+                "major",
+                "minor"
+              ],
+              "description": "Bug severity: critical prevents use, major blocks a task, minor is a lesser defect."
+            }
+          },
+          "required": [
+            "name",
+            "description",
+            "client",
+            "attachments",
+            "kind",
+            "level"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 20000
+            },
+            "client": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "desktop",
+                    "web",
+                    "gui"
+                  ],
+                  "description": "The client submitting the report: desktop window, browser tab, or another GUI client."
+                }
+              },
+              "required": [
+                "version",
+                "kind"
+              ]
+            },
+            "attachments": {
+              "maxItems": 4,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120,
+                    "pattern": "^[\\w .()-]+$"
+                  },
+                  "mediaType": {
+                    "type": "string",
+                    "enum": [
+                      "image/png",
+                      "image/jpeg",
+                      "image/gif",
+                      "image/webp",
+                      "video/mp4",
+                      "video/webm",
+                      "video/quicktime"
+                    ],
+                    "description": "The image or video media type of a public report attachment."
+                  },
+                  "content": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 6990508,
+                    "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+                  }
+                },
+                "required": [
+                  "name",
+                  "mediaType",
+                  "content"
+                ]
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "feature"
+            },
+            "level": {
+              "type": "string",
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ],
+              "description": "Feature importance to the reporter: high, medium, or low."
+            }
+          },
+          "required": [
+            "name",
+            "description",
+            "client",
+            "attachments",
+            "kind",
+            "level"
+          ]
+        }
+      ]
+    }
+  },
+  "required": [
+    "commandId",
+    "report"
+  ]
+}

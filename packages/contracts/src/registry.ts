@@ -1,3 +1,4 @@
+import { reportsSubmit } from "./methods/reports.js";
 import { webOriginMethods } from "./web/origin-policy.js";
 import { webAttentionMethods } from "./web/attention.js";
 import { banksValidatorUpdate } from "./bank-validator-update.js";
@@ -306,6 +307,7 @@ export const methods = [
   instructionsDismissSuggestion,
   instructionsRestoreSuggestion,
   instructionsImport,
+  reportsSubmit,
   forgeAccountsList,
   forgeAccountsAdd,
   forgeAccountsUpdate,

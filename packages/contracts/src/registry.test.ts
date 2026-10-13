@@ -276,6 +276,7 @@ describe("the method registry", () => {
       "instructions.dismissSuggestion",
       "instructions.restoreSuggestion",
       "instructions.import",
+      "reports.submit",
       "forge.accounts.add",
       "forge.accounts.update",
       "forge.accounts.remove",
@@ -527,6 +528,7 @@ describe("the method registry", () => {
       | "instructions.dismissSuggestion"
       | "instructions.restoreSuggestion"
       | "instructions.import"
+      | "reports.submit"
       | "forge.accounts.list"
       | "forge.accounts.add"
       | "forge.accounts.update"

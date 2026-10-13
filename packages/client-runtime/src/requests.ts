@@ -50,6 +50,9 @@ export const REQUEST_TIMEOUT_MS = 30_000;
 /** An update answers after downloading, unpacking and launcher preflight, as a desktop stage does. */
 export const UPDATE_APPLY_TIMEOUT_MS = 20 * 60_000;
 
+/** Reporting uploads bounded media serially before opening the issue. */
+export const REPORT_SUBMIT_TIMEOUT_MS = 5 * 60_000;
+
 /**
  * Bringing past work over answers only once it is done: a state import
  * carries every listed directory and store, and a Carry over run or its
@@ -65,6 +68,7 @@ export const LONG_WAITS: Readonly<Partial<Record<MethodName, number>>> = {
   "stateImport.run": IMPORT_WAIT_MS,
   "carryOver.run": IMPORT_WAIT_MS,
   "carryOver.inventory": IMPORT_WAIT_MS,
+  "reports.submit": REPORT_SUBMIT_TIMEOUT_MS,
 };
 
 /** The scopes whose commands only the outbox sends (docs/specs/client-runtime.md: every `sessions:write` and `runs:drive` command). */
