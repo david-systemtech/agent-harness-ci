@@ -107,8 +107,8 @@ posix("tools.list", () => {
       bws: ["0.2.1", "below-minimum"],
       gh: ["2.63.2", "current"],
     });
-    // Placed by hand: claude, bao and doppler update themselves (#1833); the others run the vendor's command in a terminal pane, and vault none.
-    const actions = { claude: "update", bao: "update", vault: "copy", doppler: "update", op: "terminal", bws: "terminal", gh: "terminal" } as const;
+    // Placed by hand: self-updates and the archive remain driven; bws has its vendor script, while op and gh have no available install fallback.
+    const actions = { claude: "update", bao: "update", vault: "copy", doppler: "update", op: "copy", bws: "terminal", gh: "copy" } as const;
     for (const [name, tool] of Object.entries(tools)) {
       expect(rowOf(rows, name), name).toMatchObject({ path: tool.onPath, realpath: tool.file, method: "manual", action: actions[name as keyof typeof actions] });
       expect(tool.calls(), name).toEqual([["--version"]]);
@@ -163,7 +163,7 @@ posix("tools.list", () => {
     const answer = list(client);
     await vi.waitFor(() => expect(op.calls()).toEqual([["--version"]]), { timeout: 30_000 });
     t.clock.advance(5_000);
-    expect(rowOf((await answer).tools, "op")).toMatchObject({ path: op.onPath, version: null, status: "below-minimum", action: "terminal" });
+    expect(rowOf((await answer).tools, "op")).toMatchObject({ path: op.onPath, version: null, status: "below-minimum", action: "copy" });
   });
 
   it("is a read method: a client session with the read scope alone may call it", async () => {
@@ -256,7 +256,7 @@ posix("the install method", () => {
     expect(owners.asked.sort()).toEqual([gh.file, op.file, bws.file, doppler.file].sort());
   });
 
-  it("offers Update where the closed command table updates the tool installed that way (#376), else Run in a terminal pane (#1833): never a command for vault, and bws from Homebrew or gh from npm in a terminal pane", async () => {
+  it("offers Update where the closed command table updates the tool installed that way (#376), else Run in a terminal pane (#1833): never a command for vault, bws from Homebrew in a terminal pane, and no unavailable install command for gh from npm", async () => {
     const path = fakePath();
     path.install("vault", { at: "homebrew/Cellar/vault/1.15.0/bin/vault", output: "Vault v1.15.0" });
     path.install("bws", { at: "homebrew/Cellar/bws/1.0.0/bin/bws", output: "bws 1.0.0" });
@@ -268,7 +268,7 @@ posix("the install method", () => {
     expect(Object.fromEntries(["vault", "bws", "gh", "claude"].map((tool) => [tool, [rowOf(rows, tool).method, rowOf(rows, tool).action]]))).toEqual({
       vault: ["homebrew", "copy"],
       bws: ["homebrew", "terminal"],
-      gh: ["npm", "terminal"],
+      gh: ["npm", "copy"],
       claude: ["apt", "update"],
     });
   });

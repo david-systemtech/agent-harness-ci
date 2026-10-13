@@ -184,6 +184,12 @@ describe("the container image", () => {
     expect(header).toContain("linux/amd64");
   });
 
+  it("ships curl and puts the user bin on the image PATH so bao can be installed without sudo", () => {
+    const stage = finalStage();
+    expect(stage.filter((line) => /^RUN .*\bapt-get install\b/.test(line)).join(" ")).toMatch(/\bcurl\b/);
+    expect(stage).toContain("ENV PATH=/home/agent-harness/.local/bin:$PATH");
+  });
+
   it("installs openssh-client in its last stage, so an ssh or scp URL no forge account covers is probed over ssh as written (#874)", () => {
     const installed = finalStage()
       .filter((line) => /^RUN .*\bapt-get install\b/.test(line))

@@ -58,6 +58,13 @@ describe("the public GitHub release workflow", () => {
     expect(smoke).toContain("if ($LASTEXITCODE -ne 0) { throw 'Desktop update launch check failed' }");
   });
 
+  it("checks the bao archive install in the built image and the Linux and macOS server artefacts", () => {
+    expect(step("image", "Install bao without a package manager in the built image")).toContain('docker run --rm --entrypoint node "$IMAGE_REFERENCE" /opt/agent-harness/scripts/check-packaged-bao-install.mjs /opt/agent-harness');
+    for (const name of ["smoke-macos", "smoke-linux"]) {
+      expect(job(name).join("\n")).toContain('"$server/node/bin/node" scripts/check-packaged-bao-install.mjs "$server"');
+    }
+  });
+
   it("uploads only the sanitized macOS diagnostic directory after a smoke failure", () => {
     const replacement = step("smoke-macos", "Replace the packaged desktop with an existing client credential");
     expect(replacement).toContain('SMOKE_DIAGNOSTICS: ${{ runner.temp }}/macos-update-diagnostics');

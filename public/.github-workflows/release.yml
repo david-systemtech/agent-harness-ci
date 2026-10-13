@@ -188,6 +188,10 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm --entrypoint node "$IMAGE_REFERENCE" /opt/agent-harness/scripts/check-packaged-bank-describe.mjs /opt/agent-harness
+      - name: Install bao without a package manager in the built image
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint node "$IMAGE_REFERENCE" /opt/agent-harness/scripts/check-packaged-bao-install.mjs /opt/agent-harness
       - name: Inspect a container update without applying it
         run: |
           set -euo pipefail
@@ -957,6 +961,7 @@ jobs:
           "$server/node/bin/node" scripts/check-packaged-account-recovery.mjs "$server"
           "$server/node/bin/node" scripts/check-packaged-resume.mjs "$server"
           "$server/node/bin/node" scripts/check-packaged-bank-describe.mjs "$server"
+          "$server/node/bin/node" scripts/check-packaged-bao-install.mjs "$server"
           test "$("$server/node/bin/node" "$server/packages/cli/dist/main.js" --version)" = "agent-harness $VERSION"
           code=0
           status=$("$server/node/bin/node" "$server/packages/cli/dist/main.js" service status 2>&1) || code=$?
@@ -1114,6 +1119,7 @@ jobs:
           "$server/node/bin/node" scripts/check-packaged-account-recovery.mjs "$server"
           "$server/node/bin/node" scripts/check-packaged-resume.mjs "$server"
           "$server/node/bin/node" scripts/check-packaged-bank-describe.mjs "$server"
+          "$server/node/bin/node" scripts/check-packaged-bao-install.mjs "$server"
           test "$("$server/node/bin/node" "$server/packages/cli/dist/main.js" --version)" = "agent-harness $VERSION"
           code=0
           status=$("$server/node/bin/node" "$server/packages/cli/dist/main.js" service status 2>&1) || code=$?

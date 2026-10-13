@@ -502,6 +502,47 @@
     },
     {
       "tool": "bao",
+      "method": "script",
+      "platforms": [
+        "darwin",
+        "linux"
+      ],
+      "needs": [
+        "curl",
+        "tar"
+      ],
+      "needsAny": [
+        "sha256sum",
+        "shasum"
+      ],
+      "install": [
+        [
+          [
+            "sh",
+            "-c",
+            "set -eu; target=\"$HOME/.local/bin/bao\"; case $(uname -s) in Linux) os=linux ;; Darwin) os=darwin ;; *) echo \"OpenBao publishes no archive for $(uname -s).\" >&2; exit 1 ;; esac; case $(uname -m) in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; *) echo \"OpenBao publishes no archive for $(uname -m).\" >&2; exit 1 ;; esac; tag=$(curl -fsSLI -o /dev/null -w %{url_effective} https://github.com/openbao/openbao/releases/latest); tag=${tag##*/}; version=${tag#v}; case $version in [0-9]*) ;; *) echo \"The latest OpenBao release could not be read.\" >&2; exit 1 ;; esac; archive=openbao_${version}_${os}_${arch}.tar.gz; base=https://github.com/openbao/openbao/releases/download/$tag; dir=$(mktemp -d); trap 'rm -rf \"$dir\"' EXIT; echo \"Downloading $archive and its checksums.\"; curl -fsSL -o \"$dir/$archive\" \"$base/$archive\"; curl -fsSL -o \"$dir/checksums.txt\" \"$base/checksums.txt\"; expected=$(awk -v name=\"$archive\" \"\\$2 == name { print \\$1 }\" \"$dir/checksums.txt\"); actual=$( (sha256sum \"$dir/$archive\" 2>/dev/null || shasum -a 256 \"$dir/$archive\") | awk \"{ print \\$1 }\"); if [ -z \"$expected\" ] || [ \"$expected\" != \"$actual\" ]; then echo \"The checksum of $archive does not match the release checksums: nothing was replaced.\" >&2; exit 1; fi; tar -xzf \"$dir/$archive\" -C \"$dir\" bao; mkdir -p \"$HOME/.local/bin\" && cp \"$dir/bao\" \"$target\" && chmod 0755 \"$target\"; echo \"Installed OpenBao $version at $target.\""
+          ]
+        ],
+        [
+          [
+            "sh",
+            "-c",
+            "set -eu; case :$PATH: in *:\"$HOME/.local/bin\":*) exit 0 ;; esac; profile=\"$HOME/.profile\"; line='export PATH=\"$HOME/.local/bin:$PATH\"'; case ${SHELL:-sh} in *zsh) profile=\"${ZDOTDIR:-$HOME}/.zprofile\" ;; *bash) for f in .bash_profile .bash_login .profile; do if [ -f \"$HOME/$f\" ]; then profile=\"$HOME/$f\"; break; fi; done ;; *fish) profile=\"${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/agent-harness-bin.fish\"; mkdir -p \"$(dirname \"$profile\")\"; line='fish_add_path \"$HOME/.local/bin\"' ;; *csh) profile=\"$HOME/.login\"; line='setenv PATH \"$HOME/.local/bin:$PATH\"' ;; esac; printf \"\\n%s\\n\" \"$line\" >> \"$profile\"; echo \"Added ~/.local/bin to the login PATH in $profile.\""
+          ]
+        ]
+      ],
+      "update": [
+        [
+          [
+            "sh",
+            "-c",
+            "set -eu; current=$(command -v bao) || { echo \"bao is not on the PATH.\" >&2; exit 1; }; target=$(readlink -f \"$current\" 2>/dev/null || printf %s \"$current\"); case $(uname -s) in Linux) os=linux ;; Darwin) os=darwin ;; *) echo \"OpenBao publishes no archive for $(uname -s).\" >&2; exit 1 ;; esac; case $(uname -m) in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; *) echo \"OpenBao publishes no archive for $(uname -m).\" >&2; exit 1 ;; esac; tag=$(curl -fsSLI -o /dev/null -w %{url_effective} https://github.com/openbao/openbao/releases/latest); tag=${tag##*/}; version=${tag#v}; case $version in [0-9]*) ;; *) echo \"The latest OpenBao release could not be read.\" >&2; exit 1 ;; esac; archive=openbao_${version}_${os}_${arch}.tar.gz; base=https://github.com/openbao/openbao/releases/download/$tag; dir=$(mktemp -d); trap 'rm -rf \"$dir\"' EXIT; echo \"Downloading $archive and its checksums.\"; curl -fsSL -o \"$dir/$archive\" \"$base/$archive\"; curl -fsSL -o \"$dir/checksums.txt\" \"$base/checksums.txt\"; expected=$(awk -v name=\"$archive\" \"\\$2 == name { print \\$1 }\" \"$dir/checksums.txt\"); actual=$( (sha256sum \"$dir/$archive\" 2>/dev/null || shasum -a 256 \"$dir/$archive\") | awk \"{ print \\$1 }\"); if [ -z \"$expected\" ] || [ \"$expected\" != \"$actual\" ]; then echo \"The checksum of $archive does not match the release checksums: nothing was replaced.\" >&2; exit 1; fi; tar -xzf \"$dir/$archive\" -C \"$dir\" bao; if [ -w \"$(dirname \"$target\")\" ]; then install -m 0755 \"$dir/bao\" \"$target\"; else sudo install -m 0755 \"$dir/bao\" \"$target\"; fi; echo \"Installed OpenBao $version at $target.\""
+          ]
+        ]
+      ]
+    },
+    {
+      "tool": "bao",
       "method": "scoop",
       "platforms": [
         "win32"
@@ -593,7 +634,7 @@
           [
             "sh",
             "-c",
-            "set -eu; current=$(command -v bao) || { echo \"bao is not on the PATH.\" >&2; exit 1; }; target=$(readlink -f \"$current\" 2>/dev/null || printf %s \"$current\"); case $(uname -s) in Linux) os=linux ;; Darwin) os=darwin ;; *) echo \"OpenBao publishes no archive for $(uname -s).\" >&2; exit 1 ;; esac; case $(uname -m) in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; *) echo \"OpenBao publishes no archive for $(uname -m).\" >&2; exit 1 ;; esac; tag=$(curl -fsSLI -o /dev/null -w %{url_effective} https://github.com/openbao/openbao/releases/latest); tag=${tag##*/}; version=${tag#v}; case $version in [0-9]*) ;; *) echo \"The latest OpenBao release could not be read.\" >&2; exit 1 ;; esac; archive=openbao_${version}_${os}_${arch}.tar.gz; base=https://github.com/openbao/openbao/releases/download/$tag; dir=$(mktemp -d); trap \"rm -rf $dir\" EXIT; echo \"Downloading $archive and its checksums.\"; curl -fsSL -o \"$dir/$archive\" \"$base/$archive\"; curl -fsSL -o \"$dir/checksums.txt\" \"$base/checksums.txt\"; expected=$(awk -v name=\"$archive\" \"\\$2 == name { print \\$1 }\" \"$dir/checksums.txt\"); actual=$( (sha256sum \"$dir/$archive\" 2>/dev/null || shasum -a 256 \"$dir/$archive\") | awk \"{ print \\$1 }\"); if [ -z \"$expected\" ] || [ \"$expected\" != \"$actual\" ]; then echo \"The checksum of $archive does not match the release checksums: nothing was replaced.\" >&2; exit 1; fi; tar -xzf \"$dir/$archive\" -C \"$dir\" bao; if [ -w \"$(dirname \"$target\")\" ]; then install -m 0755 \"$dir/bao\" \"$target\"; else sudo install -m 0755 \"$dir/bao\" \"$target\"; fi; echo \"Installed OpenBao $version at $target.\""
+            "set -eu; current=$(command -v bao) || { echo \"bao is not on the PATH.\" >&2; exit 1; }; target=$(readlink -f \"$current\" 2>/dev/null || printf %s \"$current\"); case $(uname -s) in Linux) os=linux ;; Darwin) os=darwin ;; *) echo \"OpenBao publishes no archive for $(uname -s).\" >&2; exit 1 ;; esac; case $(uname -m) in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; *) echo \"OpenBao publishes no archive for $(uname -m).\" >&2; exit 1 ;; esac; tag=$(curl -fsSLI -o /dev/null -w %{url_effective} https://github.com/openbao/openbao/releases/latest); tag=${tag##*/}; version=${tag#v}; case $version in [0-9]*) ;; *) echo \"The latest OpenBao release could not be read.\" >&2; exit 1 ;; esac; archive=openbao_${version}_${os}_${arch}.tar.gz; base=https://github.com/openbao/openbao/releases/download/$tag; dir=$(mktemp -d); trap 'rm -rf \"$dir\"' EXIT; echo \"Downloading $archive and its checksums.\"; curl -fsSL -o \"$dir/$archive\" \"$base/$archive\"; curl -fsSL -o \"$dir/checksums.txt\" \"$base/checksums.txt\"; expected=$(awk -v name=\"$archive\" \"\\$2 == name { print \\$1 }\" \"$dir/checksums.txt\"); actual=$( (sha256sum \"$dir/$archive\" 2>/dev/null || shasum -a 256 \"$dir/$archive\") | awk \"{ print \\$1 }\"); if [ -z \"$expected\" ] || [ \"$expected\" != \"$actual\" ]; then echo \"The checksum of $archive does not match the release checksums: nothing was replaced.\" >&2; exit 1; fi; tar -xzf \"$dir/$archive\" -C \"$dir\" bao; if [ -w \"$(dirname \"$target\")\" ]; then install -m 0755 \"$dir/bao\" \"$target\"; else sudo install -m 0755 \"$dir/bao\" \"$target\"; fi; echo \"Installed OpenBao $version at $target.\""
           ]
         ]
       ]

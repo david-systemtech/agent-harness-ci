@@ -114,11 +114,12 @@ export const managedToolSchemaFixtures: Record<string, Fixtures> = {
   "managed-tools/command-entry.json": {
     valid: [
       entry,
+      { ...entry, needsAny: ["sha256sum", "shasum"] },
       { ...entry, method: "npm", install: null },
       { ...entry, method: "apt", platforms: ["linux"], needs: ["apt-get", "sudo", "curl"], install: aptInstall },
       { ...entry, method: "mise", needs: ["mise"], install: null, update: [[["mise", "upgrade", "{package}"]]], package: "github-cli" },
     ],
-    invalid: [{ ...entry, tool: "vault" }, { ...entry, platforms: [] }, { ...entry, method: "native" }, { ...entry, update: null }, { ...entry, needs: ["brew install"] }, { ...entry, package: "--all" }, { ...entry, package: "../gh" }],
+    invalid: [{ ...entry, needsAny: [] }, { ...entry, needsAny: ["bad program"] }, { ...entry, tool: "vault" }, { ...entry, platforms: [] }, { ...entry, method: "native" }, { ...entry, update: null }, { ...entry, needs: ["brew install"] }, { ...entry, package: "--all" }, { ...entry, package: "../gh" }],
   },
   "managed-tools/command-line.json": { valid: ["brew install gh", "curl -Ls --proto '=https' https://cli.doppler.com/install.sh | sh"], invalid: ["", "brew install gh\nbrew install doppler", "a\rb"] },
   "managed-tools/runnable-action.json": { valid: ["install", "update", "terminal"], invalid: ["copy", ""] },
