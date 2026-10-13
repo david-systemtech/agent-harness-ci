@@ -400,7 +400,7 @@ export class ClaudeProcess implements TurnControl {
   #suggestionTurn: ClaudeTurn | undefined;
   /** Runs held until the process can apply their settings and enqueue their prompts, in arrival order. */
   readonly #attaching = new Set<ClaudeTurn>();
-  /** A held run's latest mode, until its settings begin moving onto the process. */
+  /** A held run's latest mode, until its prompts are admitted to the process. */
   readonly #attachmentModes = new WeakMap<ClaudeTurn, Mode>();
   readonly #attachmentWaiters: (() => void)[] = [];
   /** Runs whose prompt is queued at the CLI, not yet opened, in order. */
@@ -552,10 +552,15 @@ export class ClaudeProcess implements TurnControl {
     this.#attachmentModes.set(turn, input.mode);
     void (async () => {
       try {
-        await this.#attachmentSlot(turn);
-        if (this.closed || turn.ended) return;
-        await this.#apply(input, turn);
-        await this.#attachmentSlot(turn);
+        for (;;) {
+          await this.#attachmentSlot(turn);
+          if (this.closed || turn.ended) return;
+          await this.#apply(input, turn);
+          await this.#attachmentSlot(turn);
+          // A provider turn may have opened during the settings calls. Mode changes
+          // accepted while waiting for it stay local and must land before admission.
+          if (this.closed || turn.ended || claudeMode(this.#attachmentModes.get(turn) ?? input.mode) === this.#applied.mode) break;
+        }
       } catch (error) {
         this.#waitingEnds(turn, { reason: "error", error: { message: `Moving the Claude process onto this run failed: ${describe(error)}`, code: "settings" } });
         return;
@@ -577,6 +582,7 @@ export class ClaudeProcess implements TurnControl {
       }
       this.#context = context;
       this.#attaching.delete(turn);
+      this.#attachmentModes.delete(turn);
       this.#waiting.push(turn);
       for (const prompt of prompts) this.#prompts.push(prompt);
       this.#wakeAttachments();
@@ -587,9 +593,13 @@ export class ClaudeProcess implements TurnControl {
 
   /** A new run waits without altering the live turn's controls or context. */
   async #attachmentSlot(turn: ClaudeTurn): Promise<void> {
-    while (!this.closed && !turn.ended && (this.#current !== undefined || this.#undecided !== undefined || this.#waiting.length > 0 || this.#attaching.values().next().value !== turn)) {
+    while (!this.closed && !turn.ended && this.#attachmentHeld(turn)) {
       await new Promise<void>((resolve) => this.#attachmentWaiters.push(resolve));
     }
+  }
+
+  #attachmentHeld(turn: ClaudeTurn): boolean {
+    return this.#current !== undefined || this.#undecided !== undefined || this.#waiting.length > 0 || this.#attaching.values().next().value !== turn;
   }
 
   #wakeAttachments(): void {
@@ -627,7 +637,6 @@ export class ClaudeProcess implements TurnControl {
       const query = this.#query;
       if (query === undefined) return;
       const mode = claudeMode(this.#attachmentModes.get(turn) ?? input.mode);
-      this.#attachmentModes.delete(turn);
       const effort = claudeEffort(input.effort);
       const limit = this.#deps.timings.controlTimeoutMs;
       // Each setting is recorded as it lands, so a call that fails part way leaves the record true to the CLI.
@@ -1571,7 +1580,7 @@ export class ClaudeProcess implements TurnControl {
       }
       if (this.#attachmentModes.has(turn)) {
         this.#attachmentModes.set(turn, mode);
-        return;
+        if (this.#attachmentHeld(turn)) return;
       }
       if (next === this.#applied.mode) return;
       const query = this.#query;

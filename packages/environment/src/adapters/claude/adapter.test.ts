@@ -2510,6 +2510,32 @@ describe("a run that joins a kept process", () => {
     expect(ends(await drain(held))).toEqual([expect.objectContaining({ reason: "completed" })]);
   });
 
+  it("keeps held mode changes local when a background turn opens during attachment settings (#2126)", async () => {
+    let release: () => void = () => undefined;
+    fake.controls = { flagSettings: () => new Promise<void>((resolve) => (release = resolve)) };
+    const adapter = adapterWith();
+    const context = contextWith();
+    const query = await keptByTask(adapter, context);
+    const next = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION }, effort: "high" });
+    const held = adapter.createRun(next, contextWith());
+    await vi.waitFor(() => expect(query.flags).toHaveLength(1));
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("background", []));
+    await vi.waitFor(() => expect(context.adopted).toHaveLength(1));
+    const background = context.adopted[0] as ProviderTurn;
+    background.onAdopted?.("background-run");
+    release();
+    await held.setMode?.("plan");
+    await held.setMode?.("auto");
+    expect(query.modes).toEqual([]);
+    expect(query.prompts).toHaveLength(1);
+    query.emit(sdk.result(PROVIDER_SESSION));
+    await drain(background);
+    await query.promptsPushed(2);
+    expect(query.modes).toEqual(["auto"]);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("next", [next.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION));
+    expect(ends(await drain(held))).toEqual([expect.objectContaining({ reason: "completed" })]);
+  });
+
   it("holds a new run and its sends behind the current turn, and withdraws or interrupts them locally (#2126)", async () => {
     const adapter = adapterWith();
     const input = runInput();
