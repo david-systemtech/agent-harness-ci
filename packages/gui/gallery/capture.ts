@@ -1,7 +1,7 @@
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
-import { capturePlan, captureShard, sceneFiles } from "./capture-plan.js";
+import { capturePlan, captureShard, phoneRootFailures, sceneFiles } from "./capture-plan.js";
 import { verifyPhoneMenuReachability } from "./phone-menu-reachability.js";
 import { verifyPhonePairingReachability } from "./phone-pairing-reachability.js";
 import { verifyPhoneThemeReachability } from "./phone-theme-reachability.js";
@@ -67,10 +67,10 @@ try {
       ...(scene === "phone-connections-pairing" ? await page.evaluate(verifyPhonePairingReachability) : []),
       ...(scene === "phone-settings-theme" ? await page.evaluate(verifyPhoneThemeReachability) : []),
       ...geometryFailures(measured, [{ measure: "$window", property: "overflow", maximum: 0 }]),
-      ...(platform === "web" ? await page.evaluate((size) => {
-        const actual = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
-        return Math.abs(actual - 16 * size / 14) <= 0.5 ? [] : [`html.fontSize: got ${actual}, expected ${16 * size / 14}`];
-      }, textSize) : []),
+      ...(platform === "web" ? phoneRootFailures(...await page.evaluate(() => {
+        const root = getComputedStyle(document.documentElement);
+        return [Number.parseFloat(root.fontSize), Number.parseFloat(root.getPropertyValue("--font-scale")) || 1] as const;
+      }), textSize) : []),
     ];
     // The same scene in each shorter window, measured without a screenshot; a failure names the window.
     for (const probe of probes ?? []) {

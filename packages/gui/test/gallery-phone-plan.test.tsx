@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { expect, it } from "vitest";
-import { capturePlan, captureShard, sceneFiles } from "../gallery/capture-plan.js";
+import { capturePlan, captureShard, phoneRootFailures, PHONE_PROFILES, sceneFiles } from "../gallery/capture-plan.js";
 
 it("preserves desktop captures and names the bounded phone profiles distinctly", () => {
   const plan = capturePlan(["window-empty", "phone-gallery-conversation"]);
@@ -191,4 +191,10 @@ it("probes short and long permissions with wrapped notices at text size 20 in bo
       { width: 1280, height: 800 }, { width: 1280, height: 700 },
     ]);
   }
+});
+
+it("expects a fixed 16px phone root and a type scale that follows each profile's text size, ticket 2148", () => {
+  for (const { textSize } of PHONE_PROFILES) expect(phoneRootFailures(16, textSize / 14, textSize)).toEqual([]);
+  expect(phoneRootFailures(16 * 20 / 14, 20 / 14, 20)).toEqual([`html.fontSize: got ${16 * 20 / 14}, expected 16`]);
+  expect(phoneRootFailures(16, 1, 16)).toEqual([`html --font-scale: got 1, expected ${16 / 14}`]);
 });
