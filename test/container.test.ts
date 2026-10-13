@@ -5,7 +5,8 @@
  * no image is built or run here. The image runs the environment as a
  * non-root user that owns the volumes' mount points, the compose file runs
  * that user on named volumes with the drain's stop grace and the release's
- * image, the image ships ssh for the skill probe (#874), and neither sets
+ * image, the image ships ssh for the skill probe (#874) and an agent's
+ * everyday tools and node-pty's toolchain (#2121), and neither sets
  * `IS_SANDBOX` or `CLAUDE_CODE_BUBBLEWRAP`. It passes a new environment's
  * name and channel in from compose's own variables, which Add a machine's
  * container snippet sets (#846), and the phone address an operator keeps in
@@ -188,6 +189,18 @@ describe("the container image", () => {
       .filter((line) => /^RUN .*\bapt-get install\b/.test(line))
       .flatMap((line) => line.split(/\s+/));
     expect(installed).toContain("openssh-client");
+  });
+
+  it("installs an agent's everyday tools and node-pty's toolchain from Debian in its one apt line, without recommends, and drops apt's lists in the same layer (#2121)", () => {
+    const installs = finalStage().filter((line) => /^RUN .*\bapt-get install\b/.test(line));
+    expect(installs).toHaveLength(1);
+    const install = installs[0] as string;
+    expect(install).toContain("apt-get install -y --no-install-recommends ");
+    expect(install).toMatch(/&& rm -rf \/var\/lib\/apt\/lists\/\*$/);
+    const words = install.split(/\s+/);
+    for (const tool of ["python3", "python3-venv", "curl", "jq", "ripgrep", "unzip", "procps", "less", "make", "g++", "python3-dev"]) expect(words, tool).toContain(tool);
+    // Installed as root before the image drops to its user, which stays the last USER.
+    expect(finalStage().indexOf(install)).toBeLessThan(finalStage().indexOf("USER agent-harness"));
   });
 
   it("pins none of the managed tools, so a managed tool's Update runs in the container's tool terminal as on any machine (#1833)", () => {
