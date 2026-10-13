@@ -97,7 +97,7 @@ describe("a run the fake adapter plays", () => {
     const { items, runs, parkedPrompts } = view();
     expect(items).toEqual([
       expect.objectContaining({ kind: "user-message", text: "Fix the receipts", delivery: "prompt" }),
-      { kind: "assistant-text", sequence: expect.any(Number), runId: runs[0]!.runId, itemId: "i-1", text: "Looking.", aborted: false, streaming: false },
+      { kind: "assistant-text", sequence: expect.any(Number), runId: runs[0]!.runId, itemId: "i-1", text: "Looking.", aborted: false, streaming: false, startedAt: expect.any(String) },
       expect.objectContaining({ kind: "tool-call", toolCallId: "toolu_1", name: "Bash", status: "ok", update: { progress: "half" }, output: "file.txt" }),
       expect.objectContaining({ kind: "prompt", promptId: ask!.promptId, state: "answered", answer: expect.objectContaining({ decision: "allow" }) }),
       expect.objectContaining({ kind: "assistant-text", itemId: "i-2", text: expect.stringContaining("Told"), streaming: false }),

@@ -284,7 +284,7 @@ const callsLines = (row: string, calls: readonly ToolCallEntry[], context: LineC
   const lines: Line[] = [];
   if (summary.length > 0) lines.push(...block(row, { text: TOOL, color: context.expanded ? TERMINAL_ROLES.faint : TERMINAL_ROLES.success }, [[{ text: summary, dim: context.expanded }]], context.width, true));
   if (!context.expanded && done.length > 0) lines.splice(0, lines.length, ...withTime(lines, done[0]?.startedAt, context));
-  shown.forEach((call, index) => lines.push(...callLines(row, call, { ...context, previousTime: shown[index - 1]?.startedAt ?? context.previousTime }, context.expanded, summary.length === 0 && index === 0)));
+  shown.forEach((call, index) => lines.push(...callLines(row, call, { ...context, previousTime: shown[index - 1]?.startedAt ?? (context.expanded ? undefined : done[0]?.startedAt) ?? context.previousTime }, context.expanded, summary.length === 0 && index === 0)));
   return lines;
 };
 
@@ -462,10 +462,18 @@ export const rowLines = (row: Row, context: LineContext): Line[] => {
   return row.kind === "calls" ? lines : withTime(lines, transcriptRowTime(row), context);
 };
 
+/** The last clock a row shows: a tool group's follows its fold, the folded summary showing its first finished call's. */
+const visibleRowTime = (row: Row, expanded: boolean): string | undefined => {
+  if (row.kind !== "calls") return transcriptRowTime(row);
+  const done = row.calls.filter(folded);
+  return row.calls.filter((call) => !folded(call)).findLast((call) => call.startedAt !== undefined)?.startedAt
+    ?? (expanded ? done.findLast((call) => call.startedAt !== undefined)?.startedAt : done[0]?.startedAt);
+};
+
 export const transcriptLines = (rows: readonly Row[], context: LineContext, unfolded: ReadonlySet<string> = new Set()): Line[] =>
   rows.flatMap((row, index) => {
     const previous = rows[index - 1];
-    const local = { ...context, previousTime: previous === undefined ? context.previousTime : transcriptRowTime(previous) };
+    const local = { ...context, previousTime: previous === undefined ? context.previousTime : visibleRowTime(previous, context.expanded === true || unfolded.has(previous.id)) };
     return rowLines(row, unfolded.has(row.id) ? { ...local, expanded: true } : local);
   });
 
