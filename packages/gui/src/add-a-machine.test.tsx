@@ -185,7 +185,7 @@ describe("Add a device, Part 3: install agent-harness on another computer", () =
     const app = await opened({ desk: { settings: { "updates.channel": "beta" } } });
     const install = await partThree(app);
     const line = (platform: string) => within(within(install).getByRole("region", { name: platform })).getByText(/./, { selector: "pre" }).textContent;
-    const release = "https://git.example.test/david/agent-harness/releases/download/v0.0.0-fake";
+    const release = "https://git.example.test/david/agent-harness/raw/tag/v0.0.0-fake/scripts";
     const tokenToCurl = `printf 'header = "Authorization: token %s"\\n' "$AGENT_HARNESS_TOKEN" | curl -K - -fsSL`;
 
     expect(await within(install).findByRole("region", { name: "Mac or Linux" })).toBeDefined();
@@ -219,7 +219,8 @@ describe("Add a device, Part 3: install agent-harness on another computer", () =
         `${tokenToCurl} -o compose.yaml ${release}/compose.yaml`,
         `${tokenToCurl} -o host-updater.sh ${release}/host-updater.sh`,
         "chmod +x host-updater.sh",
-        "docker login git.example.test",
+        "printf '\\n%s\\n' AGENT_HARNESS_IMAGE=git.example.test/david/agent-harness:0.0.0-fake >> .env",
+      "docker login git.example.test",
         "AGENT_HARNESS_CHANNEL=beta AGENT_HARNESS_NAME='Build box' docker compose up -d",
         "docker compose logs environment",
       ].join("\n"),
@@ -234,7 +235,7 @@ describe("Add a device, Part 3: install agent-harness on another computer", () =
     await within(install).findByRole("region", { name: "Mac or Linux" });
     expect(install.textContent).not.toMatch(/AGENT_HARNESS_TOKEN|private|Authorization|docker login/);
     await app.user.click(within(within(install).getByRole("region", { name: "Windows (PowerShell)" })).getByRole("button", { name: "Copy" }));
-    expect(app.shell.calls).toContainEqual(["clipboard.writeText", '& ([scriptblock]::Create((curl.exe -fsSL https://github.com/owner/name/releases/download/v0.1.1/install.ps1) -join "`n")) -Channel stable']);
+    expect(app.shell.calls).toContainEqual(["clipboard.writeText", '& ([scriptblock]::Create((curl.exe -fsSL https://raw.githubusercontent.com/owner/name/v0.1.1/scripts/install.ps1) -join "`n")) -Channel stable']);
   });
 });
 

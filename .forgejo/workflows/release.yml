@@ -317,11 +317,6 @@ jobs:
         run: |
           pnpm --filter agent-harness build-artefacts --tag "$TAG" --out release-assets --windows-pty-build windows-pty \
             --image-reference "$IMAGE_REFERENCE" --image-digest "$IMAGE_DIGEST" \
-            --asset schema=packages/contracts/schema \
-            --asset install-script=scripts/install.sh \
-            --asset install-script=scripts/install.ps1 \
-            --asset compose=scripts/compose.yaml \
-            --asset host-updater=scripts/host-updater.sh \
             --asset desktop:darwin-arm64:zip=desktop/agent-harness-desktop-darwin-arm64.zip \
             --asset desktop:win32-x64:nsis=desktop/agent-harness-desktop-win32-x64-setup.exe \
             --asset desktop:linux-x64:pacman=desktop/agent-harness-desktop-linux-x64.pacman

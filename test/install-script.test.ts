@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { releaseWorkflowInput } from "./release-workflow-input.js";
 import { API, DISCOVERY, DOWNLOAD, FAKE_CURL, HEALTH, LIST, releaseJson, type ReleaseSpec, TOKEN, write } from "./install-fakes.js";
 
 const script = join(import.meta.dirname, "..", "scripts", "install.sh");
@@ -156,6 +157,14 @@ const publishManifest = (f: Fixture, version = "0.1.0", asset = "agent-harness-l
   const json = JSON.stringify(manifest);
   write(join(f.root, "releases", "latest-manifest.json"), json);
   write(join(f.root, "assets", `v${version}`, "release.json"), json);
+  const listed = join(f.root, "releases");
+  for (const file of ["list.json", `v${version}.json`]) {
+    const value = JSON.parse(readFileSync(join(listed, file), "utf8")) as ReturnType<typeof releaseJson> | ReturnType<typeof releaseJson>[];
+    for (const release of Array.isArray(value) ? value : [value]) if (release.tag_name === `v${version}`) {
+      release.assets.push({ id: 99, name: "release.json", size: json.length, browser_download_url: `${DOWNLOAD}/v${version}/release.json` });
+    }
+    write(join(listed, file), JSON.stringify(value));
+  }
   return manifest;
 };
 
@@ -238,6 +247,55 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
     expect(existsSync(join(f.state, "credential"))).toBe(false);
   });
 
+  it("installs from the manifest digest without a sidecar when the API is available", async () => {
+    const f = await fixture([{ tag: "v0.1.0", checksum: "none" }]);
+    publishManifest(f);
+    const result = await install(f);
+    expect(result.code, result.stderr).toBe(0);
+    expect(f.calls()).toContain(`curl ${DOWNLOAD}/v0.1.0/release.json`);
+    expect(f.calls().some((call) => call.endsWith(".sha256"))).toBe(false);
+    expect(existsSync(join(f.dataDir, "versions", "0.1.0", ".complete"))).toBe(true);
+  });
+
+  it.each(["digest", "size"])("refuses an API-selected manifest with the wrong %s even when a good sidecar exists", async (field) => {
+    const f = await fixture();
+    const manifest = publishManifest(f);
+    const entry = manifest.assets[0];
+    if (!entry) throw new Error("The fixture has no asset");
+    if (field === "digest") entry.sha256 = "0".repeat(64);
+    else entry.size++;
+    write(join(f.root, "assets", "v0.1.0", "release.json"), JSON.stringify(manifest));
+    const result = await install(f);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("not the published");
+    expect(f.calls().some((call) => call.endsWith(".sha256"))).toBe(false);
+    expect(existsSync(join(f.dataDir, "versions", "0.1.0", ".complete"))).toBe(false);
+  });
+
+  it("falls back to a sidecar when a listed manifest cannot be downloaded", async () => {
+    const f = await fixture();
+    publishManifest(f);
+    rmSync(join(f.root, "assets", "v0.1.0", "release.json"));
+    const result = await install(f);
+    expect(result.code, result.stderr).toBe(0);
+    expect(f.calls()).toContain(`curl ${DOWNLOAD}/v0.1.0/agent-harness-linux-x64.tar.gz.sha256`);
+  });
+
+  it.each(["smoke-linux", "smoke-macos"])("runs %s's manifest verification against a release with no sidecar", async (job) => {
+    const f = await fixture([{ tag: "v0.1.0", checksum: "none" }]);
+    publishManifest(f);
+    const root = join(import.meta.dirname, "..");
+    const workflow = releaseWorkflowInput(root).hosted;
+    const start = workflow.indexOf("      - name: Resolve a public headless install without credentials", workflow.indexOf(`  ${job}:`));
+    const end = workflow.indexOf("      - name:", start + 10);
+    const commands = workflow.slice(start, end).split("        run: |\n")[1]?.split("\n").map((line) => line.slice(10)).join("\n");
+    expect(commands).toBeDefined();
+    const result = await run("bash", ["-euo", "pipefail", "-c", commands ?? ""], { cwd: root, env: { ...f.env, RUNNER_TEMP: f.root } });
+    expect(result.stdout).toContain(`Digest: ${DOWNLOAD}/v0.1.0/release.json`);
+    expect(f.calls().some((call) => call.endsWith(".sha256"))).toBe(false);
+    expect(existsSync(join(f.dataDir, "versions"))).toBe(false);
+  });
+
   it("resolves stable from the public manifest when the anonymous API returns 403", async () => {
     const f = await fixture();
     const asset = "agent-harness-linux-x64.tar.gz";
@@ -247,7 +305,7 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("Release: v0.1.0");
     expect(result.stdout).toContain(`Download: ${DOWNLOAD}/v0.1.0/${asset}`);
-    expect(result.stdout).toContain(`Digest: ${DOWNLOAD}/v0.1.0/${asset}.sha256`);
+    expect(result.stdout).toContain(`Digest: ${latest}`);
     expect(f.calls()).toEqual([`curl ${LIST}`, `curl ${latest}`]);
     expect(readFileSync(f.log, "utf8")).not.toContain(TOKEN);
     expect(readdirSync(f.home)).toEqual([]);
@@ -265,7 +323,7 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(`Verified the SHA-256 of ${asset}.`);
     expect(existsSync(join(dataDir, "versions", "0.1.0", ".complete"))).toBe(true);
-    expect(f.calls()).toContain(`curl ${DOWNLOAD}/v0.1.0/${asset}.sha256`);
+    expect(f.calls().some((call) => call.endsWith(".sha256"))).toBe(false);
     expect(readFileSync(f.log, "utf8")).not.toContain(TOKEN);
   });
 
@@ -289,7 +347,11 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
 
   it("still refuses a corrupt archive when the manifest fallback resolves", async () => {
     const f = await fixture([{ tag: "v0.1.0", checksum: "wrong" }]);
-    publishManifest(f);
+    const manifest = publishManifest(f);
+    const entry = manifest.assets[0];
+    if (!entry) throw new Error("The fixture has no asset");
+    entry.sha256 = "0".repeat(64);
+    write(join(f.root, "releases", "latest-manifest.json"), JSON.stringify(manifest));
     const result = await install(f, [], { FAKE_API_ERROR: "403" });
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("not the published");
