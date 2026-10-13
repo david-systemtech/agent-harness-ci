@@ -1,10 +1,11 @@
-import { usageWindowMeterLabel, whenWords } from "@agent-harness/contracts";
+import { usageWindowMeterLabel } from "@agent-harness/contracts";
 import { elapsedClock, gaugeOf, gaugeWho, listedReadingsOf, meterReadingsOf, NO_PLAN_READING, NO_WINDOWS_READ, resetWords, silentLimitsWords, type UsageGauge, type UsageView } from "@agent-harness/client-runtime";
 import { Gauge, RefreshCw } from "lucide-react";
 import { useEffect, useReducer, useState } from "react";
 import { Button, Popover, PopoverContent, PopoverTrigger, Tooltip } from "../ui/index.js";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
 import { UsageRing, WindowReading } from "./window-reading.js";
+import { ReadingAge } from "./reading-age.js";
 
 /** Provider windows only, pooled by the runtime's account identity; details refresh that same cache. */
 export const UsageMeter = ({ environmentId, accountId }: { readonly environmentId: string; readonly accountId: string | null }) => {
@@ -54,6 +55,7 @@ const UsageDetails = ({ environmentId, gauge, usage, refresh }: { readonly envir
     {readings.map((reading) => <div key={reading.window} className="flex flex-col gap-1">
       <div className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate">{reading.label}</span><WindowReading reading={reading} /></div>
       <p className="font-mono text-2xs text-ink-faint">{reading.resetsAt === null ? "Reset time unknown." : <>Resets <time dateTime={reading.resetsAt}>{resetWords(reading.resetsAt, at)?.slice("resets ".length)}</time> · {now < Date.parse(reading.resetsAt) ? `in ${elapsedClock(Date.parse(reading.resetsAt) - now)}` : "reset time passed"}</>}</p>
+      <ReadingAge readAt={gauge!.windows.find((window) => window.window === reading.window)!.observedAt} at={at} windowLabel={reading.label} />
     </div>)}
     {silent > 0 && <p className="text-ink-faint">{silentLimitsWords(silent)}</p>}
     {gauge !== undefined && <ReadingAge readAt={gauge.readAt} at={at} />}
@@ -61,10 +63,4 @@ const UsageDetails = ({ environmentId, gauge, usage, refresh }: { readonly envir
     <p className="text-ink-faint">Current request context appears in the Context meter when supported.</p>
     <Tooltip content="Refresh usage" keys="Enter to refresh"><Button aria-label="Refresh usage" className="h-6 gap-1 self-start px-2 text-xs [&_svg]:size-3" onClick={refresh}><RefreshCw aria-hidden="true" />Refresh</Button></Tooltip>
   </section>;
-};
-
-/** How old the gauge's reading is, and when it was read in this client's time words. */
-const ReadingAge = ({ readAt, at }: { readonly readAt: string; readonly at: Date }) => {
-  const age = Math.max(0, at.getTime() - Date.parse(readAt));
-  return <p aria-label="Reading age" className="text-ink-faint">Read {elapsedClock(age)} ago{age >= 360_000 ? " · stale" : ""} · <time dateTime={readAt}>{whenWords(readAt, at)}</time></p>;
 };

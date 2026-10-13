@@ -18,6 +18,7 @@ import { useEffect, useId, useMemo, useReducer } from "react";
 import { nameOf } from "../connections/words.js";
 import { afterReach, reachWords } from "../settings/generic-editor.js";
 import { WindowReading } from "../status/window-reading.js";
+import { ReadingAge } from "../status/reading-age.js";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
 
 /**
@@ -35,11 +36,15 @@ import { useClock, useObservable, useRuntime } from "../window-context.js";
 export const UsagePane = () => {
   const runtime = useRuntime();
   const clock = useClock();
-  const [, redraw] = useReducer((tick: number) => tick + 1, 0);
+  const [tick, redraw] = useReducer((tick: number) => tick + 1, 0);
   useEffect(() => {
     const timer = onLocalDayChange(clock, redraw);
     return () => timer.cancel();
   }, [clock]);
+  useEffect(() => {
+    const timer = clock.setTimeout(redraw, 60_000);
+    return () => timer.cancel();
+  }, [clock, tick]);
   const now = clock.now();
   const usage = useObservable(runtime.projections.usage);
   const views = useObservable(runtime.projections.environments);
@@ -87,6 +92,7 @@ const Gauge = ({ gauge, views, now }: { readonly gauge: UsageGauge; readonly vie
         </ul>
       )}
       {silent > 0 && <p className="text-2xs text-ink-faint">{silentLimitsWords(silent)}</p>}
+      {readings.map((reading) => <ReadingAge key={reading.window} readAt={gauge.windows.find((window) => window.window === reading.window)!.observedAt} at={now} windowLabel={reading.label} />)}
     </section>
   );
 };

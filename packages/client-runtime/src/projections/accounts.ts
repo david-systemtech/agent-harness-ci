@@ -67,6 +67,18 @@ export const identityKey = (identity: AccountIdentity): string => JSON.stringify
 
 const later = (a: string, b: string): boolean => Date.parse(a) > Date.parse(b);
 
+/** Keep each window's latest observation; equal stamps keep the first reading. */
+const latestWindows = (readings: readonly Pick<AccountUsage, "windows">[]): Map<string, UsageWindow> => {
+  const observed = new Map<string, UsageWindow>();
+  for (const reading of readings) {
+    for (const window of reading.windows) {
+      const held = observed.get(window.window);
+      if (held === undefined || later(window.observedAt, held.observedAt)) observed.set(window.window, window);
+    }
+  }
+  return observed;
+};
+
 /**
  * The readings of every environment pooled by account identity (ADR 0018):
  * the readings of one identity are one gauge, each window taken from the
@@ -88,13 +100,7 @@ export const poolUsage = (environments: readonly { readonly environmentId: strin
   return [...pools.values()].map(({ identity, members }) => {
     const newest = members.reduce((best, member) => (later(member.reading.readAt, best.reading.readAt) ? member : best));
     // Each window from the reading that observed it last; the members are in the connection list's order, so a tie stays with the earlier environment.
-    const observed = new Map<string, UsageWindow>();
-    for (const { reading } of members) {
-      for (const window of reading.windows) {
-        const held = observed.get(window.window);
-        if (held === undefined || later(window.observedAt, held.observedAt)) observed.set(window.window, window);
-      }
-    }
+    const observed = latestWindows(members.map(({ reading }) => reading));
     // In the newest reading's order, the provider's, then any window only an older reading has.
     const order = new Set([newest, ...members.filter((m) => m !== newest)].flatMap(({ reading }) => reading.windows.map(({ window }) => window)));
     return {
@@ -116,15 +122,37 @@ export interface UsageHost {
   readonly source: (environmentId: string) => Observable<UsageAnswer>;
 }
 
-/** `projections.usage`: every enabled environment's readings, followed while the view is, and pooled. */
-export const usageProjection = (host: UsageHost): Observable<UsageView> =>
-  dynamic(
+/**
+ * Follow and pool enabled environments, retaining each account's newest
+ * observations across refreshes. An older or empty reply cannot undo a
+ * window already seen; removing an account/environment or changing its
+ * identity drops its history. Raw answers still describe each fetch.
+ */
+export const usageProjection = (host: UsageHost): Observable<UsageView> => {
+  const held = new Map<string, readonly AccountUsage[]>();
+  return dynamic(
     () => [host.environments, ...host.environments.read().map(host.source)],
     (): UsageView => {
       const environments = host.environments.read().map((environmentId): EnvironmentAnswer<readonly AccountUsage[]> => {
         const answer = host.source(environmentId).read();
         return { environmentId, value: answer.result?.readings ?? null, fetchedAt: answer.fetchedAt, error: answer.error, loading: answer.loading };
       });
-      return { gauges: poolUsage(environments.map(({ environmentId, value }) => ({ environmentId, readings: value ?? [] }))), environments };
+      for (const id of held.keys()) if (!host.environments.read().includes(id)) held.delete(id);
+      const pooled = environments.map(({ environmentId, value }) => {
+        const previous = held.get(environmentId) ?? [];
+        const readings = value === null ? previous : value.map((reading): AccountUsage => {
+          const before = previous.find((each) => each.accountId === reading.accountId);
+          if (before === undefined || before.identity === null || reading.identity === null || identityKey(before.identity) !== identityKey(reading.identity)) return reading;
+          const newest = later(reading.readAt, before.readAt) ? reading : before;
+          const observed = latestWindows([before, reading]);
+          const order = new Set([...newest.windows, ...before.windows, ...reading.windows].map(({ window }) => window));
+          const windows = [...order].flatMap((window) => observed.get(window) ?? []);
+          return { ...newest, windows, unavailableReason: windows.length > 0 ? null : newest.unavailableReason };
+        });
+        held.set(environmentId, readings);
+        return { environmentId, readings };
+      });
+      return { gauges: poolUsage(pooled), environments };
     },
   );
+};

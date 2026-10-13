@@ -120,6 +120,57 @@ const reading = (accountId: string, identity: AccountUsage["identity"], readAt: 
 });
 
 describe("plan usage", () => {
+  it("never regresses a pooled window when two environments interleave older, empty and fresh answers", () => {
+    const identity = { provider: "claude", email: "reader@example.test", organisation: null };
+    const stamp = (minute: number) => `2026-10-13T00:${String(minute).padStart(2, "0")}:00.000Z`;
+    const desk = writable<CachedAnswer<"accounts.usage">>({ result: null, fetchedAt: null, error: null, loading: false });
+    const laptop = writable<CachedAnswer<"accounts.usage">>(desk.read());
+    const answer = (accountId: string, minute: number, windows: AccountUsage["windows"]): CachedAnswer<"accounts.usage"> => ({
+      result: { readings: [reading(accountId, identity, stamp(minute), windows)] }, fetchedAt: stamp(10), error: null, loading: false,
+    });
+    const view = usageProjection({ environments: writable(["desk", "laptop"]), source: (id) => id === "desk" ? desk : laptop });
+    const seen: number[][] = [];
+    onTestFinished(view.subscribe(({ gauges }) => seen.push(gauges.flatMap(({ windows }) => windows.flatMap(({ utilisation }) => utilisation === null ? [] : [utilisation])))));
+    desk.set(answer("a", 2, [window("five_hour", 0.42, stamp(2)), window("seven_day", 0.65, stamp(2))]));
+    laptop.set(answer("b", 1, [window("five_hour", 0.01, stamp(1)), window("seven_day", 0.01, stamp(1))]));
+    desk.set(answer("a", 1, [window("five_hour", 0.01, stamp(1)), window("seven_day", 0.01, stamp(1))]));
+    expect(view.read().gauges[0]?.windows.map(({ utilisation }) => utilisation)).toEqual([0.42, 0.65]);
+    desk.set(answer("a", 3, []));
+    expect(view.read().gauges[0]?.windows.map(({ observedAt }) => observedAt)).toEqual([stamp(2), stamp(2)]);
+    laptop.set(answer("b", 4, [window("five_hour", 0.5, stamp(4))]));
+    expect(view.read().gauges[0]?.windows.map(({ utilisation }) => utilisation)).toEqual([0.5, 0.65]);
+    // A later provider reset can lower usage; freshness, rather than the largest percentage, wins.
+    desk.set(answer("a", 5, [window("five_hour", 0.01, stamp(5)), window("seven_day", 0.02, stamp(5))]));
+    expect(view.read().gauges[0]?.windows.map(({ utilisation }) => utilisation)).toEqual([0.01, 0.02]);
+    expect(seen.slice(0, 4)).toEqual([[0.42, 0.65], [0.42, 0.65], [0.42, 0.65], [0.42, 0.65]]);
+  });
+
+  it("drops retained observations when an account is removed, changes login, or its environment is disabled", () => {
+    const identity = { provider: "claude", email: "reader@example.test", organisation: null };
+    const other = { ...identity, email: "other@example.test" };
+    const old = "2026-10-13T00:01:00.000Z";
+    const fresh = "2026-10-13T00:02:00.000Z";
+    const answer = (readings: AccountUsage[]): CachedAnswer<"accounts.usage"> => ({ result: { readings }, fetchedAt: fresh, error: null, loading: false });
+    const desk = writable(answer([reading("a", identity, fresh, [window("five_hour", 0.42, fresh)])]));
+    const laptop = writable(answer([reading("b", identity, old, [window("five_hour", 0.01, old)])]));
+    const enabled = writable(["desk", "laptop"]);
+    const view = usageProjection({ environments: enabled, source: (id) => id === "desk" ? desk : laptop });
+    expect(view.read().gauges[0]?.windows[0]?.utilisation).toBe(0.42);
+    desk.set(answer([reading("a", identity, fresh, [])]));
+    expect(view.read().gauges[0]?.windows[0]?.utilisation).toBe(0.42);
+    desk.set(answer([reading("a", other, old, [window("five_hour", 0.1, old)])]));
+    expect(view.read().gauges.map(({ identity, windows }) => [identity?.email, windows[0]?.utilisation])).toEqual([[other.email, 0.1], [identity.email, 0.01]]);
+    desk.set(answer([]));
+    expect(view.read().gauges[0]?.accounts).toEqual([{ environmentId: "laptop", accountId: "b" }]);
+    desk.set(answer([reading("a", identity, old, [window("five_hour", 0.02, old)])]));
+    expect(view.read().gauges[0]?.windows[0]?.utilisation).toBe(0.02);
+    enabled.set(["laptop"]);
+    expect(view.read().gauges[0]?.windows[0]?.utilisation).toBe(0.01);
+    desk.set(answer([reading("a", identity, old, [window("five_hour", 0.03, old)])]));
+    enabled.set(["desk", "laptop"]);
+    expect(view.read().gauges[0]?.windows[0]?.utilisation).toBe(0.03);
+  });
+
   it("is one gauge for one identity on two environments, each window from whichever observed it last", () => {
     const gauges = poolUsage([
       {
