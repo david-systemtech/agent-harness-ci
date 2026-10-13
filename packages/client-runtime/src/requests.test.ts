@@ -5,7 +5,7 @@ import { noticeEvent } from "../test/events.js";
 import { forgeEventPayload, forgeRecord } from "../test/forges.js";
 import { keyManagerEventPayload, keyManagerRecord, toolRow, toolsUpdatedPayload } from "../test/key-managers.js";
 import { subscription } from "../test/scripted.js";
-import { createRequestCache, REQUEST_CACHE_TTL_MS, REQUEST_TIMEOUT_MS, UPDATE_APPLY_TIMEOUT_MS } from "./requests.js";
+import { createRequestCache, IMPORT_WAIT_MS, REQUEST_CACHE_TTL_MS, REQUEST_TIMEOUT_MS, UPDATE_APPLY_TIMEOUT_MS } from "./requests.js";
 import { writable } from "./observable.js";
 import type { ConnectionRecord } from "./connections/records.js";
 import { fakeWire, flush } from "./testing/fake-wire.js";
@@ -16,7 +16,7 @@ import { inMemoryPlatform, manualClock } from "./testing/in-memory-platform.js";
  * non-mutating calls and the `admin` calls, which are direct requests): never
  * queued, refused at once absent-with-reason when the connection cannot take
  * it, answered with the method's response checked against its schema, and
- * given up after 30 seconds (20 minutes for update staging); and the request cache (#128), which keeps a
+ * given up after 30 seconds (20 minutes for update staging, 15 for bringing past work over); and the request cache (#128), which keeps a
  * query's answer five minutes and fetches it again on ready and on the
  * notice that says it may have changed.
  */
@@ -235,6 +235,76 @@ describe("requests.call", () => {
     expect(settled).toBeUndefined();
     clock.advance(1);
     expect(await answer).toEqual({ ok: false, error: { code: "timeout", message: "The environment did not answer updates.apply within 1200 seconds." } });
+  });
+
+  /** Bringing past work over answers once it is done, minutes on a large directory (#2098). */
+  const importing = {
+    "stateImport.run": { commandId: "0199aa00-0000-7000-8000-0000000000ab", dryRun: false },
+    "carryOver.run": { commandId: "0199aa00-0000-7000-8000-0000000000ab", accountId: "account-1", dryRun: false, skills: true },
+  } as const;
+
+  it.each(Object.keys(importing) as (keyof typeof importing)[])("keeps %s open past 30 seconds and returns its receipt", async (method) => {
+    const { runtime, wire, clock, id } = await paired();
+    wire.answer(method, () => undefined);
+    let settled: unknown;
+    const answer = runtime.requests.call(id, method, importing[method]);
+    void answer.then((result) => (settled = result));
+    const request = await wire.server.request(method);
+    for (let i = 0; i < 6; i++) {
+      wire.server.ping();
+      await flush();
+      clock.advance(20_000);
+      await flush();
+    }
+    expect(settled).toBeUndefined();
+    const receipt = { status: "accepted", sequence: 1, changed: true };
+    wire.server.send({ type: "response", id: request.id, result: { receipt } });
+    expect(await answer).toMatchObject({ ok: true, result: { receipt } });
+  });
+
+  it.each(Object.keys(importing) as (keyof typeof importing)[])("bounds an unanswered %s at 15 minutes", async (method) => {
+    const { runtime, wire, clock, id } = await paired();
+    wire.answer(method, () => undefined);
+    let settled: unknown;
+    const answer = runtime.requests.call(id, method, importing[method]);
+    void answer.then((result) => (settled = result));
+    await wire.server.request(method);
+    expect(IMPORT_WAIT_MS).toBe(15 * 60_000);
+    for (let elapsed = 0; elapsed < IMPORT_WAIT_MS - 20_000; elapsed += 20_000) {
+      wire.server.ping();
+      await flush();
+      clock.advance(20_000);
+      await flush();
+    }
+    wire.server.ping();
+    await flush();
+    clock.advance(19_999);
+    await flush();
+    expect(settled).toBeUndefined();
+    clock.advance(1);
+    expect(await answer).toEqual({ ok: false, error: { code: "timeout", message: `The environment did not answer ${method} within 900 seconds.` } });
+  });
+
+  it("waits 15 minutes for a Carry over inventory, which reads every transcript of a directory", async () => {
+    const { runtime, wire, clock, id } = await paired();
+    wire.answer("carryOver.inventory", () => undefined);
+    let settled: unknown;
+    void runtime.requests.call(id, "carryOver.inventory", { accountId: "account-1" }).then((answer) => (settled = answer));
+    await wire.server.request("carryOver.inventory");
+    for (let elapsed = 0; elapsed < IMPORT_WAIT_MS - 20_000; elapsed += 20_000) {
+      wire.server.ping();
+      await flush();
+      clock.advance(20_000);
+      await flush();
+    }
+    wire.server.ping();
+    await flush();
+    clock.advance(19_999);
+    await flush();
+    expect(settled).toBeUndefined();
+    clock.advance(1);
+    await flush();
+    expect(settled).toMatchObject({ ok: false, error: { code: "timeout", message: "The environment did not answer carryOver.inventory within 900 seconds." } });
   });
 
   it("answers unreachable when the socket closes before the answer", async () => {

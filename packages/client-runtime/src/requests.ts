@@ -36,7 +36,8 @@ import type { Clock, Timer } from "./platform.js";
  * so nothing is ever held for later (a connection not yet `ready` is
  * `unreachable`, the specification's word, whatever phase it is in); it
  * checks the params and the answer against the method's schemas; and it
- * gives up after `REQUEST_TIMEOUT_MS`, except updates that stage and imports that can take minutes.
+ * gives up after `REQUEST_TIMEOUT_MS`, except a method that does its work
+ * before answering, which waits as long as `LONG_WAITS` gives it (#2098).
  *
  * Added by the terminal UI (#143) for `/pair create` and `/environment`'s
  * client sessions, ahead of the outbox ticket (#128), which added the
@@ -49,14 +50,21 @@ export const REQUEST_TIMEOUT_MS = 30_000;
 /** An update answers after downloading, unpacking and launcher preflight, as a desktop stage does. */
 export const UPDATE_APPLY_TIMEOUT_MS = 20 * 60_000;
 
-/** Large directory imports and their inventories can take minutes, as in the CLI. */
-export const IMPORT_TIMEOUT_MS = 15 * 60_000;
+/**
+ * Bringing past work over answers only once it is done: a state import
+ * carries every listed directory and store, and a Carry over run or its
+ * inventory reads every transcript of a directory, which takes minutes on a
+ * large one. The CLI waits as long for `stateImport.run` (its own
+ * `IMPORT_WAIT_MS`); the environment owns each service's bounds (#2098).
+ */
+export const IMPORT_WAIT_MS = 15 * 60_000;
 
-const METHOD_TIMEOUTS: Partial<Record<MethodName, number>> = {
+/** The methods that answer only after their work, and how long each waits instead of `REQUEST_TIMEOUT_MS`. */
+export const LONG_WAITS: Readonly<Partial<Record<MethodName, number>>> = {
   "updates.apply": UPDATE_APPLY_TIMEOUT_MS,
-  "stateImport.run": IMPORT_TIMEOUT_MS,
-  "carryOver.run": IMPORT_TIMEOUT_MS,
-  "carryOver.inventory": IMPORT_TIMEOUT_MS,
+  "stateImport.run": IMPORT_WAIT_MS,
+  "carryOver.run": IMPORT_WAIT_MS,
+  "carryOver.inventory": IMPORT_WAIT_MS,
 };
 
 /** The scopes whose commands only the outbox sends (docs/specs/client-runtime.md: every `sessions:write` and `runs:drive` command). */
@@ -133,7 +141,7 @@ export interface Requests {
 
 export interface RequestsHost {
   readonly clock: Clock;
-  /** How long a request waits for its answer. Preset `REQUEST_TIMEOUT_MS`. */
+  /** How long a request waits for its answer, whatever the method. Preset `REQUEST_TIMEOUT_MS`, or the method's `LONG_WAITS`. */
   readonly timeoutMs?: number;
   capability(environmentId: string, method: MethodName): CapabilityAnswer;
   /** A request on the environment's ready socket; rejects when there is none, or when it closes first. */
@@ -145,7 +153,7 @@ const failed = (code: RequestFailureCode, message: string, data?: Record<string,
 
 export const createRequests = (host: RequestsHost): Pick<Requests, "call"> => ({
   async call<N extends MethodName>(environmentId: string, method: N, params: ParamsOf<N>): Promise<RequestAnswer<N>> {
-    const timeoutMs = host.timeoutMs ?? (METHOD_TIMEOUTS[method] ?? REQUEST_TIMEOUT_MS);
+    const timeoutMs = host.timeoutMs ?? LONG_WAITS[method] ?? REQUEST_TIMEOUT_MS;
     const entry = registry[method];
     if (entry.kind === "stream") return failed("unsupported", `${method} is a subscription; the runtime subscribes to it itself.`);
     if (isCommand(entry) && OUTBOX_SCOPES.has(entry.scope)) return failed("outbox", `${method} is a ${entry.scope} command; it is sent through the outbox, never as a direct request.`);
