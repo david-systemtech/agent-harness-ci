@@ -646,7 +646,7 @@ describe.runIf(posix)("the launcher switching versions for an update", () => {
       "launcher: 0.4.0 exited with code 0",
       `launcher: snapshot of update ${updateId} taken`,
       `launcher: spawned 0.5.0 as pid ${trial?.pid}, the trial of update ${updateId}`,
-      `launcher: 0.5.0 committed: update ${updateId} from 0.4.0, watched until 2026-09-28T12:10:00.000Z`,
+      `launcher: 0.5.0 committed: update ${updateId} from 0.4.0, watched until 2026-09-28T12:10:00.000Z; environment trial 0ms`,
     ]);
     // The trial's deadline went with its commit, and the watch's end waits.
     expect(running.timer.pending()).toEqual([10 * 60_000]);

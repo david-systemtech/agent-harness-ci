@@ -29,7 +29,7 @@ const mount = async (platform: Platform, runtime: Runtime, web?: import("./platf
     presentation.set("runLocalEnvironment", false);
     presentation.set("firstLaunchDone", true);
   }
-  createRoot(container).render(<App runtime={runtime} presentation={presentation} clock={platform.clock} version={platform.client.version} macOS={onMacOS(navigator)} shell={platform.shell} web={web} />);
+  createRoot(container).render(<App runtime={runtime} presentation={presentation} clock={platform.clock} version={platform.client.version} macOS={onMacOS(navigator)} shell={platform.shell} web={web} afterUpdate={!web && new URL(window.location.href).searchParams.has("updated")} />);
   if (!web) runtime.start().catch(report);
 };
 

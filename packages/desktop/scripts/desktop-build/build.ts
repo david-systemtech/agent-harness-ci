@@ -80,7 +80,10 @@ export const buildDesktop = async (options: DesktopBuildOptions, seams: DesktopB
     log(`${target.platform}: bundling the app`);
     await (seams.compile ?? bundleApp)(folders.app, version);
     writeFileSync(join(folders.app, "package.json"), `${JSON.stringify(appManifest(version), null, 2)}\n`);
-    if (target.os === "win32") writeFileSync(folders.nsisInclude, nsisSchemeInclude(APP_SCHEME));
+    if (target.os === "win32") {
+      copyFileSync(join(import.meta.dirname, "..", "desktop-launch.ps1"), join(work, "desktop-launch.ps1"));
+      writeFileSync(folders.nsisInclude, nsisSchemeInclude(APP_SCHEME, join(work, "desktop-launch.ps1")));
+    }
     log(`${target.platform}: packing ${target.name}`);
     await (seams.pack ?? electronBuilderPack)({ projectDir: folders.app, config: builderConfig(target, folders, electronVersion()), target });
     const built = join(folders.output, target.name);

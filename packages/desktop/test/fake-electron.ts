@@ -397,6 +397,10 @@ const fakeDialog = (): FakeDialog => {
   const calls: Call[] = [];
   const dialog: FakeDialog = {
     calls,
+    async showMessageBox(options) {
+      calls.push(["showMessageBox", options]);
+      return { response: 0 };
+    },
     opens: [],
     saves: [],
     async showOpenDialog(window: ElectronWindow, options: { title?: string; filters?: DialogFilter[]; properties: string[] }) {

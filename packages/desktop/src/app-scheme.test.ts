@@ -40,6 +40,14 @@ describe("the app scheme", () => {
     expect(stylesheet.headers.get("content-type")).toMatch(/^text\/css/);
   });
 
+  it("paints update progress in the initial document before the renderer or local environment can connect", async () => {
+    const { electron, platform } = await start();
+    writeFileSync(join(platform.paths.renderer, "index.html"), '<!doctype html><div id="root"></div>');
+    const page = await electron.protocol.load("agent-harness://app/?updated");
+    expect(await page.text()).toContain('<p role="status">Updating the local environment, about a minute…</p>');
+    expect(await (await electron.protocol.load("agent-harness://app/")).text()).not.toContain("Updating the local environment");
+  });
+
   it("serves bundled variable fonts from the app origin with the font media type and a local-only font policy", async () => {
     const { electron, platform } = await start();
     const bytes = new Uint8Array([119, 79, 70, 50, 0, 1]);

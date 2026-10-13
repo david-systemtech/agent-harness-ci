@@ -51,6 +51,13 @@ describe("the public GitHub release workflow", () => {
     }
   });
 
+  it("checks the installed Windows launch route waits through file replacement in the release smoke", () => {
+    const smoke = job("smoke-windows").join("\n");
+    expect(smoke).toContain("Copy-Item -LiteralPath (Resolve-Path 'scripts/windows-desktop-update-smoke.ps1').Path");
+    expect(smoke).toContain("& (Join-Path $PSScriptRoot 'scripts/windows-desktop-update-smoke.ps1')");
+    expect(smoke).toContain("if ($LASTEXITCODE -ne 0) { throw 'Desktop update launch check failed' }");
+  });
+
   it("uploads only the sanitized macOS diagnostic directory after a smoke failure", () => {
     const replacement = step("smoke-macos", "Replace the packaged desktop with an existing client credential");
     expect(replacement).toContain('SMOKE_DIAGNOSTICS: ${{ runner.temp }}/macos-update-diagnostics');

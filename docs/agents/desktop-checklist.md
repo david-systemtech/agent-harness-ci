@@ -404,6 +404,31 @@ installed app) connected to an environment:
    Electron says the OS offers no notifications, `show` rejects with "This
    desktop cannot show notifications: the OS offers none to it."
 
+## Windows restart progress and early launch (#2146)
+
+1. Let the local environment stage a newer desktop; confirm Restart to update
+   appears only after download and verification. Click it: setup shows native
+   installation progress, then the first app frame says "Updating the local
+   environment, about a minute…" while reconnecting. A busy environment keeps
+   its idle/drain rules; an explicit desktop restart never cuts its work.
+2. During setup, launch from Start menu, desktop, an existing taskbar pin and
+   an app protocol link. Each waits with "agent-harness is finishing its update;
+   it will open by itself". After setup, one app opens and the link is delivered.
+   Try another launch during the old app's quit and the new app's startup too.
+3. Record setup milliseconds from the desktop data directory's
+   `logs/desktop-update.log`, app startup milliseconds from `logs/desktop.log`,
+   and environment trial milliseconds from the environment's service log.
+   Record wall time and whether setup overlaps the local environment's trial.
+4. Repeat with auto-update off, a pin, a failed target and active work: the
+   desktop still installs, without forcing a local environment switch. Run a
+   silent install and uninstall too; silent install remains unattended, and
+   uninstall keeps personal data and unregisters the environment as before.
+
+The release's Windows smoke checks the installed launch routes and a real
+mutex-held launch with an absent incoming executable, then releases it and
+verifies the launch succeeds. Visible progress and interactive taskbar behavior
+still require this real-machine checklist.
+
 ## The browser dock (#411)
 
 Needs the shell's `webView`, which #411 builds: until it lands, record this

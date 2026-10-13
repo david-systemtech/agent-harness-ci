@@ -321,7 +321,7 @@ describe("apply on macOS", () => {
 describe("apply on Windows", () => {
   const EXECUTABLE = "C:\\Users\\milo\\AppData\\Local\\Programs\\agent-harness\\agent-harness.exe";
 
-  it("at `now`, quits, and runs the staged NSIS setup silently once the desktop has quit, the setup starting it again", async () => {
+  it("at `now`, shows the staged NSIS setup progress after quitting, then starts the app again", async () => {
     const system = fakeSystem();
     const { shell, electron } = await installed("win32", EXECUTABLE, system);
     const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
@@ -337,7 +337,7 @@ describe("apply on Windows", () => {
     await electron.app.quitted;
 
     expect(startedBeforeQuit).toEqual([]);
-    expect(system.started).toEqual([[staged.path, "/S", "--updated", "--force-run"]]);
+    expect(system.started).toEqual([[staged.path, "--updated", "--force-run"]]);
     expect(system.ran).toEqual([]);
     expect(electron.app.calls.map(([method]) => method)).not.toContain("relaunch");
   });

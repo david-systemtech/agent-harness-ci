@@ -450,6 +450,19 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     void lookAtBundled(environmentId, false).then(setBundled, (error: unknown) => host.report(error));
   };
 
+  /** Reuse the launcher's installed target; never download a server on the restart's critical path. */
+  const overlapLocalUpdate = async (version: string): Promise<void> => {
+    const environmentId = readyLocal();
+    if (environmentId === undefined) return;
+    const status = await host.call(environmentId, "updates.status", {});
+    if (!status.ok || status.result.manager.kind !== "launcher" || status.result.pending.state !== "waiting" || status.result.pending.toVersion !== version || status.result.failedVersions.includes(version)) return;
+    const settings = await host.call(environmentId, "settings.get", { keys: ["updates.autoUpdate", "updates.pinnedVersion"] });
+    if (!settings.ok || settings.result.values["updates.autoUpdate"] !== true || settings.result.values["updates.pinnedVersion"] != null) return;
+    // takeWaiting consumes the installed artefact, before any copy/download path in updates.apply.
+    const answer = await host.call(environmentId, "updates.apply", { commandId: uuidv4(), version, when: "idle" });
+    if (!answer.ok && !wentAway(answer.error)) host.report(new Error(`The local environment's overlapping update: ${answer.error.message}`));
+  };
+
   return {
     view,
 
@@ -459,6 +472,7 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
       const { staged } = build;
       const version = build.version ?? staged.version;
       setBuild({ state: "applying", version, staged });
+      await overlapLocalUpdate(staged.version).catch(host.report);
       const outcome = await apply(staged, "now");
       if (outcome !== null) setBuild(applyFailed(version, outcome, staged));
       return view.read().build;

@@ -53,6 +53,23 @@ describe("one window, one instance", () => {
     expect(heard).toEqual([]);
   });
 
+  it("explains a second Windows launch while restart is handing over to setup", async () => {
+    const electron = fakeElectron({ os: "win32", ready: false });
+    electron.app.isPackaged = true;
+    const started = startDesktop(electron, platformOn("win32", { argv: ["app.exe", "--updated"] }));
+    electron.app.emit("second-instance", {}, ["app.exe", "agent-harness://open/desk/2"]);
+    electron.app.becomeReady();
+    await started;
+    await settle();
+    expect(electron.dialog.calls).toContainEqual(["showMessageBox", {
+      type: "info", title: "agent-harness", message: "agent-harness is finishing its update; it will open by itself", buttons: ["OK"],
+    }]);
+    expect(electron.window().calls).toContainEqual(["loadURL", "agent-harness://app/?updated"]);
+    const heard = hearLinks(rendererShell(electron));
+    await settle();
+    expect(heard).toEqual(["agent-harness://open/desk/2"]);
+  });
+
   it("hands the renderer the deep link a Windows or Linux launch was opened with, once it listens", async () => {
     for (const os of ["win32", "linux"] as const) {
       const { shell } = await start({
