@@ -258,3 +258,28 @@ it("draws local times on message, tool and turn boundaries, including unfolded c
   expect(lines.filter(line => lineText(line).includes("00:06"))).toHaveLength(2);
   expect(lines.filter(line => lineText(line).includes("00:06")).every(line => line.spans.every(span => span.dim))).toBe(true);
 });
+
+
+it("uses the last visible clock of a tool group for the following reply", () => {
+  const first = new Date(2026, 8, 24, 23, 58).toISOString();
+  const second = new Date(2026, 8, 25, 0, 5).toISOString();
+  const rows = transcriptRows(view([
+    { ...call(1, "Read", "ok"), startedAt: first },
+    { ...call(2, "Read", "ok"), startedAt: second },
+    { kind: "assistant-text", sequence: 3, runId: RUN, itemId: "after-calls", text: "Both totals agree", aborted: false, streaming: false, startedAt: new Date(2026, 8, 25, 0, 6).toISOString() },
+  ]));
+  const context = { ...CONTEXT, now: new Date(2026, 8, 25, 12) };
+  const replyTimes = (expanded: boolean) => transcriptLines(rows, { ...context, expanded }).filter(line => line.row === rows.at(-1)?.id).map(lineText);
+  expect(replyTimes(false)).toContain("2026-09-25 · 00:06".padStart(80));
+  expect(replyTimes(true)).toContain("00:06".padStart(80));
+});
+
+it("compares a standing call with the folded summary's visible day", () => {
+  const rows = transcriptRows(view([
+    { ...call(1, "Read", "ok"), startedAt: new Date(2026, 8, 24, 23, 58).toISOString() },
+    { ...call(2, "Read", "ok"), startedAt: new Date(2026, 8, 25, 0, 5).toISOString() },
+    { ...call(3, "Read", "running"), startedAt: new Date(2026, 8, 25, 0, 6).toISOString() },
+  ]));
+  const lines = transcriptLines(rows, { ...CONTEXT, now: new Date(2026, 8, 25, 12) });
+  expect(lines.map(lineText)).toContain("2026-09-25 · 00:06".padStart(80));
+});
