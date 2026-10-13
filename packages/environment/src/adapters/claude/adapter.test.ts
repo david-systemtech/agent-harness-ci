@@ -2453,6 +2453,128 @@ describe("a run that joins a kept process", () => {
     return query;
   };
 
+  it("holds compatible runs in order behind a background turn without changing its settings or broker (#2126)", async () => {
+    const adapter = adapterWith();
+    const context = contextWith(async () => ({ decision: "deny", message: "Current turn's broker." }));
+    const query = await keptByTask(adapter, context);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("background", []));
+    await vi.waitFor(() => expect(context.adopted).toHaveLength(1));
+    const background = context.adopted[0] as ProviderTurn;
+    background.onAdopted("background-run");
+    const resume = { kind: "resume", providerSessionId: PROVIDER_SESSION } as const;
+    const next = runInput({ target: resume, model: "sonnet", mode: "plan", effort: "high" });
+    const run = adapter.createRun(next, contextWith());
+    const later = runInput({ target: resume });
+    const last = adapter.createRun(later, contextWith());
+    expect(await query.canUseTool("Read", { file_path: "/work/repo/file" })).toEqual(expect.objectContaining({ behavior: "deny", message: "Current turn's broker." }));
+    expect(query.prompts).toHaveLength(1);
+    expect(query.models).toEqual([]);
+    expect(query.modes).toEqual([]);
+    expect(query.flags).toEqual([]);
+    query.emit(sdk.result(PROVIDER_SESSION));
+    expect(ends(await drain(background))).toEqual([expect.objectContaining({ reason: "completed" })]);
+    await query.promptsPushed(2);
+    expect(query.prompts.map((prompt) => prompt.uuid)).toEqual([query.prompts[0]?.uuid, next.prompt[0]?.messageId]);
+    expect(query.models).toEqual(["sonnet"]);
+    expect(query.modes).toEqual(["plan"]);
+    expect(query.flags).toEqual([{ effortLevel: "high" }]);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("next", [next.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION));
+    expect(ends(await drain(run))).toEqual([expect.objectContaining({ reason: "completed" })]);
+    await query.promptsPushed(3);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("last", [later.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION));
+    expect(ends(await drain(last))).toEqual([expect.objectContaining({ reason: "completed" })]);
+    expect(fake.queries).toHaveLength(1);
+    expect(port).toContain("hold task:task_1");
+    expect(port).not.toContain("unhold task:task_1");
+  });
+
+  it("holds a new run and its sends behind the current turn, and withdraws or interrupts them locally (#2126)", async () => {
+    const adapter = adapterWith();
+    const input = runInput();
+    const first = adapter.createRun(input, contextWith());
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("first", [input.prompt[0]?.messageId as string]), sdk.text("first", "Working."));
+    const read = reading(first);
+    await vi.waitFor(() => expect(read.events.some((event) => event.type === "assistant.text")).toBe(true));
+    const resume = { kind: "resume", providerSessionId: PROVIDER_SESSION } as const;
+    const next = adapter.createRun(runInput({ target: resume }), contextWith());
+    const withdrawn = message("Take this back");
+    const held = message("Keep this for later");
+    await next.send(withdrawn);
+    await next.send(held);
+    expect(query.prompts).toHaveLength(1);
+    expect(await next.withdraw(withdrawn.messageId)).toEqual({ withdrawn: true });
+    expect(await next.interrupt()).toEqual({ stillQueued: [held.messageId] });
+    expect(ends(await drain(next))).toEqual([expect.objectContaining({ reason: "interrupted" })]);
+    expect(query.cancelRequests).toEqual([]);
+    expect(query.interrupts).toBe(0);
+    const later = runInput({ target: resume });
+    const last = adapter.createRun(later, contextWith());
+    const followUp = message("And this too");
+    await last.send(followUp);
+    query.emit(sdk.result(PROVIDER_SESSION));
+    await read.done;
+    await query.promptsPushed(3);
+    expect(query.prompts.slice(1).map((prompt) => prompt.uuid)).toEqual([later.prompt[0]?.messageId, followUp.messageId]);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("last", [later.prompt[0]?.messageId as string, followUp.messageId]), sdk.result(PROVIDER_SESSION));
+    const events = await drain(last);
+    expect(events).toContainEqual({ type: "message.delivered", payload: { messageId: followUp.messageId, delivery: "prompt" } });
+    expect(ends(events)).toEqual([expect.objectContaining({ reason: "completed" })]);
+  });
+
+  it("holds a compatible run while the provider's turn owner is still undecided (#2126)", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const query = await keptByTask(adapter, context);
+    query.emit(sdk.init(PROVIDER_SESSION));
+    await vi.waitFor(() => expect(clock.pending()).toBe(1));
+    const input = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const next = adapter.createRun(input, context);
+    expect(query.prompts).toHaveLength(1);
+    query.emit(sdk.replyStart("background", []));
+    await vi.waitFor(() => expect(context.adopted).toHaveLength(1));
+    expect(query.prompts).toHaveLength(1);
+    query.emit(sdk.result(PROVIDER_SESSION));
+    await query.promptsPushed(2);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("next", [input.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION));
+    expect(ends(await drain(next))).toEqual([expect.objectContaining({ reason: "completed" })]);
+  });
+
+  it.each(["stop", "transport"] as const)("ends a held run when the process closes by %s without sending its prompt (#2126)", async (how) => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const query = await keptByTask(adapter, context);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("background", []));
+    await vi.waitFor(() => expect(context.adopted).toHaveLength(1));
+    const next = adapter.createRun(runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), contextWith());
+    if (how === "stop") await adapter.stopProcess(SESSION);
+    else query.fail(new Error("Transport lost."));
+    expect(ends(await drain(next))).toEqual(how === "stop" ? [] : [expect.objectContaining({ reason: "error" })]);
+    expect(query.prompts).toHaveLength(1);
+  });
+
+  it.each<[string, Partial<RunInput>]>([
+    ["resume target", { target: { kind: "fresh" } }],
+    ["resume target", { target: { kind: "resume", providerSessionId: "another-session" } }],
+    ["account directory", { account: { id: "other", directory: "/data/accounts/other" } }],
+    ["working directory", { workspace: { kind: "directory", path: "/work/other" } }],
+    ["repository trust", { trusted: true }],
+    ["tool servers", { toolServers: [{ name: "other", config: { type: "http", url: "http://localhost:9999/tools" } }] }],
+    ["instructions", { instructions: "Use different instructions." }],
+    ["confinement", { additionalDirectories: ["/data/banks/other"] }],
+    ["process environment", { processEnvironment: { ...EMPTY_PROCESS_ENVIRONMENT, key: "other" } }],
+    ["skill set", { skillSet: skillSetOf("other") }],
+    ["bypass opt-in", { ceiling: "bypassPermissions", mode: "bypassPermissions" }],
+  ])("names a differing %s when refusing a run while background work is held (#2126)", async (difference, changes) => {
+    const adapter = adapterWith();
+    const query = await keptByTask(adapter, contextWith());
+    const input = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION }, ...changes });
+    expect(() => adapter.createRun(input, contextWith())).toThrow(`different ${difference}`);
+    expect(query.closed).toBe(false);
+    expect(fake.queries).toHaveLength(1);
+    expect(query.prompts).toHaveLength(1);
+  });
+
   it("gives the one waiting run a turn the CLI opens with a delivery-failure result that names no one", async () => {
     const adapter = adapterWith();
     const context = contextWith();
