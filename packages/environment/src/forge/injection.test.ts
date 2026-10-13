@@ -382,7 +382,7 @@ describe("containment", () => {
     await vi.waitFor(() => expect(ended(t, sessionId)).toHaveLength(1));
   };
 
-  /** What the denylist's data-directory preset leaves out in `dataDir`: where runs work, the key-manager CLIs' configuration, and the skills a run reads (#496). */
+  /** What the denylist's data-directory preset leaves out in `dataDir`: where runs work, the key-manager CLIs' configuration, the skills a run reads (#496), the banks and the auto memory (#2095). */
   const exemptIn = (dataDir: string): string[] => [
     join(dataDir, "containment"),
     join(dataDir, "scratch"),
@@ -392,6 +392,7 @@ describe("containment", () => {
     join(dataDir, "skills", "snapshots"),
     join(dataDir, "skills", "generations"),
     join(dataDir, "banks"),
+    join(dataDir, "auto-memory"),
   ];
 
   it("adds the helper's directory to an unattended run's exempt directories where the denylist's paths cover the helper, the data directory's preset among them", async () => {

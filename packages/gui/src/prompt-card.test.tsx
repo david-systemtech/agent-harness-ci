@@ -1,4 +1,5 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
+import { DENYLIST_EVERY_MODE } from "@agent-harness/client-runtime";
 import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
 import { describeDenylistMatch, type DenylistMatch } from "@agent-harness/contracts";
 import type { ScriptedPrompt } from "@agent-harness/client-runtime/testing/scripted-environment";
@@ -315,6 +316,7 @@ describe("an approval", () => {
     const entry = within(within(shown).getByRole("list", { name: "On the denylist" })).getByRole("listitem").textContent;
     expect(entry).toBe("This is the environment's data directory: its event log, keys and accounts.Instead, the agent may work in its own working directory, and ask you for anything it needs from the environment's records.");
     expect(shown.textContent).not.toContain("The same entry as before");
+    expect(shown.textContent).toContain(DENYLIST_EVERY_MODE);
     await press(app, MOD_ENTER);
     expect((await sentAnswers(env, 1))[0]).toEqual({ commandId: expect.any(String), promptId, sessionId: session, decision: "allow" });
   });
@@ -330,6 +332,28 @@ describe("an approval", () => {
     expect((card() as HTMLElement).textContent).toContain("The same entry as before: this run already asked about /var/lib/harness once (last denied).");
     await app.user.click(button("Allow once"));
     expect((await sentAnswers(env, 2))[1]).toEqual({ commandId: expect.any(String), promptId: again, sessionId: session, decision: "allow" });
+  });
+
+  // #2095: so a person tells a denylist prompt from a permission prompt, which bypass never parks.
+  it("says a denylist prompt asks in every mode, bypass included, and opens its environment's Permissions row, answering nothing", async () => {
+    const { app, env, session } = await opened();
+    await park(env, session, dataDirectory);
+    const shown = card() as HTMLElement;
+    expect(within(shown).getByText(DENYLIST_EVERY_MODE)).toBeTruthy();
+    await app.user.click(button("Open Permissions"));
+    const settings = await screen.findByRole("region", { name: "Settings" });
+    expect(await within(settings).findByRole("region", { name: "Permissions" })).toBeDefined();
+    expect(within(within(settings).getByRole("combobox", { name: "Environment" })).getByRole("option", { selected: true }).textContent).toBe("desk");
+    // The prompt still waits on its card: opening the list is no answer.
+    expect(answersSent(env)).toEqual([]);
+  });
+
+  it("says nothing of every mode on a permission prompt, which offers no way to the denylist", async () => {
+    const { env, session } = await opened();
+    await park(env, session);
+    const shown = card() as HTMLElement;
+    expect(shown.textContent).not.toContain(DENYLIST_EVERY_MODE);
+    expect(within(shown).queryByRole("button", { name: "Open Permissions" })).toBeNull();
   });
 });
 

@@ -33,6 +33,7 @@ import { GATE_FAILED_MESSAGE, resolvePath } from "./gate.js";
 import type { RuledRun, ToolGateRule } from "../adapter/seams.js";
 import type { EventEnvelope as LogEvent } from "../event-log/event-log.js";
 import type { ActorRunRequest } from "../serve/start.js";
+import { autoMemoryName } from "../workspace/auto-memory.js";
 
 /**
  * The denylist and the tool gate (#132; permissions spec, "The denylist",
@@ -653,6 +654,7 @@ describe("the denylist a provider projects onto its own rules (#140)", () => {
       join(t.env.dataDir, "skills", "snapshots"),
       join(t.env.dataDir, "skills", "generations"),
       join(t.env.dataDir, "banks"),
+      join(t.env.dataDir, "auto-memory"),
     ]);
     expect(projected?.commandPatterns).toContain("sudo *");
     expect(projected?.commandPatterns).toContain("terraform destroy *");
@@ -785,6 +787,73 @@ describe("the routines' scripts directory (#526)", () => {
       ["Write", "denied", "person"],
       ["Write", "denied", "denylist"],
     ]);
+  });
+});
+
+describe("the auto-memory directory (ADR 0018, #2095)", () => {
+  /** A repository's auto-memory directory as the Claude adapter hands it to a run, its MEMORY.md, and the gated calls that touch it: a read, a write and a shell line. */
+  const memoryOf = (dataDir: string) => {
+    const directory = join(dataDir, "auto-memory", autoMemoryName({ workspace: { kind: "directory", path: "/work/receipts" }, repositoryIdentity: null }));
+    mkdirSync(directory, { recursive: true });
+    const memory = join(directory, "MEMORY.md");
+    const touching: Omit<GatedToolCall, "toolCallId">[] = [
+      { tool: "Read", summary: "Read MEMORY.md", access: { kind: "read", paths: [memory] }, input: { file_path: memory } },
+      { tool: "Write", summary: "Write MEMORY.md", access: { kind: "write", paths: [memory] }, input: { file_path: memory } },
+      { tool: "Bash", summary: "cat MEMORY.md", access: { kind: "shell", command: `cat ${memory}` }, input: { command: `cat ${memory}` } },
+    ];
+    return { memory, touching };
+  };
+  /** A write of the environment's database, which the data directory's preset still covers. */
+  const writeDatabase = (dataDir: string): Omit<GatedToolCall, "toolCallId"> => ({ tool: "Write", summary: "Write the log", access: { kind: "write", paths: [join(dataDir, "environment.db")] } });
+
+  it("is left out of the data directory's preset, while the rest of the data directory is not", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { memory } = memoryOf(t.env.dataDir);
+    expect(await test(client, "path", memory)).toEqual([]);
+    expect(await test(client, "command", `cat ${memory}`)).toEqual([]);
+    expect((await test(client, "path", join(t.env.dataDir, "environment.db"))).map((match) => match.entry.id)).toEqual([DATA_DIRECTORY_PRESET_ID]);
+  });
+
+  it("lets an attended bypassPermissions run read and write its memory asking nobody, and still asks about the environment's database", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    const { touching } = memoryOf(t.env.dataDir);
+    t.adapter.nextScripts.push(calls(...touching, writeDatabase(t.env.dataDir)));
+    const { runId } = await startRun(client, id, "bypassPermissions");
+    // The only prompt is the database's: the memory calls before it went on to the mode.
+    const [prompt] = await untilOpened(t, id);
+    expect(prompt).toMatchObject({ runId, kind: "denylist", toolName: "Write", denylist: [expect.objectContaining({ section: "paths", entry: expect.objectContaining({ id: DATA_DIRECTORY_PRESET_ID }) })] });
+    await answer(client, prompt!.promptId, "deny");
+    await untilEnded(t, id, runId);
+    expect(opened(t, id)).toHaveLength(1);
+    expect(decisions(t, id).map((decision) => [decision.tool, decision.decision, decision.decidedBy])).toEqual([
+      ["Read", "allowed", "mode"],
+      ["Write", "allowed", "mode"],
+      ["Bash", "allowed", "mode"],
+      ["Write", "denied", "person"],
+    ]);
+  });
+
+  it("lets an unattended run read and write its memory, and denies it the environment's database", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    const { touching } = memoryOf(t.env.dataDir);
+    t.adapter.nextScripts.push(calls(...touching, writeDatabase(t.env.dataDir)));
+    const { runId } = startAsRoutine(t, id);
+    await untilEnded(t, id, runId);
+    expect(decisions(t, id).map((decision) => [decision.tool, decision.decision, decision.decidedBy])).toEqual([
+      ["Read", "allowed", "mode"],
+      ["Write", "allowed", "mode"],
+      ["Bash", "allowed", "mode"],
+      ["Write", "denied", "denylist"],
+    ]);
+    // Its sandbox reads the directory again, under the data directory's denied path.
+    const projected = t.adapter.lastRun().input.denylist;
+    expect(projected?.paths).toContain(t.env.dataDir);
+    expect(projected?.exempt).toContain(join(t.env.dataDir, "auto-memory"));
   });
 });
 
