@@ -34,7 +34,7 @@ export const PageDriverKind = z.enum(PAGE_DRIVER_KINDS).meta({
 });
 export type PageDriverKind = z.infer<typeof PageDriverKind>;
 
-/** Every verb, in the spec's order. */
+/** The existing verbs, followed by the toolset-shaped input and capture members. */
 export const PAGE_VERBS = [
   "open",
   "navigate",
@@ -52,6 +52,21 @@ export const PAGE_VERBS = [
   "storage",
   "evaluate",
   "close",
+  "left_click",
+  "right_click",
+  "middle_click",
+  "double_click",
+  "triple_click",
+  "hover",
+  "left_click_drag",
+  "left_mouse_down",
+  "left_mouse_up",
+  "mouse_move",
+  "scroll_to",
+  "zoom",
+  "form_input",
+  "hold_key",
+  "key",
 ] as const;
 export type PageVerb = (typeof PAGE_VERBS)[number];
 
@@ -132,6 +147,13 @@ const ElementTarget = z
     z.strictObject({ selector: z.string().min(1).max(MAX_SELECTOR) }).meta({ description: "The first element this CSS selector matches." }),
   ])
   .meta({ description: "An element: by ref, or by CSS selector." });
+
+/** Toolset targets use full-viewport pixels or the latest snapshot's opaque ref. */
+const CoordinateTarget = z.strictObject({ type: z.literal("coordinate"), x: z.int().min(0), y: z.int().min(0) });
+const RefTarget = z.strictObject({ type: z.literal("ref"), ref: Ref });
+const PointerTarget = z.discriminatedUnion("type", [CoordinateTarget, RefTarget]);
+const PointerClickArgs = z.object({ target: PointerTarget, modifiers: z.string().min(1).max(128).optional(), snapshot: AfterAction })
+  .meta({ description: "Click a ref or viewport coordinate, optionally holding modifiers such as ctrl+shift." });
 
 /** Where a scroll goes: a direction and an amount in viewports (preset one), or to an element. */
 const ScrollTarget = z
@@ -309,7 +331,7 @@ export const PAGE_VERB_SCHEMAS = {
     value: PageArrival,
   },
   navigate: {
-    args: z.object({ url: Address, snapshot: AfterAction }).meta({ description: "navigate: go to an address and let the load settle." }),
+    args: z.object({ url: Address, snapshot: AfterAction }).meta({ description: "navigate: go to an address, or back, forward or reload, and let the load settle." }),
     value: PageArrival,
   },
   snapshot: { args: SnapshotArgs, value: PageSnapshot },
@@ -343,7 +365,13 @@ export const PAGE_VERB_SCHEMAS = {
     value: PageReading,
   },
   screenshot: { args: noArgs, value: PageImage },
-  scroll: { args: z.object({ to: ScrollTarget }).meta({ description: "scroll: by a direction and an amount, or to an element." }), value: PageLocation },
+  scroll: {
+    args: z.union([
+      z.strictObject({ to: ScrollTarget }),
+      z.strictObject({ target: CoordinateTarget, scroll_direction: z.enum(["up", "down", "left", "right"]).meta({ description: "Which way to turn the wheel at the target coordinate." }), scroll_amount: z.int().min(1).max(10).optional() }),
+    ]).meta({ description: "scroll: wheel at a viewport coordinate (1 to 10 notches, preset 3); also accepts the existing viewport/ref target." }),
+    value: PageLocation,
+  },
   waitFor: { args: z.object({ until: WaitCondition }).meta({ description: "waitFor: text, a ref or a number of milliseconds." }), value: PageLocation },
   console: {
     args: noArgs,
@@ -363,6 +391,33 @@ export const PAGE_VERB_SCHEMAS = {
     value: EvaluateResult,
   },
   close: { args: noArgs, value: z.null().meta({ description: "The page was let go of." }) },
+  left_click: { args: PointerClickArgs, value: PageArrival },
+  right_click: { args: PointerClickArgs, value: PageArrival },
+  middle_click: { args: PointerClickArgs, value: PageArrival },
+  double_click: { args: PointerClickArgs, value: PageArrival },
+  triple_click: { args: PointerClickArgs, value: PageArrival },
+  hover: { args: z.object({ target: PointerTarget, snapshot: AfterAction }).meta({ description: "hover: move over a ref or viewport coordinate without clicking." }), value: PageArrival },
+  left_click_drag: { args: z.object({ from: CoordinateTarget, target: CoordinateTarget, snapshot: AfterAction }).meta({ description: "left_click_drag: press at from, drag to target, and release." }), value: PageArrival },
+  left_mouse_down: { args: z.object({ target: CoordinateTarget }).meta({ description: "left_mouse_down: press and hold the left button at a viewport coordinate." }), value: PageLocation },
+  left_mouse_up: { args: z.object({ target: CoordinateTarget }).meta({ description: "left_mouse_up: release the left button at a viewport coordinate." }), value: PageLocation },
+  mouse_move: { args: z.object({ target: CoordinateTarget }).meta({ description: "mouse_move: move to a viewport coordinate, preserving held buttons." }), value: PageLocation },
+  scroll_to: { args: z.object({ target: RefTarget }).meta({ description: "scroll_to: scroll a snapshot ref into view." }), value: PageLocation },
+  zoom: {
+    args: z.object({ region: z.tuple([z.int().min(0), z.int().min(0), z.int().min(0), z.int().min(0)]) }).meta({ description: "zoom: crop and upscale [x0, y0, x1, y1] in full-viewport pixels; coordinates stay in the original viewport." }),
+    value: PageImage,
+  },
+  form_input: {
+    args: z.object({ target: RefTarget, value: z.union([z.string().max(MAX_TEXT), z.number(), z.boolean()]), snapshot: AfterAction }).meta({ description: "form_input: set a referenced form control's value; booleans for checkboxes/radios, option values or labels for selects." }),
+    value: PageArrival,
+  },
+  hold_key: {
+    args: z.object({ text: z.string().min(1).max(4096), duration: z.number().min(0).max(30), snapshot: AfterAction }).meta({ description: "hold_key: hold one key or chord for 0 to 30 seconds, then release it." }),
+    value: PageArrival,
+  },
+  key: {
+    args: z.object({ text: z.string().min(1).max(4096), repeat: z.int().min(1).max(100).optional(), snapshot: AfterAction }).meta({ description: "key: press a key, a + chord, or a space-separated sequence; repeat 1 to 100 times." }),
+    value: PageArrival,
+  },
 } as const satisfies { readonly [V in PageVerb]: { readonly args: z.ZodType; readonly value: z.ZodType } };
 
 export type PageArgs<V extends PageVerb> = z.infer<(typeof PAGE_VERB_SCHEMAS)[V]["args"]>;
@@ -386,8 +441,10 @@ export type PageCommand = { readonly [V in PageVerb]: { readonly verb: V; readon
  * How long a browser that drives through another process (the extension, a
  * relayed client) has to answer a verb before the caller gives up (ported,
  * per verb): 20 seconds to open, navigate, click and click at a point, 18
- * for a screenshot, 5 to let go of a page, a wait's own bound and 5 more,
- * and 12 for the rest. A late answer is dropped.
+ * for a screenshot or zoom, 5 to let go of a page, a wait's own bound
+ * and 5 more, a key hold's duration and 20 more, and 12 for the rest.
+ * The toolset clicks, drags and keys share the 20-second action budget.
+ * A late answer is dropped.
  */
 export const pageCallDeadlineMs = (command: PageCommand): number => {
   switch (command.verb) {
@@ -395,7 +452,18 @@ export const pageCallDeadlineMs = (command: PageCommand): number => {
     case "navigate":
     case "click":
     case "clickAt":
+    case "left_click":
+    case "right_click":
+    case "middle_click":
+    case "double_click":
+    case "triple_click":
+    case "left_click_drag":
+    case "left_mouse_up":
+    case "key":
       return 20_000;
+    case "hold_key":
+      return command.args.duration * 1_000 + 20_000;
+    case "zoom":
     case "screenshot":
       return 18_000;
     case "close":

@@ -45,5 +45,5 @@
   "required": [
     "url"
   ],
-  "description": "navigate: go to an address and let the load settle."
+  "description": "navigate: go to an address, or back, forward or reload, and let the load settle."
 }

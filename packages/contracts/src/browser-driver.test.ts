@@ -46,6 +46,21 @@ describe("the page-driver contract", () => {
       "storage",
       "evaluate",
       "close",
+      "left_click",
+      "right_click",
+      "middle_click",
+      "double_click",
+      "triple_click",
+      "hover",
+      "left_click_drag",
+      "left_mouse_down",
+      "left_mouse_up",
+      "mouse_move",
+      "scroll_to",
+      "zoom",
+      "form_input",
+      "hold_key",
+      "key",
     ]);
     expect(DEEP_PAGE_VERBS).toEqual(["console", "network", "cookies", "storage", "evaluate"]);
     expect(Object.keys(PAGE_VERB_SCHEMAS)).toEqual([...PAGE_VERBS]);
@@ -55,7 +70,7 @@ describe("the page-driver contract", () => {
     expect(PAGE_DRIVER_KINDS).toEqual(["chrome", "headless", "dock"]);
     expect(PAGE_DRIVER_ABILITIES.chrome).toEqual({ verbs: PAGE_VERBS, deepReadsByPolicy: true });
     expect(PAGE_DRIVER_ABILITIES.headless).toEqual({ verbs: PAGE_VERBS, deepReadsByPolicy: false });
-    expect(PAGE_DRIVER_ABILITIES.dock.verbs).toEqual(["open", "navigate", "snapshot", "click", "clickAt", "type", "read", "screenshot", "scroll", "waitFor", "close"]);
+    expect(PAGE_DRIVER_ABILITIES.dock.verbs).toEqual(["open", "navigate", "snapshot", "click", "clickAt", "type", "read", "screenshot", "scroll", "waitFor", "close", "left_click", "right_click", "middle_click", "double_click", "triple_click", "hover", "left_click_drag", "left_mouse_down", "left_mouse_up", "mouse_move", "scroll_to", "zoom", "form_input", "hold_key", "key"]);
     expect(PAGE_DRIVER_ABILITIES.dock.deepReadsByPolicy).toBe(false);
   });
 
@@ -212,5 +227,34 @@ describe("the page-driver contract", () => {
     expect(PageOutcome.safeParse(refusal).success).toBe(true);
     expect(PageOutcome.safeParse({ ok: true }).success).toBe(false);
     expect(PageOutcome.safeParse({ ok: false }).success).toBe(false);
+  });
+});
+
+describe("toolset driver argument bounds", () => {
+  it("bounds keyboard repeats and holds, and budgets a hold plus navigation time", () => {
+    expect(accepts("key", "args", { text: "ctrl+a Enter", repeat: 100 })).toBe(true);
+    for (const repeat of [0, 101, 1.5]) expect(accepts("key", "args", { text: "Enter", repeat })).toBe(false);
+    expect(accepts("key", "args", { text: "" })).toBe(false);
+    expect(accepts("hold_key", "args", { text: "ArrowDown", duration: 30 })).toBe(true);
+    expect(accepts("hold_key", "args", { text: "ArrowDown", duration: 0 })).toBe(true);
+    for (const duration of [-1, 30.1]) expect(accepts("hold_key", "args", { text: "ArrowDown", duration })).toBe(false);
+    expect(pageCallDeadlineMs({ verb: "hold_key", args: { text: "ArrowDown", duration: 30 } })).toBe(50_000);
+    expect(pageCallDeadlineMs({ verb: "key", args: { text: "Enter" } })).toBe(20_000);
+    expect(pageCallDeadlineMs({ verb: "zoom", args: { region: [0, 0, 100, 100] } })).toBe(18_000);
+    expect(pageCallDeadlineMs({ verb: "left_click_drag", args: { from: { type: "coordinate", x: 0, y: 0 }, target: { type: "coordinate", x: 100, y: 100 } } })).toBe(20_000);
+  });
+
+  it("accepts only ref-or-coordinate targets, bounded notches and scalar form values", () => {
+    for (const verb of ["left_click", "right_click", "middle_click", "double_click", "triple_click", "hover"] as const) {
+      expect(accepts(verb, "args", { target: { type: "ref", ref: "e3" } })).toBe(true);
+      expect(accepts(verb, "args", { target: { type: "coordinate", x: 0, y: 20 } })).toBe(true);
+      expect(accepts(verb, "args", { target: { selector: "button" } })).toBe(false);
+      expect(accepts(verb, "args", { target: { type: "coordinate", x: 0.5, y: 20 } })).toBe(false);
+    }
+    for (const scroll_amount of [0, 11, 1.5]) expect(accepts("scroll", "args", { target: { type: "coordinate", x: 1, y: 2 }, scroll_direction: "down", scroll_amount })).toBe(false);
+    expect(accepts("scroll", "args", { to: { direction: "down" }, target: { type: "coordinate", x: 1, y: 2 }, scroll_direction: "down" })).toBe(false);
+    expect(accepts("scroll_to", "args", { target: { type: "coordinate", x: 1, y: 2 } })).toBe(false);
+    for (const value of ["one", 42, false]) expect(accepts("form_input", "args", { target: { type: "ref", ref: "e1" }, value })).toBe(true);
+    expect(accepts("form_input", "args", { target: { type: "ref", ref: "e1" }, value: [] })).toBe(false);
   });
 });

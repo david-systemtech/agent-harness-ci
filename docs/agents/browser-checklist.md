@@ -70,6 +70,12 @@ Every case passes:
     markers and neither value, and a click and a typing by ref land on the
     Buy button and the password field.
 
+13. Enter submits the fixture form after the Query field is filled.
+14. Hovering the Menu button reveals its menu without a click.
+15. Drag moves the slider from its low value to above 90.
+16. `form_input` selects an option by its visible label, emits its change
+    event, checks a checkbox, and selects one radio while clearing the other.
+
 Record the date, the machine and its platform, the browser and its version
 (`chromium --version`), and each case's result in the pull request.
 

@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><title>Form fixture</title>
+<label>Choice <select id="choice"><option value="one">First choice</option><option value="two">Second choice</option></select></label>
+<label><input id="enabled" type="checkbox">Enabled</label>
+<label><input id="first" type="radio" name="choice" checked>First</label>
+<label><input id="second" type="radio" name="choice">Second</label>
+<p id="result">Not changed</p>
+<script>
+  document.getElementById('choice').addEventListener('change', (event) => {
+    document.getElementById('result').textContent = 'Selected: ' + event.target.value;
+  });
+</script>
+</html>

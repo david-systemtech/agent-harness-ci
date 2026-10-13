@@ -204,3 +204,33 @@ export function readStorage(): { origin: string; local: Record<string, string>; 
   };
   return { origin: location.origin, local: read(() => localStorage), session: read(() => sessionStorage) };
 }
+
+/** Sets a snapshot-referenced form control using the native setter, then informs page listeners. */
+export function setFormValue(ref: string, value: string | number | boolean): string {
+  const element = (globalThis as SnapshotGlobal).agentHarnessSnapshot?.element(ref);
+  if (element === undefined) return "gone";
+  if (!(element instanceof HTMLSelectElement || element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) return "The referenced element is not a form control.";
+  if (element.matches(":disabled")) return "The form control is disabled.";
+  if (!(element instanceof HTMLSelectElement) && element.readOnly) return "The form control is read-only.";
+  if (element instanceof HTMLSelectElement) {
+    if (typeof value === "boolean") return "A select takes an option's value or visible text.";
+    const option = Array.from(element.options).find((option) => option.value === String(value)) ??
+      Array.from(element.options).find((option) => option.textContent?.trim() === String(value));
+    if (option === undefined) return "No option matches the requested value or visible text.";
+    if (option.matches(":disabled")) return "The requested option is disabled.";
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(element, option.value);
+  } else if (element instanceof HTMLInputElement && (element.type === "checkbox" || element.type === "radio")) {
+    if (typeof value !== "boolean") return "A checkbox or radio takes a boolean value.";
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "checked")?.set?.call(element, value);
+  } else {
+    if (element instanceof HTMLInputElement && ["file", "hidden", "button", "submit", "reset", "image"].includes(element.type)) {
+      return `A ${element.type} input cannot be set with form_input.`;
+    }
+    if (typeof value === "boolean") return "A text or numeric field takes a string or number.";
+    const prototype = element instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, "value")?.set?.call(element, String(value));
+  }
+  element.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+  element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+  return "set";
+}

@@ -1,7 +1,7 @@
 import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
 import { installSnapshot, snapshotFrame } from "../snapshot/in-page.js";
-import { elementShows, frameOwnerOrigin, locateElement, readStorage, scrollToElement, selectFieldContents, showsText } from "./in-page.js";
+import { elementShows, frameOwnerOrigin, locateElement, readStorage, setFormValue, scrollToElement, selectFieldContents, showsText } from "./in-page.js";
 
 /**
  * The in-page functions, run as the driver runs them: from their own source
@@ -232,5 +232,58 @@ describe("readStorage", () => {
     window.localStorage.setItem("cart", "[1,2]");
     window.sessionStorage.setItem("step", "3");
     expect(runIn(window, readStorage)).toEqual({ origin: "https://example.com", local: { theme: "dark", cart: "[1,2]" }, session: { step: "3" } });
+  });
+});
+
+describe("form_input", () => {
+  it("sets a select by option value or visible label and emits input then change", () => {
+    const window = pageWith(`<select aria-label="Choice"><option value="one">First choice</option><option value="two">Second choice</option></select>`);
+    snapshotted(window);
+    const select = window.document.querySelector("select") as HTMLSelectElement;
+    const events: string[] = [];
+    select.addEventListener("input", (event) => events.push(`${event.type}:${event.bubbles}:${select.value}`));
+    select.addEventListener("change", (event) => events.push(`${event.type}:${event.bubbles}:${select.value}`));
+    expect(runIn(window, setFormValue, "e2", "Second choice")).toBe("set");
+    expect(select.value).toBe("two");
+    expect(events).toEqual(["input:true:two", "change:true:two"]);
+    expect(runIn(window, setFormValue, "e2", "one")).toBe("set");
+    expect(select.value).toBe("one");
+  });
+});
+
+describe("form_input field kinds", () => {
+  it("sets checkboxes, radios, text and numeric fields with native setters and change events", () => {
+    const window = pageWith(`<input id="box" type="checkbox" aria-label="Enabled"><input id="first" type="radio" name="choice" checked aria-label="First"><input id="second" type="radio" name="choice" aria-label="Second"><input id="number" type="number" aria-label="Count"><textarea aria-label="Notes"></textarea>`);
+    snapshotted(window);
+    const events: string[] = [];
+    window.document.addEventListener("change", (event) => events.push((event.target as Element).id));
+    expect(runIn(window, setFormValue, "e2", true)).toBe("set");
+    expect((window.document.querySelector("#box") as HTMLInputElement).checked).toBe(true);
+    expect(runIn(window, setFormValue, "e2", false)).toBe("set");
+    expect((window.document.querySelector("#box") as HTMLInputElement).checked).toBe(false);
+    expect(runIn(window, setFormValue, "e4", true)).toBe("set");
+    expect((window.document.querySelector("#first") as HTMLInputElement).checked).toBe(false);
+    expect((window.document.querySelector("#second") as HTMLInputElement).checked).toBe(true);
+    expect(runIn(window, setFormValue, "e5", 42)).toBe("set");
+    expect((window.document.querySelector("#number") as HTMLInputElement).value).toBe("42");
+    expect(runIn(window, setFormValue, "e6", "Notes for tests")).toBe("set");
+    expect(window.document.querySelector("textarea")?.value).toBe("Notes for tests");
+    expect(events).toEqual(["box", "box", "second", "number", ""]);
+  });
+
+  it("refuses stale refs, disabled/read-only fields, files, mismatched values and missing options without changing them", () => {
+    const window = pageWith(`<input type="checkbox" aria-label="Enabled"><input disabled aria-label="Disabled"><input readonly value="kept" aria-label="Fixed"><input type="file" aria-label="Upload"><select aria-label="Choice"><option value="one">First</option><option value="two" disabled>Second</option></select>`);
+    snapshotted(window);
+    const events: string[] = [];
+    window.document.addEventListener("input", () => events.push("input"));
+    expect(runIn(window, setFormValue, "e99", true)).toBe("gone");
+    expect(runIn(window, setFormValue, "e2", "true")).toContain("boolean");
+    expect(runIn(window, setFormValue, "e3", "new")).toContain("disabled");
+    expect(runIn(window, setFormValue, "e4", "new")).toContain("read-only");
+    expect(runIn(window, setFormValue, "e5", "file-for-tests")).toContain("file");
+    expect(runIn(window, setFormValue, "e6", "missing")).toContain("No option");
+    expect(runIn(window, setFormValue, "e6", "two")).toContain("disabled");
+    expect(events).toEqual([]);
+    expect(window.document.querySelector("select")?.value).toBe("one");
   });
 });

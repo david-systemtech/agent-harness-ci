@@ -167,6 +167,47 @@ describe("the page driver in a real Chromium", () => {
     expect(await perform("evaluate", { expression: "[password.value, card.value]" })).toEqual({ ok: true, value: { url: at("fields.html"), result: ["new-password-for-tests", ""] } });
   });
 
+  it("Enter submits the fixture form after typing", async () => {
+    const perform = drive();
+    await perform("open", { url: at("keys.html") });
+    await perform("type", { target: { selector: "#query" }, text: "query-for-tests" });
+    expect(await perform("key", { text: "Enter" })).toMatchObject({ ok: true });
+    expect(await perform("waitFor", { until: { text: "Submitted: query-for-tests" } })).toMatchObject({ ok: true });
+  });
+
+  it("hover opens the fixture menu without clicking", async () => {
+    const perform = drive();
+    await perform("open", { url: at("hover.html") });
+    const snapshot = await perform("snapshot", {});
+    if (!snapshot.ok) throw new Error(snapshot.reason);
+    const ref = /button "Menu" \[ref=(e\d+)\]/.exec(snapshot.value.text)?.[1];
+    expect(ref).toBeDefined();
+    expect(await perform("hover", { target: { type: "ref", ref: ref as string } })).toMatchObject({ ok: true });
+    expect(await perform("waitFor", { until: { text: "Hover menu opened" } })).toMatchObject({ ok: true });
+  });
+
+  it("drag moves the slider", async () => {
+    const perform = drive();
+    await perform("open", { url: at("drag.html") });
+    expect(await perform("left_click_drag", { from: { type: "coordinate", x: 110, y: 110 }, target: { type: "coordinate", x: 390, y: 110 } })).toMatchObject({ ok: true });
+    const value = await perform("evaluate", { expression: "Number(document.getElementById('slider').value)" });
+    expect(value.ok && value.value.result).toBeGreaterThan(90);
+  });
+
+  it("form_input selects by label, checks a checkbox and selects a radio", async () => {
+    const perform = drive();
+    await perform("open", { url: at("select.html") });
+    const snapshot = await perform("snapshot", {});
+    if (!snapshot.ok) throw new Error(snapshot.reason);
+    const ref = (name: string): string => new RegExp(`"${name}" (?:\\[\\w=-]+\\] )*\\[ref=(e\\d+)\\]`).exec(snapshot.value.text)?.[1] as string;
+    expect(await perform("form_input", { target: { type: "ref", ref: ref("Choice") }, value: "Second choice" })).toMatchObject({ ok: true });
+    expect(await perform("waitFor", { until: { text: "Selected: two" } })).toMatchObject({ ok: true });
+    expect(await perform("form_input", { target: { type: "ref", ref: ref("Enabled") }, value: true })).toMatchObject({ ok: true });
+    expect(await perform("form_input", { target: { type: "ref", ref: ref("Second") }, value: true })).toMatchObject({ ok: true });
+    const values = await perform("evaluate", { expression: "['choice', 'enabled', 'first', 'second'].map(id => { const e = document.getElementById(id); return e.type === 'select-one' ? e.value : e.checked; })" });
+    expect(values).toMatchObject({ ok: true, value: { result: ["two", true, false, true] } });
+  });
+
   it("scrolls a long article by viewports and waits for its last sentence", async () => {
     const perform = drive();
     await perform("open", { url: at("article.html") });
