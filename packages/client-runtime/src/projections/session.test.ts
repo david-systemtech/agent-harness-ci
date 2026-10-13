@@ -62,7 +62,7 @@ describe("a streamed run", () => {
     ]);
     expect(items).toEqual([
       expect.objectContaining({ kind: "user-message", sequence: 2, messageId: FIXTURE_MESSAGE, text: "Fix the receipts", delivery: "prompt" }),
-      { kind: "assistant-text", sequence: 3, runId: FIXTURE_RUN, itemId: "i-1", text: "Hello", aborted: false, streaming: true },
+      { kind: "assistant-text", startedAt: occurredAt(3), sequence: 3, runId: FIXTURE_RUN, itemId: "i-1", text: "Hello", aborted: false, streaming: true },
     ]);
   });
 
@@ -75,7 +75,7 @@ describe("a streamed run", () => {
         ["run.ended", recorded("run.ended")],
       ]),
     ]);
-    expect(items[1]).toEqual({ kind: "assistant-text", sequence: 3, runId: FIXTURE_RUN, itemId: "i-1", text: "Hello.", aborted: false, streaming: false });
+    expect(items[1]).toEqual({ kind: "assistant-text", startedAt: occurredAt(3), sequence: 3, runId: FIXTURE_RUN, itemId: "i-1", text: "Hello.", aborted: false, streaming: false });
     expect(items).toHaveLength(2);
     expect(runs).toEqual([
       expect.objectContaining({
@@ -98,7 +98,7 @@ describe("a streamed run", () => {
         ["assistant.thinking", recorded("assistant.thinking")],
       ]),
     );
-    expect(items).toEqual([{ kind: "assistant-thinking", sequence: 2, runId: FIXTURE_RUN, itemId: "i-2", text: "Let me look.", aborted: false, streaming: false }]);
+    expect(items).toEqual([{ kind: "assistant-thinking", startedAt: occurredAt(2), sequence: 2, runId: FIXTURE_RUN, itemId: "i-2", text: "Let me look.", aborted: false, streaming: false }]);
   });
 
   it("settles an item an interrupt cut short, keeping its partial text, and stops streaming what the run's end left open", () => {
@@ -231,6 +231,7 @@ describe("a tool call", () => {
     expect(items).toEqual([
       {
         kind: "tool-call",
+        startedAt: occurredAt(2),
         sequence: 2,
         runId: FIXTURE_RUN,
         toolCallId: "toolu_1",
@@ -875,5 +876,25 @@ describe("current request context", () => {
     const cached = kind.decode(kind.encode(kind.fromSnapshot({ ...recordedSnapshot(), runs: projection.runs })));
     expect(reduceSession(cached.snapshot, []).runs[0]?.context).toEqual(projection.runs[0]?.context);
     expect(reduceSession(cached.snapshot, []).runs[0]?.contextWindows).toEqual({ opus: 1000 });
+  });
+});
+
+
+describe("transcript timestamps", () => {
+  it("uses first event times through streaming, settlement and snapshot reload", () => {
+    const events = numbered(1, [
+      ["assistant.delta", { runId: FIXTURE_RUN, itemId: "timed", fragments: [{ kind: "text", text: "Hello" }] }],
+      ["assistant.delta", { runId: FIXTURE_RUN, itemId: "timed", fragments: [{ kind: "text", text: " again" }] }],
+      ["assistant.text", { runId: FIXTURE_RUN, itemId: "timed", text: "Hello again", aborted: false }],
+      ["tool.started", recorded("tool.started")],
+    ]);
+    const { items } = reduce(events);
+    expect(items).toEqual([
+      expect.objectContaining({ startedAt: occurredAt(1) }),
+      expect.objectContaining({ startedAt: occurredAt(4) }),
+    ]);
+    const snapshot = { ...recordedSnapshot(), rewinds: [], items: items.map(item => ({ ...item })) };
+    const cached = sessionKind().decode(sessionKind().encode(sessionKind().fromSnapshot(snapshot)));
+    expect(reduceSession(cached.snapshot, []).items).toEqual(items);
   });
 });

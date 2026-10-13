@@ -8,6 +8,7 @@ import {
   promptsIn,
   DECIDED_BECAUSE,
   turnFacts,
+  transcriptRowTime,
   updateInterruptedText,
   type AssistantEntry,
   type ChecksView,
@@ -30,6 +31,7 @@ import { CallCard, CallsPictures, CallsRow, useOpenedFor } from "./calls.js";
 import { DocumentTiles } from "./document-tiles.js";
 import { Marked } from "./find.js";
 import { Markdown } from "./markdown.js";
+import { TranscriptTime } from "./time.js";
 import { StreamingText } from "./streaming-text.js";
 
 /**
@@ -57,30 +59,30 @@ export interface RowFacts {
 }
 
 /** Shared label spine; messages reverse it, keeping the bubble against the right edge. */
-export const TranscriptLine = ({ label, right = false, inset = right, time, children }: { readonly label: ReactNode; readonly right?: boolean; readonly inset?: boolean; readonly time?: string | undefined; readonly children: ReactNode }) => (
-  <div className={classes("group/line flex min-w-0 gap-2 text-sm", right && "flex-row-reverse")}>
-    <div data-measure="transcript-spine" className={classes("relative w-14 shrink-0 text-right text-2xs leading-4 text-ink-faint", inset && "pt-2")}>
-      <span className={classes(time !== undefined && "group-hover/line:invisible")}>{label}</span>
-      {time !== undefined && <time dateTime={time} title={time} className={classes("absolute right-0 hidden font-mono opacity-60 group-hover/line:block", inset ? "top-2" : "top-0")}>{new Date(time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}</time>}
+export const TranscriptLine = ({ label, right = false, inset = right, time, previousTime, children }: { readonly label: ReactNode; readonly right?: boolean; readonly inset?: boolean; readonly time?: string | undefined; readonly previousTime?: string | undefined; readonly children: ReactNode }) => (
+  <div className={classes("flex min-w-0 gap-2 text-sm", right && "flex-row-reverse")}>
+    <div data-measure="transcript-spine" className={classes("w-14 shrink-0 text-right text-2xs leading-4 text-ink-faint", inset && "pt-2")}>
+      <span>{label}</span>
     </div>
-    <div className="flex min-w-0 flex-1 flex-col gap-1">{children}</div>
+    <div className="flex min-w-0 flex-1 flex-col gap-1"><TranscriptTime time={time} previous={previousTime} />{children}</div>
   </div>
 );
 
 /** One row keeps its runtime identity for search and jump. */
-export const TranscriptRowView = memo(({ row, facts }: { readonly row: TranscriptRow; readonly facts: RowFacts }) => {
+export const TranscriptRowView = memo(({ row, facts, previousTime }: { readonly row: TranscriptRow; readonly facts: RowFacts; readonly previousTime?: string | undefined }) => {
   const user = row.kind === "user" && !environmentMessage(row.entry);
   const thinking = row.kind === "assistant" && row.entry.kind === "assistant-thinking";
   // An environment message's bubble names it; its spine stays empty, since the 56 px column cannot hold "environment" (#1791).
   const label = user ? <span className="text-beam-text">you</span> : thinking ? <span className="text-sage">thinking</span> : row.kind === "turn" ? "end" : "";
-  return <div data-row-id={row.id}><TranscriptLine label={label} right={user} inset={row.kind === "user" || row.kind === "turn"} time={row.kind === "user" ? row.entry.sentAt : row.kind === "turn" ? row.run.endedAt ?? undefined : undefined}><RowBody row={row} facts={facts} /></TranscriptLine></div>;
+  return <div data-row-id={row.id}><TranscriptLine label={label} right={user} inset={row.kind === "user" || row.kind === "turn"} time={row.kind === "calls" ? undefined : transcriptRowTime(row)} previousTime={previousTime}><RowBody row={row} facts={facts} previousTime={previousTime} /></TranscriptLine></div>;
 }, (before, after) => {
   // The projection creates row wrappers on each delta. Settled speech and user messages
   // need no redraw when their entry fields and the facts they consume remain the same.
   const left = before.row, right = after.row;
+  if (before.previousTime !== after.previousTime) return false;
   if (left.id !== right.id || left.kind !== right.kind) return false;
   if (left.kind === "assistant" && right.kind === "assistant") {
-    return left.entry.text === right.entry.text && left.entry.streaming === right.entry.streaming && left.entry.kind === right.entry.kind
+    return left.entry.startedAt === right.entry.startedAt && left.entry.text === right.entry.text && left.entry.streaming === right.entry.streaming && left.entry.kind === right.entry.kind
       && before.facts.arrived(left.entry.sequence) === after.facts.arrived(right.entry.sequence);
   }
   if (left.kind === "user" && right.kind === "user") return left.entry === right.entry && before.facts.verbs === after.facts.verbs;
@@ -88,7 +90,7 @@ export const TranscriptRowView = memo(({ row, facts }: { readonly row: Transcrip
   return false;
 });
 
-const RowBody = ({ row, facts }: { readonly row: TranscriptRow; readonly facts: RowFacts }) => {
+const RowBody = ({ row, facts, previousTime }: { readonly row: TranscriptRow; readonly facts: RowFacts; readonly previousTime?: string | undefined }) => {
   const { arrived } = facts;
   switch (row.kind) {
     case "user":
@@ -106,7 +108,7 @@ const RowBody = ({ row, facts }: { readonly row: TranscriptRow; readonly facts: 
         <AssistantText text={row.entry.text} streaming={row.entry.streaming} arrived={arrived(row.entry.sequence)} />
       );
     case "calls":
-      return <CallsRow calls={row.calls} facts={facts} />;
+      return <CallsRow calls={row.calls} facts={facts} previousTime={previousTime} />;
     case "subagent":
       return <Subagent entry={row.entry} facts={facts} />;
     case "prompt":
@@ -153,7 +155,7 @@ const RowBody = ({ row, facts }: { readonly row: TranscriptRow; readonly facts: 
       return (
         <ForkedRow entry={row.entry}>
           <div role="group" aria-label="Copied fork history" className="flex flex-col gap-3 border-l border-hairline pl-3">
-            {row.rows.map((inner) => <TranscriptRowView key={inner.id} row={inner} facts={{ ...facts, verbs: false }} />)}
+            {row.rows.map((inner, index) => <TranscriptRowView key={inner.id} row={inner} facts={{ ...facts, verbs: false }} previousTime={row.rows[index - 1] === undefined ? undefined : transcriptRowTime(row.rows[index - 1]!)} />)}
           </div>
         </ForkedRow>
       );

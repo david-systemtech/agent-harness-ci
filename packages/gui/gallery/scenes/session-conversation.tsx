@@ -6,18 +6,25 @@ import { showSession } from "../../src/grid/layout.js";
 import { prepareWorld, startWorld } from "../world.js";
 
 /** All three captures use the real App and the shared scripted world, frozen on its manual clock. */
-export async function sessionScene(kind: "conversation" | "streaming" | "find") {
+export async function sessionScene(kind: "conversation" | "streaming" | "find" | "timestamps") {
   const prepared = await prepareWorld({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Check the receipts" }] }] });
   const holders = await startWorld(prepared, prepared.paired);
   const env = prepared.world.environment("desk"), sessionId = env.sessionId();
   const projection = holders.runtime.projections.session(env.environmentId, sessionId);
   const stop = projection.subscribe(() => {});
+  if (kind === "timestamps") prepared.clock.advance(23 * 3_600_000 + 58 * 60_000);
   const { runId } = env.startRun(sessionId, "Check the receipt totals and explain the result.");
+  if (kind === "timestamps") prepared.clock.advance(7 * 60_000);
   env.emit(sessionId, "assistant.thinking", { runId, itemId: "thought", text: "Compare each receipt with the summary before changing the parser.", aborted: false });
   const text = "## Receipt totals\n\nThe receipts agree with the **summary**. The parser keeps each amount in integer cents.\n\n- Read the receipts\n- Compare the summary\n- Keep the existing rounding rule\n\n```ts\nconst total = receipts.reduce((sum, receipt) => sum + receipt.cents, 0);\n```";
   if (kind === "streaming") env.emit(sessionId, "assistant.delta", { runId, itemId: "reply", fragments: [{ kind: "text", text: "The receipts agree with the summary. I am checking the rounding rule. " }] });
   else {
     env.emit(sessionId, "assistant.text", { runId, itemId: "reply", text, aborted: false });
+    if (kind === "timestamps") {
+      env.emit(sessionId, "tool.started", { runId, toolCallId: "timed-read", name: "Read", input: { file_path: "totals.txt" }, title: null, agentId: null, parentToolCallId: null });
+      env.emit(sessionId, "tool.ended", { runId, toolCallId: "timed-read", status: "error", output: "Try the other receipt file.", durationMs: 20 });
+      prepared.clock.advance(60_000);
+    }
     env.endRun(sessionId, runId, { durationMs: 2400 });
     // A continuation the environment sent, on the run it starts: its spine label must fit the 56 px column (#1791).
     if (kind === "conversation") env.emit(sessionId, "message.sent", { runId: "0199a1ff-0000-4000-8000-000000001791", messageId: "0199aa00-0000-4000-8000-000000001791", text: "Check the receipt totals again after the update.", attachments: [], delivery: "prompt", heldBy: null, ceiling: "auto" }, { actor: { kind: "system", id: "updates" } });
@@ -29,6 +36,7 @@ export async function sessionScene(kind: "conversation" | "streaming" | "find") 
   });
   holders.presentation.set("paneLayout", showSession(holders.presentation.values.read().paneLayout, holders.presentation.values.read().paneLayout.focused, { environmentId: env.environmentId, sessionId }));
   holders.presentation.set("reasoningShown", false);
+  if (kind === "timestamps") holders.presentation.set("textSize", 20);
   return function SessionScene({ ladder }: { readonly ladder: LadderName }) {
     useEffect(() => {
       holders.presentation.set("lightOrDark", ladder);

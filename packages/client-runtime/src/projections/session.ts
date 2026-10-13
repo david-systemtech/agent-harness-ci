@@ -143,6 +143,8 @@ export type UserMessageEntry = SnapshotItem<"user-message">;
 
 /** The assistant's text or thinking for one item: `streaming` while its deltas are still coming. */
 export interface AssistantEntry {
+  /** First delta or settled event time; absent in older snapshots. */
+  readonly startedAt?: string;
   readonly kind: "assistant-text" | "assistant-thinking";
   readonly sequence: number;
   readonly runId: string;
@@ -412,7 +414,7 @@ const fromSnapshot = (item: TranscriptItem): Held => {
     case "assistant-text":
     case "assistant-thinking": {
       const settled = item as SnapshotItem<"assistant-text" | "assistant-thinking">;
-      return { kind: settled.kind, sequence: settled.sequence, runId: settled.runId, itemId: settled.itemId, text: settled.text, aborted: settled.aborted, streaming: false };
+      return { ...(settled.startedAt === undefined ? {} : { startedAt: settled.startedAt }), kind: settled.kind, sequence: settled.sequence, runId: settled.runId, itemId: settled.itemId, text: settled.text, aborted: settled.aborted, streaming: false };
     }
     case "tool-call":
       return { ...(item as SnapshotItem<"tool-call">), decision: null };
@@ -653,7 +655,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
           const open = assistant.get(key);
           if (open === undefined) {
             const kind = fragment.kind === "thinking" ? "assistant-thinking" : "assistant-text";
-            assistant.set(key, push({ kind, sequence, runId: payload.runId, itemId: payload.itemId, text: fragment.text, aborted: false, streaming: true }));
+            assistant.set(key, push({ kind, startedAt: event.occurredAt, sequence, runId: payload.runId, itemId: payload.itemId, text: fragment.text, aborted: false, streaming: true }));
           } else if (open.streaming) {
             // A delta after the item settled (a late batch) adds nothing: the settled text is whole.
             open.text += fragment.text;
@@ -670,7 +672,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
         if (open !== undefined) Object.assign(open, { text: payload.text, aborted: payload.aborted, streaming: false });
         else {
           const kind = thinking ? "assistant-thinking" : "assistant-text";
-          assistant.set(key, push({ kind, sequence, runId: payload.runId, itemId: payload.itemId, text: payload.text, aborted: payload.aborted, streaming: false }));
+          assistant.set(key, push({ kind, startedAt: event.occurredAt, sequence, runId: payload.runId, itemId: payload.itemId, text: payload.text, aborted: payload.aborted, streaming: false }));
         }
         return;
       }
@@ -681,6 +683,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
           push<Mutable<ToolCallEntry>>({
             kind: "tool-call",
             sequence,
+            startedAt: event.occurredAt,
             runId: payload.runId,
             toolCallId: payload.toolCallId,
             name: payload.name,
