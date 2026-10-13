@@ -8,7 +8,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from gallery_reports import validate_shard, MAX_THREAD_BYTES
+from gallery_reports import validate_shard, MAX_ROWS, MAX_THREAD_BYTES
 from gallery_allocation import LIMITS, captures_fit_allocation
 
 
@@ -82,7 +82,8 @@ def main():
             if not re.fullmatch(r'[A-Za-z0-9_-]+', head) or (version != head and (not isinstance(comment.get("id"), int) or comment["id"] < 1 or version != f'{head}-{comment["id"]}')):
                 continue
             captures = manifest.get('captures')
-            limit = 400 if 'shard' in manifest else sum(LIMITS.values())
+            # Reviewed reports may predate the current allocation; accept up to the publisher's hard cap per shard.
+            limit = MAX_ROWS if 'shard' in manifest else MAX_ROWS * len(LIMITS)
             if not isinstance(captures, list) or not captures or len(captures) > limit:
                 continue
             if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in captures):
@@ -92,7 +93,7 @@ def main():
                     validate_shard(manifest['shard'], len(captures), require_group=True)
                 except ValueError:
                     continue
-            elif not captures_fit_allocation([item['name'] for item in captures]):
+            elif not captures_fit_allocation([item['name'] for item in captures], cap=MAX_ROWS):
                 continue
             if len({capture['name'] for capture in captures}) != len(captures):
                 continue
