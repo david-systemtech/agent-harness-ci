@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 import { mountGallery } from "../gallery/mount.js";
 
 let close: (() => Promise<void>) | undefined;
@@ -38,4 +38,19 @@ it.each(["new-session", "new-session-not-ready"])("renders %s with the welcome, 
     { selector: '[aria-label="Where it starts"] fieldset button', height: 22 },
   ]));
   expect(gallery.world.world.environment("desk").requests("sessions.create")).toEqual([]);
+});
+
+it("renders phone-new-session-usage with the plan usage in the chip row, not behind a sheet (ticket 2100)", async () => {
+  vi.stubGlobal("innerWidth", 390);
+  vi.stubGlobal("matchMedia", (query: string) => Object.assign(new EventTarget(), { matches: query === "(width < 640px)", media: query, onchange: null }));
+  onTestFinished(() => { vi.unstubAllGlobals(); });
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, "phone-new-session-usage", "dark", undefined, { platform: "web" });
+  close = gallery.close;
+  const surface = within(await screen.findByRole("region", { name: "New session" }));
+  expect(await gallery.ready).toBe(true);
+  const meter = within(surface.getByRole("group", { name: "Where it starts" })).getByRole("group", { name: "Plan usage" });
+  expect(within(meter).getAllByRole("img").map((ring) => ring.getAttribute("aria-label"))).toEqual(["5-hour 42%", "Weekly 67%"]);
+  expect(screen.queryByRole("button", { name: "Run settings" })).toBeNull();
 });

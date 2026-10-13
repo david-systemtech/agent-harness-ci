@@ -231,6 +231,9 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
           <fieldset disabled={starting || creationAccepted} className="contents">
             {CHIPS.map((Chip, at) => <Chip key={at} view={view} sessionId={id} choose={choose} say={say} />)}
           </fieldset>
+          {/* The chosen account's plan usage ends the row as it ends the status line (#2100): the same meter, outside the fieldset
+              so its details and Refresh stay usable while the chips are locked. It wraps whole after the last chip, right-aligned,
+              and shrinks only where a whole line is narrower than it; on a phone it stays in the row, its rings visible. */}
           {destination !== null && view.account.value !== null && <UsageMeter environmentId={destination} accountId={view.account.value.id} />}
           {creationAccepted && !starting && <p className="w-full text-xs text-ink-muted">The session was created with these choices. Send again to retry its first message.</p>}
         </div>

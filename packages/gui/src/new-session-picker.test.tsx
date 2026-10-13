@@ -118,6 +118,32 @@ describe("new-session plan usage (ticket 2100)", () => {
     await waitFor(() => [local, paired].forEach((env, index) => expect(env.requests("accounts.usage").length).toBeGreaterThan(opened[index]!)));
     expect(local.requests("sessions.create")).toEqual([]);
   });
+
+  it("ends the row and keeps its details and Refresh usable while a starting session locks the chips", async () => {
+    const app = await launch([desk()]);
+    app.environment("desk").setUsage([reading("account-1", WORK, [window("five_hour", 0.42), window("seven_day", 0.8)])]);
+    await newSession(app);
+    const where = () => within(surface()).getByRole("group", { name: "Where it starts" });
+    const meter = () => within(where()).getByRole("group", { name: "Plan usage" });
+    await waitFor(() => expect(rings(meter())).toEqual(["5-hour 42%", "Weekly 80%"]));
+    // After the chips, outside their fieldset, right-aligned as the status line's.
+    expect(where().lastElementChild).toBe(meter());
+    expect(meter().closest("fieldset")).toBeNull();
+    expect(meter().classList.contains("ml-auto")).toBe(true);
+    app.environment("desk").wire.answer("sessions.create", () => new Promise(() => undefined));
+    act(() => within(surface()).getByRole("textbox", { name: "Message" }).focus());
+    await app.user.keyboard("Start once{Enter}");
+    await within(surface()).findByRole("button", { name: "Starting…" });
+    expect(chip("Account").matches(":disabled")).toBe(true);
+    const details = within(meter()).getByRole("button", { name: "Usage details" });
+    expect(details.matches(":disabled")).toBe(false);
+    const before = app.environment("desk").requests("accounts.usage").length;
+    await app.user.click(details);
+    const popover = await screen.findByRole("dialog", { name: "Usage details" });
+    await app.user.click(within(popover).getByRole("button", { name: "Refresh usage" }));
+    // Opening the details refreshes once, and Refresh once more.
+    await waitFor(() => expect(app.environment("desk").requests("accounts.usage").length).toBeGreaterThanOrEqual(before + 2));
+  });
 });
 
 describe("the new-session account picker (ticket 1894)", () => {
