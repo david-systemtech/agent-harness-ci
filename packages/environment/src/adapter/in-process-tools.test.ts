@@ -234,7 +234,7 @@ describe("a declared browse", () => {
 });
 
 describe("an in-process tool's images", () => {
-  it("reach the run beside the text, and the transcript records each as its media type and size, never its bytes; a text-only result is unchanged", async () => {
+  it("reach the run beside the text, and the transcript retains each through its reference, never logging its bytes; a text-only result is unchanged", async () => {
     const t = await start();
     const client = await t.client();
     const { id } = await create(client);
@@ -244,12 +244,15 @@ describe("an in-process tool's images", () => {
     expect(toolEnds(t, id).map((ended) => ended.output)).toEqual([
       [
         { type: "text", text: "Two views of https://example.com/" },
-        { type: "image", mediaType: "image/jpeg", size: 3 },
-        { type: "image", mediaType: "image/png", size: 5 },
+        { type: "image", mediaType: "image/jpeg", size: 3, sensitive: true, hash: expect.any(String) },
+        { type: "image", mediaType: "image/png", size: 5, sensitive: true, hash: expect.any(String) },
       ],
       "Noted",
     ]);
-    // The bytes went to the run, never to the log.
+    const images = toolEnds(t, id)[0]?.output as { hash: string }[];
+    expect(await client.request("transcript.image", { sessionId: id, hash: images[1]!.hash })).toEqual({ image: { mediaType: "image/jpeg", data: Buffer.from(JPEG).toString("base64") } });
+    expect(await client.request("transcript.image", { sessionId: id, hash: images[2]!.hash })).toEqual({ image: { mediaType: "image/png", data: Buffer.from(PNG).toString("base64") } });
+    // The bytes went to the run and the image store, never to the log.
     expect(JSON.stringify(eventsOf(t, id))).not.toContain(Buffer.from(JPEG).toString("base64"));
   });
 });

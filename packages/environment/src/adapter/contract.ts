@@ -287,12 +287,15 @@ export interface HostToolImage {
 /**
  * How the transcript records an image in a tool's result (claude-adapter
  * spec, #540's notes): its media type and its size in bytes, never the
- * bytes, which the model read and the log never holds, as an attachment's.
+ * bytes, which the model read and the log never holds. A retained image also
+ * carries the hash used by transcript.image and its sensitive marker.
  */
 export interface RecordedImage {
   readonly type: "image";
   readonly mediaType: string;
   readonly size: number;
+  readonly hash?: string;
+  readonly sensitive?: boolean;
 }
 
 export const recordedImage = (mediaType: string, size: number): RecordedImage => ({ type: "image", mediaType, size });
@@ -926,6 +929,8 @@ export interface ProcessPort {
 
 /** What the host hands a run beside its input. */
 export interface RunContext {
+  /** Keeps tool image bytes on the environment, returning only their transcript reference. */
+  readonly recordImage?: ((mediaType: string, data: string) => RecordedImage) | undefined;
   /**
    * Where the run's prompts go: the environment's broker, which records
    * each as `prompt.opened` on the session's stream and parks the run while

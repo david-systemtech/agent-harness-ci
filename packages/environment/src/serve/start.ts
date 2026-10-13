@@ -1,3 +1,4 @@
+import { createTranscriptImages } from "../transcript-images/store.js";
 import { webOriginPolicy } from "../web/origin-policy.js";
 import { webAttention } from "../web/attention.js";
 import { externalWebOrigin, serveWebClient } from "./web-client.js";
@@ -146,6 +147,7 @@ import { scrubDiagnosticOutput } from "../scrub/diagnostic-output.js";
 import { createScrubRegistry, type ScrubRegistry } from "../scrub/registry.js";
 import { createCompactionSweep } from "../sessions/compaction.js";
 import { createDeletion } from "../sessions/deletion.js";
+import { sessionNotFound } from "../sessions/decider.js";
 import { createForgeService, type ForgeService } from "../forge/forge-service.js";
 import { forgeAccountsProjector } from "../forge/forge-store.js";
 import { createCredentialRoute } from "../forge/credential-route.js";
@@ -1120,6 +1122,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // containment directories (#133's) and every workspace root, the scratch workspaces a completions request runs in (#140,
   // now its every call is gated), the worktrees and any root a later workstream declares (#325), and the key-manager CLIs'
   // configuration, which an injected CLI reads (#368, David's decision on it).
+  const transcriptImages = createTranscriptImages(join(dataDir, "transcript-images"));
   const roots = workspaceRoots(dataDir, options.workspaces?.roots);
   const denylistContext: Omit<DenylistContext, "denylist"> = {
     home: homedir(),
@@ -1468,6 +1471,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       toolServers: (scope) => [...runServers(scope), ...passthrough.toolServers(scope)],
       // What each run's recognised file tools change, kept for files.undo (#1183).
       fileChanges: fileChangeObserver({ log, writes: workspaceWrites }),
+      transcriptImages,
     });
     // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
     // before the launcher's channel, so the launcher hears the environment go only once every provider process has
@@ -1537,7 +1541,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
   closers.push(() => reaper.close());
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
-  const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore, fileChanges: log.fileChanges, onPurged: (purged) => reaper.purged(purged) });
+  const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore, fileChanges: log.fileChanges, onPurged: (purged) => { transcriptImages.purge(purged.sessionId); reaper.purged(purged); } });
   // File undo (#1183): the newest change a run's file tool made, restored under the workspace's turn the captures take too.
   const fileUndo = createFileUndo({ log, host, writes: workspaceWrites, ...(options.fileUndoHooks !== undefined && { hooks: options.fileUndoHooks }) });
   capabilities.push("fileUndo");
@@ -1911,6 +1915,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...settingsHandlers,
     ...accessMethods({ pairings, clientSessions, accessLog }),
     ...sessionHandlers,
+    // A deleted session answers not_found as every session query does; a purged or unknown one states the gap with null.
+    "transcript.image": ({ sessionId, hash }) => {
+      const [row] = log.read<{ deleted_at: string | null }>("SELECT deleted_at FROM sessions WHERE id = ?", sessionId);
+      if (row === undefined) return { image: null };
+      if (row.deleted_at !== null) throw new ContractError(sessionNotFound(sessionId));
+      return { image: transcriptImages.read(sessionId, hash) };
+    },
     // A missing session given another workspace (#328), from a request the create's resolver serves.
     ...setWorkspaceMethods({ log, host, resolver: workspaceResolver, availability, autoMemory }),
     ...groupMethods({ log, clock: now }),
@@ -1920,6 +1931,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       host,
       clock,
       store: providerStore,
+      transcriptImages,
       validateRunParameters: host.validateSessionInput,
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),

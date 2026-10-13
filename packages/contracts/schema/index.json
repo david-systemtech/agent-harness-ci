@@ -5007,6 +5007,18 @@
       "title": "sessions.list error"
     },
     {
+      "path": "methods/transcript.image/params.json",
+      "title": "transcript.image params"
+    },
+    {
+      "path": "methods/transcript.image/result.json",
+      "title": "transcript.image result"
+    },
+    {
+      "path": "methods/transcript.image/error.json",
+      "title": "transcript.image error"
+    },
+    {
       "path": "methods/sessions.get/params.json",
       "title": "sessions.get params"
     },
@@ -8249,6 +8261,15 @@
       "params": "methods/sessions.list/params.json",
       "result": "methods/sessions.list/result.json",
       "error": "methods/sessions.list/error.json"
+    },
+    {
+      "name": "transcript.image",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/transcript.image/params.json",
+      "result": "methods/transcript.image/result.json",
+      "error": "methods/transcript.image/error.json"
     },
     {
       "name": "sessions.get",

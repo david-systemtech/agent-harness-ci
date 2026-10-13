@@ -280,6 +280,7 @@ describe("a deleted session", () => {
     "commands.list": { sessionId },
     "banks.drafts.list": { sessionId },
     "checks.get": { sessionId },
+    "transcript.image": { sessionId, hash: "a".repeat(64) },
   });
 
   /** Whether a command's params name a session, a run or a message. */

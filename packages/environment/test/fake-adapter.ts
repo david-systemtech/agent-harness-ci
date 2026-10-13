@@ -468,7 +468,8 @@ export interface HostToolCallScript {
  * what the model is told and the tool never runs; allowed, the tool runs and
  * the call ends with what it answered, as the transcript records it: its
  * text, or, with images, its text (when there is any) and each image as its
- * media type and size (`recordedImage`), never its bytes. Returns what the
+ * retained reference when a recorder is supplied, else media type and size
+ * (`recordedImage`), never its bytes. Returns what the
  * model read: the tool's answer, or the gate's denial as an error.
  */
 export async function* callHostTool(controls: ScriptControls, call: HostToolCallScript): AsyncGenerator<AdapterEvent, HostToolResult> {
@@ -491,7 +492,7 @@ export async function* callHostTool(controls: ScriptControls, call: HostToolCall
   const output =
     images.length === 0
       ? result.text
-      : [...(result.text === "" ? [] : [{ type: "text", text: result.text }]), ...images.map((image) => recordedImage(image.mediaType, image.data.byteLength))];
+      : [...(result.text === "" ? [] : [{ type: "text", text: result.text }]), ...images.map((image) => controls.context.recordImage?.(image.mediaType, Buffer.from(image.data).toString("base64")) ?? recordedImage(image.mediaType, image.data.byteLength))];
   yield { type: "tool.ended", payload: { toolCallId, status: result.isError ? "error" : "ok", output, durationMs: 1 } };
   return result;
 }

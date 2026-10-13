@@ -194,7 +194,7 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
   if (liveFrom === null && projection.freshness === "live") setLiveFrom(headOf(projection));
   const quietMs = useQuietCalls(projection);
   const { revealed } = usePaneDocuments();
-  const facts: RowFacts = { arrived: (sequence) => liveFrom !== null && sequence > liveFrom, quietMs, workspace: projection.workspace, revealed, verbs: true, checkOutput: checks.runningOutput };
+  const facts: RowFacts = { imageTarget: { environmentId, sessionId }, arrived: (sequence) => liveFrom !== null && sequence > liveFrom, quietMs, workspace: projection.workspace, revealed, verbs: true, checkOutput: checks.runningOutput };
   const follow = useFollow();
   useReveal(follow, revealed);
   const find = useFindBar(follow.column, follow.stop);

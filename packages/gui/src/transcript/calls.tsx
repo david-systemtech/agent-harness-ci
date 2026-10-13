@@ -1,3 +1,4 @@
+import { ToolPicture } from "./tool-picture.js";
 import {
   TOOL_QUIET_MS,
   classifyTool,
@@ -19,7 +20,7 @@ import type { Revealed } from "../session/pane-documents.js";
 import { DiffView, editDiff } from "../side-column/diff-view.js";
 import { DocumentTiles } from "./document-tiles.js";
 import { Marked } from "./find.js";
-import { picturesIn, pictureUrl, withoutPictures } from "./images.js";
+import { picturesIn, withoutPictures } from "./images.js";
 import type { RowFacts } from "./rows.js";
 
 /**
@@ -97,13 +98,16 @@ export const CallsRow = ({ calls, facts }: CallsRowProps) => {
         </Fold>
       )}
       {standing.map((call) => <CallCard key={call.toolCallId} call={call} quietMs={call.status === "running" ? facts.quietMs(call.toolCallId) : 0} revealed={facts.revealed} choices={choices[call.toolCallId]} retain={(choice) => retain(call.toolCallId, choice)} />)}
-      {calls.flatMap((call) => picturesIn(call.output).map((picture, index) => (
-        <img key={`${call.toolCallId} ${index}`} src={pictureUrl(picture)} alt={`Returned by ${callName(call)}`} className="max-h-96 max-w-full self-start rounded-md border border-hairline object-contain" />
-      )))}
+      <CallsPictures calls={calls} facts={facts} />
       {facts.workspace !== null && <DocumentTiles calls={calls} workspace={facts.workspace} />}
     </div>
   );
 };
+
+/** Pictures stay beside both main and delegated calls, independently of their folds. */
+export const CallsPictures = ({ calls, facts }: CallsRowProps) => <>{calls.flatMap((call) => picturesIn(call.output).map((picture, index) => (
+  <ToolPicture key={`${call.toolCallId} ${index}`} picture={picture} name={`Returned by ${callName(call)}`} target={facts.imageTarget} />
+)))}</>;
 
 const Raw = ({ text }: { readonly text: string }) => <pre data-tool-raw className="max-h-72 overflow-auto whitespace-pre-wrap break-words border border-hairline bg-wash px-2.5 py-2 font-mono text-2xs leading-relaxed"><Marked text={text} /></pre>;
 

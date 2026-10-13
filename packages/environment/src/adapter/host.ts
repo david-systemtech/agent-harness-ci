@@ -1,3 +1,6 @@
+import { recordedImage } from "./contract.js";
+import { recordToolImages } from "../transcript-images/output.js";
+import type { TranscriptImages } from "../transcript-images/store.js";
 import { resolveSlash, type PreparedSlash, type SlashScope } from "./slash-resolution.js";
 import { randomUUID } from "node:crypto";
 import {
@@ -208,6 +211,7 @@ import { presetBrowser, type BrowserSeam } from "../browser/run-browser.js";
 const NOTHING_TO_PROJECT: RunDenylist = { paths: [], exempt: [], commandPatterns: [] };
 
 export interface AdapterHostOptions {
+  readonly transcriptImages?: TranscriptImages;
   readonly log: EventLog;
   readonly clock: Clock;
   /** The environment's shared registry, consulted before assistant deltas reach the log. */
@@ -1208,7 +1212,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         if (event.type === "tool.ended") {
           // A call that ended ok unasked is the mode's, decided in the transaction of its end (#131).
           log.atomically((tx) => {
-            entry.append(event);
+            const images = options.transcriptImages;
+            const output = recordToolImages(event.payload.output, images === undefined ? undefined : (mediaType, data) => images.retain(entry.sessionId, mediaType, data));
+            entry.append({ ...event, payload: { ...event.payload, output: output as never } });
             append(entry.sessionId, entry.runId, HOST_ACTOR, entry.calls.after(event, tx));
           });
           continue;
@@ -1401,6 +1407,10 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   });
 
   const contextFor = (entry: LiveRun): RunContext => ({
+    recordImage: options.transcriptImages === undefined ? undefined : (mediaType, data) => {
+      if (closing || log.read("SELECT id FROM sessions WHERE id = ?", entry.sessionId).length === 0) return recordedImage(mediaType, Buffer.byteLength(data, "base64"));
+      return options.transcriptImages!.retain(entry.sessionId, mediaType, data);
+    },
     broker: brokerFor(entry.sessionId),
     gate: gateFor(gatedRun(entry)),
     process: pool.port(entry.sessionId),

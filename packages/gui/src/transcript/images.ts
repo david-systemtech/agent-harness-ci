@@ -1,6 +1,7 @@
 /**
  * The pictures a tool call returned (docs/specs/gui.md, "A session pane":
- * images inline), read out of its output as the provider gave it: a content
+ * images inline), read out of its output: a retained reference (`hash`,
+ * `mediaType`, `sensitive`) fetched through transcript.image, or a content
  * block of a picture in base64 (`{type: "image", source: {type: "base64",
  * media_type, data}}`, alone or in a list), or the structured result a read
  * of a picture file gives (`{type: "image", file: {base64, type}}`). Only the
@@ -8,6 +9,12 @@
  * the output's text (`withoutPictures`), so a picture never hides the words
  * beside it.
  */
+
+export interface StoredPicture {
+  readonly hash: string;
+  readonly mediaType: string;
+  readonly sensitive: boolean;
+}
 
 export interface Picture {
   readonly mediaType: string;
@@ -23,8 +30,9 @@ const DEPTH = 4;
 const record = (value: unknown): Readonly<Record<string, unknown>> | undefined =>
   typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Readonly<Record<string, unknown>>) : undefined;
 
-const pictureOf = (block: Readonly<Record<string, unknown>>): Picture | undefined => {
+const pictureOf = (block: Readonly<Record<string, unknown>>): Picture | StoredPicture | undefined => {
   if (block["type"] !== "image") return undefined;
+  if (typeof block["hash"] === "string" && typeof block["mediaType"] === "string" && DRAWN.has(block["mediaType"])) return { hash: block["hash"], mediaType: block["mediaType"], sensitive: block["sensitive"] === true };
   const source = record(block["source"]);
   const file = record(block["file"]);
   const mediaType = source?.["type"] === "base64" ? source["media_type"] : file?.["type"];
@@ -33,7 +41,7 @@ const pictureOf = (block: Readonly<Record<string, unknown>>): Picture | undefine
 };
 
 /** Every picture in `output`, in the order it holds them. */
-export const picturesIn = (output: unknown, depth = DEPTH): readonly Picture[] => {
+export const picturesIn = (output: unknown, depth = DEPTH): readonly (Picture | StoredPicture)[] => {
   if (depth === 0) return [];
   if (Array.isArray(output)) return output.flatMap((item) => picturesIn(item, depth - 1));
   const block = record(output);
