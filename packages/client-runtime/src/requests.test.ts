@@ -150,6 +150,47 @@ describe("requests.call", () => {
     expect(settled).toMatchObject({ ok: false, error: { code: "timeout" } });
   });
 
+  it.each([
+    ["stateImport.run", { commandId: "0199aa00-0000-7000-8000-0000000000ab", dryRun: false }],
+    ["stateImport.run", { commandId: "0199aa00-0000-7000-8000-0000000000ab", dryRun: true }],
+    ["carryOver.run", { commandId: "0199aa00-0000-7000-8000-0000000000ab", accountId: "claude-max", dryRun: false, skills: true }],
+    ["carryOver.inventory", { accountId: "claude-max" }],
+  ] as const)("keeps %s open past 30 seconds for a late answer and bounds it at 15 minutes", async (method, params) => {
+    const { runtime, wire, clock, id } = await paired({ capabilities: ["stateImport"] });
+    wire.answer(method, () => undefined);
+    let settled: unknown;
+    const answer = runtime.requests.call(id, method, params);
+    void answer.then((result) => (settled = result));
+    const request = await wire.server.request(method);
+    for (let elapsed = 0; elapsed < 60_000; elapsed += 20_000) {
+      wire.server.ping();
+      await flush();
+      clock.advance(20_000);
+      await flush();
+    }
+    expect(settled).toBeUndefined();
+    wire.server.send({ type: "response", id: request.id, error: { code: "conflict", message: "Import refused.", data: {} } });
+    expect(await answer).toMatchObject({ ok: false, error: { code: "conflict", message: "Import refused." } });
+
+    settled = undefined;
+    const unanswered = runtime.requests.call(id, method, params);
+    void unanswered.then((result) => (settled = result));
+    await wire.server.request(method);
+    for (let elapsed = 0; elapsed < 880_000; elapsed += 20_000) {
+      wire.server.ping();
+      await flush();
+      clock.advance(20_000);
+      await flush();
+    }
+    wire.server.ping();
+    await flush();
+    clock.advance(19_999);
+    await flush();
+    expect(settled).toBeUndefined();
+    clock.advance(1);
+    expect(await unanswered).toMatchObject({ ok: false, error: { code: "timeout", message: `The environment did not answer ${method} within 900 seconds.` } });
+  });
+
   it.each(["accepted", "rejected"] as const)("keeps a staging update open past 30 seconds and returns its %s receipt", async (status) => {
     const { runtime, wire, clock, id } = await paired();
     wire.answer("updates.apply", () => undefined);

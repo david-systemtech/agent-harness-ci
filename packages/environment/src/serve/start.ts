@@ -1766,7 +1766,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       environmentId: record.id,
       underWay: () => {
         const active = stateImports.underWay();
-        return active !== null && !active.dryRun ? active.importId : null;
+        return active !== null && active.kind === "state-import" && !active.dryRun ? active.importId : null;
       },
     },
     containment,

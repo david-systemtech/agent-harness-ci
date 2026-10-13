@@ -26,6 +26,34 @@ const report = (dryRun = false): StateImportReport => StateImportReport.parse({
   failed: [{ label: "Nightly digest", message: "Its workspace is missing." }],
   clientLocal: { mode: "dark", fontSize: 18, conversationWidth: "wide", showThinking: false, settingsRow: "knowledge.banks" },
 });
+it("shows the earlier-work report from the card's Bring them over button, including preferences and repairs", async () => {
+  const app = await opened({ accounts: [{ label: "Work" }], setup: { "carry-over": {
+    state: "needs-attention", reason: "Work has past chats to bring over. Choose Bring them over.",
+    actions: ["import-again"], failing: ["carry-over.last-import"],
+    targets: [{ action: "import-again", kind: "account", id: "account-1", label: "Work" }],
+  } } }, detection(), (app) => {
+    app.environment("desk").wire.answer("carryOver.inventory", () => ({ result: {
+      accountId: "account-1", sessions: { total: 1, archived: 0, missingDirectory: 0, new: 1 },
+      memory: { folders: 0, repositories: 0, unmappable: [], new: 0 },
+      skills: { skills: 0, commands: 0, new: 0, offered: [], invalid: 0 },
+      notCarried: [], doesNotCarry: { hooks: 0, mcpServers: 0, permissionRules: 0 },
+    } }));
+    // A replayed account receipt has no result; earlier work still runs and returns its full report.
+    app.environment("desk").wire.answer("carryOver.run", () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: false } } }));
+    answerRun(app);
+  });
+  await screen.findByRole("region", { name: "Earlier work" });
+  await app.user.click(await screen.findByRole("button", { name: "Bring them over" }));
+  const result = within(await screen.findByRole("region", { name: "Earlier work result" }));
+  expect(result.getByText("Brought over")).toBeDefined();
+  expect(result.getByText("Forge token")).toBeDefined();
+  expect(result.getByText("Local model")).toBeDefined();
+  expect(result.getByText("Saved connections: 2")).toBeDefined();
+  expect(result.getByText("Nightly digest: Its workspace is missing.")).toBeDefined();
+  expect(result.getByText("Applied to this window.")).toBeDefined();
+  expect(app.environment("desk").requests("stateImport.run")).toHaveLength(1);
+});
+
 const answerRun = (app: Awaited<ReturnType<typeof opened>>) => app.environment("desk").wire.answer("stateImport.run", (params) => ({
   result: { receipt: { status: "accepted", sequence: 1, changed: params["dryRun"] !== true }, result: report(params["dryRun"] === true) },
 }));

@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { cp, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { registry, SessionSnapshot, type SessionCreatedPayload } from "@agent-harness/contracts";
 import { end, fakeAdapter, signedInAs } from "../../test/fake-adapter.js";
 import { createProviderTranscriptStore } from "../provider-transcripts/store.js";
@@ -15,6 +16,12 @@ import { git } from "../../test/workspaces.js";
 import { autoMemoryName } from "../workspace/auto-memory.js";
 import { createClaudeAdapter } from "../adapters/claude/index.js";
 import { machinePointedAt } from "./source/folders.js";
+
+// Filesystem faults leave the real import pipeline and its owning services in place.
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, cp: vi.fn(actual.cp), rm: vi.fn(actual.rm) };
+});
 
 const { tempDir, onCleanup } = useCleanups();
 
@@ -47,6 +54,53 @@ const fixture = () => {
   const options = { accounts: [], otherAdapters: [adapter], setupSteps: NO_SETUP_STEPS, stateImportSource: machinePointedAt({ dataFolder: source, home }), carryOverHome: home };
   return { source, winner, secondary, shared, secondaryOnly, path, workspace, adapter, options };
 };
+
+it("finishes with a report after a source copy and its undo fail, continues remaining undos and sources, and logs both causes", async () => {
+  const f = fixture();
+  for (const name of ["a-copied", "b-fails"]) {
+    const folder = join(f.winner, "skills", name);
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, "SKILL.md"), `---\nname: ${name}\ndescription: Fixture skill.\n---\nSkill.\n`);
+  }
+  const t = await startTestEnvironment(f.options);
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const copyFailure = new Error("Fixture copy failed.");
+  const undoFailure = new Error("Fixture undo failed.");
+  const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  let copiedPath = "";
+  let failedPath = "";
+  vi.mocked(cp).mockImplementation(async (source, target, options) => {
+    if (String(source) === join(f.winner, "skills", "a-copied")) copiedPath = String(target);
+    if (String(source) === join(f.winner, "skills", "b-fails")) {
+      failedPath = String(target);
+      throw copyFailure;
+    }
+    return actual.cp(source, target, options);
+  });
+  vi.mocked(rm).mockImplementation(async (path, options) => {
+    if (String(path) === failedPath) throw undoFailure;
+    return actual.rm(path, options);
+  });
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  onCleanup(() => { vi.mocked(cp).mockRestore(); vi.mocked(rm).mockRestore(); logged.mockRestore(); });
+  const commandId = randomUUID();
+  const answer = await client.request("stateImport.run", { commandId, dryRun: false });
+  expect(answer.receipt.status).toBe("accepted");
+  expect(answer.result?.failed).toEqual(expect.arrayContaining([
+    expect.objectContaining({ label: 'Carry over Claude profile "Winner"', message: "Its source could not be carried; retained files are needed for a retry." }),
+    expect.objectContaining({ label: 'Carry over Claude profile "Winner"', message: "Its copied files could not all be removed; check them before retrying." }),
+  ]));
+  expect(copiedPath).not.toBe("");
+  expect(existsSync(copiedPath)).toBe(false);
+  expect(existsSync(failedPath)).toBe(true);
+  const finished = t.env.log.readStream({ kind: "environment", id: t.env.id }).find((event) => event.type === "state-import.finished" && event.commandId === commandId);
+  expect(finished?.payload).toMatchObject({ failed: answer.result!.failed });
+  const created = t.env.log.readStream({ kinds: ["session"] }).filter((event) => event.type === "session.created");
+  expect(created).toHaveLength(2);
+  expect(logged).toHaveBeenCalledWith("State import could not carry source:", f.winner, copyFailure);
+  expect(logged).toHaveBeenCalledWith("State import could not undo source:", f.winner, undoFailure);
+});
 
 it("previews both directories without adoption, imports records lazily under the winner, and preserves once-only secondary history and purged mappings across restart", async () => {
   const f = fixture();

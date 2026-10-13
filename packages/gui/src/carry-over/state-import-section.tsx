@@ -10,8 +10,19 @@ import { useClock, useObservable, usePresentation, useRuntime } from "../window-
 import { foundDetails, foundLine } from "./earlier-work-words.js";
 import { StateImportFailures, StateImportResult, useEarlierWorkDetails } from "./state-import-report.js";
 
+/** A run from the card's primary button, with the window preferences it applied. */
+export interface CompletedStateImport {
+  readonly report: StateImportReport;
+  readonly clientLocalApplied: boolean;
+}
+
+interface SectionProps {
+  readonly environmentId: string;
+  readonly completed?: CompletedStateImport | undefined;
+}
+
 /** The earlier-work section (the state import) is offered when the environment serves it and finds a source folder or retains failed items (ADR 0036). */
-export const StateImportSection = ({ environmentId }: { readonly environmentId: string }) => {
+export const StateImportSection = ({ environmentId, completed }: SectionProps) => {
   const runtime = useRuntime();
   useObservable(runtime.projections.environments);
   const availability = runtime.capability(environmentId, "stateImport");
@@ -21,7 +32,7 @@ export const StateImportSection = ({ environmentId }: { readonly environmentId: 
   }, [availability.status, environmentId]);
   // Keep this window's Preview while a known environment reconnects; its actions become unavailable.
   const offered = availability.status === "present" || (offeredEnvironment === environmentId && (availability.reason === "unreachable" || availability.reason === "not-ready"));
-  return offered ? <DetectedStateImport key={environmentId} environmentId={environmentId} /> : null;
+  return offered ? <DetectedStateImport key={environmentId} environmentId={environmentId} completed={completed} /> : null;
 };
 
 /** The buttons' names, which a refusal's line asks the person to choose again (setup-copy.md §5.3). */
@@ -52,7 +63,7 @@ const mergePreviewFailures = (retained: readonly StateImportFailure[], preview: 
  * folders under Details, Preview and Bring it over, and the report, whose
  * failed items each say their own fix.
  */
-const DetectedStateImport = ({ environmentId }: { readonly environmentId: string }) => {
+const DetectedStateImport = ({ environmentId, completed }: SectionProps) => {
   const runtime = useRuntime();
   const found = useObservable(useMemo(() => runtime.requests.cached(environmentId, "stateImport.detect", {}), [runtime, environmentId]));
   const failures = useObservable(useMemo(() => runtime.projections.stateImportFailures(environmentId), [runtime, environmentId]));
@@ -71,6 +82,12 @@ const DetectedStateImport = ({ environmentId }: { readonly environmentId: string
   const [refusal, setRefusal] = useState<PlainRefusal | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [clientLocalApplied, setClientLocalApplied] = useState(false);
+  useEffect(() => {
+    if (completed !== undefined) {
+      setReport(completed.report);
+      setClientLocalApplied(completed.clientLocalApplied);
+    }
+  }, [completed]);
   const [, setMode] = usePresentation("lightOrDark");
   const [, setFontSize] = usePresentation("textSize");
   const [, setWidth] = usePresentation("readingWidth");

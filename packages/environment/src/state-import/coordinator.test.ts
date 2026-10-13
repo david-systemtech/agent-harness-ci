@@ -29,16 +29,16 @@ describe("the import coordinator", () => {
       enterApplying = applying;
       return gate.promise;
     });
-    expect(coordinator.state()).toEqual({ importId: "import-1", dryRun: false, phase: "preparing" });
+    expect(coordinator.state()).toEqual({ importId: "import-1", dryRun: false, kind: "state-import", phase: "preparing" });
     expect(coordinator.exclusive("preview-1", true, async () => "preview")).toBeNull();
     enterApplying();
-    expect(coordinator.state()).toEqual({ importId: "import-1", dryRun: false, phase: "applying" });
+    expect(coordinator.state()).toEqual({ importId: "import-1", dryRun: false, kind: "state-import", phase: "applying" });
     expect(coordinator.underWay()).toEqual(coordinator.state());
     expect(coordinator.exclusive("import-2", false, async () => "second")).toBeNull();
 
     gate.resolve("report");
     expect(await first).toBe("report");
-    expect(coordinator.state()).toEqual({ importId: "import-1", dryRun: false, phase: "finished" });
+    expect(coordinator.state()).toEqual({ importId: "import-1", dryRun: false, kind: "state-import", phase: "finished" });
     expect(coordinator.underWay()).toBeNull();
     expect(await coordinator.exclusive("preview-2", true, async () => "preview")).toBe("preview");
   });
@@ -50,7 +50,7 @@ describe("the import coordinator", () => {
     expect(coordinator.exclusive("import-1", false, async () => "import")).toBeNull();
     gate.reject(new Error("The source folder went away."));
     await expect(preview).rejects.toThrow("The source folder went away.");
-    expect(coordinator.state()).toEqual({ importId: "preview-1", dryRun: true, phase: "failed" });
+    expect(coordinator.state()).toEqual({ importId: "preview-1", dryRun: true, kind: "state-import", phase: "failed" });
 
     const thrown = coordinator.exclusive("import-2", false, () => {
       throw new Error("Refused before preparing.");

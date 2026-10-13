@@ -365,6 +365,17 @@ describe("Carry over in Set up", () => {
     await waitFor(() => expect(app.environment("desk").requests("stateImport.run")).toHaveLength(1));
   });
 
+  it("names Bring them over when that button's earlier-work import is refused", async () => {
+    const app = await withEarlierWork(
+      { "carry-over": needsImport("Personal has past chats to bring over. Choose Bring them over.", [["account-1", "Personal"], ["account-2", "Work"]]) },
+      (accountId) => inventory(accountId),
+    );
+    app.environment("desk").wire.answer("stateImport.run", () => ({ error: { code: "internal", message: "Fixture import failed.", data: {} } }));
+    await app.user.click(screen.getByRole("button", { name: "Bring them over" }));
+    expect(await screen.findByText("agent-harness ran into a problem. Choose Bring them over to try again.")).toBeDefined();
+    expect(screen.queryByText(/Choose Continue bringing it over to try again/)).toBeNull();
+  });
+
   it("brings the earlier work over once when every account's run is refused and Bring them over is chosen again", async () => {
     const app = await withEarlierWork(
       { "carry-over": needsImport("Personal has past chats to bring over. Choose Bring them over. Work has past chats to bring over. Choose Bring them over.", [["account-1", "Personal"], ["account-2", "Work"]]) },

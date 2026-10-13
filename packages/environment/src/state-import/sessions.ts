@@ -89,10 +89,18 @@ export const carryListedSources = async (plan: ImportPlan, options: {
       accepted = run.receipt.status === "accepted";
       if (!accepted) failures.push({ label: `Carry over ${profileName(entry)}`, message: run.receipt.status === "rejected" ? run.receipt.error.message : "Carry over failed." });
       else for (const failure of (!run.replayed ? run.result?.failed : []) ?? []) failures.push({ label: `Carry over ${profileName(entry)}`, message: failure.message });
-    } catch {
+    } catch (error) {
+      console.error("State import could not carry source:", entry.directory, error);
       failures.push({ label: `Carry over ${profileName(entry)}`, message: "Its source could not be carried; retained files are needed for a retry." });
     } finally {
-      if (!accepted) for (const undo of undos.reverse()) await undo();
+      if (!accepted) for (const undo of undos.reverse()) {
+        try {
+          await undo();
+        } catch (error) {
+          console.error("State import could not undo source:", entry.directory, error);
+          failures.push({ label: `Carry over ${profileName(entry)}`, message: "Its copied files could not all be removed; check them before retrying." });
+        }
+      }
     }
     await options.afterSource?.(entry.sourceId);
   }

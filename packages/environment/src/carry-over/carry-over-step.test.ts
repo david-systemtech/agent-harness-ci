@@ -142,6 +142,29 @@ describe("the Carry over step with nothing to carry", () => {
 });
 
 describe("the Carry over step with an adopted directory to carry", () => {
+  it("does not call an ordinary account import earlier work while it holds the shared coordinator", async () => {
+    let entered!: () => void;
+    let release!: () => void;
+    const reached = new Promise<void>((resolve) => { entered = resolve; });
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    let hold = false;
+    const client = await start({ sessions: async () => {
+      if (hold) { hold = false; entered(); await pending; }
+      return [listed()];
+    } });
+    // Commit a first import so the next check can use its done line without listing the held source.
+    expect((await importNow(client)).receipt.status).toBe("accepted");
+    hold = true;
+    const run = importNow(client);
+    onCleanup(async () => { release(); await run.catch(() => undefined); });
+    await reached;
+    try {
+      expect(await checkCarryOver(client)).toMatchObject({ state: "done", reason: BROUGHT_OVER });
+      await expect(client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).resolves.toMatchObject({ receipt: { status: "rejected", error: { data: { reason: "import_in_progress" } } } });
+    } finally { release(); }
+    expect((await run).receipt.status).toBe("accepted");
+  });
+
   it("needs attention before the first import, naming the account with Bring them over", async () => {
     const client = await start({ sessions: [listed(), listed()] });
     expect(await checkCarryOver(client)).toEqual({
