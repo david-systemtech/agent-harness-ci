@@ -66,6 +66,86 @@ const openChip = async (app: RenderedApp, name: string) => {
 const rows = (group: HTMLElement) => within(group).getAllByRole("menuitem").map((item) => item.getAttribute("aria-label"));
 const rings = (row: HTMLElement) => within(row).queryAllByRole("img").map((ring) => ring.getAttribute("aria-label"));
 
+describe("new-session plan usage (ticket 2100)", () => {
+  it("follows account and environment choices even when account ids repeat across environments", async () => {
+    const app = await launch([desk({
+      accounts: [{ id: "account-1", label: "work", identity: WORK }, { id: "account-2", label: "personal", identity: HOME }],
+      models: [SIX, { ...SIX, accountId: "account-2" }],
+    }), {
+      name: "laptop", reach: "paired",
+      accounts: [{ id: "account-1", label: "spare", identity: SPARE }], models: [SIX],
+    }]);
+    app.environment("desk").setUsage([
+      reading("account-1", WORK, [window("five_hour", 0.25)]),
+      reading("account-2", HOME, [window("five_hour", 0.6)]),
+    ]);
+    app.environment("laptop").setUsage([reading("account-1", SPARE, [window("five_hour", 0.9)])]);
+    await newSession(app);
+    const meter = () => within(within(surface()).getByRole("group", { name: "Plan usage" }));
+    expect(await meter().findByRole("img", { name: "5-hour 25%" })).toBeTruthy();
+    const menu = await openChip(app, "Account");
+    await app.user.click(within(within(menu).getByRole("group", { name: "Accounts" })).getByRole("menuitem", { name: /^personal / }));
+    await app.user.keyboard("{Escape}");
+    expect(await meter().findByRole("img", { name: "5-hour 60%" })).toBeTruthy();
+    act(() => chip("Environment").focus());
+    await app.user.keyboard("{Enter}");
+    await app.user.click(await screen.findByRole("menuitem", { name: /^laptop/ }));
+    expect(await meter().findByRole("img", { name: "5-hour 90%" })).toBeTruthy();
+    expect(meter().queryByRole("img", { name: "5-hour 25%" })).toBeNull();
+  });
+
+  it("shows pooled usage for the chosen account and refreshes every source from its details", async () => {
+    const app = await launch([desk(), {
+      name: "laptop", reach: "paired",
+      accounts: [{ id: "shared-account", label: "shared", identity: WORK }],
+    }]);
+    const local = app.environment("desk");
+    const paired = app.environment("laptop");
+    local.setUsage([reading("account-1", WORK, [window("five_hour", 0.25)])]);
+    paired.setUsage([reading("shared-account", WORK, [{ ...window("five_hour", 0.75), observedAt: "2026-09-25T09:01:00.000Z" }])]);
+    await newSession(app);
+    const where = within(surface()).getByRole("group", { name: "Where it starts" });
+    const meter = await within(where).findByRole("group", { name: "Plan usage" });
+    expect(await within(meter).findByRole("img", { name: "5-hour 75%" })).toBeTruthy();
+    const before = [local, paired].map(env => env.requests("accounts.usage").length);
+    await app.user.click(within(meter).getByRole("button", { name: "Usage details" }));
+    const details = await screen.findByRole("dialog", { name: "Usage details" });
+    expect(within(details).getByRole("heading", { name: "milo@work.test" })).toBeTruthy();
+    expect(within(details).getByText("75%")).toBeTruthy();
+    await waitFor(() => [local, paired].forEach((env, index) => expect(env.requests("accounts.usage").length).toBeGreaterThan(before[index]!)));
+    const opened = [local, paired].map(env => env.requests("accounts.usage").length);
+    await app.user.click(within(details).getByRole("button", { name: "Refresh usage" }));
+    await waitFor(() => [local, paired].forEach((env, index) => expect(env.requests("accounts.usage").length).toBeGreaterThan(opened[index]!)));
+    expect(local.requests("sessions.create")).toEqual([]);
+  });
+
+  it("ends the row and keeps its details and Refresh usable while a starting session locks the chips", async () => {
+    const app = await launch([desk()]);
+    app.environment("desk").setUsage([reading("account-1", WORK, [window("five_hour", 0.42), window("seven_day", 0.8)])]);
+    await newSession(app);
+    const where = () => within(surface()).getByRole("group", { name: "Where it starts" });
+    const meter = () => within(where()).getByRole("group", { name: "Plan usage" });
+    await waitFor(() => expect(rings(meter())).toEqual(["5-hour 42%", "Weekly 80%"]));
+    // After the chips, outside their fieldset, right-aligned as the status line's.
+    expect(where().lastElementChild).toBe(meter());
+    expect(meter().closest("fieldset")).toBeNull();
+    expect(meter().classList.contains("ml-auto")).toBe(true);
+    app.environment("desk").wire.answer("sessions.create", () => new Promise(() => undefined));
+    act(() => within(surface()).getByRole("textbox", { name: "Message" }).focus());
+    await app.user.keyboard("Start once{Enter}");
+    await within(surface()).findByRole("button", { name: "Starting…" });
+    expect(chip("Account").matches(":disabled")).toBe(true);
+    const details = within(meter()).getByRole("button", { name: "Usage details" });
+    expect(details.matches(":disabled")).toBe(false);
+    const before = app.environment("desk").requests("accounts.usage").length;
+    await app.user.click(details);
+    const popover = await screen.findByRole("dialog", { name: "Usage details" });
+    await app.user.click(within(popover).getByRole("button", { name: "Refresh usage" }));
+    // Opening the details refreshes once, and Refresh once more.
+    await waitFor(() => expect(app.environment("desk").requests("accounts.usage").length).toBeGreaterThanOrEqual(before + 2));
+  });
+});
+
 describe("the new-session account picker (ticket 1894)", () => {
   it("lists each account with its identity, sign-in status and usage rings, the reading in the rings' tooltip, with no text block", async () => {
     const app = await launch([desk({ accounts: [
