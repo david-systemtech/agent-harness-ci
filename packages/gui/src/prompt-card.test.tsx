@@ -145,6 +145,19 @@ describe("an approval", () => {
       vi.mocked(prompt.getBoundingClientRect).mockReturnValue(new DOMRect(0, 0, 1000, 620));
       resize();
       expect(above.style.getPropertyValue("--session-prompt-height")).toBe("388px");
+      // Browser scrollHeight rounds a fractional dock height upward even without overflow.
+      // Growing the card and the dock equally must still leave the same control reservation.
+      for (const height of [800.125, 799.625, 799.25]) {
+        vi.mocked(column.getBoundingClientRect).mockReturnValue(new DOMRect(0, 0, 1000, height));
+        vi.mocked(prompt.getBoundingClientRect).mockReturnValue(new DOMRect(0, 0, 1000, height - 180));
+        const scrollHeight = vi.spyOn(column, "scrollHeight", "get").mockReturnValue(Math.round(height));
+        const clientHeight = vi.spyOn(column, "clientHeight", "get").mockReturnValue(Math.round(height));
+        resize();
+        expect(above.style.getPropertyValue("--session-prompt-height")).toBe("388px");
+        scrollHeight.mockRestore();
+        clientHeight.mockRestore();
+      }
+      vi.mocked(prompt.getBoundingClientRect).mockReturnValue(new DOMRect(0, 0, 1000, 620));
       // Compact composer controls free a row; that must not turn compact mode off and back on.
       vi.mocked(column.getBoundingClientRect).mockReturnValue(new DOMRect(0, 0, 1000, 745));
       resize();

@@ -15,7 +15,10 @@ export function usePromptSpace(above: RefObject<HTMLDivElement | null>, enabled:
       const otherRows = Array.from(pane.children).filter(child => child !== column && !child.contains(transcript));
       const reserved = otherRows.reduce((height, row) => height + row.getBoundingClientRect().height, 0);
       // Remove the prompt's current height from the composer before allocating it: this stays stable as it shrinks.
-      const controls = Math.max(column.getBoundingClientRect().height, column.scrollHeight) - prompt.getBoundingClientRect().height;
+      // scrollHeight and clientHeight round to whole pixels. Using that rounded height
+      // for a fitting dock feeds the rounding error back into the next prompt resize.
+      const dockHeight = column.scrollHeight > column.clientHeight ? column.scrollHeight : column.getBoundingClientRect().height;
+      const controls = dockHeight - prompt.getBoundingClientRect().height;
       const reading = getComputedStyle(transcript.firstElementChild ?? transcript);
       const padding = (Number.parseFloat(reading.paddingTop) || 0) + (Number.parseFloat(reading.paddingBottom) || 0);
       const available = Math.max(0, pane.getBoundingClientRect().height - reserved - controls - (3 * lineHeight + padding));
