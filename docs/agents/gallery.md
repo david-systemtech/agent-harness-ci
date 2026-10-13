@@ -115,7 +115,7 @@ When the hosted workflow changes, install `.forgejo/github-workflows/gallery.yml
 
 When publication limits change, verify a gallery triggered on an open PR after the change reaches trusted main. The `pull_request_target` workflow checks out the event's base SHA; the PR head supplies the captures, not the publisher. A run started before the main merge does not prove the new publisher, even if it finishes afterward. Reuse an existing qualifying run rather than replaying a merged PR, which the publisher refuses.
 
-Check the event's base SHA and the relay checkout log, then confirm the completed report is authored by the reserved Actions identity (user ID `-2`). Its immutable version must be `<head>-<comment-id>`. Count the manifest captures, download every capture through its authenticated `api_url`, and verify each SHA-256, PNG signature and viewport dimensions. Check capture totals against 400 rows per shard and 48 MiB combined, and the hosted artifact's ZIP size against 64 MiB. A successful trusted publisher also proves its complete archive passed the sharded 2400-PNG, 2402-entry and 48-MiB expanded-payload guards. Report publication separately from geometry and pixel results.
+Check the event's base SHA and the relay checkout log, then confirm the completed report is authored by the reserved Actions identity (user ID `-2`). Its immutable version must be `<head>-<comment-id>`. Count the manifest captures, download every capture through its authenticated `api_url`, and verify each SHA-256, PNG signature and viewport dimensions. Check capture totals against 400 rows per shard and 48 MiB combined, and the hosted artifact's ZIP size against 64 MiB. A successful trusted publisher also proves its complete archive passed the sharded 2010-PNG, 2012-entry and 48-MiB expanded-payload guards. Report publication separately from geometry and pixel results.
 
 ### Hosted verification, 2026-10-03 (#1496)
 
@@ -133,7 +133,15 @@ No publication failure was found, so no additional publisher or baseline change 
 
 ## Report shards
 
-Filename discovery creates desktop and phone shards with at most 400 captures each.
+Filename discovery creates desktop shards with at most 270 captures and phone shards
+with at most 400 (`scripts/gallery-allocation.json`). Desktop captures are larger
+(about 68 KiB each at 1400 × 900 and 1024 × 768): a 400-capture desktop shard is
+about 26.6 MiB, and a frame-wide change that adds a baseline and a difference PNG
+for most of its captures pushes its report past the 48 MiB expanded payload limit,
+so it fails before upload and nothing can be accepted. At 270 captures a desktop
+shard holds about 18 MiB of captures, leaving about 30 MiB for baseline and
+difference PNGs, and a frame-wide change spreads across more shards. The
+publisher's per-shard row cap stays at 400.
 The hosted workflow discovers the matrix from `gallery/plan.ts`, with `gallery/shards.ts` as a fallback for earlier heads, captures each
 shard with `GALLERY_SHARD`, and uploads `window-gallery-<shard-id>`. Every shard
 keeps the 1,200 PNG, 48 MiB expanded payload and 64 MiB transport limits, geometry

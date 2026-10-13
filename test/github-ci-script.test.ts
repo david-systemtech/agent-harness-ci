@@ -1408,7 +1408,7 @@ it("publishes and accepts the required captures per registered scene through mai
   const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; const desktop = (await sceneFiles("./packages/gui/gallery/scenes")).filter(name => !name.startsWith("phone-")); console.log(JSON.stringify(capturePlan(desktop).shards.map(shard => ({ id: shard.id, names: shard.captures.map(c => c.name) }))));'], { cwd: root });
   const shards = JSON.parse(plan.stdout) as { id: string; names: string[] }[];
   const names = shards.flatMap(shard => shard.names);
-  // The hosted job captures the registered desktop scenes in named shards of at most 400 captures (#1937), however many the plan holds.
+  // The hosted job captures the registered desktop scenes in named shards of at most 270 captures (#1937), however many the plan holds.
   const artifacts: { id: number; name: string; size_in_bytes: number }[] = [];
   const archives: Record<string, string> = {};
   for (const [index, shard] of shards.entries()) {
@@ -1711,7 +1711,7 @@ it("plans and validates a bounded single report on heads predating shard support
 
 it("publishes and accepts older combined reports including all frame phone profiles", async () => {
   const g = await storedGallery();
-  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; const desktop = (await sceneFiles("./packages/gui/gallery/scenes")).filter(name => !name.startsWith("phone-")); const phone = [...Array.from({ length: 6 }, (_, i) => `phone-capacity-existing-${i}`), "phone-frame-conversation", "phone-frame-drawer"]; console.log(JSON.stringify(capturePlan([...desktop, ...phone]).shards.filter(shard => shard.id === "desktop-001" || shard.id.startsWith("phone-")).flatMap(shard => shard.captures.map(c => c.name))));'], { cwd: root });
+  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; const desktop = (await sceneFiles("./packages/gui/gallery/scenes")).filter(name => !name.startsWith("phone-")); const phone = [...Array.from({ length: 24 }, (_, i) => `phone-capacity-existing-${i}`), "phone-frame-conversation", "phone-frame-drawer"]; console.log(JSON.stringify(capturePlan([...desktop, ...phone]).shards.filter(shard => shard.id === "desktop-001" || shard.id.startsWith("phone-")).flatMap(shard => shard.captures.map(c => c.name))));'], { cwd: root });
   const names = JSON.parse(plan.stdout) as string[];
   // This older combined format holds one bounded report per family (the registered desktop captures now fill more than one, #1937),
   // and must keep working beyond one 400-capture report's limit across both families.
@@ -1724,8 +1724,8 @@ with zipfile.ZipFile(path) as z: entries={n:z.read(n) for n in z.namelist()}
 report=json.loads(entries['report.json'])
 scenes=report.pop('scenes')
 report['pixelBlocking']=True
-report['captureBudget']['limit']=800
-report['captureBudget']['remaining']=800-len(scenes)
+report['captureBudget']['limit']=670
+report['captureBudget']['remaining']=670-len(scenes)
 report['shards']=[{'name':shard,'scenes':[s for s in scenes if s['name'].startswith('phone-') == (shard=='phone')]} for shard in ('desktop','phone')]
 entries['report.json']=json.dumps(report).encode()
 with zipfile.ZipFile(path,'w') as z:
@@ -1805,7 +1805,7 @@ with zipfile.ZipFile(path,'w') as z:
 
 it("publishes complete changed triplets at both shard limits", async () => {
   const g = await storedGallery();
-  const names = [...Array.from({ length: 400 }, (_, i) => `scene-${i}.dark`), ...Array.from({ length: 400 }, (_, i) => `phone-scene-${i}-phone-390.dark`)];
+  const names = [...Array.from({ length: 270 }, (_, i) => `scene-${i}.dark`), ...Array.from({ length: 400 }, (_, i) => `phone-scene-${i}-phone-390.dark`)];
   await g.capture(230, names.length, names);
   await run("python3", ["-c", `import json,sys,zipfile
 path=sys.argv[1]
@@ -1816,8 +1816,8 @@ for scene in scenes:
     scene['status']='changed'
     for suffix in ('baseline','difference'): entries[scene['name']+'.'+suffix+'.png']=entries[scene['name']+'.png']
 report['pixelBlocking']=True
-report['captureBudget']['limit']=800
-report['captureBudget']['remaining']=800-len(scenes)
+report['captureBudget']['limit']=670
+report['captureBudget']['remaining']=670-len(scenes)
 report['shards']=[{'name':shard,'scenes':[s for s in scenes if s['name'].startswith('phone-') == (shard=='phone')]} for shard in ('desktop','phone')]
 entries['report.json']=json.dumps(report).encode()
 with zipfile.ZipFile(path,'w') as z:
@@ -1825,9 +1825,9 @@ with zipfile.ZipFile(path,'w') as z:
 `, g.env.FAKE_GALLERY_ZIP]);
   const result = await relay(g.f, g.env);
   expect(result.code, result.stderr).toBe(0);
-  expect(g.captures.size).toBe(800);
-  expect(g.attachments).toHaveLength(2400);
-  expect(g.comments[0]!.body).toContain("Report shards: desktop 400/400, phone 400/400.");
+  expect(g.captures.size).toBe(670);
+  expect(g.attachments).toHaveLength(2010);
+  expect(g.comments[0]!.body).toContain("Report shards: desktop 270/270, phone 400/400.");
 });
 
 
@@ -1871,7 +1871,7 @@ it("the hosted report guard admits both shards and rejects overflow or an adviso
   const hosted = readFileSync(join(root, ".forgejo/github-workflows/gallery.yml"), "utf8");
   const guard = /python3 - <<'PY'\n([\s\S]*?)\n {10}PY/.exec(hosted)?.[1]?.replace(/^ {10}/gm, "");
   expect(guard).toBeDefined();
-  const desktop = Array.from({ length: 400 }, (_, i) => ({ name: `scene-${i}.dark` }));
+  const desktop = Array.from({ length: 270 }, (_, i) => ({ name: `scene-${i}.dark` }));
   const phone = Array.from({ length: 400 }, (_, i) => ({ name: `phone-scene-${i}-phone-390.dark` }));
   const report = { pixelBlocking: true, shards: [{ name: "desktop", scenes: desktop }, { name: "phone", scenes: phone }] };
   const check = () => run("python3", ["-c", guard!], { cwd: f.checkout, env: { ...process.env, GALLERY_LEGACY: "true", GALLERY_SHARD: "1" } });

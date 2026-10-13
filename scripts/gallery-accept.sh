@@ -6,7 +6,7 @@ root=$(git rev-parse --show-toplevel)
 python3 - "$(dirname "${BASH_SOURCE[0]}")" "$root" "$@" <<'PY'
 import hashlib, json, os, pathlib, re, shlex, struct, subprocess, sys, tempfile, urllib.parse, urllib.request
 sys.path.insert(0, sys.argv[1])
-from gallery_reports import validate_shard, complete_set, phone_dimensions, MAX_BYTES, MAX_THREAD_BYTES
+from gallery_reports import validate_shard, complete_set, phone_dimensions, MAX_BYTES, MAX_ROWS, MAX_THREAD_BYTES
 from gallery_allocation import LIMITS, captures_fit_allocation
 root = pathlib.Path(sys.argv[2]); number = sys.argv[3]
 selected = set(sys.argv[4:])
@@ -65,13 +65,14 @@ for comment in comments:
         version = candidate.get('version', head)
         if (version != head and (not isinstance(comment.get("id"), int) or comment["id"] < 1 or version != f'{head}-{comment["id"]}')): continue
         files = candidate.get('captures')
-        limit = 400 if 'shard' in candidate else sum(LIMITS.values())
+        # Reviewed reports may predate the current allocation; accept up to the publisher's hard cap per shard.
+        limit = MAX_ROWS if 'shard' in candidate else MAX_ROWS * len(LIMITS)
         if not isinstance(files, list) or not files or len(files) > limit: continue
         if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in files): continue
         if 'shard' in candidate:
             try: validate_shard(candidate['shard'], len(files), require_group=True)
             except ValueError as error: sys.exit(str(error))
-        elif not captures_fit_allocation([item['name'] for item in files]): continue
+        elif not captures_fit_allocation([item['name'] for item in files], cap=MAX_ROWS): continue
         manifests.append(candidate)
         finalized.add(comment.get('id'))
         latest_attempt = comment.get('id')

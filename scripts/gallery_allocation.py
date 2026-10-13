@@ -10,10 +10,11 @@ def shard_for(name):
     return 'phone' if name.startswith('phone-') else 'desktop'
 
 
-def captures_fit_allocation(names):
+def captures_fit_allocation(names, cap=None):
+    # cap overrides every shard's limit, e.g. to accept reports published under an earlier allocation.
     if not names:
         return False
-    return all(sum(shard_for(name) == shard for name in names) <= limit
+    return all(sum(shard_for(name) == shard for name in names) <= (cap or limit)
                for shard, limit in LIMITS.items())
 
 
