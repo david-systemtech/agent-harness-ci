@@ -20,9 +20,15 @@ it.each(["light", "dark"] as const)("shows status chips with 20/80/95 percent us
     expect(within(line).getByRole("button", { name: /^Mode:/ })).toBeDefined();
     expect(within(line).getByRole("button", { name: /^Containment:/ })).toBeDefined();
   }
-  const checks = JSON.parse(container.dataset["galleryGeometry"] ?? "[]") as { selector: string; height?: number; width?: number }[];
+  const checks = JSON.parse(container.dataset["galleryGeometry"] ?? "[]") as { selector: string; height?: number; width?: number; fontSize?: number }[];
   expect(checks.some((check) => check.height === 22)).toBe(true);
   expect(checks.some((check) => check.height === 24 && check.width === 24)).toBe(true);
+  const numberChecks = checks.filter((check) => check.fontSize !== undefined);
+  expect(numberChecks).toHaveLength(2);
+  for (const check of numberChecks) {
+    expect(check.fontSize).toBe(13.5);
+    expect(container.querySelectorAll(check.selector)).toHaveLength(check.selector.includes("Context usage") ? 3 : 6);
+  }
   for (const check of checks) expect(container.querySelector(check.selector)).not.toBeNull();
 });
 

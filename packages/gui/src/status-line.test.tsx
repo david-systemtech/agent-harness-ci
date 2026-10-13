@@ -458,6 +458,26 @@ describe("run info", () => {
 });
 
 describe("current context meter", () => {
+  it("draws context with the plan rings' readable mono numbers, size and tone thresholds", async () => {
+    const { env, session } = await opened([desk({ provider: { contextReadings: true } })]);
+    const checkRing = async (name: string, number: string, fontSize: number, tone: string, share: number) => {
+      const ring = await within(statusLine()).findByRole("img", { name });
+      expect(ring.textContent).toBe(number);
+      const numberText = ring.querySelector("text");
+      expect(Number.parseFloat(numberText?.style.fontSize || numberText?.getAttribute("font-size") || "")).toBe(fontSize);
+      expect(ring.getAttribute("viewBox")).toBe("0 0 36 36");
+      expect(ring.getAttribute("class")).toContain("font-mono");
+      expect(ring.getAttribute("class")).toContain(tone);
+      expect(ring.querySelector<SVGCircleElement>("[data-usage-arc]")?.style.strokeDasharray).toBe(`${share} 100`);
+    };
+    await checkRing("Context: unknown", "—", 13.5, "text-ink-faint", 0);
+    const { runId } = env.startRun(session, "Check context ring");
+    for (const [share, tone] of [[0, "text-mint"], [74, "text-mint"], [75, "text-amber"], [89, "text-amber"], [90, "text-signal"], [100, "text-signal"]] as const) {
+      env.emit(session, "context.reported", { runId, model: "claude-opus-4", contextTokens: share, contextWindow: 100 });
+      await checkRing(`Context: ${share}%`, String(share), share === 100 ? 12 : 13.5, tone, share);
+    }
+  });
+
   it("shows unknown before a run, known zero on start, then current request share independently of spend", async () => {
     const { app, env, session } = await opened([desk({ provider: { contextReadings: true }, models: [{ accountId: "account-1", models: [{ id: "claude-opus-4", family: "opus", tier: 1, label: null, efforts: [], contextWindow: 1000 }] }] })]);
     const meter = await within(statusLine()).findByRole("img", { name: "Context: unknown" });
