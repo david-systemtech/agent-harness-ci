@@ -47,3 +47,24 @@ it.each(["composer-idle", "composer-running", "composer-slash", "composer-bypass
     expect(screen.queryByText(/without asking/, { selector: "[data-composer-column] *" })).toBeNull();
   } else expect(screen.queryByRole("status", { name: "Run activity" })).toBeNull();
 });
+
+
+it("draws 24 live tasks in three composer rows with bounded geometry", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, "composer-many-tasks");
+  close = gallery.close;
+  expect(await gallery.ready).toBe(true);
+  const list = await screen.findByRole("list", { name: "Delegated work" });
+  expect(within(list).getAllByRole("listitem").map((row) => row.textContent)).toEqual([
+    "Explore: Check receipt 24 and its rounding rule · running",
+    "Explore: Check receipt 23 and its rounding rule · running",
+    "and 22 others",
+  ]);
+  expect(within(list).getByRole("button", { name: "Open background work in Tasks" })).toBeDefined();
+  const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]");
+  expect(geometry).toContainEqual({ selector: '[aria-label="Delegated work"]', height: 54 });
+  expect(geometry).toContainEqual({ selector: '[aria-label="Message"]', visibleWithin: "[data-session-card]", hitTestable: true });
+  expect(geometry).toContainEqual({ selector: '[aria-label="Stop"]', visibleWithin: "[data-session-card]", hitTestable: true });
+  for (const check of geometry) expect(document.querySelector(check.selector)).not.toBeNull();
+});
