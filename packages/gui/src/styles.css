@@ -375,3 +375,14 @@ html[data-phone-viewport] [data-web-client] {
 
 /* The dark outline variant is translucent; a reading control must cover the text beneath it. */
 [data-web-client] [data-transcript-jump] { background: var(--float); }
+
+/* Caption PRs yield before the identity. Rem thresholds also cover enlarged text. */
+[data-pane-caption] { container: pane-caption / inline-size; }
+[data-pr-chips], [data-pr-expanded] { display: none; }
+@container pane-caption (min-width: 40rem) {
+  [data-pr-chips] { display: flex; }
+  [data-pr-compact] { display: none; }
+  [data-pr-expanded] { display: inline; }
+  [data-pr-overflow][data-pr-has-others="false"] { display: none; }
+  [data-caption-title] { min-width: 8ch; }
+}

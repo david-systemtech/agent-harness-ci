@@ -327,6 +327,32 @@ describe("the row's reach", () => {
 });
 
 describe("pull requests where sessions are drawn", () => {
+  it("keeps only the newest two open PR links beside the title and opens every PR from the overflow", async () => {
+    const pullRequests = ["open", "merged", "closed", "open", "open", "merged", "closed"].map((state, index) => ({
+      url: `https://forge.example.test/team/ledger/pulls/${index + 1}`,
+      state: state as "open" | "merged" | "closed", mergedAt: null, closedAt: null,
+    }));
+    const app = await opened({ sessions: [{ title: "Check the ledger", pullRequests }] });
+    app.open("desk");
+    await app.user.keyboard("{Control>}\\{/Control}");
+    const caption = document.querySelector<HTMLElement>("[data-pane-caption]")!;
+    const links = within(caption).getAllByRole("button", { name: /^Pull request #/ });
+    expect(links.map(link => link.textContent)).toEqual(["PR #5 open", "PR #4 open"]);
+    expect(within(caption).getByRole("button", { name: "Rename “Check the ledger”" })).toBeDefined();
+    const trigger = within(caption).getByRole("button", { name: "Show all 7 pull requests" });
+    await app.user.click(trigger);
+    const popover = await screen.findByRole("dialog", { name: "Pull requests" });
+    const all = within(popover).getAllByRole("button", { name: /^Pull request #/ });
+    expect(all).toHaveLength(7);
+    expect(within(popover).getByRole("button", { name: "Pull request #2, merged" })).toBeDefined();
+    expect(within(popover).getByRole("button", { name: "Pull request #3, closed" })).toBeDefined();
+    await app.user.click(within(popover).getByRole("button", { name: "Pull request #7, closed" }));
+    expect(app.shell.calls.filter(([member]) => member === "openExternal")).toEqual([["openExternal", pullRequests[6]!.url]]);
+    await app.user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Pull requests" })).toBeNull());
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it("shows a session's pull-request state on its row, kept current, and the pane's caption links each, opened through openExternal", async () => {
     const url = "https://github.com/david/agent-harness/pull/12";
     const app = await opened({ sessions: [{ title: "Forges in the window", pullRequests: [{ url, state: "open", mergedAt: null, closedAt: null }] }, { title: "No pull request" }] });
