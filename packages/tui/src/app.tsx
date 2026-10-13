@@ -721,6 +721,7 @@ export const App = (props: AppProps) => {
   const standing = session.runs?.rewound ?? null;
   const undoVerb = session.runs?.verbs.undoRewind;
   const lineContext = {
+    now: clock.now(),
     width: mainWidth - (transcriptFocused ? 1 : 0),
     quietMs: (id: string) => quietFor(session.quiet, id, now),
     checkOutput: (id: string) => checkView?.runningOutput.get(id),
@@ -2076,7 +2077,7 @@ export const App = (props: AppProps) => {
         void runtime.requests.call(target.environmentId, "sessions.subagentTranscript", { sessionId: target.sessionId, agentId: delegatedTask.agentId }).then((answer) => {
           if (quit.signal.aborted || latest.current.opened?.environmentId !== target.environmentId || latest.current.opened.sessionId !== target.sessionId) return;
           const rows = answer.ok ? subagentRows(answer.result.messages) : [];
-          const lines = transcriptLines(rows, { width: mainWidth, quietMs: () => 0, stopKey: keys("row.stop"), unfoldKey: keys("row.unfold"), expanded: true });
+          const lines = transcriptLines(rows, { now: clock.now(), width: mainWidth, quietMs: () => 0, stopKey: keys("row.stop"), unfoldKey: keys("row.unfold"), expanded: true });
           // Paging or searching preserves the loading lines; closing the page replaces them, declining a late answer.
           setScreen((s) => {
             if (s.card.kind !== "page" || s.card.lines !== reading.lines) return s;

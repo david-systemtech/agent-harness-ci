@@ -21,6 +21,7 @@ import { DiffView, editDiff } from "../side-column/diff-view.js";
 import { DocumentTiles } from "./document-tiles.js";
 import { Marked } from "./find.js";
 import { picturesIn, withoutPictures } from "./images.js";
+import { TranscriptTime } from "./time.js";
 import type { RowFacts } from "./rows.js";
 
 /**
@@ -72,11 +73,12 @@ const CATEGORY_ICONS: Readonly<Record<ToolCategory, LucideIcon>> = {
 };
 
 interface CallsRowProps {
+  readonly previousTime?: string | undefined;
   readonly calls: readonly ToolCallEntry[];
   readonly facts: RowFacts;
 }
 
-export const CallsRow = ({ calls, facts }: CallsRowProps) => {
+export const CallsRow = ({ calls, facts, previousTime }: CallsRowProps) => {
   const [choices, setChoices] = useState<Readonly<Record<string, CallChoices>>>({});
   const retain = (id: string, choice: CallChoices) => setChoices((held) => ({ ...held, [id]: choice }));
   const done = calls.filter(folded);
@@ -86,6 +88,7 @@ export const CallsRow = ({ calls, facts }: CallsRowProps) => {
   const categories = [...new Set(done.map((call) => classifyTool(call.name)))].slice(0, 3);
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
+      {summary.length > 0 && <TranscriptTime time={done[0]?.startedAt} previous={previousTime} />}
       {summary.length > 0 && (
         <Fold open={open} onOpenChange={setOpen} summary={<span className="flex min-w-0 items-center gap-1.5 text-xs font-medium">
           <span aria-hidden="true" className="flex shrink-0 gap-1 text-cyan">{categories.map((category) => { const Icon = CATEGORY_ICONS[category]; return <Icon key={category} className="size-3" />; })}</span>
@@ -93,11 +96,11 @@ export const CallsRow = ({ calls, facts }: CallsRowProps) => {
           <span aria-hidden="true" className="font-mono text-2xs text-ink-faint">{done.length} · {formatDuration(done.reduce((total, call) => total + (call.durationMs ?? 0), 0))}</span>
         </span>}>
           <div className="flex flex-col gap-1.5 pl-3">
-            {done.map((call) => <CallCard key={call.toolCallId} call={call} quietMs={0} revealed={facts.revealed} choices={choices[call.toolCallId]} retain={(choice) => retain(call.toolCallId, choice)} />)}
+            {done.map((call, index) => <CallCard previousTime={done[index - 1]?.startedAt ?? previousTime} key={call.toolCallId} call={call} quietMs={0} revealed={facts.revealed} choices={choices[call.toolCallId]} retain={(choice) => retain(call.toolCallId, choice)} />)}
           </div>
         </Fold>
       )}
-      {standing.map((call) => <CallCard key={call.toolCallId} call={call} quietMs={call.status === "running" ? facts.quietMs(call.toolCallId) : 0} revealed={facts.revealed} choices={choices[call.toolCallId]} retain={(choice) => retain(call.toolCallId, choice)} />)}
+      {standing.map((call, index) => <CallCard previousTime={standing[index - 1]?.startedAt ?? done.at(-1)?.startedAt ?? previousTime} key={call.toolCallId} call={call} quietMs={call.status === "running" ? facts.quietMs(call.toolCallId) : 0} revealed={facts.revealed} choices={choices[call.toolCallId]} retain={(choice) => retain(call.toolCallId, choice)} />)}
       <CallsPictures calls={calls} facts={facts} />
       {facts.workspace !== null && <DocumentTiles calls={calls} workspace={facts.workspace} />}
     </div>
@@ -119,7 +122,7 @@ interface CallChoices {
 const INITIAL_CHOICES: CallChoices = { expanded: null, inputOpen: null, resultOpen: null };
 
 /** Expansion and detail choices belong to this call identity, even while its status changes. */
-export const CallCard = ({ call, quietMs, revealed = null, choices, retain }: { readonly call: ToolCallEntry; readonly quietMs: number; readonly revealed?: Revealed | null; readonly choices?: CallChoices | undefined; readonly retain?: ((choice: CallChoices) => void) | undefined }) => {
+export const CallCard = ({ call, quietMs, previousTime, revealed = null, choices, retain }: { readonly call: ToolCallEntry; readonly quietMs: number; readonly previousTime?: string | undefined; readonly revealed?: Revealed | null; readonly choices?: CallChoices | undefined; readonly retain?: ((choice: CallChoices) => void) | undefined }) => {
   const quiet = call.status === "running" && quietMs >= TOOL_QUIET_MS;
   const denied = call.decision?.decision === "denied" ? call.decision : null;
   const failed = call.status === "error";
@@ -142,6 +145,7 @@ export const CallCard = ({ call, quietMs, revealed = null, choices, retain }: { 
       "min-w-0 rounded-lg border bg-wash outline-none focus:outline-2 focus:outline-beam",
       quiet ? "border-amber" : failed ? "border-signal/35" : open ? "border-hairline-strong" : "border-hairline",
     )}>
+      {call.startedAt !== undefined && <div className="flex min-w-0 justify-end px-2.5 pt-1"><TranscriptTime time={call.startedAt} previous={previousTime} /></div>}
       <Tooltip content={`${open ? "Collapse" : "Expand"} ${name}`} keys="Enter or Space">
         <button type="button" aria-label={name} aria-expanded={open} aria-controls={open ? id : undefined}
           onClick={() => { setOpen(false); keep({ ...choice, expanded: !open }); }}

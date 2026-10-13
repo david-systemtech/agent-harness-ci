@@ -423,6 +423,7 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ title: "Receipts", anchor: null, items: [{ kind: "assistant-text", sequence: 3 }], runs: [] }, { title: "Receipts", anchor: 3, items: [], runs: [] }],
   },
   "transcript/transcript-item.json": { valid: [...items, runningCheck, finishedCheck,
+      ...items.filter(item => item.kind === "assistant-text" || item.kind === "assistant-thinking" || item.kind === "tool-call").map(item => ({ ...item, startedAt: at })),
       { ...finishedCheck, finishedSequence: 8 },
       { kind: "file-undo", sequence: 2, changeId: messageId, path: "src/app.ts", action: "restored" },
       { kind: "file-undo", sequence: 3, changeId: otherMessageId, path: "new.ts", action: "deleted" }, { kind: "history-unreadable", sequence: 2, message: "No transcript of provider-session-1 is in /home/david/.claude any more." },
@@ -430,6 +431,8 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
       { kind: "forked", sequence: 2, fromSessionId: freshSummary.id, atMessageId: null },
       { kind: "forked", sequence: 2, fromSessionId: freshSummary.id, atMessageId: messageId, history: { title: "Receipts", anchor: "Add the tests", items, runs: [runSummary] } },
     ], invalid: [
+      { ...toolCall, startedAt: "not-a-time" },
+      { kind: "assistant-text", sequence: 6, runId, itemId: "timed", text: "Done.", aborted: false, startedAt: "not-a-time" },
       { kind: "check", sequence: 7 },
       { ...runningCheck, terminalId: "not-a-terminal" },
       { ...runningCheck, command: " " },

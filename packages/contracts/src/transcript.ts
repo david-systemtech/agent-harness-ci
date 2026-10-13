@@ -541,13 +541,14 @@ const UpdateInterruptedItems = RunUpdateInterruptedPayload.options.map((outcome)
 
 const assistantItem = <const K extends string>(kind: K, what: string) =>
   z
-    .object({ kind: z.literal(kind), ...itemPart, runId: RunId, itemId: z.string().min(1), text: z.string(), aborted: z.boolean() })
+    .object({ kind: z.literal(kind), ...itemPart, runId: RunId, itemId: z.string().min(1), text: z.string(), aborted: z.boolean(), startedAt: Timestamp.optional().meta({ description: "Time of the first delta, or settled event without deltas; absent in older snapshots." }) })
     .meta({ description: `The assistant's ${what}, settled.` });
 
 const ToolCallItem = z
   .object({
     kind: z.literal("tool-call"),
     ...itemPart,
+    startedAt: Timestamp.optional().meta({ description: "Time of tool.started; absent in older snapshots." }),
     runId: RunId,
     toolCallId: z.string().min(1),
     name: z.string().min(1),

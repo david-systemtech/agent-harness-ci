@@ -232,7 +232,7 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
   /** Prompt items not yet answered, by prompt id. */
   const prompts = new Map<string, ItemOf<"prompt">>();
   /** Where each assistant item not yet settled was opened: its first delta's sequence, by `<fragment kind> <item id>`. */
-  const opened = new Map<string, { sequence: number; runId: string; itemId: string; kind: "assistant-text" | "assistant-thinking"; text: string }>();
+  const opened = new Map<string, { startedAt: string; sequence: number; runId: string; itemId: string; kind: "assistant-text" | "assistant-thinking"; text: string }>();
   // The items of the fold it goes on from that later events update, by the ids those carry, a rewind's hidden ones too.
   for (const item of everyItem(items)) {
     if (item.kind === "user-message") {
@@ -377,7 +377,7 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         for (const fragment of payload.fragments) {
           const key = `${fragment.kind} ${payload.itemId}`;
           const held = opened.get(key);
-          if (held === undefined) opened.set(key, { sequence, runId: payload.runId, itemId: payload.itemId, kind: fragment.kind === "text" ? "assistant-text" : "assistant-thinking", text: fragment.text });
+          if (held === undefined) opened.set(key, { startedAt: event.occurredAt, sequence, runId: payload.runId, itemId: payload.itemId, kind: fragment.kind === "text" ? "assistant-text" : "assistant-thinking", text: fragment.text });
           else if (includeOpenItems) held.text += fragment.text;
         }
         break;
@@ -386,11 +386,13 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
       case "assistant.thinking": {
         const payload = event.payload as AssistantTextPayload;
         const key = `${event.type === "assistant.text" ? "text" : "thinking"} ${payload.itemId}`;
-        const at = opened.get(key)?.sequence ?? sequence;
+        const first = opened.get(key);
+        const at = first?.sequence ?? sequence;
         opened.delete(key);
         place({
           kind: event.type === "assistant.text" ? "assistant-text" : "assistant-thinking",
           sequence: at,
+          startedAt: first?.startedAt ?? event.occurredAt,
           runId: payload.runId,
           itemId: payload.itemId,
           text: payload.text,
@@ -403,6 +405,7 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         const item = push<ItemOf<"tool-call">>({
           kind: "tool-call",
           sequence,
+          startedAt: event.occurredAt,
           runId: payload.runId,
           toolCallId: payload.toolCallId,
           name: payload.name,

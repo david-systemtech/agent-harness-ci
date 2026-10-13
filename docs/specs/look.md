@@ -604,10 +604,18 @@ All titles truncate with full tooltip. Transcript, composer and status share
 the centred reading column: Comfortable fixed 920px (preset), Wide 80rem
 (1280px at preset), Full uncapped.
 Transcript x 16/y 14, row gap 12; composer/status x 12. Transcript scroller contains
-rows only; composer and status remain beneath it. A row has a 56px label/time
-spine, gap 8, body gap 4; user row reverses the spine to the right. Ordinary labels
-trade for a hover mono clock at 60% opacity; reasoning keeps label and puts clock
-16px beneath. Keep row identities for search and jump, without re-rendering
+rows only; composer and status remain beneath it. A row has a 56px label
+spine, gap 8, body gap 4; user row reverses the spine to the right. Labels stay
+visible. Every message (including reasoning), individual tool call, folded tool
+group and turn end has a visible, right-aligned mono/2xs/ink-faint clock in the
+body, above its content. Use the recorded first delta, tool start, message sent
+or turn end time, in the client’s local 24-hour HH:MM. Prefix YYYY-MM-DD when
+the day differs from today or the preceding timestamp’s day. The full ISO
+instant is the time element’s title and datetime. Never wrap or truncate clocks;
+keep them outside the 56px desktop/32px phone spine so text size 20 fits. Older
+compacted items without recorded times omit the clock rather than inventing one.
+The TUI uses the same words on a dim, right-aligned line. There is no toggle.
+Keep row identities for search and jump, without re-rendering
 all rows for a streaming delta. Closed fold children are unmounted.
 
 Opening a session pins to end. Follow content growth while pinned; a user scroll
@@ -641,7 +649,7 @@ the outer page or dock.
 | Tool | Collapsed lg/hairline/wash card; open or artifact hairline-strong; failure signal/35 edge. Header x 10/y 8/gap 8, category icon, mono name, truncated summary, edit counts, duration, status badge. Running cyan pulse, success mint, error signal, denied amber, cancelled neutral. Expand in place. |
 | Tool detail | Diff for edits; argument/input/raw folds retained by call identity, default input open except edits. Square formatted JSON/raw output max 288. Result fold defaults closed for success, open for failure. Preserve truncation, image-result and artifact controls; errors name code/message without replacing prior output. |
 | Activity group | One chrome-label summary and chevron for contiguous quiet calls, cyan category icons/status, counts/time mono; collapsed hides child rows, open draws the same tool recipes. Running state visible while collapsed; reasoning keeps its own row. |
-| Notice | Empty spine or hover clock, Info/TriangleAlert by severity, mono line plus faint detail; semantic tone, no modal. |
+| Notice | Empty spine, Info/TriangleAlert by severity, mono line plus faint detail; semantic tone, no modal. |
 | Command/check | Terminal icon, mono command and muted args/output; running cyan, pass mint, failure/timeout signal and labelled exit/truncation. The check projection owns its content. |
 | Turn end | “end” spine; lg/hairline/wash summary; failed signal/40 edge and signal/5 fill. Completed mint; interrupted/limit/permission denial amber; disposed neutral; error signal. Optional elapsed, turns, tokens/cache/cost; error text/code/retryability. Summary preference gates accounting; errors and silent runs keep a record. |
 | Queue/steer, fork/rewind | §15's labels, folds and verbs retain runtime state; use the same spine, badges and fold recipes. |
@@ -1245,7 +1253,7 @@ script, geometry expectations and baseline; surface tickets add separate files.
 | first-run | Intro starting/failure/ready, all 11 steps, account gate, close confirmation, long card | Rail 280, number 18, choices≤620; footer visible with Back/Skip/Continue or Finish in both captures |
 | product-surfaces | Pairing, queue/fork/rewind/check, theme, shortcuts, banks/routines | Shared primitive dimensions, state labels and scope/command parity |
 
-Light subset: window-empty, window-not-ready, primitives, transcript with diff,
+Light subset: window-empty, window-not-ready, primitives, transcript with diff and timestamps,
 inline-asks, composer/status (and its usage details)/run-picker, palette/dialogs/notices, Settings
 Accounts/Permissions/Theme/Usage and first-run intro/Account/Appearance. Other dark
 scenes still test token resolution in both ladders through theme/harness checks.

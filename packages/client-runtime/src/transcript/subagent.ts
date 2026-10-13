@@ -73,14 +73,17 @@ export const subagentRows = (messages: readonly JsonObject[]): readonly Transcri
       items.push(opaque(++sequence, typeof stored["type"] === "string" ? stored["type"] : "message", stored));
       return;
     }
+    const recordedTime = words(stored["timestamp"]);
+    const time = Number.isFinite(Date.parse(recordedTime)) ? { startedAt: recordedTime } : {};
     blocks.forEach((block, at) => {
       const itemId = `${id}:${String(at)}`;
       if (block["type"] === "text" || block["type"] === "thinking") {
         const text = words(block["type"] === "text" ? block["text"] : block["thinking"]);
-        items.push({ kind: block["type"] === "text" ? "assistant-text" : "assistant-thinking", sequence: ++sequence, runId, itemId, text, aborted: false, streaming: false });
+        items.push({ kind: block["type"] === "text" ? "assistant-text" : "assistant-thinking", sequence: ++sequence, runId, itemId, text, aborted: false, streaming: false, ...time });
       } else if (block["type"] === "tool_use") {
         const call: Mutable<ToolCallEntry> = {
           kind: "tool-call",
+          ...time,
           sequence: ++sequence,
           runId,
           toolCallId: words(block["id"]) || itemId,

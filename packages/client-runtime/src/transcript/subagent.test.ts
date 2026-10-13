@@ -88,3 +88,12 @@ describe("subagentRows", () => {
     expect(subagentRows([])).toEqual([]);
   });
 });
+
+it("retains recorded times on the subagent's replies, reasoning and calls", () => {
+  const rows = subagentRows([{ type: "assistant", timestamp: "2026-09-24T10:05:00.000Z", uuid: "timed", message: { role: "assistant", content: [
+    { type: "thinking", thinking: "Compare." }, { type: "text", text: "Reading." }, { type: "tool_use", id: "timed-read", name: "Read", input: {} },
+  ] } }]);
+  expect(rows.map(row => row.kind === "assistant" ? row.entry.startedAt : row.kind === "calls" ? row.calls[0]?.startedAt : undefined)).toEqual([
+    "2026-09-24T10:05:00.000Z", "2026-09-24T10:05:00.000Z", "2026-09-24T10:05:00.000Z",
+  ]);
+});
