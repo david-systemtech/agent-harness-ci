@@ -202,6 +202,21 @@ describe("the plan gauge", () => {
     expect(within(details).queryByText("—")).toBeNull();
   });
 
+  it("shows a stale window's observation age even when another window was just read", async () => {
+    const { app, env } = await opened();
+    const now = app.clock.now();
+    const old = new Date(now.getTime() - 7 * 60_000).toISOString();
+    env.setUsage([{ ...reading("account-1", { provider: "claude", email: "reader@example.test", organisation: null }, [
+      window("five_hour", 0.42, old), window("seven_day", 0.65, now.toISOString()),
+    ]), readAt: now.toISOString() }]);
+    await within(statusLine()).findByRole("img", { name: "5-hour 42%" });
+    await app.user.click(within(statusLine()).getByRole("button", { name: "Usage details" }));
+    const details = await screen.findByRole("dialog", { name: "Usage details" });
+    expect(within(details).getByLabelText("5-hour reading age").textContent).toContain("Read 7m 00s ago · stale");
+    expect(within(details).queryByLabelText("Weekly reading age")).toBeNull();
+    expect(within(details).getByLabelText("Reading age").textContent).not.toContain("stale");
+  });
+
   // #1951: the popover printed raw ISO reset and read times.
   it("says reset and read times in the client's time words, the ISO value only in each time's attribute", async () => {
     // The harness starts at midnight UTC; keep these fixed calendar assertions in that zone.

@@ -836,6 +836,26 @@ const pooled = (gauge: HTMLElement) =>
     .map((row) => row.textContent);
 
 describe("Usage", () => {
+  it("ages retained windows in Settings independently of the latest account read", async () => {
+    const identity = { provider: "claude", email: "reader@example.test", organisation: null };
+    const app = await opened({ desk: { accounts: [{ label: "personal", identity }] } });
+    const at = app.clock.now().toISOString();
+    app.environment("desk").setUsage([{ ...reading("account-1", 0.42, 0.65, at), identity }]);
+    const usage = await openRow(app, "Usage");
+    const gauge = await within(usage).findByRole("region", { name: identity.email });
+    expect(within(gauge).queryByLabelText("5-hour reading age")).toBeNull();
+    await act(async () => app.clock.advance(6 * 60_000));
+    expect(within(gauge).getByLabelText("5-hour reading age").textContent).toContain("Read 6m 00s ago · stale");
+    const fresh = app.clock.now().toISOString();
+    app.environment("desk").setUsage([{ ...reading("account-1", 0.01, 0.7, fresh), identity,
+      windows: [{ window: "seven_day", utilisation: 0.7, resetsAt: null, verdict: null, observedAt: fresh }],
+    }]);
+    await within(gauge).findByText("70%");
+    expect(within(gauge).getByLabelText("5-hour reading age").textContent).toContain("stale");
+    expect(within(gauge).queryByLabelText("Weekly reading age")).toBeNull();
+    expect(within(gauge).getByText("42%")).toBeTruthy();
+  });
+
   it("updates reset day words across local midnights without another reading from an unreachable environment", async () => {
     const app = await opened({ laptop: { accounts: [{ label: "personal", identity: MILO }] } });
     const evening = new Date(2026, 8, 24, 23, 50);
