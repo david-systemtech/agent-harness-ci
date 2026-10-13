@@ -96,8 +96,8 @@ const cursorTo = async (app: RenderedApp, text: string) => {
     await app.press(KEY.up);
     const rows = app.rows();
     const at = rows.findIndex((row) => row.includes("❯"));
-    // A row's first line may be the blank line that spaces it: its text is on the next.
-    if (at !== -1 && `${rows[at] ?? ""} ${rows[at + 1] ?? ""}`.includes(text)) return;
+    // A row's first lines may be the blank line that spaces it and the time it shows: its text is on the next.
+    if (at !== -1 && rows.slice(at, at + 3).join(" ").includes(text)) return;
   }
   throw new Error(`The cursor never reached ${text}; the frame is:\n${app.frame()}`);
 };
