@@ -95,8 +95,7 @@ it("finishes with a report after a source copy and its undo fail, continues rema
   const answer = await client.request("stateImport.run", { commandId, dryRun: false });
   expect(answer.receipt.status).toBe("accepted");
   expect(answer.result?.failed).toEqual(expect.arrayContaining([
-    expect.objectContaining({ label: 'Carry over Claude profile "Winner"', message: "Its source could not be carried; retained files are needed for a retry." }),
-    expect.objectContaining({ label: 'Carry over Claude profile "Winner"', message: "Its copied files could not all be removed; check them before retrying." }),
+    { label: 'Carry over Claude profile "Winner"', message: "Its source could not be carried; retained files are needed for a retry.", details: [`Folder: ${f.winner}`, "Cause: Fixture copy failed."] },
   ]));
   expect(copiedPath).not.toBe("");
   expect(existsSync(copiedPath)).toBe(false);
@@ -105,8 +104,8 @@ it("finishes with a report after a source copy and its undo fail, continues rema
   expect(finished?.payload).toMatchObject({ failed: answer.result!.failed });
   const created = t.env.log.readStream({ kinds: ["session"] }).filter((event) => event.type === "session.created");
   expect(created).toHaveLength(2);
-  expect(logged).toHaveBeenCalledWith("State import could not carry source:", f.winner, copyFailure);
-  expect(logged).toHaveBeenCalledWith("State import could not undo source:", f.winner, undoFailure);
+  expect(logged).toHaveBeenCalledWith(`Carrying ${f.winner} for Claude profile "Winner" failed:`, copyFailure);
+  expect(logged).toHaveBeenCalledWith(`Cleaning up after carrying ${f.winner} for Claude profile "Winner" failed:`, undoFailure);
 });
 
 it("previews both directories without adoption, imports records lazily under the winner, and preserves once-only secondary history and purged mappings across restart", async () => {

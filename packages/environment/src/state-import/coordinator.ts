@@ -3,8 +3,8 @@
  * and re-run"; #1165): one per environment, so one import or dry run runs
  * there at a time. Each holds the environment while it is preparing (reading
  * the stores and planning) and applying (carrying its items), and releases
- * it as it finishes or fails, however it ends; account imports share the same
- * exclusion. Another asked for meanwhile is refused, which `stateImport.run` answers `conflict` (reason
+ * it as it finishes or fails, however it ends; another asked for meanwhile
+ * is refused, which `stateImport.run` answers `conflict` (reason
  * `import_in_progress`). A dry run holds it as an import does, so a preview
  * never reads a plan an import is changing under it, but reserves nothing
  * once it ends: an import plans again. A Carry over run of one adopted
@@ -22,8 +22,6 @@ export type ImportKind = "state-import" | "carry-over";
 export interface ImportState {
   /** The command id of the `stateImport.run` or `carryOver.run` that asked for it. */
   readonly importId: string;
-  /** Which command holds the shared exclusion, so setup names only actual earlier-work imports. */
-  readonly kind: "state-import" | "carry-over";
   readonly dryRun: boolean;
   readonly kind: ImportKind;
   readonly phase: ImportPhase;
@@ -38,7 +36,6 @@ export interface ImportCoordinator {
    * Runs `work` as the environment's one import or dry run, preparing until
    * it calls `applying`: null, and `work` never runs, while another holds the
    * environment. Whatever `work` answers or throws is this answer's.
-   * `kind` defaults to the state import; ordinary account imports name themselves explicitly.
    */
   exclusive<T>(holder: Omit<ImportState, "phase">, work: (applying: () => void) => Promise<T>): Promise<T> | null;
 }

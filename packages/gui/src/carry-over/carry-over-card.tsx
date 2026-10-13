@@ -1,5 +1,5 @@
 import { AccessUnavailable } from "../connections/limited-access.js";
-import { adminCall, clientLocalImportValues, derived, plainRefusal, stepLine, uuidv7, type CachedAnswer, type PlainRefusal } from "@agent-harness/client-runtime";
+import { adminCall, derived, plainRefusal, stepLine, uuidv7, type CachedAnswer, type PlainRefusal } from "@agent-harness/client-runtime";
 import type { AccountRecord, CarryOverInventory } from "@agent-harness/contracts";
 import { Download, RefreshCw } from "lucide-react";
 import { CountGrid } from "./count-grid.js";
@@ -14,7 +14,7 @@ import { useEarlierWork } from "./earlier-work.js";
 import { counted, ImportReport, type AccountReport } from "./import-report.js";
 import { MemoryAssignment } from "./memory-assignment.js";
 import { useNoticeDetails } from "./notice-details.js";
-import { StateImportSection, type CompletedStateImport } from "./state-import-section.js";
+import { StateImportSection } from "./state-import-section.js";
 
 /** The card's line once everything is brought over; also the step registry's done line, so the card leaves it to the step's line when that says it. */
 const ALREADY_HERE = "Everything is already here.";
@@ -116,7 +116,6 @@ export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
   const [busy, setBusy] = useState(false);
   const [reports, setReports] = useState<readonly AccountReport[] | undefined>(undefined);
   const [refusals, setRefusals] = useState<readonly PlainRefusal[]>([]);
-  const [earlierWorkReport, setEarlierWorkReport] = useState<CompletedStateImport | undefined>(undefined);
   const [earlierWorkBrought, setEarlierWorkBrought] = useState(false);
 
   if (step.result?.state === "skipped") {
