@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><title>Keyboard fixture</title>
+<form id="form"><label>Query <input id="query"></label><button>Submit</button></form>
+<p id="result">Not submitted</p>
+<script>
+  document.getElementById('form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    document.getElementById('result').textContent = 'Submitted: ' + document.getElementById('query').value;
+  });
+</script>
+</html>

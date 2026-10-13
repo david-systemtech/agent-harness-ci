@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FormInputArgs",
+  "type": "object",
+  "properties": {
+    "target": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "ref"
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+        }
+      },
+      "required": [
+        "type",
+        "ref"
+      ],
+      "additionalProperties": false
+    },
+    "value": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 65536
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        }
+      ]
+    },
+    "snapshot": {
+      "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+      "type": "object",
+      "properties": {
+        "filter": {
+          "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+          "type": "string",
+          "enum": [
+            "interactive",
+            "all"
+          ]
+        },
+        "depth": {
+          "description": "How many levels of the tree to read.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "ref": {
+          "description": "Read only the subtree of the element with this ref.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "maxChars": {
+          "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200000
+        }
+      }
+    }
+  },
+  "required": [
+    "target",
+    "value"
+  ],
+  "description": "form_input: set a referenced form control's value; booleans for checkboxes/radios, option values or labels for selects."
+}

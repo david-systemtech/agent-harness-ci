@@ -69,6 +69,23 @@ The environment on David's machine unpacks its own extension into a folder in it
 - **Lazy domains** (#292 item 7): `Page` at attach; `Runtime`, `Log` and `Network` on the first console, network, cookies, storage or evaluate verb, or at attach on a dev site, where debugging is the point. The headless driver also enables `Network` at attach, because its navigation policy reads the address each document was served from; it holds no logins and passing bot checks is not its purpose.
 - The viewport is 1280 by 800 and a screenshot is a JPEG at quality 70 of the viewport (ported), 1,334 visual tokens at the provider's patch rate (#292).
 
+The driver also carries the toolset-shaped members added in #2154: `key`
+(single keys, chords and repeated sequences), `hold_key` (one chord, up to
+30 seconds), `left_click`, `right_click`, `middle_click`, `double_click`,
+`triple_click` (ref or coordinate, with optional modifiers), `hover`,
+`left_click_drag`, `left_mouse_down`, `left_mouse_up`, `mouse_move`, `zoom`,
+`scroll_to` and `form_input`. `navigate` accepts `back`, `forward` and
+`reload`, with destination policy checked before history navigation.
+`scroll` accepts a viewport coordinate and 1–10 wheel notches (preset 3);
+one notch dispatches 100 pixels. The existing scroll arguments still work.
+`zoom` crops a region in full-viewport pixels and scales it up to 2×,
+keeping the result within the full screenshot's dimensions; input coordinates
+keep their original frame. Form input uses snapshot refs, native form setters,
+and input/change events; it refuses disabled or read-only controls and file
+inputs. Pointer button state belongs to the session's page. A key hold's
+transport deadline includes its duration plus the action's 20-second budget.
+The current MCP surface below stays in place until #2155 exposes these members.
+
 ### The tools
 
 One in-process tool server named `browser` on every run (claude-adapter spec, #139), so its tools appear as `mcp__browser__<tool>`, a name permission rules and skills can address. The descriptions carry the kind's wording (whose browser it is, what being signed in means there, the per-site rule: the existing copy, product name as the placeholder) and the layer order (#292 item 8): a snapshot to act, `browser_read` for prose, a screenshot for visual questions, `web_read` before opening a browser for a plain URL, a captcha or a login means asking the person, a bot check is never retried, and reddit.com is never opened in a browser, since it challenges automated browsing every time. A browser verb is an ordinary tool call under the run's mode (ADR 0014, ADR 0006).

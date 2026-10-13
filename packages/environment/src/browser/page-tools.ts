@@ -58,7 +58,10 @@ export const PAGE_TOOL_NAMES = {
   cookies: "browser_cookies",
   storage: "browser_storage",
   evaluate: "browser_evaluate",
-} as const satisfies { readonly [V in PageVerb]: string };
+} as const satisfies Partial<Record<PageVerb, string>>;
+
+/** The current MCP surface; new driver members are exposed by the next browser ticket. */
+type ToolVerb = keyof typeof PAGE_TOOL_NAMES;
 
 /** The longest interactive snapshot an action's answer carries, in characters. */
 export const ACTION_SNAPSHOT_CHARS = 12_000;
@@ -175,7 +178,7 @@ const scrollArgs = (input: Input): Read => {
 
 /** One tool: its verb, its own description, its arguments, and how a call's input becomes the verb's arguments. */
 interface PageToolSpec {
-  readonly verb: PageVerb;
+  readonly verb: ToolVerb;
   readonly description: string;
   readonly arguments: Readonly<Record<string, Argument>>;
   readonly required?: readonly string[];
@@ -385,7 +388,7 @@ const schemaOf = (spec: PageToolSpec): JsonObject => ({
 // The answers ---------------------------------------------------------------
 
 /** A verb's value beside what was asked: the call's input, as an answer names it. */
-type Outcome = { readonly [V in PageVerb]: { readonly verb: V; readonly value: PageValue<V> } }[PageVerb];
+type Outcome = { readonly [V in ToolVerb]: { readonly verb: V; readonly value: PageValue<V> } }[ToolVerb];
 
 /** What an answer is written with: the kind that answered, the call's input, and the driver's notice. */
 interface AnswerContext {

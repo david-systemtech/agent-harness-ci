@@ -3635,6 +3635,126 @@
       "title": "CloseValue"
     },
     {
+      "path": "browser/verbs/left_click/args.json",
+      "title": "LeftClickArgs"
+    },
+    {
+      "path": "browser/verbs/left_click/value.json",
+      "title": "LeftClickValue"
+    },
+    {
+      "path": "browser/verbs/right_click/args.json",
+      "title": "RightClickArgs"
+    },
+    {
+      "path": "browser/verbs/right_click/value.json",
+      "title": "RightClickValue"
+    },
+    {
+      "path": "browser/verbs/middle_click/args.json",
+      "title": "MiddleClickArgs"
+    },
+    {
+      "path": "browser/verbs/middle_click/value.json",
+      "title": "MiddleClickValue"
+    },
+    {
+      "path": "browser/verbs/double_click/args.json",
+      "title": "DoubleClickArgs"
+    },
+    {
+      "path": "browser/verbs/double_click/value.json",
+      "title": "DoubleClickValue"
+    },
+    {
+      "path": "browser/verbs/triple_click/args.json",
+      "title": "TripleClickArgs"
+    },
+    {
+      "path": "browser/verbs/triple_click/value.json",
+      "title": "TripleClickValue"
+    },
+    {
+      "path": "browser/verbs/hover/args.json",
+      "title": "HoverArgs"
+    },
+    {
+      "path": "browser/verbs/hover/value.json",
+      "title": "HoverValue"
+    },
+    {
+      "path": "browser/verbs/left_click_drag/args.json",
+      "title": "LeftClickDragArgs"
+    },
+    {
+      "path": "browser/verbs/left_click_drag/value.json",
+      "title": "LeftClickDragValue"
+    },
+    {
+      "path": "browser/verbs/left_mouse_down/args.json",
+      "title": "LeftMouseDownArgs"
+    },
+    {
+      "path": "browser/verbs/left_mouse_down/value.json",
+      "title": "LeftMouseDownValue"
+    },
+    {
+      "path": "browser/verbs/left_mouse_up/args.json",
+      "title": "LeftMouseUpArgs"
+    },
+    {
+      "path": "browser/verbs/left_mouse_up/value.json",
+      "title": "LeftMouseUpValue"
+    },
+    {
+      "path": "browser/verbs/mouse_move/args.json",
+      "title": "MouseMoveArgs"
+    },
+    {
+      "path": "browser/verbs/mouse_move/value.json",
+      "title": "MouseMoveValue"
+    },
+    {
+      "path": "browser/verbs/scroll_to/args.json",
+      "title": "ScrollToArgs"
+    },
+    {
+      "path": "browser/verbs/scroll_to/value.json",
+      "title": "ScrollToValue"
+    },
+    {
+      "path": "browser/verbs/zoom/args.json",
+      "title": "ZoomArgs"
+    },
+    {
+      "path": "browser/verbs/zoom/value.json",
+      "title": "ZoomValue"
+    },
+    {
+      "path": "browser/verbs/form_input/args.json",
+      "title": "FormInputArgs"
+    },
+    {
+      "path": "browser/verbs/form_input/value.json",
+      "title": "FormInputValue"
+    },
+    {
+      "path": "browser/verbs/hold_key/args.json",
+      "title": "HoldKeyArgs"
+    },
+    {
+      "path": "browser/verbs/hold_key/value.json",
+      "title": "HoldKeyValue"
+    },
+    {
+      "path": "browser/verbs/key/args.json",
+      "title": "KeyArgs"
+    },
+    {
+      "path": "browser/verbs/key/value.json",
+      "title": "KeyValue"
+    },
+    {
       "path": "browser/page-command.json",
       "title": "PageCommand"
     },

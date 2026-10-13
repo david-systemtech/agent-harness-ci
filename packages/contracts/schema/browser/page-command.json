@@ -111,7 +111,7 @@
           "required": [
             "url"
           ],
-          "description": "navigate: go to an address and let the load settle."
+          "description": "navigate: go to an address, or back, forward or reload, and let the load settle."
         }
       },
       "required": [
@@ -470,60 +470,115 @@
           "const": "scroll"
         },
         "args": {
-          "type": "object",
-          "properties": {
-            "to": {
-              "anyOf": [
-                {
-                  "type": "object",
-                  "properties": {
-                    "direction": {
-                      "type": "string",
-                      "enum": [
-                        "up",
-                        "down",
-                        "left",
-                        "right"
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "to": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "direction": {
+                          "type": "string",
+                          "enum": [
+                            "up",
+                            "down",
+                            "left",
+                            "right"
+                          ],
+                          "description": "Which way to scroll."
+                        },
+                        "amount": {
+                          "description": "How far, in viewports; preset 1.",
+                          "type": "number",
+                          "exclusiveMinimum": 0,
+                          "maximum": 100
+                        }
+                      },
+                      "required": [
+                        "direction"
                       ],
-                      "description": "Which way to scroll."
+                      "additionalProperties": false,
+                      "description": "A direction and an amount."
                     },
-                    "amount": {
-                      "description": "How far, in viewports; preset 1.",
-                      "type": "number",
-                      "exclusiveMinimum": 0,
-                      "maximum": 100
+                    {
+                      "type": "object",
+                      "properties": {
+                        "ref": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+                        }
+                      },
+                      "required": [
+                        "ref"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Scroll the element with this ref into view."
                     }
-                  },
-                  "required": [
-                    "direction"
                   ],
-                  "additionalProperties": false,
-                  "description": "A direction and an amount."
-                },
-                {
+                  "description": "Where to scroll: a direction and an amount in viewports, or to an element."
+                }
+              },
+              "required": [
+                "to"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "target": {
                   "type": "object",
                   "properties": {
-                    "ref": {
+                    "type": {
                       "type": "string",
-                      "minLength": 1,
-                      "maxLength": 128,
-                      "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+                      "const": "coordinate"
+                    },
+                    "x": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "y": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
                     }
                   },
                   "required": [
-                    "ref"
+                    "type",
+                    "x",
+                    "y"
                   ],
-                  "additionalProperties": false,
-                  "description": "Scroll the element with this ref into view."
+                  "additionalProperties": false
+                },
+                "scroll_direction": {
+                  "type": "string",
+                  "enum": [
+                    "up",
+                    "down",
+                    "left",
+                    "right"
+                  ],
+                  "description": "Which way to turn the wheel at the target coordinate."
+                },
+                "scroll_amount": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
                 }
+              },
+              "required": [
+                "target",
+                "scroll_direction"
               ],
-              "description": "Where to scroll: a direction and an amount in viewports, or to an element."
+              "additionalProperties": false
             }
-          },
-          "required": [
-            "to"
           ],
-          "description": "scroll: by a direction and an amount, or to an element."
+          "description": "scroll: wheel at a viewport coordinate (1 to 10 notches, preset 3); also accepts the existing viewport/ref target."
         }
       },
       "required": [
@@ -732,6 +787,1205 @@
           "type": "object",
           "properties": {},
           "description": "No arguments."
+        }
+      },
+      "required": [
+        "verb",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "verb": {
+          "type": "string",
+          "const": "left_click"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "coordinate"
+                    },
+                    "x": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "y": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "x",
+                    "y"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "ref"
+                    },
+                    "ref": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "ref"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "modifiers": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "snapshot": {
+              "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+              "type": "object",
+              "properties": {
+                "filter": {
+                  "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                  "type": "string",
+                  "enum": [
+                    "interactive",
+                    "all"
+                  ]
+                },
+                "depth": {
+                  "description": "How many levels of the tree to read.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "ref": {
+                  "description": "Read only the subtree of the element with this ref.",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "maxChars": {
+                  "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 200000
+                }
+              }
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "description": "Click a ref or viewport coordinate, optionally holding modifiers such as ctrl+shift."
+        }
+      },
+      "required": [
+        "verb",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "verb": {
+          "type": "string",
+          "const": "right_click"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "coordinate"
+                    },
+                    "x": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "y": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "x",
+                    "y"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "ref"
+                    },
+                    "ref": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "ref"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "modifiers": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "snapshot": {
+              "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+              "type": "object",
+              "properties": {
+                "filter": {
+                  "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                  "type": "string",
+                  "enum": [
+                    "interactive",
+                    "all"
+                  ]
+                },
+                "depth": {
+                  "description": "How many levels of the tree to read.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "ref": {
+                  "description": "Read only the subtree of the element with this ref.",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "maxChars": {
+                  "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 200000
+                }
+              }
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "description": "Click a ref or viewport coordinate, optionally holding modifiers such as ctrl+shift."
+        }
+      },
+      "required": [
+        "verb",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "verb": {
+          "type": "string",
+          "const": "middle_click"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "coordinate"
+                    },
+                    "x": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "y": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "x",
+                    "y"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "ref"
+                    },
+                    "ref": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "ref"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "modifiers": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "snapshot": {
+              "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+              "type": "object",
+              "properties": {
+                "filter": {
+                  "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                  "type": "string",
+                  "enum": [
+                    "interactive",
+                    "all"
+                  ]
+                },
+                "depth": {
+                  "description": "How many levels of the tree to read.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "ref": {
+                  "description": "Read only the subtree of the element with this ref.",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "maxChars": {
+                  "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 200000
+                }
+              }
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "description": "Click a ref or viewport coordinate, optionally holding modifiers such as ctrl+shift."
+        }
+      },
+      "required": [
+        "verb",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "verb": {
+          "type": "string",
+          "const": "double_click"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "coordinate"
+                    },
+                    "x": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "y": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "x",
+                    "y"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "ref"
+                    },
+                    "ref": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "ref"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "modifiers": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "snapshot": {
+              "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+              "type": "object",
+              "properties": {
+                "filter": {
+                  "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                  "type": "string",
+                  "enum": [
+                    "interactive",
+                    "all"
+                  ]
+                },
+                "depth": {
+                  "description": "How many levels of the tree to read.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "ref": {
+                  "description": "Read only the subtree of the element with this ref.",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "maxChars": {
+                  "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 200000
+                }
+              }
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "description": "Click a ref or viewport coordinate, optionally holding modifiers such as ctrl+shift."
+        }
+      },
+      "required": [
+        "verb",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "verb": {
+          "type": "string",
+          "const": "triple_click"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "coordinate"
+                    },
+                    "x": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "y": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "x",
+                    "y"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "ref"
+                    },
+                    "ref": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "ref"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "modifiers": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "snapshot": {
+              "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+              "type": "object",
+              "properties": {
+                "filter": {
+                  "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                  "type": "string",
+                  "enum": [
+                    "interactive",
+                    "all"
+                  ]
+                },
+                "depth": {
+                  "description": "How many levels of the tree to read.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "ref": {
+                  "description": "Read only the subtree of the element with this ref.",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "maxChars": {
+                  "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 200000
+                }
+              }
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "description": "Click a ref or viewport coordinate, optionally holding modifiers such as ctrl+shift."
+        }
+      },
+      "required": [
+        "verb",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "verb": {
+          "type": "string",
+          "const": "hover"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "coordinate"
+                    },
+                    "x": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "y": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "x",
+                    "y"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "ref"
+                    },
+                    "ref": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "ref"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "snapshot": {
+              "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+              "type": "object",
+              "properties": {
+                "filter": {
+                  "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                  "type": "string",
+                  "enum": [
+                    "interactive",
+                    "all"
+                  ]
+                },
+                "depth": {
+                  "description": "How many levels of the tree to read.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "ref": {
+                  "description": "Read only the subtree of the element with this ref.",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "maxChars": {
+                  "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 200000
+                }
+              }
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "description": "hover: move over a ref or viewport coordinate without clicking."
+        }
+      },
+      "required": [
+        "verb",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "verb": {
+          "type": "string",
+          "const": "left_click_drag"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "coordinate"
+                },
+                "x": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "y": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "type",
+                "x",
+                "y"
+              ],
+              "additionalProperties": false
+            },
+            "target": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "coordinate"
+                },
+                "x": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "y": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "type",
+                "x",
+                "y"
+              ],
+              "additionalProperties": false
+            },
+            "snapshot": {
+              "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+              "type": "object",
+              "properties": {
+                "filter": {
+                  "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                  "type": "string",
+                  "enum": [
+                    "interactive",
+                    "all"
+                  ]
+                },
+                "depth": {
+                  "description": "How many levels of the tree to read.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "ref": {
+                  "description": "Read only the subtree of the element with this ref.",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "maxChars": {
+                  "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 200000
+                }
+              }
+            }
+          },
+          "required": [
+            "from",
+            "target"
+          ],
+          "description": "left_click_drag: press at from, drag to target, and release."
+        }
+      },
+      "required": [
+        "verb",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "verb": {
+          "type": "string",
+          "const": "left_mouse_down"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "coordinate"
+                },
+                "x": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "y": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "type",
+                "x",
+                "y"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "description": "left_mouse_down: press and hold the left button at a viewport coordinate."
+        }
+      },
+      "required": [
+        "verb",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "verb": {
+          "type": "string",
+          "const": "left_mouse_up"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "coordinate"
+                },
+                "x": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "y": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "type",
+                "x",
+                "y"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "description": "left_mouse_up: release the left button at a viewport coordinate."
+        }
+      },
+      "required": [
+        "verb",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "verb": {
+          "type": "string",
+          "const": "mouse_move"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "coordinate"
+                },
+                "x": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "y": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "type",
+                "x",
+                "y"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "description": "mouse_move: move to a viewport coordinate, preserving held buttons."
+        }
+      },
+      "required": [
+        "verb",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "verb": {
+          "type": "string",
+          "const": "scroll_to"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "ref"
+                },
+                "ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+                }
+              },
+              "required": [
+                "type",
+                "ref"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "description": "scroll_to: scroll a snapshot ref into view."
+        }
+      },
+      "required": [
+        "verb",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "verb": {
+          "type": "string",
+          "const": "zoom"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "region": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              ],
+              "items": false,
+              "minItems": 4,
+              "maxItems": 4
+            }
+          },
+          "required": [
+            "region"
+          ],
+          "description": "zoom: crop and upscale [x0, y0, x1, y1] in full-viewport pixels; coordinates stay in the original viewport."
+        }
+      },
+      "required": [
+        "verb",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "verb": {
+          "type": "string",
+          "const": "form_input"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "ref"
+                },
+                "ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+                }
+              },
+              "required": [
+                "type",
+                "ref"
+              ],
+              "additionalProperties": false
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 65536
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "snapshot": {
+              "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+              "type": "object",
+              "properties": {
+                "filter": {
+                  "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                  "type": "string",
+                  "enum": [
+                    "interactive",
+                    "all"
+                  ]
+                },
+                "depth": {
+                  "description": "How many levels of the tree to read.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "ref": {
+                  "description": "Read only the subtree of the element with this ref.",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "maxChars": {
+                  "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 200000
+                }
+              }
+            }
+          },
+          "required": [
+            "target",
+            "value"
+          ],
+          "description": "form_input: set a referenced form control's value; booleans for checkboxes/radios, option values or labels for selects."
+        }
+      },
+      "required": [
+        "verb",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "verb": {
+          "type": "string",
+          "const": "hold_key"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "duration": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 30
+            },
+            "snapshot": {
+              "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+              "type": "object",
+              "properties": {
+                "filter": {
+                  "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                  "type": "string",
+                  "enum": [
+                    "interactive",
+                    "all"
+                  ]
+                },
+                "depth": {
+                  "description": "How many levels of the tree to read.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "ref": {
+                  "description": "Read only the subtree of the element with this ref.",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "maxChars": {
+                  "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 200000
+                }
+              }
+            }
+          },
+          "required": [
+            "text",
+            "duration"
+          ],
+          "description": "hold_key: hold one key or chord for 0 to 30 seconds, then release it."
+        }
+      },
+      "required": [
+        "verb",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "verb": {
+          "type": "string",
+          "const": "key"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "repeat": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "snapshot": {
+              "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+              "type": "object",
+              "properties": {
+                "filter": {
+                  "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                  "type": "string",
+                  "enum": [
+                    "interactive",
+                    "all"
+                  ]
+                },
+                "depth": {
+                  "description": "How many levels of the tree to read.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "ref": {
+                  "description": "Read only the subtree of the element with this ref.",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "maxChars": {
+                  "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 200000
+                }
+              }
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "description": "key: press a key, a + chord, or a space-separated sequence; repeat 1 to 100 times."
         }
       },
       "required": [

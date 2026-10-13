@@ -69,14 +69,29 @@ export const scriptedPageDriver = (kind: PageDriverKind): ScriptedPageDriver => 
       case "click":
       case "clickAt":
       case "type":
+      case "key":
+      case "hold_key":
+      case "left_click":
+      case "right_click":
+      case "middle_click":
+      case "double_click":
+      case "triple_click":
+      case "hover":
+      case "left_click_drag":
+      case "form_input":
         return arrival();
       case "snapshot":
         return { ok: true, value: { ...location(), text: FIXTURE_SNAPSHOT, totalChars: FIXTURE_SNAPSHOT.length, truncated: false } };
       case "read":
         return { ok: true, value: { ...location(), source: "article", text: "# A fixture page\n\nIts only paragraph.", offset: 0, totalChars: 37, nextOffset: null } };
       case "screenshot":
+      case "zoom":
         return { ok: true, value: { url: at(pageKey), mimeType: "image/jpeg", data: FIXTURE_JPEG } };
       case "scroll":
+      case "scroll_to":
+      case "mouse_move":
+      case "left_mouse_down":
+      case "left_mouse_up":
       case "waitFor":
         return { ok: true, value: location() };
       case "console":

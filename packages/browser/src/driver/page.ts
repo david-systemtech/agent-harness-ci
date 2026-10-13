@@ -10,6 +10,7 @@ import {
   type PageRefusal,
 } from "@agent-harness/contracts";
 import { CdpError, type CdpEvent, type CdpParams, type CdpSession } from "../cdp/session.js";
+import { keySequence, modifierKeys, type KeyboardKey } from "./keys.js";
 import { RefBook } from "../snapshot/refs.js";
 
 /**
@@ -184,6 +185,8 @@ export class CdpPage {
   private readonly lifecycle = new Map<string, Set<string>>();
   private mainFrameId = "";
   private loading = false;
+  private leftButtonDown = false;
+  private pointer = { x: 0, y: 0 };
   /** The top frame's loads started, documents committed, and the loads started when the current document committed. */
   private starts = 0;
   private commits = 0;
@@ -505,15 +508,133 @@ export class CdpPage {
     return this.settleAfter(before);
   }
 
-  /** A real click at a point of the viewport: the mouse moved there, pressed and released; a load it starts settles. */
-  async clickAt(x: number, y: number): Promise<LoadOutcome> {
+  /** A history destination is read before navigating, so the driver can apply its URL policy. */
+  async historyDestination(direction: "back" | "forward"): Promise<{ readonly id: number; readonly url: string } | undefined> {
+    const { currentIndex, entries } = await this.session.send("Page.getNavigationHistory");
+    return (entries as { id: number; url: string }[])[(currentIndex as number) + (direction === "back" ? -1 : 1)];
+  }
+
+  async navigateHistory(entryId: number): Promise<LoadOutcome> {
+    return this.actAndSettle(async () => { await this.session.send("Page.navigateToHistoryEntry", { entryId }); });
+  }
+
+  async reload(): Promise<LoadOutcome> {
+    return this.actAndSettle(async () => { await this.session.send("Page.reload"); });
+  }
+
+  /** Input that may navigate waits for the resulting document, just as a click does. */
+  private async actAndSettle(action: () => Promise<void>): Promise<LoadOutcome> {
     const before = this.loadsNow();
-    await this.session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
-    await this.session.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 });
-    await this.session.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 });
+    await action();
     const started = () => this.starts > before.starts;
     if (!started()) await this.until(started, CLICK_NAVIGATION_GRACE_MS);
     return started() && this.held === undefined && this.gone === undefined ? this.settleAfter(before) : { kind: "loaded" };
+  }
+
+  /** Every pressed key is released even if input fails midway through the chord. */
+  private async withKeys(keys: readonly KeyboardKey[], action: (modifiers: number) => Promise<void>): Promise<void> {
+    let modifiers = 0;
+    let failure: unknown;
+    const pressed: KeyboardKey[] = [];
+    try {
+      for (const key of keys) {
+        modifiers |= key.modifier;
+        pressed.push(key);
+        const printable = key.text !== undefined && (modifiers & ~8) === 0;
+        await this.session.send("Input.dispatchKeyEvent", {
+          type: "keyDown", key: key.key, code: key.code, windowsVirtualKeyCode: key.virtualKey,
+          modifiers, ...(printable && { text: key.text }),
+        });
+      }
+      await action(modifiers);
+    } catch (error) {
+      failure = error;
+    }
+    for (const key of pressed.reverse()) {
+      modifiers &= ~key.modifier;
+      try {
+        await this.session.send("Input.dispatchKeyEvent", {
+          type: "keyUp", key: key.key, code: key.code, windowsVirtualKeyCode: key.virtualKey, modifiers,
+        });
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    if (failure !== undefined) throw failure;
+  }
+
+  /** A real click: move, press and release, with another button or multiple clicks when requested. */
+  async clickAt(x: number, y: number, button: "left" | "right" | "middle" = "left", count = 1, modifiers?: string): Promise<LoadOutcome> {
+    const keys = modifierKeys(modifiers);
+    return this.actAndSettle(() => this.withKeys(keys, async (mask) => {
+      const held = mask === 0 ? {} : { modifiers: mask };
+      await this.session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, ...held });
+      for (let clickCount = 1; clickCount <= count; clickCount++) {
+        try {
+          await this.session.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button, buttons: button === "left" ? 1 : button === "right" ? 2 : 4, clickCount, ...held });
+        } finally {
+          await this.session.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button, buttons: 0, clickCount, ...held });
+        }
+      }
+    }));
+  }
+
+  /** Moving with a held button makes a custom drag span several driver calls. */
+  async moveTo(x: number, y: number): Promise<void> {
+    this.pointer = { x, y };
+    await this.session.send("Input.dispatchMouseEvent", {
+      type: "mouseMoved", x, y, buttons: this.leftButtonDown ? 1 : 0, ...(this.leftButtonDown && { button: "left" }),
+    });
+  }
+
+  async mouseDown(x: number, y: number): Promise<void> {
+    await this.moveTo(x, y);
+    this.leftButtonDown = true;
+    try {
+      await this.session.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 });
+    } catch (error) {
+      await this.mouseUp(x, y);
+      throw error;
+    }
+  }
+
+  async mouseUp(x: number, y: number): Promise<void> {
+    await this.session.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 });
+    this.leftButtonDown = false;
+  }
+
+  /** A slider or canvas drag gets intermediate motion, not just a jump to the endpoint. */
+  async drag(from: { readonly x: number; readonly y: number }, target: { readonly x: number; readonly y: number }): Promise<LoadOutcome> {
+    return this.actAndSettle(async () => {
+      await this.mouseDown(from.x, from.y);
+      try {
+        for (let step = 1; step <= 10; step++) {
+          await this.moveTo(from.x + (target.x - from.x) * step / 10, from.y + (target.y - from.y) * step / 10);
+        }
+      } finally {
+        await this.mouseUp(target.x, target.y);
+      }
+    });
+  }
+
+  async releaseMouseAt(x: number, y: number): Promise<LoadOutcome> {
+    return this.actAndSettle(() => this.mouseUp(x, y));
+  }
+
+  /** Presses a sequence, or holds one chord, and settles a form submitted by Enter. */
+  async key(text: string, repeat: number, holdMs?: number): Promise<LoadOutcome> {
+    const sequence = keySequence(text);
+    if (holdMs !== undefined && sequence.length !== 1) throw new Error("hold_key takes one key or chord, not a sequence.");
+    return this.actAndSettle(async () => {
+      for (let count = 0; count < repeat; count++) {
+        for (const chord of sequence) {
+          if (this.held !== undefined || this.gone !== undefined) return;
+          await this.withKeys(chord, async () => {
+            if (holdMs !== undefined) await this.pause(holdMs);
+          });
+        }
+      }
+    });
   }
 
   /** Types `text` where the focus is, as an input method commits it: one input event for the whole text. */
@@ -529,13 +650,28 @@ export class CdpPage {
   }
 
   /** A mouse wheel turned at the viewport's centre, by pixels across and down. */
-  async wheel(deltaX: number, deltaY: number): Promise<void> {
-    await this.session.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: VIEWPORT.width / 2, y: VIEWPORT.height / 2, deltaX, deltaY });
+  async wheel(deltaX: number, deltaY: number, x: number = VIEWPORT.width / 2, y: number = VIEWPORT.height / 2): Promise<void> {
+    await this.session.send("Input.dispatchMouseEvent", { type: "mouseWheel", x, y, deltaX, deltaY });
   }
 
   /** The viewport as a JPEG at quality 70, base64. */
   async screenshot(): Promise<string> {
     const { data } = await this.session.send("Page.captureScreenshot", { format: "jpeg", quality: 70 });
+    return data as string;
+  }
+
+  /** Screenshot clips are document pixels, so translate the viewport region by the scroll offset. */
+  async zoom(region: readonly [number, number, number, number]): Promise<string> {
+    const [x0, y0, x1, y1] = region;
+    const width = x1 - x0;
+    const height = y1 - y0;
+    const { cssLayoutViewport } = await this.session.send("Page.getLayoutMetrics");
+    const viewport = cssLayoutViewport as { pageX: number; pageY: number };
+    // Keep the returned image within the full screenshot's dimensions.
+    const scale = Math.min(2, VIEWPORT.width / width, VIEWPORT.height / height);
+    const { data } = await this.session.send("Page.captureScreenshot", {
+      format: "jpeg", quality: 70, clip: { x: viewport.pageX + x0, y: viewport.pageY + y0, width, height, scale }, captureBeyondViewport: false,
+    });
     return data as string;
   }
 
@@ -623,6 +759,7 @@ export class CdpPage {
 
   /** Lets go of the page's target. */
   async detach(): Promise<void> {
+    if (this.leftButtonDown) await this.mouseUp(this.pointer.x, this.pointer.y).catch(() => undefined);
     await this.session.detach();
   }
 

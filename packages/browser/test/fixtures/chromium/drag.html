@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><title>Drag fixture</title>
+<style>body { margin: 0; } #slider { position: absolute; left: 100px; top: 100px; width: 300px; }</style>
+<label for="slider">Level</label><input id="slider" type="range" min="0" max="100" value="0">
+<output id="value">0</output>
+<script>
+  document.getElementById('slider').addEventListener('input', (event) => {
+    document.getElementById('value').textContent = event.target.value;
+  });
+</script>
+</html>

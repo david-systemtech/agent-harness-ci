@@ -28,7 +28,7 @@ import { refGone } from "../snapshot/refs.js";
 import { serialiseSnapshot, type SnapshotText } from "../snapshot/serialiser.js";
 import { stitchFrames, type FrameTree } from "../snapshot/stitch.js";
 import type { FrameSnapshot, FrameSnapshotOptions } from "../snapshot/world.js";
-import { elementShows, frameOwnerOrigin, locateElement, readStorage, scrollToElement, selectFieldContents, showsText, type ElementTarget } from "./in-page.js";
+import { elementShows, frameOwnerOrigin, locateElement, readStorage, setFormValue, scrollToElement, selectFieldContents, showsText, type ElementTarget } from "./in-page.js";
 import {
   CdpPage,
   NAVIGATION_SETTLE_MS,
@@ -353,6 +353,27 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
     }
   };
 
+  /** A toolset target resolves through the same frame/ref checks as the existing element actions. */
+  const pointOf = async (page: CdpPage, target: PageArgs<"left_click">["target"]): Promise<{ readonly x: number; readonly y: number } | PageRefusal> => {
+    if (target.type === "ref") return located(page, { ref: target.ref });
+    if (target.x < 0 || target.y < 0 || target.x >= VIEWPORT.width || target.y >= VIEWPORT.height) {
+      return refused(`The point (${target.x}, ${target.y}) is outside the screenshot, which is ${VIEWPORT.width} by ${VIEWPORT.height} pixels.`);
+    }
+    return target;
+  };
+
+  const pointerClick = async (page: CdpPage, args: PageArgs<"left_click">, button: "left" | "right" | "middle", count = 1): Promise<PageResult<"left_click">> => {
+    const point = await pointOf(page, args.target);
+    if ("ok" in point) return point;
+    return arrival(page, args, await page.clickAt(point.x, point.y, button, count, args.modifiers));
+  };
+
+  const scrollRef = async (page: CdpPage, ref: string): Promise<PageResult<"scroll_to">> => {
+    const frame = refFrame(page, ref);
+    const scrolled = frame === undefined ? "stale" : await page.callInFrame(frame, scrollToElement, ref);
+    return scrolled === "stale" ? refused(staleRef(ref)) : { ok: true, value: await page.location() };
+  };
+
   /** Whether the element a ref names shows: true, false while it does not yet, or the sentence for a ref no element has. */
   const refShows = async (page: CdpPage, ref: string): Promise<boolean | PageRefusal> => {
     const frame = refFrame(page, ref);
@@ -367,7 +388,7 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
   };
 
   /** A named address opened in the top frame, once the policy has read it. */
-  const goTo = async (page: CdpPage, address: string, args: { readonly snapshot?: PageArgs<"snapshot"> | undefined }, allowance: OneTimeAllowance | undefined): Promise<PageResult<"open">> => {
+  const goTo = async (page: CdpPage, address: string, args: { readonly snapshot?: PageArgs<"snapshot"> | undefined }, allowance: OneTimeAllowance | undefined, navigate?: () => Promise<LoadOutcome>): Promise<PageResult<"open">> => {
     const url = urlOf(address);
     const standing = page.standing(url, allowance);
     if (standing.kind === "unsupported") return refused(`The browser opens http and https addresses only, and ${address} is neither.`);
@@ -381,13 +402,69 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
     if (standing.kind === "web-store" && kind === "chrome") return refused(`${url} is on the Chrome Web Store, where Chrome lets no extension read or act, so the browser did not open it.`);
     const ruled = options.addressRule?.({ url, topLevel: true }) ?? (await options.beforeNavigation?.(url));
     if (ruled) return refused(ruled);
-    return arrival(page, args, await page.navigate(url));
+    return arrival(page, args, await (navigate === undefined ? page.navigate(url) : navigate()));
   };
 
   type Handler<V extends PageVerb> = (page: CdpPage, args: PageArgs<V>, allowance: OneTimeAllowance | undefined) => Promise<PageResult<V>>;
   const verbs: { readonly [V in Exclude<PageVerb, "close">]: Handler<V> } = {
+    left_click: (page, args) => pointerClick(page, args, "left"),
+    right_click: (page, args) => pointerClick(page, args, "right"),
+    middle_click: (page, args) => pointerClick(page, args, "middle"),
+    double_click: (page, args) => pointerClick(page, args, "left", 2),
+    triple_click: (page, args) => pointerClick(page, args, "left", 3),
+    hover: async (page, args) => {
+      const point = await pointOf(page, args.target);
+      if ("ok" in point) return point;
+      await page.moveTo(point.x, point.y);
+      return arrival(page, args);
+    },
+    mouse_move: async (page, args) => {
+      const point = await pointOf(page, args.target);
+      if ("ok" in point) return point;
+      await page.moveTo(point.x, point.y);
+      return { ok: true, value: await page.location() };
+    },
+    left_mouse_down: async (page, args) => {
+      const point = await pointOf(page, args.target);
+      if ("ok" in point) return point;
+      await page.mouseDown(point.x, point.y);
+      return { ok: true, value: await page.location() };
+    },
+    left_mouse_up: async (page, args) => {
+      const point = await pointOf(page, args.target);
+      if ("ok" in point) return point;
+      const load = await page.releaseMouseAt(point.x, point.y);
+      if (load.kind === "failed") return refused(`The browser could not load the page: ${load.errorText}.`);
+      return { ok: true, value: await page.location() };
+    },
+    left_click_drag: async (page, args) => {
+      const from = await pointOf(page, args.from);
+      if ("ok" in from) return from;
+      const target = await pointOf(page, args.target);
+      if ("ok" in target) return target;
+      return arrival(page, args, await page.drag(from, target));
+    },
+    form_input: async (page, args) => {
+      const ref = args.target.ref;
+      const frame = refFrame(page, ref);
+      if (frame === undefined) return refused(staleRef(ref));
+      const outcome = await page.callInFrame(frame, setFormValue, ref, args.value);
+      if (outcome === "gone") return refused(staleRef(ref));
+      if (outcome !== "set") return refused(outcome);
+      return arrival(page, args);
+    },
+    hold_key: async (page, args) => arrival(page, args, await page.key(args.text, 1, args.duration * 1_000)),
+    key: async (page, args) => arrival(page, args, await page.key(args.text, args.repeat ?? 1)),
     open: (page, args, allowance) => (args.url === undefined ? arrival(page, args) : goTo(page, args.url, args, allowance)),
-    navigate: (page, args, allowance) => goTo(page, args.url, args, allowance),
+    navigate: async (page, args, allowance) => {
+      if (args.url === "reload") return goTo(page, page.mainFrame().url, args, allowance, () => page.reload());
+      if (args.url === "back" || args.url === "forward") {
+        const entry = await page.historyDestination(args.url);
+        if (entry === undefined) return refused(`There is no ${args.url === "back" ? "previous" : "next"} entry in this page's history.`);
+        return goTo(page, entry.url, args, allowance, () => page.navigateHistory(entry.id));
+      }
+      return goTo(page, args.url, args, allowance);
+    },
     snapshot: async (page, args) => {
       const check = await checkChallenge(page);
       const taken = await snapshotOf(page, args);
@@ -435,17 +512,30 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
       else await page.insertText(args.text);
       return arrival(page, args, load);
     },
+    zoom: async (page, args) => {
+      const [x0, y0, x1, y1] = args.region;
+      if (x0 < 0 || y0 < 0 || x1 <= x0 || y1 <= y0 || x1 > VIEWPORT.width || y1 > VIEWPORT.height) {
+        return refused(`The zoom region must have positive width and height inside the ${VIEWPORT.width} by ${VIEWPORT.height} viewport.`);
+      }
+      return { ok: true, value: { url: page.mainFrame().url, mimeType: "image/jpeg", data: await page.zoom(args.region) } };
+    },
     screenshot: async (page) => {
       const data = await page.screenshot();
       return { ok: true, value: { url: page.mainFrame().url, mimeType: "image/jpeg", data } };
     },
+    scroll_to: (page, args) => scrollRef(page, args.target.ref),
     scroll: async (page, args) => {
-      if ("ref" in args.to) {
-        const { ref } = args.to;
-        const frame = refFrame(page, ref);
-        const scrolled = frame === undefined ? "stale" : await page.callInFrame(frame, scrollToElement, ref);
-        return scrolled === "stale" ? refused(staleRef(ref)) : { ok: true, value: await page.location() };
+      if ("target" in args) {
+        const point = await pointOf(page, args.target);
+        if ("ok" in point) return point;
+        // CDP takes pixels; one wheel notch is 100 pixels, independent of the viewport size.
+        const amount = (args.scroll_amount ?? 3) * 100;
+        const across = args.scroll_direction === "left" ? -1 : args.scroll_direction === "right" ? 1 : 0;
+        const down = args.scroll_direction === "up" ? -1 : args.scroll_direction === "down" ? 1 : 0;
+        await page.wheel(across * amount, down * amount, point.x, point.y);
+        return { ok: true, value: await page.location() };
       }
+      if ("ref" in args.to) return scrollRef(page, args.to.ref);
       const amount = args.to.amount ?? 1;
       const across = args.to.direction === "left" ? -1 : args.to.direction === "right" ? 1 : 0;
       const down = args.to.direction === "up" ? -1 : args.to.direction === "down" ? 1 : 0;

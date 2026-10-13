@@ -67,7 +67,7 @@ const verbs: Record<string, { readonly args: Fixtures; readonly value: Fixtures 
     value: { valid: [{ url: location.url, mimeType: "image/jpeg", data: "/9j/4AAQSkZJRg==" }, { url: location.url, mimeType: "image/png", data: "" }], invalid: [{ url: location.url, mimeType: "image/gif", data: "R0lG" }, { url: location.url, mimeType: "image/jpeg", data: "not base64!" }] },
   },
   scroll: {
-    args: { valid: [{ to: { direction: "down" } }, { to: { direction: "left", amount: 0.5 } }, { to: { ref: "e9" } }], invalid: [{ to: { direction: "sideways" } }, { to: { direction: "up", amount: 0 } }, { to: { direction: "down", ref: "e9" } }, {}] },
+    args: { valid: [{ target: { type: "coordinate", x: 50, y: 70 }, scroll_direction: "down", scroll_amount: 10 }, { to: { direction: "down" } }, { to: { direction: "left", amount: 0.5 } }, { to: { ref: "e9" } }], invalid: [{ to: { direction: "sideways" } }, { to: { direction: "up", amount: 0 } }, { to: { direction: "down", ref: "e9" } }, {}] },
     value: { valid: [location], invalid: [{}] },
   },
   waitFor: {
@@ -111,6 +111,24 @@ const verbs: Record<string, { readonly args: Fixtures; readonly value: Fixtures 
     value: { valid: [null], invalid: [{}, false] },
   },
 };
+
+// Toolset-shaped additions have their own wire fixtures, including rejection cases.
+const coordinate = { type: "coordinate", x: 100, y: 200 };
+const refTarget = { type: "ref", ref: "e3" };
+const arrivalFixtures: Fixtures = { valid: [location, { ...location, snapshot: snapshotText }], invalid: [{}, { url: 1, title: "x" }] };
+for (const verb of ["left_click", "right_click", "middle_click", "double_click", "triple_click"]) {
+  verbs[verb] = { args: { valid: [{ target: coordinate }, { target: refTarget, modifiers: "ctrl+shift" }], invalid: [{}, { target: { type: "coordinate", x: -1, y: 0 } }, { target: { selector: "button" } }] }, value: arrivalFixtures };
+}
+verbs["hover"] = { args: { valid: [{ target: coordinate }, { target: refTarget }], invalid: [{}, { target: { type: "coordinate", x: 0.5, y: 0 } }] }, value: arrivalFixtures };
+for (const verb of ["left_mouse_down", "left_mouse_up", "mouse_move"]) {
+  verbs[verb] = { args: { valid: [{ target: coordinate }], invalid: [{}, { target: refTarget }] }, value: { valid: [location], invalid: [{}] } };
+}
+verbs["left_click_drag"] = { args: { valid: [{ from: coordinate, target: { ...coordinate, x: 400 } }], invalid: [{ target: coordinate }, { from: refTarget, target: coordinate }] }, value: arrivalFixtures };
+verbs["scroll_to"] = { args: { valid: [{ target: refTarget }], invalid: [{ target: coordinate }, {}] }, value: { valid: [location], invalid: [{}] } };
+verbs["zoom"] = { args: { valid: [{ region: [100, 50, 300, 150] }], invalid: [{ region: [-1, 0, 100, 100] }, { region: [0, 0, 100] }] }, value: verbs["screenshot"]!.value };
+verbs["key"] = { args: { valid: [{ text: "Enter" }, { text: "ctrl+a Tab", repeat: 100 }], invalid: [{ text: "" }, { text: "Enter", repeat: 101 }] }, value: arrivalFixtures };
+verbs["hold_key"] = { args: { valid: [{ text: "ArrowDown", duration: 0 }, { text: "ctrl+a", duration: 30 }], invalid: [{ text: "Enter" }, { text: "Enter", duration: 31 }] }, value: arrivalFixtures };
+verbs["form_input"] = { args: { valid: [{ target: refTarget, value: "Second choice" }, { target: refTarget, value: 42 }, { target: refTarget, value: false }], invalid: [{ target: coordinate, value: true }, { target: refTarget, value: null }] }, value: arrivalFixtures };
 
 const command = { verb: "click", args: { target: { ref: "e12" } } };
 const call = { pageKey: `${environmentId}/${chromeId}`, command, allowance: { host: "www.paypal.com" } };
