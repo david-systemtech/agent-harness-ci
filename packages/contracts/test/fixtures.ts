@@ -863,6 +863,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "environment.icon-set", payload: { icon: "nas" } },
       { type: "environment.colour-set", payload: { colour: "amber" } },
       knownEnvironmentsNotice.valid,
+      { type: "process.updated", payload: { sessionId: "0199a100-0000-4000-8000-000000000001" } },
       { type: "account.updated", payload: { accountId: "claude-max", change: "status-changed", warning: null } },
       {
         type: "signin.updated",

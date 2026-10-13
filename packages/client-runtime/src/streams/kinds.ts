@@ -312,6 +312,7 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "signin.updated":
       case "signin.executable-chosen":
       case "usage.updated":
+      case "process.updated":
         return data;
       // An update's steps (#335): the status holds none of them, `updates.status` does (#342), and the notices queue says
       // what is news (#344). The drain an update began is `environment.draining`'s. A check of the release channel that

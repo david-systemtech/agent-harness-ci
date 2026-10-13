@@ -1566,6 +1566,7 @@ export const App = (props: AppProps) => {
   const presentation = useMemo(() => props.presentation ?? inMemoryPresentation(), [props.presentation]);
   const rail = useRail({
     runtime,
+    request,
     views,
     colours,
     keymap,

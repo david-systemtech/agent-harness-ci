@@ -118,6 +118,7 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "prompt.parked",
   "prompt.resolved",
   "usage.updated",
+  "process.updated",
   // The denylist changed, and the Unattended review did: each on a stream no client follows whole (the access log, a
   // session's, the settings stream), so a client's cached answers of them wait on these (#811).
   "denylist.updated",
@@ -227,6 +228,7 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "signin.executable-chosen": "Which executable sign-ins run, recorded once.",
   "prompt.parked": "A run waits for a person's answer.",
   "prompt.resolved": "A parked prompt was answered.",
+  "process.updated": "A session’s provider process changed state or held work; a client refreshes its process activity.",
   "usage.updated": "An account's plan-usage reading changed; a client refreshes what it caches of the readings.",
   "denylist.updated": "The denylist changed; a client reads permissions.denylist.get and permissions.settings.get again.",
   "review.updated": "The Unattended review changed; a client reads permissions.review.list again.",
@@ -600,6 +602,7 @@ export const EnvironmentNotice = z
     PromptParked,
     PromptResolved,
     UsageUpdated,
+    z.object({ type: z.literal("process.updated"), payload: z.object({ sessionId: SessionId }) }).meta({ description: "A session’s provider process changed state or held work, including release and stop." }),
     DenylistUpdated,
     ReviewUpdated,
     ForgeAccountAdded,

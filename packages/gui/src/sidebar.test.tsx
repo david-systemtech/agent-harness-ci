@@ -1,5 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { backgroundProcess } from "../gallery/fixtures/background-process.js";
 import { DESK_ID, G_BRAND_DESK, G_BRAND_LAPTOP, G_OPS, LAPTOP_ID, OLD, SPARE, TRAIN, at, drawn, inUtc, region, row, rowWords, settled, sidebar, two, typeIn } from "../test/sidebar-fixtures.js";
 
 /**
@@ -69,6 +70,18 @@ describe("a merged group", () => {
 });
 
 describe("a row", () => {
+  it("keeps the running dot on a session with held work between turns and removes it on release", async () => {
+    const app = await settled(await two());
+    const env = app.environment("desk");
+    act(() => env.setProcesses([backgroundProcess(SPARE)]));
+    const spare = row("Spare");
+    const mark = await within(spare).findByRole("img", { name: "Running · waiting on background work" });
+    expect(mark.className).toContain("bg-amber");
+    expect(mark.className).toContain("motion-safe:animate-pulse");
+    act(() => env.setProcesses([backgroundProcess(SPARE, { holds: [] })]));
+    await waitFor(() => expect(within(spare).queryByRole("img", { name: /Running/ })).toBeNull());
+  });
+
   it("shows its environment's badge, its title, its activity with the parked count, and its tags", async () => {
     await settled(await two());
     const fix = row("Fix the rail");

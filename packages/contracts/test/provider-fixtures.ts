@@ -56,6 +56,10 @@ export const providerMethodFixtures: Record<string, { params: Fixtures; result: 
     params: { valid: [{}], invalid: [[], "all"] },
     result: { valid: [{ processes: [] }, { processes: [busy, held, parked, stopped] }], invalid: [{}, { processes: [{ ...busy, state: "gone" }] }] },
   },
+  "providers.processes.status": {
+    params: { valid: [{}], invalid: [[], "all"] },
+    result: { valid: [{ processes: [] }, { processes: [busy, held, parked, stopped] }], invalid: [{}, { processes: [{ ...busy, state: "gone" }] }] },
+  },
   "providers.processes.stop": {
     params: { valid: [{ commandId, sessionId }], invalid: [{ commandId }, { commandId, sessionId: "s-1" }, { sessionId }] },
     result: { valid: [{ sessionId, ended: false }, { sessionId, ended: true }], invalid: [{ sessionId }, { sessionId, ended: "no" }] },

@@ -55,6 +55,7 @@ import {
   MAX_DRAFT_LENGTH,
   invalidParams,
   type ModelUsage,
+  type ProviderProcess,
   type QueueHolder,
   type ResultOf,
   type RunEndReason,
@@ -409,6 +410,8 @@ export interface EnvironmentHandle
   settings(): SettingsValues;
   /** Changes settings as another client would: the values change, and a `settings.changed` notice names the keys that did (#391). */
   setSettings(values: Partial<SettingsValues>): void;
+  /** Changes provider activity and notifies readers, including between turns. */
+  setProcesses(processes: readonly ProviderProcess[]): void;
   /** Says a notice on the environment's own stream (`environment.subscribe`), as the environment does. */
   notice(type: string, payload: Record<string, unknown>): void;
   /**
@@ -1458,6 +1461,14 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     if (!sessions.some((s) => s.id === sessionId)) return { error: { code: "not_found", message: "No such session.", data: { kind: "session", sessionId } } };
     return { result: { accountId: "account-1", entries: [...(spec.commands ?? [])] } };
   });
+  let processes: readonly ProviderProcess[] = [];
+  const setProcesses = (next: readonly ProviderProcess[]): void => {
+    const sessionIds = new Set([...processes, ...next].map((process) => process.sessionId));
+    processes = next;
+    wire.answer("providers.processes.status", () => ({ result: { processes } }));
+    for (const sessionId of sessionIds) notice("process.updated", { sessionId });
+  };
+  // Unscripted activity is unavailable, exercising clients of an older environment.
   wire.answer("providers.list", () => ({ result: { providers: (spec.providers ?? [spec.provider ?? {}]).map((p) => providerOf(p)) } }));
   // A subagent's transcript, read from the provider's store on demand (#137): refused, as the environment's host refuses
   // it, while the session's provider (the script's first) does not declare `subagentTranscripts`.
@@ -2086,6 +2097,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     recommend,
     settings: () => values,
     setSettings: changeSettings,
+    setProcesses,
     notice,
     setLook: (changes) => void changeLook(changes),
     ...prompts,

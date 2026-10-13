@@ -1,7 +1,9 @@
-import { lowerMode, type ContainmentLevel, type HandoffRecommendation, type Mode, type RunSummary } from "@agent-harness/contracts";
+import { lowerMode, type DelegatedWorkRow, type ContainmentLevel, type HandoffRecommendation, type Mode, type ProviderProcess, type RunSummary } from "@agent-harness/contracts";
 import type { RunState } from "../projections/runs.js";
+import { classifyTool } from "../transcript/format.js";
+import { sessionTasks } from "../transcript/tasks.js";
 import type { SessionProjection } from "../projections/session.js";
-import { spendOf, windowOut, workingWords, type Spend } from "./words.js";
+import { backgroundWords, spendOf, windowOut, workingWords, type Spend } from "./words.js";
 
 /**
  * What the status line under a session's composer says, as both renderers
@@ -53,9 +55,9 @@ export interface ContainmentBadge {
   readonly isDefault: boolean;
 }
 
-/** What the live run is doing: waiting on a parked prompt, starting, working, or nothing (idle). */
+/** Turn and provider activity, including held work between turns and a stopped process. */
 export interface Activity {
-  readonly kind: "waiting" | "starting" | "working" | "idle";
+  readonly kind: "waiting" | "starting" | "working" | "background" | "stopping" | "stopped" | "idle";
   readonly words: string;
 }
 
@@ -63,6 +65,8 @@ export interface StatusInput {
   /** The session's projection: its summary, runs, entries and own containment level. */
   readonly projection: Pick<SessionProjection, "runs" | "items" | "containment"> & { readonly summary: Pick<NonNullable<SessionProjection["summary"]>, "accountId" | "runChoice" | "model" | "mode"> | null };
   readonly runState: RunState | undefined;
+  /** Current provider activity, refreshed even after the run ends. Undefined on older environments; null when the read confirms no process. */
+  readonly process?: ProviderProcess | null | undefined;
   /** The run a send joins and an interrupt stops (`liveRunIdOf`). */
   readonly liveRunId: string | undefined;
   /** The connection's ceiling (`projections.environments`). */
@@ -91,10 +95,10 @@ export interface StatusFacts {
   readonly mode: ModeBadge;
   /** Undefined while neither the session's own level nor the default is known. */
   readonly containment: ContainmentBadge | undefined;
-  /** A run is live or starting. */
+  /** A run is live or starting, or its provider process still holds work. */
   readonly live: boolean;
   readonly activity: Activity;
-  /** How long the live run has run, in the environment's time; undefined while none is live. */
+  /** Elapsed run or held-work time in the environment's clock; undefined when inactive. */
   readonly elapsedMs: number | undefined;
   /** The live run's spend, else the last run's. */
   readonly spend: Spend | undefined;
@@ -106,18 +110,46 @@ export const statusOf = (input: StatusInput): StatusFacts => {
   const { projection, runState, liveRunId } = input;
   const { summary } = projection;
   const latest = projection.runs.at(-1);
-  const live = liveRunId !== undefined || runState === "starting";
+  const process = input.process;
+  const processEnded = process === null || process?.state === "stopped" || process?.state === "stopping";
+  const held = processEnded ? [] : process?.holds ?? [];
+  const taskIds = new Set(held.filter((hold) => hold.kind === "task").map((hold) => hold.id));
+  const tasksById = new Map<string, DelegatedWorkRow>();
+  for (const { task, runId } of sessionTasks(projection).live) {
+    if ((process == null ? runId === liveRunId : taskIds.has(task.taskId)) && !tasksById.has(task.taskId)) tasksById.set(task.taskId, task);
+  }
+  const tasks = [...tasksById.values()];
+  const taskCount = process == null ? tasks.length : taskIds.size;
+  const schedules = held.filter((hold) => hold.kind === "schedule").length;
+  const agents = tasks.filter((task) => task.subagentType !== null || task.kind === "local_agent").length;
+  const hasWork = taskCount + schedules > 0;
+  // Agent calls are the delegated work; foreground commands and streaming text still say what they do.
+  const foreground = projection.items.some((entry) => "runId" in entry && entry.runId === liveRunId && (
+    ((entry.kind === "assistant-text" || entry.kind === "assistant-thinking") && entry.streaming) ||
+    (entry.kind === "tool-call" && entry.status === "running" && classifyTool(entry.name) !== "agent")
+  ));
+  const background = hasWork && !foreground;
+  const live = liveRunId !== undefined || runState === "starting" || (!processEnded && (hasWork || process?.state === "busy" || process?.state === "starting"));
   const liveRun = liveRunId !== undefined ? projection.runs.find((run) => run.runId === liveRunId) : undefined;
   const own = projection.containment ?? input.containmentSet;
   const shown = liveRun ?? latest;
   const activity: Activity =
-    runState === "parked"
+    runState === "parked" || process?.state === "parked"
       ? { kind: "waiting", words: "waiting for you" }
       : runState === "starting"
         ? { kind: "starting", words: "starting…" }
-        : live
-          ? { kind: "working", words: workingWords(projection, liveRunId) }
-          : { kind: "idle", words: "idle" };
+        : background
+          ? { kind: "background", words: backgroundWords(agents, Math.max(0, taskCount - agents), schedules) }
+          : process?.state === "stopping"
+            ? { kind: "stopping", words: "stopping…" }
+            : live
+              ? { kind: "working", words: workingWords(projection, liveRunId) }
+              : process === null || process?.state === "stopped"
+                ? { kind: "stopped", words: "stopped" }
+                : { kind: "idle", words: "idle" };
+  const since = background
+    ? tasks.map((task) => Date.parse(task.startedAt)).sort((a, b) => a - b)[0] ?? Date.parse(process?.lastBusyAt ?? liveRun?.startedAt ?? "")
+    : liveRun === undefined ? undefined : Date.parse(liveRun.startedAt);
   return {
     accountId: summary?.accountId ?? input.forkedOnto ?? null,
     model: summary?.runChoice ?? (latest ? { model: latest.model, effort: latest.effort } : summary?.model ? { model: summary.model, effort: null } : undefined),
@@ -125,7 +157,7 @@ export const statusOf = (input: StatusInput): StatusFacts => {
     containment: own != null ? { level: own, isDefault: false } : input.containmentDefault !== undefined ? { level: input.containmentDefault, isDefault: true } : undefined,
     live,
     activity,
-    elapsedMs: liveRun ? input.now() - Date.parse(liveRun.startedAt) : undefined,
+    elapsedMs: since !== undefined && Number.isFinite(since) ? Math.max(0, input.now() - since) : undefined,
     spend: shown ? spendOf(shown.usage) : undefined,
     offer: !live && windowOut(input.recommendation) ? input.recommendation?.message : undefined,
   };

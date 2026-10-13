@@ -204,6 +204,38 @@ describe("a session's provider process", () => {
   });
 });
 
+describe("process activity for readers", () => {
+  it("reports held work after the turn ends and notifies each release, idle stop and expiry", async () => {
+    const first = gate(), second = gate();
+    const adapter = fakeAdapter();
+    adapter.nextScripts.push(backgroundTask("agent-1", first.opened), backgroundTask("agent-2", second.opened));
+    const t = await start(adapter);
+    const reader = await narrowClient(t, ["read", "sessions:write", "runs:drive"]);
+    const { id } = await create(reader);
+    await untilEnded(t, id, (await startRun(reader, id)).runId);
+    await untilEnded(t, id, (await startRun(reader, id)).runId);
+    const activity = async () => (await reader.request("providers.processes.status", {})).processes;
+    expect(await activity()).toMatchObject([{ sessionId: id, state: "idle", holds: [{ id: "agent-1" }, { id: "agent-2" }] }]);
+    const changes = () => t.env.log.readStream({ kind: "environment", id: t.env.id }).filter((event) => event.type === "process.updated" && event.payload["sessionId"] === id).length;
+    const before = changes();
+    first.open(); await first.opened;
+    expect(changes()).toBeGreaterThan(before);
+    expect(await activity()).toMatchObject([{ holds: [{ id: "agent-2" }] }]);
+    const remaining = changes();
+    second.open(); await second.opened;
+    expect(changes()).toBeGreaterThan(remaining);
+    expect(await activity()).toMatchObject([{ state: "idle", holds: [] }]);
+    t.clock.advance(IDLE);
+    await vi.waitFor(async () => expect(await activity()).toMatchObject([{ state: "stopped", holds: [] }]));
+    const stopped = changes();
+    t.clock.advance(10 * MINUTE);
+    expect(await activity()).toEqual([]);
+    expect(changes()).toBeGreaterThan(stopped);
+    const nobody = await narrowClient(t, ["runs:drive"]);
+    expect(await refusal(nobody.request("providers.processes.status", {}))).toEqual({ code: "forbidden", data: { scope: "read" } });
+  });
+});
+
 describe("the idle stop", () => {
   it("stops a process idle for providers.processIdleMinutes, preset 30, exactly then; the next run starts cold, and nothing is started before it", async () => {
     const t = await start();

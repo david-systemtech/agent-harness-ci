@@ -214,6 +214,8 @@ export interface AdapterHostOptions {
   readonly transcriptImages?: TranscriptImages;
   readonly log: EventLog;
   readonly clock: Clock;
+  /** Process activity changed, including between turns; the environment notifies readers. */
+  readonly onProcessChanged?: (sessionId: string) => void;
   /** The environment's shared registry, consulted before assistant deltas reach the log. */
   readonly scrub?: ScrubRegistry;
   /** The run registry the lifecycle reads; preset: a fresh one on `clock`. */
@@ -813,6 +815,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    */
   const pool = createProcessPool({
     clock,
+    onChanged: (sessionId) => { if (!closing) options.onProcessChanged?.(sessionId); },
     ...(options.processIdleMinutes !== undefined && { idleMinutes: options.processIdleMinutes }),
     ...(options.processStopTimeoutMs !== undefined && { stopTimeoutMs: options.processStopTimeoutMs }),
     stopProcess: (sessionId, provider, stopOptions) => {

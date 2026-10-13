@@ -36,6 +36,7 @@ describe("environment notices", () => {
       "prompt.parked",
       "prompt.resolved",
       "usage.updated",
+  "process.updated",
       "denylist.updated",
       "review.updated",
       "forge.account.added",

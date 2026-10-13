@@ -3,6 +3,7 @@ import { resetWords } from "@agent-harness/client-runtime";
 import { ENVIRONMENT_ICONS, whenWords, type AccountUsage, type EnvironmentIcon } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { renderApp, type ScriptedEnvironment } from "../test/harness.js";
+import { backgroundAgents, backgroundProcess } from "../gallery/fixtures/background-process.js";
 import { glyphOf } from "./connections/environment-glyphs.js";
 
 /**
@@ -64,6 +65,34 @@ const window = (name: string, utilisation: number, observedAt: string, verdict: 
 });
 
 describe("the status line", () => {
+  it("shows a timed live wait after text ends, and names idle and stopped when the work is released", async () => {
+    const { app, env, session } = await opened();
+    let runId = "";
+    act(() => {
+      runId = env.startRun(session, "Check the receipts").runId;
+      env.emit(session, "tasks.changed", { runId, tasks: backgroundAgents });
+      env.endRun(session, runId);
+      env.setProcesses([backgroundProcess(session)]);
+    });
+    const line = statusLine();
+    expect(await within(line).findByText("Waiting on 3 background agents")).toBeTruthy();
+    const activity = await screen.findByRole("status", { name: "Run activity" });
+    expect(activity.textContent).toBe("Waiting on 3 background agents");
+    expect(activity.parentElement!.textContent).toContain("12m 00s");
+    expect(within(line).getByRole("img", { name: "Running · waiting on background work" }).className).toContain("bg-amber");
+    act(() => app.clock.advance(60_000));
+    await waitFor(() => expect(activity.parentElement!.textContent).toContain("13m 00s"));
+    // Stale task ledgers do not outlive the actual process's holds.
+    act(() => env.setProcesses([backgroundProcess(session, { holds: [] })]));
+    expect(await within(line).findByText("idle")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("status", { name: "Run activity" })).toBeNull());
+    act(() => env.setProcesses([backgroundProcess(session, { holds: [], state: "stopped", stoppedAt: app.clock.now().toISOString(), stopReason: "idle" })]));
+    expect(await within(line).findByText("stopped")).toBeTruthy();
+    expect(within(line).queryByRole("img", { name: /Running/ })).toBeNull();
+    act(() => env.setProcesses([]));
+    await waitFor(() => expect(within(line).getByText("stopped")).toBeTruthy());
+  });
+
   it("keeps named icon chips in one wrapping row, with containment before browser and no text icons", async () => {
     await opened();
     const line = statusLine();

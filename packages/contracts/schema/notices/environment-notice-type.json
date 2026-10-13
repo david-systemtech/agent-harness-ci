@@ -94,6 +94,11 @@
     },
     {
       "type": "string",
+      "const": "process.updated",
+      "description": "A session’s provider process changed state or held work; a client refreshes its process activity."
+    },
+    {
+      "type": "string",
       "const": "denylist.updated",
       "description": "The denylist changed; a client reads permissions.denylist.get and permissions.settings.get again."
     },

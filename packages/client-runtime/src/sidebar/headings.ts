@@ -1,4 +1,4 @@
-import type { SessionSummary } from "@agent-harness/contracts";
+import type { ProviderProcess, SessionSummary } from "@agent-harness/contracts";
 import type { EnvironmentView } from "../projections/environments.js";
 import type { ListFreshness, MergedGroupHeading, SessionListView, SessionRow } from "../projections/session-list.js";
 import { wakeWords } from "./when.js";
@@ -77,13 +77,17 @@ export const rowKey = (row: Pick<SessionRow, "environmentId" | "summary">): stri
  * parked whatever its activity says, as the runtime's run states read it.
  */
 export interface RowActivity {
-  readonly state: "idle" | "starting" | "running" | "parked";
+  readonly state: "idle" | "starting" | "running" | "background" | "parked";
   /** Its parked prompts; 0 unless parked (a parked activity may say none yet). */
   readonly parked: number;
 }
 
-export const activityOf = (summary: Pick<SessionSummary, "activity" | "parkedPromptCount">): RowActivity => {
-  if (summary.activity.state === "parked" || summary.parkedPromptCount > 0) return { state: "parked", parked: summary.parkedPromptCount };
+export const activityOf = (summary: Pick<SessionSummary, "activity" | "parkedPromptCount">, process?: Pick<ProviderProcess, "state" | "holds"> | null): RowActivity => {
+  if (process?.state === "parked" || summary.activity.state === "parked" || summary.parkedPromptCount > 0) return { state: "parked", parked: summary.parkedPromptCount };
+  if (process != null && process.state !== "stopped" && process.state !== "stopping" && process.holds.length > 0) return { state: "background", parked: 0 };
+  if (process?.state === "busy") return { state: "running", parked: 0 };
+  if (process?.state === "starting") return { state: "starting", parked: 0 };
+  if (process?.state === "stopped" || process?.state === "stopping") return { state: "idle", parked: 0 };
   const { state } = summary.activity;
   return { state: state === "starting" || state === "running" ? state : "idle", parked: 0 };
 };

@@ -1,4 +1,4 @@
-import type { DropTarget, EnvironmentView, HeadingRow, RowActivity } from "@agent-harness/client-runtime";
+import { activityOf, type DropTarget, type EnvironmentView, type HeadingRow } from "@agent-harness/client-runtime";
 import { useMemo, useRef, useState } from "react";
 import { Ellipsis, GitBranch, LoaderCircle } from "lucide-react";
 import { usePhoneFrame } from "../frame/phone-frame.js";
@@ -14,6 +14,8 @@ import { useOrganise } from "./organise.js";
 import { RenameField } from "./rename-field.js";
 import { contextMenuKeys, openContextActions } from "./menu-entry.js";
 import { RowMenu } from "./row-menu.js";
+import { ActivityMark } from "../session/activity-mark.js";
+import { useProviderProcess } from "../status/use-process.js";
 import { activityWords, quoted } from "./words.js";
 
 /**
@@ -29,13 +31,6 @@ import { activityWords, quoted } from "./words.js";
  * takes a dragged one dropped on it (`drag.tsx`).
  */
 
-/** Six-pixel semantic dots, with waiting taking precedence in the runtime's activity resolver. */
-const ActivityMark = ({ activity }: { readonly activity: RowActivity }) => {
-  const words = activityWords(activity);
-  if (words === undefined) return null;
-  return <span role="img" aria-label={words} className={classes("size-1.5 shrink-0 rounded-full", activity.state === "parked" ? "bg-amber" : "bg-cyan", activity.state === "running" && "motion-safe:animate-pulse")} />;
-};
-
 export interface SessionRowProps {
   readonly line: HeadingRow;
   readonly environment: EnvironmentView | undefined;
@@ -49,9 +44,11 @@ export interface SessionRowProps {
 /** The longest title a session takes (`UserTitle`'s 200 characters). */
 export const TITLE_MOST = 200;
 
-export const SessionRowView = ({ line, environment, current, drop, open }: SessionRowProps) => {
+export const SessionRowView = ({ line: listed, environment, current, drop, open }: SessionRowProps) => {
   const { narrow } = usePhoneFrame();
   const trigger = useRef<HTMLButtonElement>(null);
+  const process = useProviderProcess(listed.row.environmentId, listed.row.summary.id);
+  const line = { ...listed, activity: activityOf(listed.row.summary, process) };
   const { row } = line;
   const { summary } = row;
   const runtime = useRuntime();

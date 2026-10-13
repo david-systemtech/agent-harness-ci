@@ -22,6 +22,8 @@ import { AccountPicker, ContainmentPicker, ModePicker, ModelPicker, RunPickerReq
 import { useHandedOnto } from "./run-choices.js";
 import { SessionBrowserPicker } from "../browser/session-picker.js";
 import { UsageMeter } from "./usage-meter.js";
+import { ActivityMark } from "../session/activity-mark.js";
+import { useProviderProcess } from "./use-process.js";
 import { SessionContextMeter } from "./context-meter.js";
 import { WebRegisteredSurfaces } from "../platform/web-registrations.js";
 
@@ -68,9 +70,11 @@ export const StatusLine = ({ environmentId, sessionId, compact = false }: Status
   const recommendation = useFollowed(
     useMemo(() => (accountId === null ? undefined : runtime.requests.cached(environmentId, "accounts.handoff.recommend", { fromAccountId: accountId })), [runtime, environmentId, accountId]),
   );
+  const process = useProviderProcess(environmentId, sessionId);
   const ceiling = environment?.ceiling ?? null;
   const facts = statusOf({
     projection: { ...projection, summary: projection },
+    process,
     runState: runs.state,
     liveRunId: liveRunIdOf(projection, runs),
     ceiling,
@@ -105,7 +109,7 @@ export const StatusLine = ({ environmentId, sessionId, compact = false }: Status
         </ModePicker>
         <ContainmentPicker environmentId={environmentId} sessionId={sessionId} containment={facts.containment} />
         <SessionBrowserPicker environmentId={environmentId} sessionId={sessionId} />
-        {facts.offer !== undefined ? <HandoffOffer offer={facts.offer} /> : <RunLine facts={facts} />}
+        {facts.offer !== undefined ? <HandoffOffer offer={facts.offer} /> : <RunLine facts={facts} processKnown={process !== undefined} />}
       </div>
       <span className="ml-auto flex min-w-0 max-w-full items-center gap-2">
         <SessionContextMeter environmentId={environmentId} sessionId={sessionId} accountId={facts.accountId} model={facts.model?.model ?? null} />
@@ -148,11 +152,17 @@ const PhonePickerCommand = ({ environmentId, command, open }: { readonly environ
  * wraps whole onto the next line when the chips leave too little (look.md §10.5); with a basis of 0 it never wrapped and read "7."
  * beside a docked side pane (#1892). It shrinks, its value in the tooltip, only where a whole line is narrower than it.
  */
-const RunLine = ({ facts }: { readonly facts: StatusFacts }) => {
-  const { spend } = facts;
-  if (spend === undefined) return null;
-  const said = `${formatTokens(spend.tokens)} tok${spend.costUsd === null ? "" : ` · ${formatUsd(spend.costUsd)}`}`;
-  return <p className="min-w-0 max-w-full truncate" aria-label="Run status" title={said}>{said}</p>;
+const RunLine = ({ facts, processKnown }: { readonly facts: StatusFacts; readonly processKnown: boolean }) => {
+  const { spend, activity } = facts;
+  const words = processKnown || activity.kind === "background" ? activity.words : undefined;
+  if (spend === undefined && words === undefined) return null;
+  const cost = spend === undefined ? undefined : `${formatTokens(spend.tokens)} tok${spend.costUsd === null ? "" : ` · ${formatUsd(spend.costUsd)}`}`;
+  const said = [words, cost].filter(Boolean).join(" · ");
+  const state = activity.kind === "background" ? "background" : activity.kind === "waiting" ? "parked" : facts.live ? "running" : "idle";
+  return <p className="flex min-w-0 max-w-full items-center gap-1.5 truncate" aria-label="Run status" title={said}>
+    {words !== undefined && <ActivityMark activity={{ state, parked: 0 }} />}
+    <span className="min-w-0 truncate">{words !== undefined && <span className={activity.kind === "background" ? "text-amber" : ""}>{words}</span>}{words !== undefined && cost !== undefined && " · "}{cost}</span>
+  </p>;
 };
 
 /** The hand-off offer: the recommendation's sentence, and the button that opens the hand-off picker; it wraps whole as the spend does. */

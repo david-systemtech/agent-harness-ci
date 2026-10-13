@@ -309,6 +309,7 @@ const ROUTINE_LIST_REFRESH_NOTICES: readonly string[] = [
  * restored) `permissions.review.list`.
  */
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
+  "providers.processes.status": ["process.updated"],
   "checks.get": ["checks.changed"],
   "accounts.list": ["account.updated", "signin.updated", "state-import.finished"],
   "models.list": ["account.updated", "signin.updated"],

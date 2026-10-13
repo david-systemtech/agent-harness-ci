@@ -92,6 +92,12 @@ describe("the activity glyph", () => {
     expect(glyphOf(summary("parked", 3)).text).toBe("?3");
   });
 
+  it("keeps the running disc in a waiting tone on held work between turns", () => {
+    expect(glyphOf(summary("idle"), { state: "idle", holds: [{ kind: "task", id: "agent-1" }] })).toEqual({ text: "●", colour: "yellow", dim: false });
+    expect(glyphOf(summary("idle"), { state: "stopped", holds: [] }).text).toBe("·");
+    expect(glyphOf(summary("running", 2), { state: "busy", holds: [{ kind: "task", id: "agent-1" }] }).text).toBe("?2");
+  });
+
   it("counts a parked prompt on a session whose activity says otherwise, as the runtime's run states do", () => {
     expect(glyphOf(summary("running", 2)).text).toBe("?2");
     expect(glyphOf(summary("parked", 0)).text).toBe("?");

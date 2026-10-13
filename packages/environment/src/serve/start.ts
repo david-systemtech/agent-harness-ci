@@ -1412,6 +1412,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     const created = createAdapterHost({
       log,
       clock,
+      onProcessChanged: (sessionId) => {
+        log.append({ kind: ENVIRONMENT_STREAM_KIND, id: record.id }, [{ type: "process.updated", payload: { sessionId } }], { actor: formatActor({ kind: "system", id: "process-pool" }) });
+      },
       scrub,
       attachmentStage,
       stagedAttachments,

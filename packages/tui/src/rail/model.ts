@@ -1,3 +1,4 @@
+import type { ProviderProcess } from "@agent-harness/contracts";
 import {
   sessionHeadings,
   type EnvironmentView,
@@ -61,6 +62,7 @@ export interface RailInput extends HeadingsInput {
   readonly badges: ReadonlyMap<string, Badge>;
   /** The local environment's service is being started from here. */
   readonly startingService: boolean;
+  readonly processOf?: (environmentId: string, sessionId: string) => ProviderProcess | undefined;
 }
 
 
@@ -104,7 +106,7 @@ export const railLines = (input: RailInput): RailLine[] =>
         kind: "row",
         ...row,
         badge: input.badges.get(row.row.environmentId) ?? UNLISTED_BADGE,
-        glyph: glyphOf(row.row.summary),
+        glyph: glyphOf(row.row.summary, input.processOf?.(row.row.environmentId, row.row.summary.id)),
         tags: row.row.summary.tags,
       }),
     ),

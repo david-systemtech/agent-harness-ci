@@ -62,6 +62,8 @@ export const PROCESS_STOP_TIMEOUT_MS = 10_000;
 
 export interface ProcessPoolOptions {
   readonly clock: Clock;
+  /** The current process changed state or holds; readers must refresh, even between turns. */
+  readonly onChanged?: (sessionId: string) => void;
   /**
    * The idle time, in minutes: `providers.processIdleMinutes`, read each time
    * a wait begins, so a change applies to the waits that begin after it.
@@ -174,6 +176,10 @@ export const createProcessPool = (options: ProcessPoolOptions): ProcessPool => {
     return (parsed.success ? parsed.data : PROCESS_IDLE_MINUTES_PRESET) * 60_000;
   };
 
+  const changed = (entry: ProcessEntry): void => {
+    if (entries.get(entry.sessionId) === entry) options.onChanged?.(entry.sessionId);
+  };
+
   /** The session's process unless it is stopping or stopped. */
   const runningEntry = (sessionId: string): ProcessEntry | undefined => {
     const entry = entries.get(sessionId);
@@ -240,6 +246,7 @@ export const createProcessPool = (options: ProcessPoolOptions): ProcessPool => {
     const release = entry.release;
     entry.release = undefined;
     releaseSupplied(entry.sessionId, release);
+    changed(entry);
   };
 
   /** The entry has stopped: it is listed for ten minutes more, unless the environment is closing. */
@@ -248,10 +255,14 @@ export const createProcessPool = (options: ProcessPoolOptions): ProcessPool => {
     entry.state = "stopped";
     entry.stoppedAt = now();
     stopping.delete(entry);
+    changed(entry);
     if (entries.get(entry.sessionId) === entry) options.onStopped?.(entry.sessionId);
     if (closed) return;
     entry.forget = clock.setTimeout(() => {
-      if (entries.get(entry.sessionId) === entry) entries.delete(entry.sessionId);
+      if (entries.get(entry.sessionId) === entry) {
+        entries.delete(entry.sessionId);
+        options.onChanged?.(entry.sessionId);
+      }
     }, STOPPED_LISTED_MS);
   };
 
@@ -281,15 +292,18 @@ export const createProcessPool = (options: ProcessPoolOptions): ProcessPool => {
       if (entry.holds.has(key)) return;
       entry.holds.set(key, { kind, id });
       if (entry.state === "idle" || entry.state === "parked") disarm(entry);
+      changed(entry);
     },
     unhold(kind: ProcessHoldKind, id: string) {
       if (entry.state === "stopping" || entry.state === "stopped") return;
-      if (!entry.holds.delete(`${kind}:${id}`) || entry.holds.size > 0) return;
+      if (!entry.holds.delete(`${kind}:${id}`)) return;
+      if (entry.holds.size > 0 || (entry.state !== "idle" && entry.state !== "parked")) { changed(entry); return; }
       if (entry.state === "idle") {
         entry.idleSince = now();
         if (draining) void stop(entry, "drain");
         else waitIdle(entry);
-      } else if (entry.state === "parked") waitParked(entry, now());
+      } else waitParked(entry, now());
+      changed(entry);
     },
     exited() {
       if (entry.state === "stopping" || entry.state === "stopped") return;
@@ -343,6 +357,7 @@ export const createProcessPool = (options: ProcessPoolOptions): ProcessPool => {
         entry.lastBusyAt = at;
         entry.idleSince = null;
         entry.parkedSince = null;
+        changed(entry);
         return;
       }
       // Cold: a new process, in place of any stopped one (whose stop, if still under way, `stopping` keeps for closing to
@@ -367,10 +382,11 @@ export const createProcessPool = (options: ProcessPoolOptions): ProcessPool => {
         forget: undefined,
         release: undefined,
       });
+      options.onChanged?.(sessionId);
     },
     answered(sessionId, runId) {
       const entry = entryOfRun(sessionId, runId);
-      if (entry?.state === "starting") entry.state = "busy";
+      if (entry?.state === "starting") { entry.state = "busy"; changed(entry); }
     },
     park(sessionId, runId) {
       const entry = entryOfRun(sessionId, runId);
@@ -378,6 +394,7 @@ export const createProcessPool = (options: ProcessPoolOptions): ProcessPool => {
       entry.state = "parked";
       entry.parkedSince = now();
       waitParked(entry);
+      changed(entry);
     },
     unpark(sessionId, runId) {
       const entry = entryOfRun(sessionId, runId);
@@ -385,6 +402,7 @@ export const createProcessPool = (options: ProcessPoolOptions): ProcessPool => {
       disarm(entry);
       entry.state = "busy";
       entry.parkedSince = null;
+      changed(entry);
     },
     end(sessionId, runId) {
       const entry = entryOfRun(sessionId, runId);
@@ -397,6 +415,7 @@ export const createProcessPool = (options: ProcessPoolOptions): ProcessPool => {
       entry.idleSince = at;
       if (draining && entry.holds.size === 0) void stop(entry, "drain");
       else waitIdle(entry);
+      changed(entry);
     },
     port(sessionId) {
       const entry = runningEntry(sessionId);

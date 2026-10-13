@@ -78,7 +78,7 @@ import {
   permissionsSettingsSet,
 } from "./methods/permissions.js";
 import { runsInterrupt, runsReadNow, runsSend, runsStart, runsStopTask, runsWithdraw } from "./methods/runs.js";
-import { providersList, providersProcessesList, providersProcessesStop } from "./methods/providers.js";
+import { providersList, providersProcessesList, providersProcessesStatus, providersProcessesStop } from "./methods/providers.js";
 import { settingsGet, settingsUpdate } from "./methods/settings.js";
 import { setupCheck, setupMint } from "./methods/setup.js";
 import { carryOverAssignMemory, carryOverInventory, carryOverRun } from "./methods/carry-over.js";
@@ -276,6 +276,7 @@ export const methods = [
   runsWithdraw,
   providersList,
   providersProcessesList,
+  providersProcessesStatus,
   providersProcessesStop,
   accountsList,
   accountsProbe,

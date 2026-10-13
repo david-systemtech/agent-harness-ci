@@ -590,6 +590,8 @@ export {
   windowOut,
   windowWords,
   workingWords,
+  backgroundWords,
+  rowActivityWords,
   type Pressure,
   type Reading,
   type Spend,

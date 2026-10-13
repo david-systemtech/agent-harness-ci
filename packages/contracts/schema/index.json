@@ -5211,6 +5211,18 @@
       "title": "providers.processes.list error"
     },
     {
+      "path": "methods/providers.processes.status/params.json",
+      "title": "providers.processes.status params"
+    },
+    {
+      "path": "methods/providers.processes.status/result.json",
+      "title": "providers.processes.status result"
+    },
+    {
+      "path": "methods/providers.processes.status/error.json",
+      "title": "providers.processes.status error"
+    },
+    {
       "path": "methods/providers.processes.stop/params.json",
       "title": "providers.processes.stop params"
     },
@@ -8402,6 +8414,15 @@
       "params": "methods/providers.processes.list/params.json",
       "result": "methods/providers.processes.list/result.json",
       "error": "methods/providers.processes.list/error.json"
+    },
+    {
+      "name": "providers.processes.status",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/providers.processes.status/params.json",
+      "result": "methods/providers.processes.status/result.json",
+      "error": "methods/providers.processes.status/error.json"
     },
     {
       "name": "providers.processes.stop",

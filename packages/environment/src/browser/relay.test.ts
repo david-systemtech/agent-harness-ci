@@ -136,7 +136,7 @@ describe("the call", () => {
     await untilEnded(t, id, runId);
 
     const appended = t.env.log.read<{ stream_kind: string; type: string; payload: string }>("SELECT stream_kind, type, payload FROM events WHERE sequence > ?", before);
-    expect(appended.filter((event) => event.stream_kind === "environment").map((event) => [event.type, JSON.parse(event.payload)])).toEqual([["client.call", call]]);
+    expect(appended.filter((event) => event.stream_kind === "environment" && event.type !== "process.updated").map((event) => [event.type, JSON.parse(event.payload)])).toEqual([["client.call", call]]);
     expect(appended.filter((event) => event.payload.includes("only-in-the-answer"))).toEqual([]);
     const ended = eventsOf(t, id).find((event) => event.type === "tool.ended");
     expect(String(ended?.payload["output"]).split("\n")[0]).toBe("Went to https://example.com/next. The page is at https://example.com/next.");

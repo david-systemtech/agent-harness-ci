@@ -162,7 +162,7 @@ it("retains drafts and reports the failing step when validate fails, without mer
   expect(h.forge.requests.some((request) => request.path.endsWith("/merge"))).toBe(false);
   expect(git(h.checkout, "ls-tree", "-r", "--name-only", "HEAD")).not.toContain("new-fact.md");
   expect((await h.client.request("banks.drafts.list", { sessionId: id })).queues[0]?.drafts).toHaveLength(1);
-  expect(h.t.env.log.readStream({ kind: "environment", id: h.t.env.id }).at(-1)).toMatchObject({ type: "bank.landing-failed", payload: { step: "validate-check" } });
+  expect(h.t.env.log.readStream({ kind: "environment", id: h.t.env.id }).filter((event) => event.type === "bank.landing-failed").at(-1)).toMatchObject({ type: "bank.landing-failed", payload: { step: "validate-check" } });
 });
 
 it("expires an uncompleted validate check after ten minutes on the environment clock without merging", async () => {
@@ -346,7 +346,7 @@ it.each(["open", "merged"])("refuses new non-draft writes while a held PR is %s,
   expect(await h.t.env.banks.landChanges(h.bankId, second)).toMatchObject({
     state: "failed", step: "prepare", reason: "A reviewed change is already awaiting reconciliation for this bank.",
   });
-  expect(h.t.env.log.readStream({ kind: "environment", id: h.t.env.id }).at(-1)).toMatchObject({
+  expect(h.t.env.log.readStream({ kind: "environment", id: h.t.env.id }).filter((event) => event.type === "bank.landing-failed").at(-1)).toMatchObject({
     type: "bank.landing-failed", payload: { bankId: h.bankId, step: "prepare" },
   });
   expect(h.forge.requests.filter((request) => request.method === "POST" && request.path.endsWith("/pulls"))).toHaveLength(1);

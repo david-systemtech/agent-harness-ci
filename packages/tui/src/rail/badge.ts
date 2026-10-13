@@ -1,5 +1,5 @@
 import { activityOf, type EnvironmentView } from "@agent-harness/client-runtime";
-import type { EnvironmentColour, SessionSummary } from "@agent-harness/contracts";
+import type { EnvironmentColour, ProviderProcess, SessionSummary } from "@agent-harness/contracts";
 import { TERMINAL_ROLES } from "@agent-harness/theme";
 import type { ThemeColours } from "../theme/colours.js";
 
@@ -95,13 +95,15 @@ export interface Glyph {
  * client runtime reads a row's activity (`activityOf`, which the window's
  * sidebar draws too).
  */
-export const glyphOf = (summary: Pick<SessionSummary, "activity" | "parkedPromptCount">): Glyph => {
-  const activity = activityOf(summary);
+export const glyphOf = (summary: Pick<SessionSummary, "activity" | "parkedPromptCount">, process?: Pick<ProviderProcess, "state" | "holds"> | null): Glyph => {
+  const activity = activityOf(summary, process);
   switch (activity.state) {
     case "parked":
       return { text: `?${activity.parked > 0 ? activity.parked : ""}`, colour: TERMINAL_ROLES.warning, dim: false };
     case "starting":
       return { text: "◌", colour: TERMINAL_ROLES.machine, dim: false };
+    case "background":
+      return { text: "●", colour: TERMINAL_ROLES.warning, dim: false };
     case "running":
       return { text: "●", colour: TERMINAL_ROLES.success, dim: false };
     case "idle":
