@@ -304,7 +304,7 @@ export const createCarryOver = (options: CarryOverOptions): CarryOverService => 
   };
 
   const run: PreparedCommand<"carryOver.run"> = {
-    prepare: (params, context) => options.coordinator.exclusive(params.commandId, params.dryRun, () => prepareRun(params, context), "carry-over") ?? (() => ({ aggregate: environmentStream, rejected: { code: "conflict", message: IMPORT_UNDER_WAY, data: { reason: "import_in_progress", accountId: params.accountId } } })),
+    prepare: (params, context) => options.coordinator.exclusive({ importId: params.commandId, dryRun: params.dryRun, kind: "carry-over" }, () => prepareRun(params, context)) ?? (() => ({ aggregate: environmentStream, rejected: { code: "conflict", message: IMPORT_UNDER_WAY, data: { reason: "import_in_progress", accountId: params.accountId } } })),
   };
 
   const assignMemory: PreparedCommand<"carryOver.assignMemory"> = {

@@ -1,4 +1,5 @@
 import { deferredDefaults } from "../state-import/default-account.js";
+import type { ImportState } from "../state-import/coordinator.js";
 import { readdir } from "node:fs/promises";
 import {
   CarryOverImportedPayload,
@@ -58,8 +59,11 @@ export interface CarryOverStateChecksOptions {
   readonly reader: Reader;
   /** Whether a source data folder or terminal-client state folder is on the machine (`stateImport.detect`). */
   readonly detect: () => Promise<StateImportDetection>;
-  /** The state import's: the environment's id, which its target names, and the id of the import under way, null when none is. */
-  readonly stateImport: { readonly environmentId: string; readonly underWay: () => string | null };
+  /**
+   * The state import's: the environment's id, which its target names, and what holds the environment's import coordinator
+   * now, a state import or one account's Carry over, by its command id; null when nothing that writes does (#2098).
+   */
+  readonly stateImport: { readonly environmentId: string; readonly underWay: () => Pick<ImportState, "importId" | "kind"> | null };
 }
 
 /** What a look at an adopted account's directory found: not there, there but unreadable, or readable. */
@@ -142,7 +146,8 @@ export const carryOverStateChecks = (options: CarryOverStateChecksOptions): { re
     const target: SetupTarget = { action: "import-again", kind: "environment", id: options.stateImport.environmentId, label: "Your earlier work" };
     if (row.stream_kind === STATE_IMPORT_STREAM_KIND) {
       const started = StateImportStartedPayload.parse(JSON.parse(row.payload));
-      if (started.importId === options.stateImport.underWay()) return null;
+      const active = options.stateImport.underWay();
+      if (active?.kind === "state-import" && started.importId === active.importId) return null;
       return { line: "Bringing over your earlier work stopped before the end. Choose Continue bringing it over.", details: [`Folder: ${started.sourceKey}`], target };
     }
     const { failed } = StateImportFinishedPayload.parse(JSON.parse(row.payload));
@@ -240,10 +245,13 @@ const holdingsWords = (holds: StateImportHoldings): string =>
  * first, with what the data folder holds, since that is what a person acts
  * on, its path in details; else when the last import that finished, of an
  * adopted account's directory or of the state import, ran, as a time the
- * client words; or that the state import is bringing it over now.
+ * client words; or what is being brought over now: the earlier work, while
+ * the state import runs, or past work, while an adopted account's Carry over
+ * does (#2098).
  */
 export const carryOverDoneLine = (options: Pick<CarryOverStateChecksOptions, "reader" | "detect" | "stateImport">): DoneLine => async () => {
-  if (options.stateImport.underWay() !== null) return { reason: "Bringing your earlier work over now…" };
+  const active = options.stateImport.underWay();
+  if (active !== null) return { reason: active.kind === "state-import" ? "Bringing your earlier work over now…" : "Bringing your past work over now…" };
   const lastOf = (...types: readonly string[]) =>
     options.reader.all<{ occurred_at: string }>(
       `SELECT occurred_at FROM events WHERE stream_kind = ? AND type IN (${types.map(() => "?").join(", ")}) ORDER BY sequence DESC LIMIT 1`,

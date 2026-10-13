@@ -7,11 +7,16 @@
  * exclusion. Another asked for meanwhile is refused, which `stateImport.run` answers `conflict` (reason
  * `import_in_progress`). A dry run holds it as an import does, so a preview
  * never reads a plan an import is changing under it, but reserves nothing
- * once it ends: an import plans again.
+ * once it ends: an import plans again. A Carry over run of one adopted
+ * account holds it too, and says so by its kind, so Set up names what is
+ * under way truthfully (#2098).
  */
 
 /** Where an import or dry run is: preparing and applying hold the environment; finished and failed have released it. */
 export type ImportPhase = "preparing" | "applying" | "finished" | "failed";
+
+/** What holds the environment: the state import (`stateImport.run`, its preview or inventory), or a Carry over run of one adopted account (`carryOver.run`). */
+export type ImportKind = "state-import" | "carry-over";
 
 /** The import or dry run under way, or the last one, and where it is. */
 export interface ImportState {
@@ -20,6 +25,7 @@ export interface ImportState {
   /** Which command holds the shared exclusion, so setup names only actual earlier-work imports. */
   readonly kind: "state-import" | "carry-over";
   readonly dryRun: boolean;
+  readonly kind: ImportKind;
   readonly phase: ImportPhase;
 }
 
@@ -34,7 +40,7 @@ export interface ImportCoordinator {
    * environment. Whatever `work` answers or throws is this answer's.
    * `kind` defaults to the state import; ordinary account imports name themselves explicitly.
    */
-  exclusive<T>(importId: string, dryRun: boolean, work: (applying: () => void) => Promise<T>, kind?: ImportState["kind"]): Promise<T> | null;
+  exclusive<T>(holder: Omit<ImportState, "phase">, work: (applying: () => void) => Promise<T>): Promise<T> | null;
 }
 
 export const createImportCoordinator = (): ImportCoordinator => {
@@ -43,7 +49,7 @@ export const createImportCoordinator = (): ImportCoordinator => {
   return {
     state: () => current,
     underWay: () => (holds() ? current : null),
-    exclusive(importId, dryRun, work, kind = "state-import") {
+    exclusive({ importId, dryRun, kind }, work) {
       if (holds()) return null;
       let state: ImportState = { importId, dryRun, kind, phase: "preparing" };
       current = state;
