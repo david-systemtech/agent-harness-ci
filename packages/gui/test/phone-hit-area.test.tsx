@@ -1,3 +1,7 @@
+// @vitest-environment jsdom-on-node
+import { execFileSync } from "node:child_process";
+import { Script } from "node:vm";
+import { fileURLToPath } from "node:url";
 import { afterEach, expect, it, vi } from "vitest";
 import { measureSceneGeometry } from "../gallery/geometry.js";
 
@@ -43,4 +47,12 @@ it("checks a disabled control's target size without requiring pointer reception"
   const button = target(-8); button.disabled = true;
   vi.mocked(document.elementFromPoint).mockReturnValue(document.body);
   expect(measureSceneGeometry()).toEqual([]);
+});
+
+it("runs hosted hit-area geometry in a page without module helpers", () => {
+  target(-8);
+  const source = execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e",
+    'import { measureSceneGeometry } from "./packages/gui/gallery/geometry.ts"; process.stdout.write(measureSceneGeometry.toString());',
+  ], { cwd: fileURLToPath(new URL("../../../", import.meta.url)), encoding: "utf8" });
+  expect(new Script(`(${source})()`).runInNewContext({ document, window, getComputedStyle: window.getComputedStyle.bind(window) })).toEqual([]);
 });

@@ -18,12 +18,14 @@ export function measureSceneGeometry(): string[] {
       if (check.hitArea !== undefined) {
         const target = getComputedStyle(element, "::before");
         const expanded = target.position === "absolute" && target.content !== "none" && target.content !== "normal";
-        const inset = (side: "top" | "right" | "bottom" | "left") => expanded ? Math.min(0, Number.parseFloat(target[side]) || 0) : 0;
-        const border = (side: "borderLeftWidth" | "borderTopWidth" | "borderRightWidth" | "borderBottomWidth") => Number.parseFloat(style[side]) || 0;
-        const left = Math.min(rect.left, rect.left + border("borderLeftWidth") + inset("left"));
-        const top = Math.min(rect.top, rect.top + border("borderTopWidth") + inset("top"));
-        const right = Math.max(rect.right, rect.right - border("borderRightWidth") - inset("right"));
-        const bottom = Math.max(rect.bottom, rect.bottom - border("borderBottomWidth") - inset("bottom"));
+        const [insetLeft = 0, insetTop = 0, insetRight = 0, insetBottom = 0] = (["left", "top", "right", "bottom"] as const)
+          .map(side => expanded ? Math.min(0, Number.parseFloat(target[side]) || 0) : 0);
+        const [borderLeft = 0, borderTop = 0, borderRight = 0, borderBottom = 0] = (["borderLeftWidth", "borderTopWidth", "borderRightWidth", "borderBottomWidth"] as const)
+          .map(side => Number.parseFloat(style[side]) || 0);
+        const left = Math.min(rect.left, rect.left + borderLeft + insetLeft);
+        const top = Math.min(rect.top, rect.top + borderTop + insetTop);
+        const right = Math.max(rect.right, rect.right - borderRight - insetRight);
+        const bottom = Math.max(rect.bottom, rect.bottom - borderBottom - insetBottom);
         const width = right - left, height = bottom - top;
         if (width < check.hitArea - (check.tolerance ?? 0.5) || height < check.hitArea - (check.tolerance ?? 0.5)) {
           visibility.push(`${check.selector}[${index}]: hit area ${width}×${height} is smaller than ${check.hitArea}px`);

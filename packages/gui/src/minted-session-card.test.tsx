@@ -24,6 +24,8 @@ const openCard = async (more: Partial<ScriptedEnvironment> = {}, draft = false, 
     return { result: { receipt: { status: "accepted", sequence: env.events(id).at(-1)?.sequence ?? 0, changed: true }, result: { sessionId: id } } };
   });
   await screen.findByRole("region", { name: "Set up" });
+  const steps = screen.queryByRole("button", { name: "Set up steps" });
+  if (steps !== null) await app.user.click(steps);
   await app.user.click(screen.getByRole("button", { name: "Memory bank" }));
   return app;
 };

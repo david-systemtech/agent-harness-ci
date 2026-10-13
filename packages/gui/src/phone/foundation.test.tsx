@@ -25,3 +25,17 @@ it("fixes phone layout units while scaling type, including portaled surfaces", (
   expect(root.style.getPropertyValue("--font-sans")).not.toContain("Archivo");
   expect(root.style.getPropertyValue("--font-mono")).toContain("JetBrains Mono Variable");
 });
+
+it("keeps the relative side-column restore target inside the header", () => {
+  const style = document.createElement("style"); styles.push(style);
+  style.textContent = readFileSync(new URL("../side-column/side-column.css", import.meta.url), "utf8");
+  document.head.append(style);
+  const frame = document.createElement("div"); frame.setAttribute("data-web-client", "");
+  frame.innerHTML = '<header data-window-header><button data-dock-reopen style="position: relative"></button></header><button data-dock-reopen></button>';
+  document.body.append(frame);
+  try {
+    const [header, floating] = frame.querySelectorAll("button");
+    expect(getComputedStyle(header!).top).toBe("auto");
+    expect(getComputedStyle(floating!).top).toBe("6px");
+  } finally { frame.remove(); }
+});

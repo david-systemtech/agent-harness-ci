@@ -61,7 +61,8 @@ it("leaves web zoom keys to the browser and names browser controls in shortcut h
   for (const name of ["Zoom in", "Zoom out", "Actual size"]) expect(menu.queryByRole("menuitem", { name })).toBeNull();
   await user.keyboard("{Escape}");
   await user.click(within(header).getByRole("button", { name: "Settings" }));
-  await user.click(within(await screen.findByRole("navigation", { name: "Settings rows" })).getByRole("button", { name: "Keyboard shortcuts" }));
+  await user.click(screen.getByRole("button", { name: "Settings rows" }));
+  await user.click(within(await screen.findByRole("dialog", { name: "Settings rows" })).getByRole("button", { name: "Keyboard shortcuts" }));
   const row = within(screen.getByRole("row", { name: "Actual size" }));
   expect(row.getByText("Use your browser's zoom controls.")).toBeDefined();
   expect(row.queryByRole("button")).toBeNull();
