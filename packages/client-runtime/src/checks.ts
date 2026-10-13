@@ -83,7 +83,8 @@ export const createChecks = (host: {
       const session = host.session(environmentId, sessionId);
       const query = answerOf(environmentId, host.requests.cached(environmentId, "checks.get", { sessionId }), (result) => result);
       const output = writable<ChecksView["runningOutput"]>(new Map());
-      const base = derived([query, host.records, session, resets, output] as const, (answer, _records, transcript, _reset, runningOutput): ChecksView => ({ ...answer, availability: host.capability(environmentId, "checks.get"), offer: offered(transcript.items.filter((item): item is CheckEntry => item.kind === "check"), answer.value?.command, key, floorFor(environmentId, answer.value))?.entry ?? null, runningOutput }));
+      const items = derived([session] as const, (projection) => projection.items);
+      const base = derived([query, host.records, items, resets, output] as const, (answer, _records, transcript, _reset, runningOutput): ChecksView => ({ ...answer, availability: host.capability(environmentId, "checks.get"), offer: offered(transcript.filter((item): item is CheckEntry => item.kind === "check"), answer.value?.command, key, floorFor(environmentId, answer.value))?.entry ?? null, runningOutput }));
       const handles = new Map<string, TerminalHandle>();
       let followers = 0;
       let stopWatching: (() => void) | undefined;
@@ -117,7 +118,7 @@ export const createChecks = (host: {
         read: () => base.read(),
         subscribe(listener) {
           const stop = base.subscribe(listener);
-          if (followers++ === 0) { stopWatching = session.subscribe(sync); sync(); }
+          if (followers++ === 0) { stopWatching = items.subscribe(sync); sync(); }
           let active = true;
           return () => {
             if (!active) return;

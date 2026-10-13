@@ -8,7 +8,7 @@ import { useObservable, useRuntime } from "../window-context.js";
  * request cache): the environment's only one, else its account's. Undefined
  * while it is not known, when nothing is refused on its say-so.
  */
-export const useProvider = (environmentId: string, projection: Pick<SessionProjection, "summary">): AdapterCapabilities | undefined => {
+export const useProvider = (environmentId: string, projection: { readonly summary: Pick<NonNullable<SessionProjection["summary"]>, "accountId"> | null }): AdapterCapabilities | undefined => {
   const runtime = useRuntime();
   const providers = useObservable(useMemo(() => runtime.requests.cached(environmentId, "providers.list", {}), [runtime, environmentId]));
   const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId]));

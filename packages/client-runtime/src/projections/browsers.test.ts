@@ -252,6 +252,22 @@ describe("projections.browsers: the browser dock", () => {
 });
 
 describe("projections.browsers: the session's browser", () => {
+  it("does not publish a new picker for draft-only changes in any session", async () => {
+    const w = await world({ chromes: { desk: [chrome(CHROMES.work, "Work")] } });
+    await picker(w, "desk", (view) => chromeRows(view).length === 1);
+    const view = w.runtime.projections.browsers(w.ids.desk, w.sessions.desk);
+    const before = view.read();
+    const changes: BrowsersView[] = [];
+    onTestFinished(view.subscribe((next) => changes.push(next)));
+    w.runtime.drafts.set(w.ids.desk, w.sessions.desk, "typing here");
+    w.runtime.drafts.set(w.ids.laptop, w.sessions.laptop, "typing elsewhere");
+    expect(view.read()).toBe(before);
+    expect(changes).toEqual([]);
+    w.lists.desk.event(listEvent(2, w.sessions.desk, "session.browser.set", {}, { browser: { kind: "headless" } }));
+    await holds(view, (next) => next.rows.some((row) => row.selected && row.value?.kind === "headless"));
+    expect(view.read()).not.toBe(before);
+  });
+
   it("is the row marked: the default for none chosen, the row naming it, and the one Chrome for the plain My Chrome of an environment with one", async () => {
     const w = await world({
       chromes: { desk: [chrome(CHROMES.work, "Work")] },

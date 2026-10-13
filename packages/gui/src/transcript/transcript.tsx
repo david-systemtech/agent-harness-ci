@@ -17,9 +17,11 @@ import { QueuedRow } from "../queue/queued.js";
 import { useSessionQueue } from "../queue/session-queue.js";
 import { usePaneDocuments, type Revealed } from "../session/pane-documents.js";
 import { Button } from "../ui/index.js";
-import { useClock, useObservable, usePresentation, useRuntime } from "../window-context.js";
+import { useClock, useObservable, useObservableSelector, usePresentation, useRuntime } from "../window-context.js";
 import { FindBar, FindKeys, FindQuery, useFindBar } from "./find.js";
 import { TranscriptRowView, type RowFacts } from "./rows.js";
+
+const transcriptFields = (projection: SessionProjection) => ({ items: projection.items, runs: projection.runs, freshness: projection.freshness, deleted: projection.deleted, workspace: projection.summary?.workspace.path ?? null });
 
 export interface TranscriptProps {
   readonly environmentId: string;
@@ -33,14 +35,14 @@ export const COLUMN_WIDTHS: Readonly<Record<ReadingWidth, string>> = { comfortab
 const AT_END_PX = 48;
 
 /** The latest sequence the transcript holds: where what arrives after it begins. */
-const headOf = (projection: SessionProjection): number => projection.items.reduce((head, entry) => Math.max(head, entry.sequence), 0);
+const headOf = (projection: Pick<SessionProjection, "items">): number => projection.items.reduce((head, entry) => Math.max(head, entry.sequence), 0);
 
 /**
  * How long each running call has said nothing, on the window's clock: heard
  * afresh on every render, and drawn again when one turns amber or its
  * minutes move on.
  */
-const useQuietCalls = (projection: SessionProjection): ((toolCallId: string) => number) => {
+const useQuietCalls = (projection: Pick<SessionProjection, "items">): ((toolCallId: string) => number) => {
   const clock = useClock();
   const [, redraw] = useReducer((count: number) => count + 1, 0);
   const [heard, setHeard] = useState<QuietCalls>(new Map());
@@ -179,7 +181,7 @@ const useReveal = (follow: { readonly column: RefObject<HTMLDivElement | null>; 
 export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
   const runtime = useRuntime();
   const session = useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]);
-  const projection = useObservable(session);
+  const projection = useObservableSelector(session, transcriptFields);
   const checks = useObservable(useMemo(() => runtime.projections.checks(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const environments = useObservable(runtime.projections.environments);
   const [readingWidth] = usePresentation("readingWidth");
@@ -192,7 +194,7 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
   if (liveFrom === null && projection.freshness === "live") setLiveFrom(headOf(projection));
   const quietMs = useQuietCalls(projection);
   const { revealed } = usePaneDocuments();
-  const facts: RowFacts = { arrived: (sequence) => liveFrom !== null && sequence > liveFrom, quietMs, workspace: projection.summary?.workspace.path ?? null, revealed, verbs: true, checkOutput: checks.runningOutput };
+  const facts: RowFacts = { arrived: (sequence) => liveFrom !== null && sequence > liveFrom, quietMs, workspace: projection.workspace, revealed, verbs: true, checkOutput: checks.runningOutput };
   const follow = useFollow();
   useReveal(follow, revealed);
   const find = useFindBar(follow.column, follow.stop);

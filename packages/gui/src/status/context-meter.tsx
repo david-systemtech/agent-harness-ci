@@ -1,15 +1,17 @@
-import { contextOf, type ContextFacts } from "@agent-harness/client-runtime";
+import { contextOf, type ContextFacts, type SessionProjection } from "@agent-harness/client-runtime";
 import { CircleGauge } from "lucide-react";
 import { useMemo } from "react";
 import { Button, Popover, PopoverContent, PopoverTrigger, Tooltip } from "../ui/index.js";
-import { useFollowed, useObservable, useRuntime } from "../window-context.js";
+import { useFollowed, useObservable, useObservableSelector, useRuntime } from "../window-context.js";
+
+const contextFields = (projection: SessionProjection) => ({ runs: projection.runs });
 
 /** The context ring reads the same runtime facts on the live stream and a restored snapshot. */
 export const SessionContextMeter = ({ environmentId, sessionId, accountId, model }: {
   readonly environmentId: string; readonly sessionId: string; readonly accountId: string | null; readonly model: string | null;
 }) => {
   const runtime = useRuntime();
-  const session = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
+  const session = useObservableSelector(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]), contextFields);
   const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId]));
   const catalogues = useObservable(useMemo(() => runtime.projections.models(environmentId), [runtime, environmentId]));
   const providers = useFollowed(useMemo(() => runtime.requests.cached(environmentId, "providers.list", {}), [runtime, environmentId]));

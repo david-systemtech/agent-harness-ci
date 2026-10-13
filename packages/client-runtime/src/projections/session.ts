@@ -978,12 +978,20 @@ export const sessionProjection = (host: SessionProjectionHost, environmentId: st
     },
   };
   let reduced: { readonly data: SessionData; readonly transcript: SessionTranscript } | undefined;
+  let last: { readonly state: StreamState<SessionData> | null; readonly overlays: readonly OverlayRecord[]; readonly draft: string | null | undefined; readonly value: SessionProjection } | undefined;
   return derived([stream, host.outbox, host.drafts] as const, (state, outbox, drafts) => {
     const data = state?.data ?? null;
+    const overlays = (outbox.get(environmentId)?.overlays ?? []).filter(({ change }) =>
+      change.target.kind === "group" || change.target.id === sessionId,
+    );
+    const draft = drafts.get(environmentId)?.get(sessionId);
+    if (last !== undefined && last.state === state && last.draft === draft && last.overlays.length === overlays.length && last.overlays.every((overlay, index) => overlay === overlays[index])) return last.value;
     if (data !== null && reduced?.data !== data) reduced = { data, transcript: reduceSession(data.snapshot, data.events) };
-    return projectSession(
-      { environmentId, sessionId, state, overlays: outbox.get(environmentId)?.overlays ?? [], waitingDraft: drafts.get(environmentId)?.get(sessionId) },
+    const value = projectSession(
+      { environmentId, sessionId, state, overlays, waitingDraft: draft },
       data === null ? undefined : reduced?.transcript,
     );
+    last = { state, overlays, draft, value };
+    return value;
   });
 };

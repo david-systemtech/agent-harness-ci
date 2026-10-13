@@ -1,6 +1,7 @@
 import { LIST_PATCH_KEY, type EventEnvelope, type SessionSummary } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { freshSummary } from "../../../contracts/test/session-fixtures.js";
+import { groupOf } from "../../test/events.js";
 import {
   FIXTURE_MESSAGE,
   FIXTURE_OTHER_MESSAGE,
@@ -12,10 +13,11 @@ import {
   recordedSnapshot,
   sessionStreamEvent,
 } from "../../test/transcript.js";
-import type { OverlayRecord } from "../outbox/overlay.js";
+import type { OutboxView, OverlayRecord, WaitingDrafts } from "../outbox/overlay.js";
+import { writable } from "../observable.js";
 import { sessionKind, type SessionData } from "../streams/kinds.js";
 import { cachedStream } from "../streams/stream.js";
-import { projectSession, reduceSession, type TranscriptEntry } from "./session.js";
+import { projectSession, reduceSession, sessionProjection, type TranscriptEntry } from "./session.js";
 
 /**
  * The session reducer (docs/specs/client-runtime.md, "Projections",
@@ -792,6 +794,28 @@ describe("the session's view", () => {
     const kind = sessionKind();
     return events.reduce((data, event) => kind.apply(data, event), kind.fromSnapshot({ sequence: 0, summary: summary(), runs: [], items: [], parkedPrompts: [], rewinds: [] }));
   };
+
+  it("keeps its snapshot for other sessions' drafts and overlays, while applying its own fields and group deletions in order", () => {
+    const data = sessionKind().fromSnapshot({ sequence: 0, summary: summary({ id: FIXTURE_SESSION }), runs: [], items: [], parkedPrompts: [], rewinds: [] });
+    const state = cachedStream(0, data);
+    const outbox = writable<OutboxView>(new Map());
+    const drafts = writable<WaitingDrafts>(new Map());
+    const view = sessionProjection({ peek: () => state, lease: () => { throw new Error("Reading must not subscribe."); }, outbox, drafts }, "env", FIXTURE_SESSION);
+    const initial = view.read();
+    drafts.set(new Map([["env", new Map([[FIXTURE_OTHER_MESSAGE, "unrelated"]])]]));
+    expect(view.read()).toBe(initial);
+    const unrelated: OverlayRecord = { commandId: "other-edit", sequence: null, change: { op: "set", target: { kind: "session", id: FIXTURE_OTHER_MESSAGE }, fields: { title: "Another title" } } };
+    outbox.set(new Map([["env", { entries: [], overlays: [unrelated] }]]));
+    expect(view.read()).toBe(initial);
+    drafts.set(new Map([["env", new Map([[FIXTURE_SESSION, "typing"]])]]));
+    expect(view.read().draft).toBe("typing");
+    expect(view.read().items).toBe(initial.items);
+    const add: OverlayRecord = { commandId: "add-group", sequence: null, change: { op: "add", target: { kind: "group", id: FIXTURE_MESSAGE }, group: groupOf(FIXTURE_MESSAGE, "Work") } };
+    const move: OverlayRecord = { commandId: "move", sequence: null, change: { op: "set", target: { kind: "session", id: FIXTURE_SESSION }, fields: { groupId: FIXTURE_MESSAGE } } };
+    const remove: OverlayRecord = { commandId: "remove-group", sequence: null, change: { op: "hide", target: { kind: "group", id: FIXTURE_MESSAGE } } };
+    outbox.set(new Map([["env", { entries: [], overlays: [add, move, remove] }]]));
+    expect(view.read().summary?.groupId).toBeNull();
+  });
 
   it("carries the draft and the summary fields as the stream's patches left them", () => {
     const data = streamed([
