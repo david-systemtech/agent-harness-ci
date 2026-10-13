@@ -555,11 +555,11 @@ export class ClaudeProcess implements TurnControl {
         for (;;) {
           await this.#attachmentSlot(turn);
           if (this.closed || turn.ended) return;
-          await this.#apply(input, turn);
+          const applied = await this.#apply(input, turn);
           await this.#attachmentSlot(turn);
           // A provider turn may have opened during the settings calls. Mode changes
           // accepted while waiting for it stay local and must land before admission.
-          if (this.closed || turn.ended || claudeMode(this.#attachmentModes.get(turn) ?? input.mode) === this.#applied.mode) break;
+          if (this.closed || turn.ended || (applied && claudeMode(this.#attachmentModes.get(turn) ?? input.mode) === this.#applied.mode)) break;
         }
       } catch (error) {
         this.#waitingEnds(turn, { reason: "error", error: { message: `Moving the Claude process onto this run failed: ${describe(error)}`, code: "settings" } });
@@ -632,10 +632,11 @@ export class ClaudeProcess implements TurnControl {
     this.#armOpenWatch();
   }
 
-  #apply(input: RunInput, turn: ClaudeTurn): Promise<void> {
+  /** Applies settings only while the attachment slot is free; false asks admission to retry after waiting. */
+  #apply(input: RunInput, turn: ClaudeTurn): Promise<boolean> {
     return this.#serially(async () => {
       const query = this.#query;
-      if (query === undefined) return;
+      if (query === undefined || this.closed || turn.ended || this.#attachmentHeld(turn)) return false;
       const mode = claudeMode(this.#attachmentModes.get(turn) ?? input.mode);
       const effort = claudeEffort(input.effort);
       const limit = this.#deps.timings.controlTimeoutMs;
@@ -643,15 +644,18 @@ export class ClaudeProcess implements TurnControl {
       if (input.model !== this.#applied.model) {
         await this.#within(query.setModel(input.model), limit);
         this.#applied = { ...this.#applied, model: input.model };
+        if (this.closed || turn.ended || this.#attachmentHeld(turn)) return false;
       }
       if (mode !== this.#applied.mode) {
         await this.#within(query.setPermissionMode(mode), limit);
         this.#applied = { ...this.#applied, mode };
+        if (this.closed || turn.ended || this.#attachmentHeld(turn)) return false;
       }
       if (input.effort !== this.#applied.effort) {
         await this.#within(query.applyFlagSettings({ effortLevel: effort }), limit);
         this.#applied = { ...this.#applied, effort: input.effort };
       }
+      return true;
     });
   }
 

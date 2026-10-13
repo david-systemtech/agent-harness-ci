@@ -2536,6 +2536,50 @@ describe("a run that joins a kept process", () => {
     expect(ends(await drain(held))).toEqual([expect.objectContaining({ reason: "completed" })]);
   });
 
+  it("yields attachment controls when a background turn opens during the model setter (#2126)", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput({ mode: "plan" });
+    const first = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("first", [input.prompt[0]?.messageId as string]), sdk.text("first", "Working."), sdk.tasks({ task_id: "task_1" }));
+    const read = reading(first);
+    await vi.waitFor(() => expect(read.events.some((event) => event.type === "assistant.text")).toBe(true));
+    let release: () => void = () => undefined;
+    const moving = new Promise<void>((resolve) => (release = resolve));
+    const setModel = query.setModel.bind(query);
+    query.setModel = async (model) => {
+      await setModel(model);
+      await moving;
+    };
+    const next = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION }, model: "sonnet", mode: "plan", effort: "high" });
+    const held = adapter.createRun(next, contextWith());
+    await held.setMode?.("auto");
+    expect(query.modes).toEqual([]);
+    query.emit(sdk.result(PROVIDER_SESSION));
+    await read.done;
+    first.release();
+    await vi.waitFor(() => expect(query.models).toEqual(["sonnet"]));
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("background", []));
+    await vi.waitFor(() => expect(context.adopted).toHaveLength(1));
+    const background = context.adopted[0] as ProviderTurn;
+    background.onAdopted?.("background-run");
+    release();
+    // The background run's control also proves attachment released the control queue.
+    await background.setMode?.("plan");
+    expect(query.modes).toEqual([]);
+    expect(query.flags).toEqual([]);
+    expect(query.prompts).toHaveLength(1);
+    query.emit(sdk.result(PROVIDER_SESSION));
+    await drain(background);
+    await query.promptsPushed(2);
+    expect(query.modes).toEqual(["auto"]);
+    expect(query.flags).toEqual([{ effortLevel: "high" }]);
+    expect(query.models).toEqual(["sonnet"]);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("next", [next.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION));
+    expect(ends(await drain(held))).toEqual([expect.objectContaining({ reason: "completed" })]);
+  });
+
   it("holds a new run and its sends behind the current turn, and withdraws or interrupts them locally (#2126)", async () => {
     const adapter = adapterWith();
     const input = runInput();
