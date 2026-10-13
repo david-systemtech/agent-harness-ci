@@ -16,7 +16,8 @@ import { TerminalExitCause, TerminalId } from "./terminals.js";
  *
  * Install takes the first method available on the environment, in the
  * order Homebrew, WinGet, the vendor's apt or dnf repository, the vendor's
- * script: available when every program it `needs` is on the login shell's
+ * script (bao's checked archive among them): available when every program it
+ * `needs` and one of its `needsAny`, if present, is on the login shell's
  * PATH. Update takes the method the tool was installed by: a package
  * manager's own upgrade (Homebrew, WinGet, Scoop, mise, asdf, npm, apt,
  * dnf), the vendor's self-update (`claude update`, `doppler update`), or
@@ -42,7 +43,7 @@ export type ToolCommandPlatform = z.infer<typeof ToolCommandPlatform>;
 export const TOOL_COMMAND_METHODS = ["homebrew", "winget", "apt", "dnf", "script", "npm", "scoop", "mise", "asdf", "manual"] as const;
 export const ToolCommandMethod = z.enum(TOOL_COMMAND_METHODS).meta({
   description:
-    "A way the harness installs or updates a tool: homebrew; winget; apt or dnf, the vendor's repository added with its signing key; script, the vendor's install script (claude's native installer among them); npm, a global package; scoop, mise or asdf, the package manager's own upgrade of the package the tool was installed as; manual, a binary placed by hand, updated by the vendor's self-update or, for bao, its release archive checked against the published checksums. Only the first five install; the others only update.",
+    "A way the harness installs or updates a tool: homebrew; winget; apt or dnf, the vendor's repository added with its signing key; script, the vendor's installer or checked release archive (claude's native installer and bao's archive among them); npm, a global package; scoop, mise or asdf, the package manager's own upgrade of the package the tool was installed as; manual, a binary placed by hand, updated by the vendor's self-update or, for bao, its release archive checked against the published checksums. Only the first five install; the others only update.",
 });
 export type ToolCommandMethod = z.infer<typeof ToolCommandMethod>;
 
@@ -105,6 +106,7 @@ export const ToolCommandEntry = z
       .array(ProgramName)
       .max(4)
       .meta({ description: "The programs Install needs on the login shell's PATH: the package manager, sudo, the downloader. The method is available where every one is found." }),
+    needsAny: z.array(ProgramName).min(1).max(4).optional().meta({ description: "Alternative programs: at least one must be on the login PATH, in addition to every program in needs." }),
     install: ToolCommand.nullable().meta({ description: "The install command; null for a method that only updates (npm, claude's own apt and dnf repositories)." }),
     update: ToolCommand.meta({ description: "The update command, for the tool installed by this method." }),
     package: PackageName.optional().meta({
@@ -197,29 +199,58 @@ const selfUpdate = (tool: InstallableToolName, platforms: ToolCommandEntry["plat
  * that directory is not writable. Nothing is replaced when the checksum
  * does not match.
  */
-export const BAO_ARCHIVE_UPDATE_POSIX = [
-  "set -eu",
-  'current=$(command -v bao) || { echo "bao is not on the PATH." >&2; exit 1; }',
-  'target=$(readlink -f "$current" 2>/dev/null || printf %s "$current")',
-  'case $(uname -s) in Linux) os=linux ;; Darwin) os=darwin ;; *) echo "OpenBao publishes no archive for $(uname -s)." >&2; exit 1 ;; esac',
-  'case $(uname -m) in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; *) echo "OpenBao publishes no archive for $(uname -m)." >&2; exit 1 ;; esac',
-  "tag=$(curl -fsSLI -o /dev/null -w %{url_effective} https://github.com/openbao/openbao/releases/latest)",
-  "tag=${tag##*/}",
-  "version=${tag#v}",
-  'case $version in [0-9]*) ;; *) echo "The latest OpenBao release could not be read." >&2; exit 1 ;; esac',
-  "archive=openbao_${version}_${os}_${arch}.tar.gz",
-  "base=https://github.com/openbao/openbao/releases/download/$tag",
-  "dir=$(mktemp -d)",
-  'trap "rm -rf $dir" EXIT',
-  'echo "Downloading $archive and its checksums."',
-  'curl -fsSL -o "$dir/$archive" "$base/$archive"',
-  'curl -fsSL -o "$dir/checksums.txt" "$base/checksums.txt"',
-  'expected=$(awk -v name="$archive" "\\$2 == name { print \\$1 }" "$dir/checksums.txt")',
-  'actual=$( (sha256sum "$dir/$archive" 2>/dev/null || shasum -a 256 "$dir/$archive") | awk "{ print \\$1 }")',
-  'if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then echo "The checksum of $archive does not match the release checksums: nothing was replaced." >&2; exit 1; fi',
-  'tar -xzf "$dir/$archive" -C "$dir" bao',
+const baoArchivePosix = (target: readonly string[], place: string): string =>
+  [
+    "set -eu",
+    ...target,
+    'case $(uname -s) in Linux) os=linux ;; Darwin) os=darwin ;; *) echo "OpenBao publishes no archive for $(uname -s)." >&2; exit 1 ;; esac',
+    'case $(uname -m) in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; *) echo "OpenBao publishes no archive for $(uname -m)." >&2; exit 1 ;; esac',
+    "tag=$(curl -fsSLI -o /dev/null -w %{url_effective} https://github.com/openbao/openbao/releases/latest)",
+    "tag=${tag##*/}",
+    "version=${tag#v}",
+    'case $version in [0-9]*) ;; *) echo "The latest OpenBao release could not be read." >&2; exit 1 ;; esac',
+    "archive=openbao_${version}_${os}_${arch}.tar.gz",
+    "base=https://github.com/openbao/openbao/releases/download/$tag",
+    "dir=$(mktemp -d)",
+    "trap 'rm -rf \"$dir\"' EXIT",
+    'echo "Downloading $archive and its checksums."',
+    'curl -fsSL -o "$dir/$archive" "$base/$archive"',
+    'curl -fsSL -o "$dir/checksums.txt" "$base/checksums.txt"',
+    'expected=$(awk -v name="$archive" "\\$2 == name { print \\$1 }" "$dir/checksums.txt")',
+    'actual=$( (sha256sum "$dir/$archive" 2>/dev/null || shasum -a 256 "$dir/$archive") | awk "{ print \\$1 }")',
+    'if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then echo "The checksum of $archive does not match the release checksums: nothing was replaced." >&2; exit 1; fi',
+    'tar -xzf "$dir/$archive" -C "$dir" bao',
+    place,
+    'echo "Installed OpenBao $version at $target."',
+  ].join("; ");
+
+export const BAO_ARCHIVE_UPDATE_POSIX = baoArchivePosix(
+  [
+    'current=$(command -v bao) || { echo "bao is not on the PATH." >&2; exit 1; }',
+    'target=$(readlink -f "$current" 2>/dev/null || printf %s "$current")',
+  ],
   'if [ -w "$(dirname "$target")" ]; then install -m 0755 "$dir/bao" "$target"; else sudo install -m 0755 "$dir/bao" "$target"; fi',
-  'echo "Installed OpenBao $version at $target."',
+);
+
+/** Installs the checked archive in the user's bin directory, without sudo. */
+export const BAO_ARCHIVE_INSTALL_POSIX = baoArchivePosix(['target="$HOME/.local/bin/bao"'], 'mkdir -p "$HOME/.local/bin" && cp "$dir/bao" "$target" && chmod 0755 "$target"');
+
+/** Make the user bin visible on the next login-path probe, preserving the existing profile. */
+const BAO_INSTALL_PATH_POSIX = [
+  "set -eu",
+  'case :$PATH: in *:"$HOME/.local/bin":*) exit 0 ;; esac',
+  'profile="$HOME/.profile"',
+  `line='export PATH="$HOME/.local/bin:$PATH"'`,
+  [
+    "case ${SHELL:-sh} in",
+    '*zsh) profile="${ZDOTDIR:-$HOME}/.zprofile" ;;',
+    '*bash) for f in .bash_profile .bash_login .profile; do if [ -f "$HOME/$f" ]; then profile="$HOME/$f"; break; fi; done ;;',
+    `*fish) profile="\${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/agent-harness-bin.fish"; mkdir -p "$(dirname "$profile")"; line='fish_add_path "$HOME/.local/bin"' ;;`,
+    `*csh) profile="$HOME/.login"; line='setenv PATH "$HOME/.local/bin:$PATH"' ;;`,
+    "esac",
+  ].join(" "),
+  'printf "\\n%s\\n" "$line" >> "$profile"',
+  'echo "Added ~/.local/bin to the login PATH in $profile."',
 ].join("; ");
 
 /**
@@ -323,6 +354,15 @@ export const MANAGED_TOOL_COMMANDS: readonly ToolCommandEntry[] = [
       [["sudo", "dnf", "install", "openbao"]],
     ],
     update: dnfUpdate("openbao"),
+  },
+  {
+    tool: "bao",
+    method: "script",
+    platforms: ["darwin", "linux"],
+    needs: ["curl", "tar"],
+    needsAny: ["sha256sum", "shasum"],
+    install: [[["sh", "-c", BAO_ARCHIVE_INSTALL_POSIX]], [["sh", "-c", BAO_INSTALL_PATH_POSIX]]],
+    update: [[["sh", "-c", BAO_ARCHIVE_UPDATE_POSIX]]],
   },
   scoop("bao", "openbao"),
   mise("bao", "openbao"),
@@ -512,8 +552,8 @@ export const toolCommandEntry = (
 
 /**
  * The entry Install runs for `tool` on `platform`: the first method, in
- * `TOOL_INSTALL_ORDER`, that installs it there and whose every program
- * `available` finds on the PATH; null when none is (and for `vault`,
+ * `TOOL_INSTALL_ORDER`, that installs it there and whose required programs
+ * `available` finds on the PATH (all of needs, one of needsAny when present); null when none is (and for `vault`,
  * which is never installed).
  */
 export const installChoice = (
@@ -526,7 +566,7 @@ export const installChoice = (
   if (!installable.success) return null;
   for (const method of TOOL_INSTALL_ORDER) {
     const found = toolCommandEntry(installable.data, method, platform, table);
-    if (found !== null && found.install !== null && found.needs.every(available)) return found;
+    if (found !== null && found.install !== null && found.needs.every(available) && (found.needsAny === undefined || found.needsAny.some(available))) return found;
   }
   return null;
 };
@@ -536,8 +576,8 @@ export const installChoice = (
  * it is from, for where the table drives no method (#376, #426, #1833): for
  * an installed tool its bare binary's update, else its vendor script's (one
  * installed in a way that could not be told was most likely installed by
- * one of them), else the install `installChoice` would run, else the first
- * install the table has for the platform; null for `vault`, which is never
+ * one of them), else the install `installChoice` would run; null when no
+ * install method has its required programs, for `vault`, which is never
  * installed, and where the table has none. A row that runs it in a tool
  * terminal carries its line, and a refusal of `tools.run` answers it.
  */
@@ -553,7 +593,7 @@ export const documentedChoice = (
     const updates = toolCommandEntry(tool, method, platform, table);
     if (updates !== null) return { entry: updates, command: updates.update };
   }
-  const chosen = installChoice(tool, platform, available, table) ?? TOOL_INSTALL_ORDER.map((method) => toolCommandEntry(tool, method, platform, table)).find((each) => each?.install != null);
+  const chosen = installChoice(tool, platform, available, table);
   return chosen?.install == null ? null : { entry: chosen, command: chosen.install };
 };
 

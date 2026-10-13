@@ -148,7 +148,7 @@ export const createToolRunner = (options: ToolRunnerOptions): ToolRunner => {
 
   /** The programs every install method of the table needs, found on the PATH now. */
   const availability = async (): Promise<(program: string) => boolean> => {
-    const found = await tools.programsOnPath([...new Set(commands.flatMap((entry) => entry.needs))]);
+    const found = await tools.programsOnPath([...new Set(commands.flatMap((entry) => [...entry.needs, ...(entry.needsAny ?? [])]))]);
     return (program) => found.has(program);
   };
 
@@ -172,7 +172,15 @@ export const createToolRunner = (options: ToolRunnerOptions): ToolRunner => {
     if (action === "install") {
       if (row.status !== "not-installed") return `${tool} is installed already, ${METHOD_WORDS[row.method ?? "unknown"]}: its row's action is ${row.action}.`;
       const entry = tablePlatform === null ? null : installChoice(tool, tablePlatform, available, commands);
-      if (entry === null || entry.install === null) return `No way to install ${tool} is available on this environment: run the vendor's command yourself.`;
+      if (entry === null || entry.install === null) {
+        const methods = tablePlatform === null ? [] : commands.filter((each) => each.tool === tool && each.install !== null && each.platforms.includes(tablePlatform));
+        const missing = methods.map((each) => {
+          const programs = each.needs.filter((program) => !available(program));
+          if (each.needsAny !== undefined && !each.needsAny.some(available)) programs.push(each.needsAny.join(" or "));
+          return `${each.method}: ${programs.join(", ")}`;
+        });
+        return `None of the harness's install methods for ${tool} is available here.${missing.length === 0 ? ` No method supports ${platform}.` : ` Programs needed: ${missing.join("; ")}.`}`;
+      }
       return { entry, command: entry.install, confirmed: false };
     }
     if (row.status === "not-installed" || row.method === null || row.path === null || row.realpath === null) return `${tool} is not installed on this environment: Install it.`;

@@ -381,15 +381,26 @@ describe("About's Managed tools", () => {
     expect(within(await row("Vault CLI")).getByText("The harness has no command for the Vault CLI here: update it the way it was installed.")).toBeDefined();
   });
 
-  it("offers the vendor's command to copy when a run is refused tool_not_runnable", async () => {
+  it("offers a supported vendor command to copy when a run is refused tool_not_runnable", async () => {
     const app = await opened({
-      managedTools: { runs: { bao: { refused: { message: "No way to install bao is available on this environment: run the vendor's command yourself.", command: "brew install openbao" } } } },
+      managedTools: { runs: { bao: { refused: { message: "bao is installed already: update it using Homebrew.", command: "brew install openbao" } } } },
     });
     await openAbout(app);
     const bao = await row("OpenBao CLI");
     await app.user.click(within(bao).getByRole("button", { name: "Install" }));
-    expect(await within(bao).findByText("Not run: No way to install bao is available on this environment: run the vendor's command yourself.")).toBeDefined();
+    expect(await within(bao).findByText("Not run: bao is installed already: update it using Homebrew.")).toBeDefined();
     expect(within(within(bao).getByRole("region", { name: "The vendor's command, to run yourself on desk" })).getByText("brew install openbao")).toBeDefined();
+  });
+
+  it("shows missing install prerequisites without offering an unavailable copy command", async () => {
+    const message = "None of the harness's install methods for bao is available here. Programs needed: script: curl, sha256sum or shasum.";
+    const app = await opened({ managedTools: { runs: { bao: { refused: { message, command: null } } } } });
+    await openAbout(app);
+    const bao = await row("OpenBao CLI");
+    await app.user.click(within(bao).getByRole("button", { name: "Install" }));
+    expect(await within(bao).findByText(`Not run: ${message}`)).toBeDefined();
+    expect(within(bao).queryByRole("region", { name: "The vendor's command, to run yourself on desk" })).toBeNull();
+    expect(within(bao).queryByText("brew install openbao")).toBeNull();
   });
 
   it("is absent with its reason where the environment does not offer managedTools, asking nothing", async () => {

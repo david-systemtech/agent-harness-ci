@@ -89,6 +89,18 @@ describe("the closed command table", () => {
     expect(installChoice("doppler", "linux", on(["curl", "sh"]))).toBeNull();
   });
 
+  it("offers the checked bao archive as the last install fallback when either checksum program is available", () => {
+    for (const platform of ["linux", "darwin"] as const) {
+      for (const checksum of ["sha256sum", "shasum"]) {
+        const available = (program: string) => ["curl", "tar", checksum].includes(program);
+        expect(installChoice("bao", platform, available)?.method).toBe("script");
+        expect(documentedChoice("bao", false, platform, available)?.entry.method).toBe("script");
+      }
+      expect(installChoice("bao", platform, (program) => ["curl", "tar"].includes(program))).toBeNull();
+      expect(documentedChoice("bao", false, platform, () => false)).toBeNull();
+    }
+  });
+
   it("installs and updates through Homebrew: openbao (never bao, another program), doppler, the cask 1password-cli, gh and the cask claude-code", () => {
     const brew = (tool: Entry["tool"]) => [said(entry(tool, "homebrew", "darwin").install), said(entry(tool, "homebrew", "darwin").update)];
     expect(brew("bao")).toEqual(["brew install openbao", "brew upgrade openbao"]);

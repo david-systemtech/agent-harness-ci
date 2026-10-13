@@ -183,7 +183,30 @@ posix("tools.run's Install", () => {
     expect(spawnedAt(pty).args).toEqual(["-l", "-c", "brew install openbao"]);
   });
 
-  it("is tool_not_runnable where no method is available, answering the vendor's documented command, and for a tool installed already, opening nothing", async () => {
+  it("installs bao from a checked archive without a package manager or sudo", async () => {
+    const path = fakePath();
+    programs(path, "curl", "tar", "sha256sum");
+    const { client, pty } = await withRunner(path);
+    const result = await ran(client, { tool: "bao", action: "install" });
+    expect(result.method).toBe("script");
+    expect(result.command).toContain("checksums.txt");
+    expect(result.command).toContain(".local/bin/bao");
+    expect(pty.spawned).toHaveLength(1);
+  });
+
+  it("explains the missing archive prerequisites without suggesting brew when no bao method qualifies", async () => {
+    const path = fakePath();
+    programs(path, "apt-get", "tar");
+    const { client, pty } = await withRunner(path);
+    const answer = await run(client, { tool: "bao", action: "install" });
+    expect(answer.receipt).toMatchObject({ status: "rejected", error: {
+      message: expect.stringContaining("script: curl, sha256sum or shasum"),
+      data: { command: null },
+    } });
+    expect(pty.spawned).toHaveLength(0);
+  });
+
+  it("is tool_not_runnable where no method is available, naming the missing programs without suggesting an unavailable command, and for a tool installed already, opening nothing", async () => {
     const path = fakePath();
     path.install("gh", { output: "gh version 2.63.2 (2024-12-05)" });
     const { client, pty } = await withRunner(path);
@@ -192,7 +215,7 @@ posix("tools.run's Install", () => {
     expect(none.receipt).toMatchObject({
       status: "rejected",
       reason: "tool_not_runnable",
-      error: { code: "tool_not_runnable", data: { tool: "op", action: "install", command: "brew install --cask 1password-cli" } },
+      error: { code: "tool_not_runnable", message: expect.stringContaining("Programs needed:"), data: { tool: "op", action: "install", command: null } },
     });
     const installed = await run(client, { tool: "gh", action: "install" });
     expect(installed.receipt).toMatchObject({ status: "rejected", reason: "tool_not_runnable", error: { data: { tool: "gh", action: "install" } } });
@@ -263,6 +286,7 @@ posix("tools.run's Update", () => {
 
   it("never upgrades the Node a tool was installed into by npm under mise or asdf, nor a file a system package manager may own: their rows run the vendor's command once Enter is pressed (#1833)", async () => {
     const path = fakePath();
+    programs(path, "brew");
     path.install("claude", { at: ".local/share/mise/installs/node/22.11.0/lib/node_modules/@anthropic-ai/claude-code/cli.js", output: "2.1.283 (Claude Code)" });
     path.install("gh", { at: ".asdf/installs/nodejs/22.11.0/lib/node_modules/gh/bin/gh", output: "gh version 2.63.2 (2024-12-05)" });
     path.install("bao", { at: ".cargo/bin/bao", output: "OpenBao v2.1.1" });
@@ -286,6 +310,7 @@ posix("tools.run's Update", () => {
 
   it("drives a mise or asdf shim only when their package directory holds the tool's own package, and offers no self-update for a file a system package manager may own (#1833)", async () => {
     const path = fakePath();
+    programs(path, "brew");
     const mise = join(path.root, ".local/share/mise");
     const asdf = join(path.root, ".asdf");
     for (const directory of [join(mise, "shims"), join(mise, "installs/github-cli/2.63.2"), join(asdf, "shims"), join(asdf, "installs/nodejs/22.11.0")]) mkdirSync(directory, { recursive: true });
