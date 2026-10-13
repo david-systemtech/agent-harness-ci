@@ -2,6 +2,7 @@ import { screen, within } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import * as wide from "../gallery/scenes/caption-many-pull-requests.js";
 import * as text20 from "../gallery/scenes/caption-many-pull-requests-text-20.js";
+import * as minimum from "../gallery/scenes/caption-many-pull-requests-minimum-text-20.js";
 import * as split from "../gallery/scenes/caption-many-pull-requests-split-text-20.js";
 import * as popover from "../gallery/scenes/caption-many-pull-requests-popover.js";
 import * as phone from "../gallery/scenes/phone-many-pull-requests.js";
@@ -11,6 +12,7 @@ it.each([
   ["caption-many-pull-requests", wide],
   ["caption-many-pull-requests-text-20", text20],
   ["caption-many-pull-requests-split-text-20", split],
+  ["caption-many-pull-requests-minimum-text-20", minimum],
   ["caption-many-pull-requests-popover", popover],
 ] as const)("mounts %s with seven PRs and the caption's title", async (name, scene) => {
   const root = document.createElement("div");
@@ -22,8 +24,9 @@ it.each([
     expect(within(caption).getByRole("button", { name: "Rename “Check the ledger”" })).toBeDefined();
     expect(within(caption).getAllByRole("button", { name: /^Pull request #/ }).map(link => link.textContent)).toEqual(["PR #7 open", "PR #6 open"]);
     expect(within(caption).getByRole("button", { name: "Show all 7 pull requests" })).toBeDefined();
+    if (scene === minimum) expect(within(caption).getByRole("img", { name: "desk" }).tagName.toLowerCase()).toBe("svg");
     if (name.endsWith("popover")) expect(within(screen.getByRole("dialog", { name: "Pull requests" })).getAllByRole("button", { name: /^Pull request #/ })).toHaveLength(7);
-    if (scene === text20 || scene === split) expect(gallery.world.presentation.values.read().textSize).toBe(20);
+    if (scene === text20 || scene === split || scene === minimum) expect(gallery.world.presentation.values.read().textSize).toBe(20);
   } finally {
     await gallery.close();
     root.remove();
