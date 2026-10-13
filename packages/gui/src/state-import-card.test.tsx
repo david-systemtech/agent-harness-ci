@@ -89,6 +89,23 @@ describe("State import on Carry over", () => {
     expect(app.environment("desk").requests("stateImport.run")[1]?.params).toMatchObject({ dryRun: false });
   });
 
+  it("shows what Continue bringing it over brought in the earlier-work section, as its own Bring it over would (issue 2098)", async () => {
+    const reason = "Bringing over your earlier work stopped before the end. Choose Continue bringing it over.";
+    const app = await opened({ accounts: [{ label: "Work" }], setup: { "carry-over": {
+      state: "needs-attention", reason, actions: ["import-again"], failing: ["carry-over.last-import"],
+      targets: [{ action: "import-again", kind: "environment", id: "desk", label: "Your earlier work" }],
+    } } });
+    await screen.findByRole("region", { name: "Earlier work" });
+    answerRun(app);
+    await app.user.click(await screen.findByRole("button", { name: "Continue bringing it over" }));
+    const result = within(await section().findByRole("region", { name: "Earlier work result" }));
+    expect(result.getByRole("heading", { name: "Brought over" })).toBeDefined();
+    expect(within(result.getByRole("list", { name: "Did not come over" })).getByText("Nightly digest: Its workspace is missing.")).toBeDefined();
+    expect(result.getByRole("list", { name: "Needs you" })).toBeDefined();
+    expect(app.environment("desk").requests("stateImport.run")).toHaveLength(1);
+    expect(app.environment("desk").requests("stateImport.run")[0]?.params).toMatchObject({ dryRun: false });
+  });
+
   it("offers no Continue bringing it over when the earlier work finished with items left behind, each with its own fix", async () => {
     const reason = "1 item from your earlier work did not come over. See what to do below each one.";
     await opened({ accounts: [{ label: "Work" }], setup: { "carry-over": {

@@ -1,5 +1,5 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
-import type { CarryOverInventory, CarryOverReport, StateImportDetection } from "@agent-harness/contracts";
+import { StateImportFinishedPayload, type CarryOverInventory, type CarryOverReport, type StateImportDetection, type StateImportReport } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -32,6 +32,16 @@ const report = (accountId = "account-1"): CarryOverReport => ({
     unmappable: [],
   },
   failed: [],
+});
+/** What bringing the earlier work over answers: two instructions and a routine brought over, one routine left behind. */
+const earlierWorkReport = (): StateImportReport => ({
+  dryRun: false,
+  carried: { accounts: 0, archived: 0, pins: 0, groups: 0, forgeAccounts: 0, keyManagerConnections: 0, banks: 0, routines: 1, instructions: 2, skillSources: 0, alwaysOnSkills: 0, drafts: 0, devSites: 0 },
+  reEnter: [],
+  later: [],
+  notCarried: [],
+  failed: [{ label: "Nightly digest", message: "Its workspace is missing." }],
+  clientLocal: {},
 });
 /** What an inventory reads after an import brought everything over: the same counts, nothing new. */
 const imported = (accountId = "account-1"): CarryOverInventory => {
@@ -398,6 +408,38 @@ describe("Carry over in Set up", () => {
     // The earlier work would follow the last account's run: once the button is back, any second state import has been asked.
     await waitFor(() => expect(screen.getByRole("button", { name: "Bring them over" }).hasAttribute("disabled")).toBe(false));
     expect(desk.requests("stateImport.run")).toHaveLength(1);
+  });
+
+  it("shows what the earlier work brought over with Bring them over in its section, whose failed items a later completion replaces (issue 2098)", async () => {
+    const app = await withEarlierWork(
+      { "carry-over": needsImport("Personal has past chats to bring over. Choose Bring them over. Work has past chats to bring over. Choose Bring them over.", [["account-1", "Personal"], ["account-2", "Work"]]) },
+      (accountId) => inventory(accountId),
+    );
+    const desk = app.environment("desk");
+    const earlier = earlierWorkReport();
+    desk.wire.answer("stateImport.run", () => ({ result: { receipt: { status: "accepted", sequence: 3, changed: true }, result: earlier } }));
+    await app.user.click(screen.getByRole("button", { name: "Bring them over" }));
+    const section = within(screen.getByRole("region", { name: "Earlier work" }));
+    const result = within(await section.findByRole("region", { name: "Earlier work result" }));
+    expect(result.getByText("1 routine and 2 instructions")).toBeDefined();
+    expect(within(result.getByRole("list", { name: "Did not come over" })).getByText("Nightly digest: Its workspace is missing.")).toBeDefined();
+    expect(desk.requests("stateImport.run")).toHaveLength(1);
+    await act(async () => desk.notice("state-import.finished", StateImportFinishedPayload.parse({ ...earlier, failed: [] })));
+    expect(result.queryByRole("list", { name: "Did not come over" })).toBeNull();
+    expect(result.getByText("1 routine and 2 instructions")).toBeDefined();
+  });
+
+  it("names a refused earlier-work import by the button chosen, never Continue bringing it over on a first run (issue 2098)", async () => {
+    const app = await withEarlierWork(
+      { "carry-over": needsImport("Personal has past chats to bring over. Choose Bring them over. Work has past chats to bring over. Choose Bring them over.", [["account-1", "Personal"], ["account-2", "Work"]]) },
+      (accountId) => inventory(accountId),
+    );
+    const desk = app.environment("desk");
+    desk.wire.answer("stateImport.run", () => ({ error: { code: "internal", message: "The source folder could not be read.", data: {} } }));
+    await app.user.click(screen.getByRole("button", { name: "Bring them over" }));
+    expect(await screen.findByText("agent-harness ran into a problem. Choose Bring them over to try again.")).toBeDefined();
+    expect(screen.queryByText(/Continue bringing it over/)).toBeNull();
+    expect(within(screen.getByRole("region", { name: "Earlier work" })).queryByRole("region", { name: "Earlier work result" })).toBeNull();
   });
 
   it("brings the earlier work over with the first Bring them over when a chat run here or a checkout offered as a skill already reads as not new", async () => {
