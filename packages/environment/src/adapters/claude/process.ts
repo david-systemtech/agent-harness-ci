@@ -902,8 +902,19 @@ export class ClaudeProcess implements TurnControl {
     }
     if (isInit(message)) this.#suggestionTurn = undefined;
     if (this.#undecided !== undefined) {
-      this.#undecided.push(message);
       const owners = ownersOf(message);
+      // Cold resume can finish bookkeeping for stored work before it reads our
+      // prompt. An empty successful result naming no prompt is not that run's
+      // completion: discard its init too and keep waiting for actual ownership.
+      if (!this.#spawnedFresh && !this.#anyOpened && owners.length === 0 && isRecord(message) &&
+          message["type"] === "result" && message["subtype"] === "success" && message["is_error"] === false &&
+          message["num_turns"] === 0 && message["result"] === "" &&
+          this.#undecided.every(isInit)) {
+        this.#undecided = undefined;
+        this.#armOpenWatch();
+        return;
+      }
+      this.#undecided.push(message);
       if (owners.length > 0) this.#decide(owners);
       // The first turn of a spawn that started a conversation is its own run's: no earlier work can be answered ahead of it.
       // A result naming nobody before any turn opened is the spawn's run failing to start, whatever it resumed.

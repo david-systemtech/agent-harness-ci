@@ -1558,6 +1558,23 @@ describe("an interrupt", () => {
 });
 
 describe("the process across turns", () => {
+  it.each([false, true])("keeps a cold resume's genuine zero-turn completion when it is owned or failed (failed: %s)", async (failed) => {
+    const adapter = adapterWith();
+    const input = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const context = contextWith();
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.result(PROVIDER_SESSION, {
+      num_turns: 0, result: failed ? "API Error: unavailable" : "", is_error: failed,
+      ...(!failed && { user_message_uuid: input.prompt[0]?.messageId }),
+    }));
+    expect(ends(await drain(run))).toEqual([
+      expect.objectContaining({ reason: failed ? "error" : "completed", turnCount: 0 }),
+    ]);
+    expect(context.adopted).toEqual([]);
+    await adapter.stopProcess(SESSION);
+  });
+
   /** Runs one turn to its result on the process, and releases it as the host does. */
   const oneTurn = async (adapter: ReturnType<typeof adapterWith>, input: RunInput, query?: FakeQuery) => {
     const run = adapter.createRun(input, contextWith());

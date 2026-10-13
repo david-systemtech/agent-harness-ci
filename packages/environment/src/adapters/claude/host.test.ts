@@ -18,7 +18,8 @@ import type { RunActor } from "../../permissions/resolver.js";
 
 const hooks = vi.hoisted(() => ({ sdk: undefined as undefined | { query: (params: never) => unknown; getSessionMessages: (id: string, options: unknown) => unknown } }));
 
-vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
+vi.mock("@anthropic-ai/claude-agent-sdk", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@anthropic-ai/claude-agent-sdk")>(),
   query: (params: never) => {
     if (hooks.sdk === undefined) throw new Error("The test installed no fake SDK.");
     return hooks.sdk.query(params);
@@ -288,6 +289,49 @@ describe("a Claude run through the adapter host", () => {
     startRun(t, "Again");
     const next = await runQuery(t, 2);
     expect(next.options.resume).toBe(PROVIDER_SESSION);
+  });
+
+  it("serves the first message after an environment restart in one run despite an empty resume result (#2145)", async () => {
+    const t = await setup();
+    const first = startRun(t);
+    const before = await runQuery(t, 1);
+    before.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("before", [first.messageId]), sdk.result(PROVIDER_SESSION));
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(1));
+    const store = createProviderTranscriptStore({ log: t.log, clock: t.clock });
+    const key = { projectKey: t.sessionId, sessionId: PROVIDER_SESSION };
+    await store.append(key, [
+      { type: "user", uuid: first.messageId, parentUuid: null, sessionId: PROVIDER_SESSION, message: { role: "user", content: "Go" } },
+      { type: "assistant", uuid: "before", parentUuid: first.messageId, sessionId: PROVIDER_SESSION, message: { role: "assistant", content: [{ type: "text", text: "Done." }] } },
+    ]);
+    await t.host.close("drained");
+    const adapter = createClaudeAdapter({ clock: t.clock, sessionStore: store, executablePath: "/sdk/claude", hostEnv: {}, diagnostic: () => undefined,
+      runCommand: async () => ({ code: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "tester@example.com" }), stderr: "" }) });
+    const host = createAdapterHost({ log: t.log, clock: t.clock, adapters: [adapter], accounts: t.accounts, ceilingOf: () => undefined });
+    closers.push(() => host.close("disposed"));
+    const restarted = { ...t, host };
+    const made = fake.queries.length;
+    const next = startRun(restarted, "After restart");
+    // Refresh is a control query; the next one resumes the persisted provider history.
+    const query = await fake.made(made + 2);
+    await query.promptsPushed(1);
+    expect(query.options.resume).toBe(PROVIDER_SESSION);
+    expect(await query.options.sessionStore?.load(key)).toHaveLength(2);
+    query.emit(
+      sdk.init(PROVIDER_SESSION), sdk.result(PROVIDER_SESSION, { num_turns: 0, result: "", stop_reason: null, usage: {}, modelUsage: {} }),
+      sdk.init(PROVIDER_SESSION), sdk.replyStart("after", [next.messageId]), sdk.text("after", "Answered after restart."), sdk.result(PROVIDER_SESSION),
+    );
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(2));
+    const events = eventsOf(t).filter((event) => event.correlationId === next.runId);
+    expect(events.filter((event) => event.type === "run.started")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "message.sent")).toEqual([
+      expect.objectContaining({ payload: expect.objectContaining({ messageId: next.messageId, delivery: "prompt" }) }),
+    ]);
+    expect(events.filter((event) => event.type === "message.delivered")).toEqual([]);
+    expect(events.filter((event) => event.type === "run.ended")).toEqual([
+      expect.objectContaining({ payload: expect.objectContaining({ reason: "completed", turnCount: 1, resultText: "Done." }) }),
+    ]);
+    expect(eventsOf(t).filter((event) => event.type === "run.started")).toHaveLength(2);
+    await host.close("disposed");
   });
 
   it("ends a cold resume whose account's login cannot be refreshed error, naming the account by its label, and the store reads the account expired, after one refresh (#229)", async () => {
