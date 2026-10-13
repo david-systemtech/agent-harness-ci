@@ -11,6 +11,17 @@
     white-space: normal;
   }
 
+  /* Sheets, dialogs and pickers keep painted 44px controls: a compact control's expanded
+   * touch-target would be clipped by the surface's scrollport or overflow it at the edge. */
+  :is([role="dialog"], [data-run-sheet], [data-palette-overlay]) button[data-variant][data-size] {
+    min-width: 44px;
+    min-height: 44px;
+    height: auto;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
   /* Menu explanations use the full row on phones; keys remain available on desktop. */
   .phone-menu-row kbd { display: none; }
   .phone-field,
