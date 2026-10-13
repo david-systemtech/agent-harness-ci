@@ -23,6 +23,7 @@ import {
 import { groupNameKey, type CommandMethodName, type KeyActionId } from "@agent-harness/contracts";
 import { direction, keysText, type Handler, type Keymap } from "../keys.js";
 import type { Presentation } from "../presentation.js";
+import { useFollow } from "../session/use-session.js";
 import type { ThemeColours } from "../theme/colours.js";
 import { messageOf, nameOf } from "../view.js";
 import { badgesOf } from "./badge.js";
@@ -75,6 +76,8 @@ export interface RailOptions {
   readonly keymap: Keymap;
   readonly presentation: Presentation;
   readonly startingService: boolean;
+  /** Runtime changes are drawn through the screen's frame scheduler. */
+  readonly request: () => void;
   /**
    * What the new-session card opens on from the composer (`/cwd`, and `/new`
    * with no session open): the open session, else the environment
@@ -135,11 +138,14 @@ export const useRail = (options: RailOptions): Rail => {
   const list = runtime.projections.sessionList.read();
   const query = filter?.trim() ?? "";
   const badges = useMemo(() => badgesOf(views, options.colours), [views, options.colours]);
+  // Keep the followed cache entries stable when only an environment's phase or counts change.
+  const processEnvironments = views.filter((view) => view.enabled).map((view) => view.environmentId).join(" ");
   const processSource = useMemo(() => {
-    const sources = views.filter((view) => view.enabled).map((view) => ({ environmentId: view.environmentId, source: runtime.requests.cached(view.environmentId, "providers.processes.status", {}) }));
+    const sources = processEnvironments === "" ? [] : processEnvironments.split(" ").map((environmentId) => ({ environmentId, source: runtime.requests.cached(environmentId, "providers.processes.status", {}) }));
     return derived(sources.map(({ source }) => source), (...answers) => new Map(sources.map(({ environmentId }, index) => [environmentId, answers[index]?.result?.processes ?? []])));
-  }, [runtime, views]);
-  const processes = useSyncExternalStore(processSource.subscribe, processSource.read);
+  }, [runtime, processEnvironments]);
+  useFollow(processSource, options.request);
+  const processes = processSource.read();
   const input: RailInput = useMemo(
     () => ({
       list,

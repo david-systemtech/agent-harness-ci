@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { backgroundProcess } from "../test/background-process.js";
+import { backgroundProcess } from "../gallery/fixtures/background-process.js";
 import { DESK_ID, G_BRAND_DESK, G_BRAND_LAPTOP, G_OPS, LAPTOP_ID, OLD, SPARE, TRAIN, at, drawn, inUtc, region, row, rowWords, settled, sidebar, two, typeIn } from "../test/sidebar-fixtures.js";
 
 /**

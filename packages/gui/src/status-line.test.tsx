@@ -3,7 +3,7 @@ import { resetWords } from "@agent-harness/client-runtime";
 import { ENVIRONMENT_ICONS, whenWords, type AccountUsage, type EnvironmentIcon } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { renderApp, type ScriptedEnvironment } from "../test/harness.js";
-import { backgroundAgents, backgroundProcess } from "../test/background-process.js";
+import { backgroundAgents, backgroundProcess } from "../gallery/fixtures/background-process.js";
 import { glyphOf } from "./connections/environment-glyphs.js";
 
 /**

@@ -1,5 +1,5 @@
 import type { Script, ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
-import { backgroundAgents, backgroundProcess } from "../../test/background-process.js";
+import { backgroundAgents, backgroundProcess } from "../fixtures/background-process.js";
 import type { PresentationValues } from "../../src/presentation.js";
 import type { SceneGeometry } from "../scene-registry.js";
 
