@@ -35,6 +35,7 @@ import type { Clock, Timer } from "../../serve/clock.js";
 import { AsyncQueue } from "./async-queue.js";
 import type { ConfigDirQueue } from "./config-dir-queue.js";
 import { CLAUDE_PROVIDER, type HostEnvironment } from "./credentials.js";
+import { fileAttachmentText } from "./file-attachments.js";
 import { FileToolObservation } from "./file-tools.js";
 import { readStoredSession, resolveForkPoint, resolveRewindPoint, storedHolds, type ClaudeSessionStore } from "./history.js";
 import { seedStoreFromDirectory } from "./imported-history.js";
@@ -282,18 +283,19 @@ export const checkImages = (messages: readonly PromptMessage[]): void => {
   for (const message of messages) for (const attachment of message.attachments) if (attachment.kind === "image") claudeImageType(attachment.mediaType);
 };
 
-const userMessage = (message: PromptMessage): SDKUserMessage => {
+const userMessage = (message: PromptMessage, scratchDirectory: string): SDKUserMessage => {
+  const text = fileAttachmentText(message, scratchDirectory);
   const images = message.attachments.filter((attachment) => attachment.kind === "image");
   const content: SDKUserMessage["message"]["content"] =
     images.length === 0
-      ? message.text
+      ? text
       : [
           // Images before the text: a question placed after its image is answered better.
           ...images.map((image) => ({
             type: "image" as const,
             source: { type: "base64" as const, media_type: claudeImageType(image.mediaType), data: Buffer.from(image.data).toString("base64") },
           })),
-          ...(message.text === "" ? [] : [{ type: "text" as const, text: message.text }]),
+          ...(text === "" ? [] : [{ type: "text" as const, text }]),
         ];
   return { type: "user", message: { role: "user", content }, parent_tool_use_id: null, uuid: message.messageId as NonNullable<SDKUserMessage["uuid"]> };
 };
@@ -378,6 +380,7 @@ export class ClaudeProcess implements TurnControl {
   /** What the process has spent so far, by its results: each turn reports its share (#1949). */
   readonly #spend = new SpendMeter();
   readonly #spawn: SpawnKey;
+  readonly #scratchDirectory: string;
   /**
    * The tool servers the process was started with, whose in-process tools
    * serve every run it serves (a later run attaches only when its tools
@@ -471,6 +474,7 @@ export class ClaudeProcess implements TurnControl {
   constructor(first: RunInput, context: RunContext, deps: ProcessDeps) {
     const mode = claudeMode(first.mode);
     this.sessionId = first.sessionId;
+    this.#scratchDirectory = first.containment.scratchDirectory;
     this.#deps = deps;
     this.#context = context;
     this.#ledger = new TaskLedger(deps.clock);
@@ -576,7 +580,7 @@ export class ClaudeProcess implements TurnControl {
       let prompts: SDKUserMessage[];
       try {
         const held = [...turn.queued].flatMap((id) => this.#queuedSends.get(id) ?? []);
-        prompts = [...input.prompt, ...held].map(userMessage);
+        prompts = [...input.prompt, ...held].map((message) => userMessage(message, this.#scratchDirectory));
       } catch (error) {
         this.#waitingEnds(turn, { reason: "error", error: { message: describe(error), code: "launch" } });
         return;
@@ -756,11 +760,11 @@ export class ClaudeProcess implements TurnControl {
         this.#neverRan();
         return;
       }
-      for (const message of input.prompt) this.#prompts.push(userMessage(message));
+      for (const message of input.prompt) this.#prompts.push(userMessage(message, this.#scratchDirectory));
       for (const message of carried) {
         this.#queuedSends.set(message.messageId, message);
         turn.queued.add(message.messageId);
-        this.#prompts.push(userMessage(message));
+        this.#prompts.push(userMessage(message, this.#scratchDirectory));
       }
       this.#query = sdkQuery({ prompt: this.#prompts, options });
     } catch (error) {
@@ -1434,9 +1438,10 @@ export class ClaudeProcess implements TurnControl {
     if (this.#forPrompt.has(turn)) throw new Error("This run only carries a subagent's prompt; the message waits for the session's next run.");
     checkImages([message]);
     // Stamped with the harness's id: the CLI names it when a turn reads it, and an interrupt's receipt lists it.
+    const prompt = userMessage(message, this.#scratchDirectory);
     this.#queuedSends.set(message.messageId, message);
     turn.queued.add(message.messageId);
-    if (!this.#attaching.has(turn)) this.#prompts.push(userMessage(message));
+    if (!this.#attaching.has(turn)) this.#prompts.push(prompt);
   }
 
   async interrupt(turn: ClaudeTurn): Promise<{ readonly stillQueued: readonly string[] }> {

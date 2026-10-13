@@ -380,6 +380,18 @@ describe("attachments", () => {
     expect(chips()).toEqual(["shot.png"]);
   });
 
+  it("accepts a JSON drop when the session provider advertises file input, and sends its bytes", async () => {
+    const { app, env, session } = await opened({ provider: { imageInput: true, fileInput: true } });
+    await waitFor(() => expect(env.requests("providers.list").length).toBeGreaterThan(0));
+    fireEvent.drop(box(), { dataTransfer: { types: ["Files"], files: [new File(['{"enabled":true}'], "settings.json", { type: "application/json" })] } });
+    await waitFor(() => expect(chips()).toEqual(["settings.json"]));
+    await write(app, "Read the settings{Enter}");
+    await waitFor(() => expect(sent(env, "runs.start")).toEqual([
+      expect.objectContaining({ sessionId: session, text: "Read the settings", attachments: [{ kind: "file", name: "settings.json", mediaType: "application/json", data: "eyJlbmFibGVkIjp0cnVlfQ==" }] }),
+    ]));
+    expect(chips()).toEqual([]);
+  });
+
   it("come by a drop on the composer, and wait there for the message", async () => {
     const { env } = await opened();
     fireEvent.drop(box(), { dataTransfer: { types: ["Files"], files: [new File([PNG], "dropped.png", { type: "image/png" })] } });

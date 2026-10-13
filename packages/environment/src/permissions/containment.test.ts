@@ -401,6 +401,18 @@ describe("a turn the provider opened on its own", () => {
 });
 
 describe("the session's directories", () => {
+  it("makes session scratch available before the provider starts even with containment off", async () => {
+    const { t, client, id, adapter } = await sessionAt("off");
+    let presentAtStart = false;
+    adapter.nextScripts.push(async function* () {
+      presentAtStart = existsSync(adapter.lastRun().input.containment.scratchDirectory);
+      yield end();
+    });
+    const runId = await startRun(client, id);
+    await untilEnded(t, id, runId);
+    expect(presentAtStart).toBe(true);
+  });
+
   it("are swept at startup for sessions that are gone, leaving those of sessions still here and anything not named by a session", async () => {
     const dataDir = join(tempDir(), "data");
     const before = await start({ dataDir, containment: bubblewrapProbe() });

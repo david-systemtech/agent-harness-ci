@@ -204,6 +204,21 @@ describe("sending", () => {
     expect(app.frame()).toContain("[image shot.png");
   });
 
+  it("attaches JSON when the session provider takes files, and sends its bytes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-harness-attach-"));
+    dirs.push(dir);
+    writeFileSync(join(dir, "settings.json"), '{"enabled":true}');
+    const { app } = await launch({ provider: { fileInput: true } }, { cwd: dir });
+    await send(app, "/attach settings.json");
+    await app.waitFor("attached: settings.json");
+    await send(app, "Read the settings");
+    await app.waitUntil(() => paramsOf(app, "runs.start").length === 1, "the file message to be sent");
+    expect(paramsOf(app, "runs.start")).toEqual([
+      expect.objectContaining({ text: "Read the settings", attachments: [{ kind: "file", name: "settings.json", mediaType: "application/json", data: "eyJlbmFibGVkIjp0cnVlfQ==" }] }),
+    ]);
+    expect(app.frame()).toContain("[file settings.json");
+  });
+
   it("refuses at /attach a file the session's provider cannot take", async () => {
     const dir = mkdtempSync(join(tmpdir(), "agent-harness-attach-"));
     dirs.push(dir);

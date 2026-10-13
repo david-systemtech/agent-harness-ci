@@ -109,11 +109,17 @@ const input = (overrides: Partial<RunInput> = {}, extra: Partial<RunOptionsInput
 });
 
 describe("the options a run is handed", () => {
+  it("allows file-tool access to session scratch even before the first file is attached", () => {
+    const options = buildRunOptions(input());
+    expect(options.additionalDirectories).toEqual(["/data/containment/session/scratch"]);
+    expect(buildRunOptions(input({ mode: "plan" })).additionalDirectories).toEqual(["/data/containment/session/scratch"]);
+  });
+
   it("attaches bank checkouts as additional directories without granting containment writes", () => {
     const directories = ["/data/banks/personal", "/registered/team"];
     const containment = { ...run().containment, level: "workspace" as const, mechanism: "bubblewrap" as const, readOnly: directories };
     const options = buildRunOptions(input({ additionalDirectories: directories, containment }));
-    expect(options.additionalDirectories).toEqual(directories);
+    expect(options.additionalDirectories).toEqual([...directories, "/data/containment/session/scratch"]);
     expect(options.additionalDirectories).not.toBe(directories);
     expect(options.sandbox?.filesystem?.allowWrite).toEqual(["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"]);
     expect(options.sandbox?.filesystem?.denyWrite).toEqual(directories);
