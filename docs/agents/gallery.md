@@ -85,6 +85,16 @@ Capture readiness includes a fresh placement of the focused dialog's tooltip aft
 
 The #1537 hosted probe (run 37178192474, PR #1538) repeated restore captures eight times for each viewport and ladder. The old gate accepted eight stale positions out of 32, reproducing the reported 536/542-pixel differences. The narrow tooltip stayed at (661, 405) instead of (662, 406), and the wide tooltip at (849, 471) instead of (850, 472). Focus, reference rectangles, tooltip dimensions and animation state were unchanged. Allowing screenshot animations produced the same failures; refreshing placement corrected all 32 captures to zero differences. The full hosted gallery also matched all 342 scenes without changing baselines or budgets.
 
+The #2144 permission probe reproduced a five-height resize cycle in all 16 fresh
+mounts, even after fonts were ready: the dock's fractional rectangle and rounded
+`scrollHeight` disagreed. Subtracting the card's fractional height from the rounded
+dock height fed the error back into each allocation. The dock now uses its rectangle
+when `scrollHeight` and `clientHeight` agree, and its content height only for actual
+overflow. The fixed hosted probe held one height across 24 frames in each of 16
+mounts; all 15 subsequent captures matched the first with zero different pixels.
+The stable light capture was reviewed and accepted once. The 0.05% pixel budget,
+geometry checks and capture readiness gate remain unchanged.
+
 ## Retries, failures and retention
 
 Each completed report stores immutable capture bytes in the `window-gallery` generic package under version `<head>-<comment-id>`. Repeating a hosted run on the same head creates another report version, so a retry cannot replace bytes in an earlier review. The comment manifest records the version, exact package download URL and SHA-256 of each capture. Acceptance selects the latest reported shard group (or legacy single report) for the current head and verifies its hashes before writing any baseline. Existing head-only manifests remain downloadable for compatibility.
