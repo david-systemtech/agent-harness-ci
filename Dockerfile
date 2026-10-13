@@ -77,6 +77,7 @@ RUN groupadd --gid 10001 agent-harness \
 COPY --from=build /opt/agent-harness /opt/agent-harness
 RUN printf '#!/bin/sh\nexec node /opt/agent-harness/packages/cli/dist/main.js "$@"\n' > /usr/local/bin/agent-harness \
   && chmod 0755 /usr/local/bin/agent-harness
+ENV PATH=/home/agent-harness/.local/bin:$PATH
 USER agent-harness
 WORKDIR /work
 VOLUME ["/data", "/work"]
