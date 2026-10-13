@@ -1724,8 +1724,8 @@ with zipfile.ZipFile(path) as z: entries={n:z.read(n) for n in z.namelist()}
 report=json.loads(entries['report.json'])
 scenes=report.pop('scenes')
 report['pixelBlocking']=True
-report['captureBudget']['limit']=670
-report['captureBudget']['remaining']=670-len(scenes)
+report['captureBudget']['limit']=540
+report['captureBudget']['remaining']=540-len(scenes)
 report['shards']=[{'name':shard,'scenes':[s for s in scenes if s['name'].startswith('phone-') == (shard=='phone')]} for shard in ('desktop','phone')]
 entries['report.json']=json.dumps(report).encode()
 with zipfile.ZipFile(path,'w') as z:
@@ -1805,7 +1805,7 @@ with zipfile.ZipFile(path,'w') as z:
 
 it("publishes complete changed triplets at both shard limits", async () => {
   const g = await storedGallery();
-  const names = [...Array.from({ length: 270 }, (_, i) => `scene-${i}.dark`), ...Array.from({ length: 400 }, (_, i) => `phone-scene-${i}-phone-390.dark`)];
+  const names = [...Array.from({ length: 270 }, (_, i) => `scene-${i}.dark`), ...Array.from({ length: 270 }, (_, i) => `phone-scene-${i}-phone-390.dark`)];
   await g.capture(230, names.length, names);
   await run("python3", ["-c", `import json,sys,zipfile
 path=sys.argv[1]
@@ -1816,8 +1816,8 @@ for scene in scenes:
     scene['status']='changed'
     for suffix in ('baseline','difference'): entries[scene['name']+'.'+suffix+'.png']=entries[scene['name']+'.png']
 report['pixelBlocking']=True
-report['captureBudget']['limit']=670
-report['captureBudget']['remaining']=670-len(scenes)
+report['captureBudget']['limit']=540
+report['captureBudget']['remaining']=540-len(scenes)
 report['shards']=[{'name':shard,'scenes':[s for s in scenes if s['name'].startswith('phone-') == (shard=='phone')]} for shard in ('desktop','phone')]
 entries['report.json']=json.dumps(report).encode()
 with zipfile.ZipFile(path,'w') as z:
@@ -1825,9 +1825,9 @@ with zipfile.ZipFile(path,'w') as z:
 `, g.env.FAKE_GALLERY_ZIP]);
   const result = await relay(g.f, g.env);
   expect(result.code, result.stderr).toBe(0);
-  expect(g.captures.size).toBe(670);
-  expect(g.attachments).toHaveLength(2010);
-  expect(g.comments[0]!.body).toContain("Report shards: desktop 270/270, phone 400/400.");
+  expect(g.captures.size).toBe(540);
+  expect(g.attachments).toHaveLength(1620);
+  expect(g.comments[0]!.body).toContain("Report shards: desktop 270/270, phone 270/270.");
 });
 
 
@@ -1872,7 +1872,7 @@ it("the hosted report guard admits both shards and rejects overflow or an adviso
   const guard = /python3 - <<'PY'\n([\s\S]*?)\n {10}PY/.exec(hosted)?.[1]?.replace(/^ {10}/gm, "");
   expect(guard).toBeDefined();
   const desktop = Array.from({ length: 270 }, (_, i) => ({ name: `scene-${i}.dark` }));
-  const phone = Array.from({ length: 400 }, (_, i) => ({ name: `phone-scene-${i}-phone-390.dark` }));
+  const phone = Array.from({ length: 270 }, (_, i) => ({ name: `phone-scene-${i}-phone-390.dark` }));
   const report = { pixelBlocking: true, shards: [{ name: "desktop", scenes: desktop }, { name: "phone", scenes: phone }] };
   const check = () => run("python3", ["-c", guard!], { cwd: f.checkout, env: { ...process.env, GALLERY_LEGACY: "true", GALLERY_SHARD: "1" } });
   writeFileSync(join(images, "report.json"), JSON.stringify(report));

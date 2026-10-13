@@ -4,7 +4,7 @@ import { capturePlan, captureShard, sceneFiles } from "../gallery/capture-plan.j
 
 it("preserves desktop captures and names the bounded phone profiles distinctly", () => {
   const plan = capturePlan(["window-empty", "phone-gallery-conversation"]);
-  expect(plan.budget).toEqual({ desktop: 4, phone: 2, total: 6, limit: 670, remaining: 664 });
+  expect(plan.budget).toEqual({ desktop: 4, phone: 2, total: 6, limit: 540, remaining: 534 });
   expect(plan.captures.filter(c => c.platform === "desktop").map(c => c.name)).toEqual([
     "window-empty.light", "window-empty.dark", "window-empty-narrow.light", "window-empty-narrow.dark",
   ]);
@@ -57,7 +57,7 @@ it("retains desktop and bounded phone profiles while allowing surface-owned grow
   expect(plan.shards.every(shard => shard.budget.remaining >= 0)).toBe(true);
   for (const shard of plan.shards) {
     expect(shard.captures.length).toBeGreaterThan(0);
-    expect(shard.budget.limit).toBe(shard.id.startsWith("phone-") ? 400 : 270);
+    expect(shard.budget.limit).toBe(270);
     expect(shard.captures.length).toBeLessThanOrEqual(shard.budget.limit);
   }
   expect(plan.captures.filter(c => c.scene === "phone-gallery-continue").map(c => c.name)).toEqual([
@@ -79,16 +79,16 @@ it("allocates six states to each of seven phone owners while preserving desktop 
   const plan = capturePlan([...scenes, ...leafScenes]);
   expect(plan.shards[0]!.captures).toEqual(existing.shards[0]!.captures);
   expect(plan.shards.map(shard => [shard.id, shard.captures.length, shard.budget.limit])).toEqual([
-    ["desktop-001", 270, 270], ["desktop-002", 84, 270], ["phone-001", 384, 400],
+    ["desktop-001", 270, 270], ["desktop-002", 84, 270], ["phone-001", 270, 270], ["phone-002", 114, 270],
   ]);
-  expect(plan.shards[2]!.budget.remaining).toBe(16);
+  expect(plan.shards[3]!.budget.remaining).toBe(156);
   expect(plan.shards.flatMap(shard => shard.captures)).toEqual(plan.captures);
 });
 
-it("keeps each desktop report within 270 and each phone report within 400 captures as either family grows", () => {
+it("keeps each desktop and phone report within 270 captures as either family grows", () => {
   const plan = capturePlan(Array.from({ length: 250 }, (_, i) => `settings-sample-${i}`).concat(Array.from({ length: 51 }, (_, i) => `phone-sample-${i}`)));
   expect(plan.shards.map(shard => [shard.id, shard.captures.length])).toEqual([
-    ["desktop-001", 270], ["desktop-002", 230], ["phone-001", 400], ["phone-002", 8],
+    ["desktop-001", 270], ["desktop-002", 230], ["phone-001", 270], ["phone-002", 138],
   ]);
   expect(plan.shards.flatMap(shard => shard.captures)).toEqual(plan.captures);
   expect(new Set(plan.captures.map(c => c.name)).size).toBe(908);
@@ -101,7 +101,7 @@ it("discovers an added phone overlay beyond the full report and shards every cap
   const plan = capturePlan([...scenes, "phone-overlay-workspace"]);
   expect(plan.captures).toHaveLength(existing.captures.length + 8);
   expect(plan.captures.filter(c => c.scene !== "phone-overlay-workspace")).toEqual(existing.captures);
-  expect(plan.shards.every(shard => shard.captures.length <= 400)).toBe(true);
+  expect(plan.shards.every(shard => shard.captures.length <= 270)).toBe(true);
   expect(plan.shards.flatMap(shard => shard.captures)).toEqual(plan.captures);
 });
 
@@ -133,7 +133,7 @@ it("adds all nine pane scenes in independently bounded reports", async () => {
   expect(plan.budget.phone).toBe(existing.budget.phone + 72);
   expect(plan.budget.total).toBe(existing.budget.total + 72);
   expect(plan.captures.filter(c => !panes.includes(c.scene))).toEqual(existing.captures);
-  expect(plan.shards.every(shard => shard.captures.length <= 400 && shard.budget.remaining >= 0)).toBe(true);
+  expect(plan.shards.every(shard => shard.captures.length <= 270 && shard.budget.remaining >= 0)).toBe(true);
   expect(plan.shards.flatMap(shard => shard.captures)).toEqual(plan.captures);
 });
 
@@ -142,7 +142,7 @@ it("requires a discovered shard before capture", () => {
   const plan = capturePlan(Array.from({ length: 51 }, (_, i) => `phone-pane-${i}`));
   expect(() => captureShard(plan, undefined)).toThrow("Invalid gallery shard selection");
   const selected = captureShard(plan, "phone-002");
-  expect(selected.captures).toHaveLength(8);
+  expect(selected.captures).toHaveLength(138);
   expect(selected.shard).toEqual({ id: "phone-002", index: 1, count: 2 });
   expect(() => captureShard(plan, "phone-003")).toThrow("Invalid gallery shard selection");
 });
