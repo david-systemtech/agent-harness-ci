@@ -300,6 +300,7 @@ const userMessage = (message: PromptMessage): SDKUserMessage => {
 /** What a spawn fixed, which a later run must share to attach. */
 interface SpawnKey {
   readonly directory: string;
+  readonly workspace: string;
   readonly trusted: boolean;
   readonly toolServers: string;
   readonly bypassAllowed: boolean;
@@ -397,6 +398,11 @@ export class ClaudeProcess implements TurnControl {
   #current: ClaudeTurn | undefined;
   /** The completed turn whose result the next prompt_suggestion follows. Cleared by the next init. */
   #suggestionTurn: ClaudeTurn | undefined;
+  /** Runs held until the process can apply their settings and enqueue their prompts, in arrival order. */
+  readonly #attaching = new Set<ClaudeTurn>();
+  /** A held run's latest mode, until its prompts are admitted to the process. */
+  readonly #attachmentModes = new WeakMap<ClaudeTurn, Mode>();
+  readonly #attachmentWaiters: (() => void)[] = [];
   /** Runs whose prompt is queued at the CLI, not yet opened, in order. */
   readonly #waiting: ClaudeTurn[] = [];
   /** Waiting runs a watchdog gave up on, whose prompts are being withdrawn before they end (`#endUnopened`). */
@@ -476,6 +482,7 @@ export class ClaudeProcess implements TurnControl {
   #spawnKeyOf(input: RunInput): SpawnKey {
     return {
       directory: this.#deps.configDirectory(input.account),
+      workspace: input.workspace.path,
       trusted: input.trusted,
       // An in-process server by what it shows the model: a run whose tools differ needs a process started with them.
       toolServers: toolServersKey(input.toolServers),
@@ -498,25 +505,26 @@ export class ClaudeProcess implements TurnControl {
    * schedule or a grace alone is not: a run it cannot serve lets it go.
    */
   get busy(): boolean {
-    return this.#current !== undefined || this.#waiting.length > 0 || this.#undecided !== undefined || this.#liveTasks.size > 0 || this.#permissions.size > 0;
+    return this.#current !== undefined || this.#waiting.length > 0 || this.#attaching.size > 0 || this.#undecided !== undefined || this.#liveTasks.size > 0 || this.#permissions.size > 0;
   }
 
-  /** Whether a run can be served on this process rather than a fresh one. */
-  canServe(input: RunInput): boolean {
-    if (this.closed || this.#current !== undefined || this.#waiting.length > 0 || this.#undecided !== undefined) return false;
-    if (input.target.kind !== "resume" || input.target.providerSessionId !== this.#providerSessionId) return false;
+  /** What differs from the fixed launch settings, independent of whether work is running. */
+  incompatibility(input: RunInput): string | null {
+    if (this.closed) return "closed process";
+    if (input.target.kind !== "resume" || input.target.providerSessionId !== this.#providerSessionId) return "resume target";
     const key = this.#spawnKeyOf(input);
-    if (key.directory !== this.#spawn.directory || key.trusted !== this.#spawn.trusted || key.toolServers !== this.#spawn.toolServers) return false;
-    // The instructions are fixed at spawn (the preset's append): other text is a fresh process's.
-    if (key.instructions !== this.#spawn.instructions) return false;
-    // So are the sandbox and the deny rules: another level, mechanism or projected denylist is a fresh process's (#140).
-    if (key.confinement !== this.#spawn.confinement) return false;
-    // And the variables the harness's services put into it (#307): another key is a fresh process's.
-    if (key.environment !== this.#spawn.environment) return false;
-    // And its skills (#495): another fingerprint is a fresh process's, resuming from the store as changed instructions do.
-    if (key.skills !== this.#spawn.skills) return false;
-    // A bypass ceiling needs the SDK's opt-in at spawn; a process started without it cannot enter bypass.
-    return !key.bypassAllowed || this.#spawn.bypassAllowed;
+    if (key.directory !== this.#spawn.directory) return "account directory";
+    if (key.workspace !== this.#spawn.workspace) return "working directory";
+    if (key.trusted !== this.#spawn.trusted) return "repository trust";
+    if (key.toolServers !== this.#spawn.toolServers) return "tool servers";
+    // Instructions, sandbox rules, supplied environment and skills are fixed at spawn.
+    if (key.instructions !== this.#spawn.instructions) return "instructions";
+    if (key.confinement !== this.#spawn.confinement) return "confinement";
+    if (key.environment !== this.#spawn.environment) return "process environment";
+    if (key.skills !== this.#spawn.skills) return "skill set";
+    // A bypass ceiling needs the SDK's opt-in at spawn.
+    if (key.bypassAllowed && !this.#spawn.bypassAllowed) return "bypass opt-in";
+    return null;
   }
 
   /**
@@ -539,11 +547,20 @@ export class ClaudeProcess implements TurnControl {
 
   /** A later run on the live process: moves it onto the run's model, mode and effort, then queues the prompt. */
   attach(input: RunInput, context: RunContext): ClaudeTurn {
-    this.#context = context;
-    const turn = this.#runTurn(input);
+    const turn = this.#runTurn(input, false);
+    this.#attaching.add(turn);
+    this.#attachmentModes.set(turn, input.mode);
     void (async () => {
       try {
-        await this.#apply(input);
+        for (;;) {
+          await this.#attachmentSlot(turn);
+          if (this.closed || turn.ended) return;
+          const applied = await this.#apply(input, turn);
+          await this.#attachmentSlot(turn);
+          // A provider turn may have opened during the settings calls. Mode changes
+          // accepted while waiting for it stay local and must land before admission.
+          if (this.closed || turn.ended || (applied && claudeMode(this.#attachmentModes.get(turn) ?? input.mode) === this.#applied.mode)) break;
+        }
       } catch (error) {
         this.#waitingEnds(turn, { reason: "error", error: { message: `Moving the Claude process onto this run failed: ${describe(error)}`, code: "settings" } });
         return;
@@ -557,18 +574,39 @@ export class ClaudeProcess implements TurnControl {
       // (the adapter checks the images before it attaches a run, so this is the process's own guard).
       let prompts: SDKUserMessage[];
       try {
-        prompts = input.prompt.map(userMessage);
+        const held = [...turn.queued].flatMap((id) => this.#queuedSends.get(id) ?? []);
+        prompts = [...input.prompt, ...held].map(userMessage);
       } catch (error) {
         this.#waitingEnds(turn, { reason: "error", error: { message: describe(error), code: "launch" } });
         return;
       }
+      this.#context = context;
+      this.#attaching.delete(turn);
+      this.#attachmentModes.delete(turn);
+      this.#waiting.push(turn);
       for (const prompt of prompts) this.#prompts.push(prompt);
+      this.#wakeAttachments();
       this.#armOpenWatch();
     })();
     return turn;
   }
 
-  #runTurn(input: RunInput): ClaudeTurn {
+  /** A new run waits without altering the live turn's controls or context. */
+  async #attachmentSlot(turn: ClaudeTurn): Promise<void> {
+    while (!this.closed && !turn.ended && this.#attachmentHeld(turn)) {
+      await new Promise<void>((resolve) => this.#attachmentWaiters.push(resolve));
+    }
+  }
+
+  #attachmentHeld(turn: ClaudeTurn): boolean {
+    return this.#current !== undefined || this.#undecided !== undefined || this.#waiting.length > 0 || this.#attaching.values().next().value !== turn;
+  }
+
+  #wakeAttachments(): void {
+    for (const wake of this.#attachmentWaiters.splice(0)) wake();
+  }
+
+  #runTurn(input: RunInput, waiting = true): ClaudeTurn {
     const turn = new ClaudeTurn({
       origin: "run",
       runId: input.runId,
@@ -579,7 +617,7 @@ export class ClaudeProcess implements TurnControl {
       ledger: this.#ledger,
       spend: this.#spend,
     });
-    this.#waiting.push(turn);
+    if (waiting) this.#waiting.push(turn);
     return turn;
   }
 
@@ -587,30 +625,37 @@ export class ClaudeProcess implements TurnControl {
   #waitingEnds(turn: ClaudeTurn, end: Omit<RunEnd, "type">): void {
     const at = this.#waiting.indexOf(turn);
     if (at !== -1) this.#waiting.splice(at, 1);
+    this.#attaching.delete(turn);
+    this.#attachmentModes.delete(turn);
     turn.end(end);
+    this.#wakeAttachments();
     this.#armOpenWatch();
   }
 
-  #apply(input: RunInput): Promise<void> {
+  /** Applies settings only while the attachment slot is free; false asks admission to retry after waiting. */
+  #apply(input: RunInput, turn: ClaudeTurn): Promise<boolean> {
     return this.#serially(async () => {
       const query = this.#query;
-      if (query === undefined) return;
-      const mode = claudeMode(input.mode);
+      if (query === undefined || this.closed || turn.ended || this.#attachmentHeld(turn)) return false;
+      const mode = claudeMode(this.#attachmentModes.get(turn) ?? input.mode);
       const effort = claudeEffort(input.effort);
       const limit = this.#deps.timings.controlTimeoutMs;
       // Each setting is recorded as it lands, so a call that fails part way leaves the record true to the CLI.
       if (input.model !== this.#applied.model) {
         await this.#within(query.setModel(input.model), limit);
         this.#applied = { ...this.#applied, model: input.model };
+        if (this.closed || turn.ended || this.#attachmentHeld(turn)) return false;
       }
       if (mode !== this.#applied.mode) {
         await this.#within(query.setPermissionMode(mode), limit);
         this.#applied = { ...this.#applied, mode };
+        if (this.closed || turn.ended || this.#attachmentHeld(turn)) return false;
       }
       if (input.effort !== this.#applied.effort) {
         await this.#within(query.applyFlagSettings({ effortLevel: effort }), limit);
         this.#applied = { ...this.#applied, effort: input.effort };
       }
+      return true;
     });
   }
 
@@ -760,9 +805,10 @@ export class ClaudeProcess implements TurnControl {
       }
       this.#current?.end(end);
       this.#current = undefined;
-      for (const waiting of this.#waiting.splice(0)) {
+      for (const waiting of [...this.#waiting.splice(0), ...this.#attaching]) {
         waiting.end({ reason: "error", error: { message: "The Claude process closed before this run could start; send again.", code: "transport" } });
       }
+      this.#attaching.clear();
       this.#settleWaiters();
       this.#denyAll(DISPOSED_DENY_MESSAGE);
       this.#fileTools.abandon();
@@ -1023,6 +1069,7 @@ export class ClaudeProcess implements TurnControl {
    * still reports reading them.
    */
   #afterTurn(): void {
+    this.#wakeAttachments();
     if (this.#settleOwed) this.#awaitSettleTurn();
     this.#armOpenWatch();
   }
@@ -1220,6 +1267,7 @@ export class ClaudeProcess implements TurnControl {
   }
 
   #settleWaiters(): void {
+    this.#wakeAttachments();
     for (const wake of this.#decisionWaiters.splice(0)) wake();
   }
 
@@ -1375,10 +1423,15 @@ export class ClaudeProcess implements TurnControl {
     // Stamped with the harness's id: the CLI names it when a turn reads it, and an interrupt's receipt lists it.
     this.#queuedSends.set(message.messageId, message);
     turn.queued.add(message.messageId);
-    this.#prompts.push(userMessage(message));
+    if (!this.#attaching.has(turn)) this.#prompts.push(userMessage(message));
   }
 
   async interrupt(turn: ClaudeTurn): Promise<{ readonly stillQueued: readonly string[] }> {
+    if (this.#attaching.has(turn)) {
+      const stillQueued = [...turn.queued].filter((id) => this.#queuedSends.delete(id));
+      this.#waitingEnds(turn, { reason: "interrupted", cause: "user" });
+      return { stillQueued };
+    }
     await this.#decided();
     if (turn.ended) return { stillQueued: [] };
     turn.state.interruptRequested = true;
@@ -1421,6 +1474,11 @@ export class ClaudeProcess implements TurnControl {
    * message cannot be taken back: `WithdrawUnsupported`.
    */
   async withdraw(messageId: string): Promise<{ readonly withdrawn: boolean }> {
+    if (this.#queuedSends.has(messageId) && [...this.#attaching].some((turn) => turn.queued.has(messageId))) {
+      this.#queuedSends.delete(messageId);
+      this.#cancelled.add(messageId);
+      return { withdrawn: true };
+    }
     // Still in the pump, so the SDK has not read it and the CLI cannot have it: taken out here, nobody asked.
     if (this.#queuedSends.has(messageId) && this.#prompts.remove((prompt) => prompt.uuid === messageId)) {
       this.#queuedSends.delete(messageId);
@@ -1511,7 +1569,8 @@ export class ClaudeProcess implements TurnControl {
    * A live run's mode change (`modeChange`, `permissions.mode.set`), already
    * clamped by the host to the run's ceiling: the SDK's mode setter on the
    * spawned CLI, under the control timeout, which moves every turn after it;
-   * before the spawn, the mode the spawn takes. Bypass needs the SDK's opt-in
+   * before the spawn, the mode the spawn takes; before an attachment slot,
+   * the mode held for that run's admission. Bypass needs the SDK's opt-in
    * at spawn, which a process started under a lower ceiling lacks.
    */
   setMode(turn: ClaudeTurn, mode: Mode): Promise<void> {
@@ -1522,6 +1581,10 @@ export class ClaudeProcess implements TurnControl {
       const next = claudeMode(mode);
       if (next === "bypassPermissions" && !this.#spawn.bypassAllowed) {
         throw new Error("This Claude process was started without the bypass opt-in (its run's ceiling was below bypassPermissions), so it cannot change to bypassPermissions.");
+      }
+      if (this.#attachmentModes.has(turn)) {
+        this.#attachmentModes.set(turn, mode);
+        if (this.#attachmentHeld(turn)) return;
       }
       if (next === this.#applied.mode) return;
       const query = this.#query;
@@ -1563,10 +1626,11 @@ export class ClaudeProcess implements TurnControl {
   dispose(): Promise<void> {
     this.#disposing ??= (async () => {
       this.#denyAll(DISPOSED_DENY_MESSAGE);
-      for (const turn of [this.#current, this.#promptTurn, ...this.#waiting]) turn?.close();
+      for (const turn of [this.#current, this.#promptTurn, ...this.#waiting, ...this.#attaching]) turn?.close();
       this.#current = undefined;
       this.#promptTurn = undefined;
       this.#waiting.length = 0;
+      this.#attaching.clear();
       this.#undecided = undefined;
       this.#unholdAll();
       this.#settleWaiters();

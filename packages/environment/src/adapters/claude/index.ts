@@ -325,8 +325,9 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
       const kept = processes.get(input.sessionId);
       let carried: PromptMessage[] = [];
       if (kept !== undefined && !kept.closed) {
-        if (kept.canServe(input)) return kept.attach(input, context);
-        if (kept.busy) throw new Error("This conversation's Claude process still has work running; stop it before starting a run it cannot serve.");
+        const difference = kept.incompatibility(input);
+        if (difference === null) return kept.attach(input, context);
+        if (kept.busy) throw new Error(`This conversation's Claude process still has work running; this run needs different ${difference}. Stop the process before starting it.`);
         // Kept only for a schedule or a grace: let it go, so a fresh process resumes a transcript nobody is writing,
         // and hand the fresh one the queued messages the old one had not opened a turn with.
         diagnostic(`Claude (session ${input.sessionId}): letting the kept process go for a run it cannot serve.`);
