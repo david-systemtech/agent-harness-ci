@@ -1,6 +1,7 @@
 import { isKnownUsageWindow, usageWindowLabel } from "@agent-harness/contracts";
 import type { AccountCatalogue, AccountRecord, AccountStatusState, ContainmentLevel, HandoffRecommendation, Mode, ModelEntry, ModelUsage, UsageWindow } from "@agent-harness/contracts";
 import type { UsageGauge } from "../projections/accounts.js";
+import type { RowActivity } from "../sidebar/headings.js";
 import type { SessionProjection } from "../projections/session.js";
 import { classifyTool, describeActivity, type ActivityCounts, type ToolCategory } from "../transcript/format.js";
 
@@ -172,6 +173,27 @@ export const workingWords = (projection: Pick<SessionProjection, "items"> | unde
   if (writing) return "writing";
   if (thinking) return "thinking";
   return "working";
+};
+
+/** Held tasks may be agents or other work; schedules are named separately. */
+export const backgroundWords = (agents: number, tasks: number, schedules: number): string => {
+  const parts = [
+    ...(agents === 0 ? [] : [`${agents} background ${agents === 1 ? "agent" : "agents"}`]),
+    ...(tasks === 0 ? [] : [`${tasks} background ${tasks === 1 ? "task" : "tasks"}`]),
+    ...(schedules === 0 ? [] : [`${schedules} ${schedules === 1 ? "schedule" : "schedules"}`]),
+  ];
+  return `Waiting on ${parts.join(" and ")}`;
+};
+
+/** A live dot's name, shared by the sidebar and pane headers. */
+export const rowActivityWords = (activity: RowActivity): string | undefined => {
+  switch (activity.state) {
+    case "starting": return "Starting";
+    case "running": return "Running";
+    case "background": return "Running · waiting on background work";
+    case "parked": return activity.parked === 0 ? "Waiting for you" : `${activity.parked} ${activity.parked === 1 ? "prompt" : "prompts"} waiting for you`;
+    case "idle": return undefined;
+  }
 };
 
 /**

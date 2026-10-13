@@ -1,4 +1,4 @@
-import type { AccountUsage } from "@agent-harness/contracts";
+import type { AccountUsage, ProviderProcess } from "@agent-harness/contracts";
 import type { FakeAnswer } from "@agent-harness/client-runtime/testing/fake-wire";
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -75,6 +75,24 @@ describe("status line one", () => {
     await app.waitFor("⚠ unavailable");
     await app.waitFor(warning);
     expect(statusLines(app)[0]).toContain("⚠ unavailable");
+  });
+
+  it("keeps background waiting live between turns and then reports idle and stopped", async () => {
+    const { app, env } = await opened();
+    const sessionId = env.sessionId();
+    const startedAt = new Date(app.clock.now().getTime() - 12 * 60_000).toISOString();
+    const { runId } = env.startRun(sessionId, "Check receipts");
+    env.emit(sessionId, "tasks.changed", { runId, tasks: [{ taskId: "agent-1", kind: "local_agent", description: "Check receipts", subagentType: "Explore", status: "running", startedAt, endedAt: null, toolCallId: null, error: null }] });
+    env.endRun(sessionId, runId);
+    const process: ProviderProcess = { sessionId, provider: "claude", state: "idle", runId: null, startedAt, lastBusyAt: app.clock.now().toISOString(), parkedSince: null, holds: [{ kind: "task", id: "agent-1" }], stopsAt: null, stoppedAt: null, stopReason: null };
+    env.setProcesses([process]);
+    await app.waitFor(/Waiting on 1 background agent.*12m/);
+    expect(app.frame()).toContain("DE ● Receipts");
+    env.setProcesses([{ ...process, holds: [] }]);
+    await app.waitFor(/\bidle\b/);
+    expect(app.frame()).toContain("DE · Receipts");
+    env.setProcesses([{ ...process, state: "stopped", holds: [] }]);
+    await app.waitFor(/\bstopped\b/);
   });
 
   it("names the environment, the session's account, model and effort, mode and containment, and the plan windows of its identity pooled across environments at the right", async () => {

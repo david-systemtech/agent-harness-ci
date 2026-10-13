@@ -89,10 +89,16 @@ export const useStatus = (inputs: StatusInputs): StatusView => {
   );
   useFollow(recommendation, request);
 
+  const processes = useMemo(() => environmentId === undefined ? undefined : runtime.requests.cached(environmentId, "providers.processes.status", {}), [runtime, environmentId]);
+  useFollow(opened ? processes : undefined, request);
+  const processAnswer = processes?.read().result;
+  const process = processAnswer == null ? undefined : processAnswer.processes.find((entry) => entry.sessionId === opened?.sessionId) ?? null;
+
   const facts =
     opened && environmentId !== undefined && projection
       ? statusOf({
           projection,
+          process,
           runState: inputs.runState,
           liveRunId: inputs.liveRunId,
           ceiling: environment?.ceiling ?? null,
@@ -162,6 +168,6 @@ export const useStatus = (inputs: StatusInputs): StatusView => {
   ];
   const { activity } = facts;
   const styled: Styled =
-    activity.kind === "waiting" ? { text: activity.words, color: TERMINAL_ROLES.warning } : activity.kind === "idle" ? { text: activity.words, dim: true } : { text: activity.words };
+    activity.kind === "waiting" || activity.kind === "background" ? { text: activity.words, color: TERMINAL_ROLES.warning } : activity.kind === "idle" || activity.kind === "stopped" ? { text: activity.words, dim: true } : { text: activity.words };
   return { one, two: { kind: "working", activity: warning !== undefined && !live ? { text: warning, color: TERMINAL_ROLES.warning } : styled, details, hints: hints() } };
 };

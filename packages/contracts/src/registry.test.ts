@@ -185,6 +185,7 @@ describe("the method registry", () => {
     expect(Object.fromEntries(providerMethods.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
       "providers.list": ["query", "read"],
       "providers.processes.list": ["query", "admin"],
+      "providers.processes.status": ["query", "read"],
       "providers.processes.stop": ["command", "admin"],
     });
   });
@@ -495,6 +496,7 @@ describe("the method registry", () => {
       | "runs.withdraw"
       | "providers.list"
       | "providers.processes.list"
+      | "providers.processes.status"
       | "providers.processes.stop"
       | "accounts.list"
       | "accounts.probe"

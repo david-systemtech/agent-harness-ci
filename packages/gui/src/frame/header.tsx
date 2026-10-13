@@ -1,6 +1,7 @@
 import { workspaceName } from "@agent-harness/client-runtime";
 import { ChevronRight, PanelLeft, Search, Settings } from "lucide-react";
 import { useMemo } from "react";
+import { SessionActivityMark } from "../session/activity-mark.js";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { focusedPane } from "../grid/layout.js";
 import { useEveryWiredAction, useFirstKey } from "../keys/key-dispatch.js";
@@ -27,7 +28,7 @@ const SessionBreadcrumb = ({ session }: { readonly session: PaneSession }) => {
   const environment = environments.find((view) => view.environmentId === session.environmentId);
   const path = summary?.workspace.path;
   const { narrow } = usePhoneFrame();
-  if (narrow) return <span data-header-session-title title={summary?.title ?? undefined} className="min-w-0 flex-1 truncate text-sm text-ink">{summary?.title ?? "Session"}</span>;
+  if (narrow) return <><SessionActivityMark {...session} summary={summary} /><span data-header-session-title title={summary?.title ?? undefined} className="min-w-0 flex-1 truncate text-sm text-ink">{summary?.title ?? "Session"}</span></>;
   const workspace = summary === null ? "No workspace" : workspaceName(summary.workspace);
   return <>
     {environment !== undefined && <span title={environment.name ?? undefined} className="flex min-w-0 max-w-40 shrink items-center gap-1 rounded-md border border-hairline px-1.5 text-xs text-ink-muted">
@@ -35,6 +36,7 @@ const SessionBreadcrumb = ({ session }: { readonly session: PaneSession }) => {
     </span>}
     <span data-header-workspace title={path ?? undefined} className="min-w-0 max-w-56 truncate text-xs text-ink-muted">{workspace}</span>
     <ChevronRight aria-hidden="true" className="size-3 shrink-0 text-ink-faint" />
+    <SessionActivityMark {...session} summary={summary} />
     <span data-header-session-title title={summary?.title ?? undefined} className="min-w-12 flex-1 truncate text-xs text-ink-muted">{summary?.title ?? "Session"}</span>
   </>;
 };
@@ -53,7 +55,7 @@ export const Header = ({ onPair }: { readonly onPair?: () => void }) => {
   const { narrow } = usePhoneFrame();
   if (narrow) return <header data-window-header className="phone-frame-header flex min-w-0 shrink-0 items-center gap-1 border-b border-hairline bg-abyss px-2">
     <SessionDrawerTrigger asChild><IconButton label="Show sessions" {...(sidebarKeys !== undefined && { keys: sidebarKeys })}><PanelLeft aria-hidden="true" /></IconButton></SessionDrawerTrigger>
-    <div className="flex min-w-0 flex-1">{pane.session !== null ? <SessionBreadcrumb session={pane.session} /> : <span className="truncate text-sm text-ink-muted">{pane.newSession !== undefined ? "New session" : "No session"}</span>}</div>
+    <div className="flex min-w-0 flex-1 items-center gap-1.5">{pane.session !== null ? <SessionBreadcrumb session={pane.session} /> : <span className="truncate text-sm text-ink-muted">{pane.newSession !== undefined ? "New session" : "No session"}</span>}</div>
     {pane.session !== null && <ShowSideColumn session={pane.session} />}
     <ParkedAsksButton />
     <HeaderMenu {...(onPair !== undefined && { onPair })} />

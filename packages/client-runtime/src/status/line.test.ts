@@ -1,4 +1,4 @@
-import type { HandoffRecommendation, RunSummary, SessionSummary, SignIn } from "@agent-harness/contracts";
+import type { HandoffRecommendation, ProviderProcess, RunSummary, SessionSummary, SignIn } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { freshSummary } from "../../../contracts/test/session-fixtures.js";
 import { modeBadgeOf, statusOf, type StatusInput } from "./line.js";
@@ -42,6 +42,12 @@ const input = (fields: Partial<StatusInput> = {}): StatusInput => ({
   recommendation: null,
   now: () => Date.parse("2026-09-25T09:02:04.000Z"),
   ...fields,
+});
+
+const heldProcess = (fields: Partial<ProviderProcess> = {}): ProviderProcess => ({
+  sessionId: freshSummary.id, provider: "claude", state: "idle", runId: null,
+  startedAt: "2026-09-25T09:00:00.000Z", lastBusyAt: "2026-09-25T09:01:00.000Z",
+  parkedSince: null, holds: [{ kind: "task", id: "a" }], stopsAt: null, stoppedAt: null, stopReason: null, ...fields,
 });
 
 const outOfRoom: HandoffRecommendation = {
@@ -109,6 +115,27 @@ describe("the status line", () => {
       kind: "waiting",
       words: "waiting for you",
     });
+  });
+
+  it("stays live on held background agents after the turn ends, until idle or stopped", () => {
+    const process = heldProcess();
+    const task = { taskId: "a", kind: "local_agent", subagentType: "Explore", description: "Check receipts", status: "running" as const, startedAt: "2026-09-25T09:00:00.000Z", endedAt: null, toolCallId: null, error: null };
+    const projection = { summary: summary(), runs: [run()], containment: null, items: [{ kind: "tasks" as const, sequence: 1, runId: run().runId, tasks: [task] }] };
+    expect(statusOf(input({ projection, process, recommendation: outOfRoom }))).toMatchObject({ live: true, activity: { kind: "background", words: "Waiting on 1 background agent" }, elapsedMs: 124_000, offer: undefined });
+    expect(statusOf(input({ projection, process: { ...process, holds: [] } }))).toMatchObject({ live: false, activity: { kind: "idle", words: "idle" }, elapsedMs: undefined });
+    expect(statusOf(input({ projection, process: { ...process, state: "stopped" } }))).toMatchObject({ live: false, activity: { kind: "stopped", words: "stopped" } });
+  });
+
+  it("names unclassified held tasks and schedules and preserves foreground and permission activity", () => {
+    const live = run({ state: "running", endedAt: null, reason: null });
+    const process = heldProcess({ state: "busy", runId: live.runId, holds: [{ kind: "task", id: "a" }, { kind: "schedule", id: "schedule-1" }] });
+    const base = input({ liveRunId: live.runId, runState: "running", process, projection: { summary: summary(), runs: [live], containment: null, items: [] } });
+    expect(statusOf(base)).toMatchObject({ live: true, activity: { kind: "background", words: "Waiting on 1 background task and 1 schedule" }, elapsedMs: 64_000 });
+    const streaming = { kind: "assistant-text" as const, sequence: 1, runId: live.runId, itemId: "text", text: "Checking", aborted: false, streaming: true };
+    expect(statusOf({ ...base, projection: { ...base.projection, items: [streaming] } }).activity).toEqual({ kind: "working", words: "writing" });
+    expect(statusOf({ ...base, runState: "parked" }).activity).toEqual({ kind: "waiting", words: "waiting for you" });
+    expect(statusOf({ ...base, liveRunId: undefined, runState: "idle", process: { ...process, state: "stopping" } }).activity).toEqual({ kind: "stopping", words: "stopping…" });
+    expect(statusOf(input({ process: null })).activity).toEqual({ kind: "stopped", words: "stopped" });
   });
 
   it("offers the hand-off in the recommendation's words while the account's window is out and no run is live", () => {

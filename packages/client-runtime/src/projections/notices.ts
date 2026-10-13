@@ -181,6 +181,7 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "signin.updated":
         case "signin.executable-chosen":
         case "usage.updated":
+        case "process.updated":
           return;
         // The environment's name, icon and colour (#323): the descriptor takes them (`streams.ts`), and the badge redraws.
         case "environment.renamed":

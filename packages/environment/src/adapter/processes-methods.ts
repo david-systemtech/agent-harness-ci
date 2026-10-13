@@ -27,6 +27,7 @@ export const processMethods = (options: ProcessMethodsOptions): MethodHandlers =
     "providers.list": () => ({ providers: [...host.providers()] }),
 
     "providers.processes.list": () => ({ processes: host.processes.list() }),
+    "providers.processes.status": () => ({ processes: host.processes.list() }),
 
     "providers.processes.stop": (params, context) => {
       const sessionId = params.sessionId.toLowerCase();

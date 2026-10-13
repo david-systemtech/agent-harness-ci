@@ -4,6 +4,7 @@ import { ChevronRight, Folder, Info, Pencil, X } from "lucide-react";
 import { useFirstKey } from "../keys/key-dispatch.js";
 import { useGridPaneId, usePaneGrid } from "./grid.js";
 import { useMemo, useRef, useState, type ReactNode } from "react";
+import { SessionActivityMark } from "../session/activity-mark.js";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { THIS_MACHINE } from "../connections/words.js";
 import type { PaneSession } from "../presentation.js";
@@ -109,6 +110,7 @@ export const SessionCaption = ({ session, ...bar }: CaptionProps & { readonly se
             </button></Tooltip>
           )}
         </div>
+        <SessionActivityMark environmentId={environmentId} sessionId={sessionId} summary={summary} />
       </div>
       <PullRequestLinks pullRequests={summary?.pullRequests ?? []} />
       <span title={["Run info", infoKeys].filter(Boolean).join(" · ")} data-caption-run-info className="relative ml-auto shrink-0 [&>button]:size-6 [&>button]:p-0 [&>button]:text-[0px]">

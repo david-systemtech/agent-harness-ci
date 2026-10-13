@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   arrange,
+  derived,
   changeHeading,
   groupHeading,
   isFolded,
@@ -134,6 +135,11 @@ export const useRail = (options: RailOptions): Rail => {
   const list = runtime.projections.sessionList.read();
   const query = filter?.trim() ?? "";
   const badges = useMemo(() => badgesOf(views, options.colours), [views, options.colours]);
+  const processSource = useMemo(() => {
+    const sources = views.filter((view) => view.enabled).map((view) => ({ environmentId: view.environmentId, source: runtime.requests.cached(view.environmentId, "providers.processes.status", {}) }));
+    return derived(sources.map(({ source }) => source), (...answers) => new Map(sources.map(({ environmentId }, index) => [environmentId, answers[index]?.result?.processes ?? []])));
+  }, [runtime, views]);
+  const processes = useSyncExternalStore(processSource.subscribe, processSource.read);
   const input: RailInput = useMemo(
     () => ({
       list,
@@ -142,9 +148,10 @@ export const useRail = (options: RailOptions): Rail => {
       folded,
       matches: query === "" ? null : new Set(runtime.projections.search(query).read().map(rowKey)),
       startingService,
+      processOf: (environmentId, sessionId) => processes.get(environmentId)?.find((process) => process.sessionId === sessionId),
       now: (environmentId) => runtime.environmentNow(environmentId),
     }),
-    [runtime, list, views, badges, folded, query, startingService],
+    [runtime, list, views, badges, folded, query, startingService, processes],
   );
   const lines = useMemo(() => railLines(input), [input]);
   const selectable = lines.filter(isSelectable);

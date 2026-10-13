@@ -123,6 +123,16 @@ export const providersProcessesList = defineMethod({
   errors: [],
 });
 
+/** Read-only activity for session indicators; stopping and administrative listing remain admin methods. */
+export const providersProcessesStatus = defineMethod({
+  name: "providers.processes.status",
+  scope: "read",
+  kind: "query",
+  params: z.object({}),
+  result: z.object({ processes: z.array(ProviderProcess) }),
+  errors: [],
+});
+
 /**
  * Stops a session's provider process: a run live on it ends `interrupted`
  * with cause `user`, its prompts left raised, and the session's next run
