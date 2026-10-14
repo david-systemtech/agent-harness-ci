@@ -16,7 +16,9 @@ import { inProcessToolName, type HostToolResult, type InProcessToolServer } from
  * `tool.started` carries) and the request's abort signal. An external
  * server's tools are marked read-only (`readOnlyHint`), which is what lets
  * the CLI run several of them side by side, as it runs any concurrency-safe
- * tool; they touch nothing on the environment.
+ * tool; they touch nothing on the environment. A tool that declares it only
+ * observes (`readOnly`, the computer server's screenshot) is marked so too,
+ * which the CLI's mode reads as observation.
  */
 
 /** The `_meta` key under which the CLI names the `tool_use` block a tool server's call answers. */
@@ -49,7 +51,7 @@ export const hostToolServer = (server: InProcessToolServer): McpSdkServerConfigW
       name: tool.name,
       description: tool.description,
       inputSchema: { ...tool.inputSchema, type: "object" as const },
-      ...(server.external && { annotations: { readOnlyHint: true } }),
+      ...((server.external || tool.readOnly === true) && { annotations: { readOnlyHint: true } }),
     })),
   }));
   mcp.server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
