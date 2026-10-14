@@ -27,8 +27,14 @@ export function checkPackagedUpdateCleanup(installed, expectedArchive) {
   assert.deepEqual(leftovers, [], "The restarted desktop must remove its owned staging directory and cleanup receipt");
 }
 
-/** Starts the same packaged shell path as Restart to update without awaiting an IPC reply across quit. */
+/**
+ * Starts the same packaged shell path as Restart to update without awaiting an IPC reply across quit: the
+ * hand-over for the quit first, as the runtime makes right after the download, which unpacks the build ahead
+ * of the click (#2194), then the click.
+ */
 export async function restartPackagedDesktop(evaluate, staged) {
+  const prepared = await evaluate(`window.desktopShell.update.apply(${JSON.stringify(staged)}, 'quit')`, "install the update ahead of the click", 120_000);
+  assert.deepEqual(prepared, { outcome: "applied" }, "The update must install ahead of the click");
   await evaluate(`(() => {
     void window.desktopShell.update.apply(${JSON.stringify(staged)}, 'now');
   })()`, "restart the packaged desktop with its real archive", 30_000, { expectDisconnect: true });
@@ -182,6 +188,17 @@ const processRunning = pid => {
 };
 
 /** Keep the captured PIDs after the parent quits, since an orphan is no longer its child. */
+/** The new version's `click to ready <ms>ms` in desktop-update.log, asserted under 10 seconds when it is there (#2194). */
+export function checkClickToReady(log, limit = 10_000) {
+  if (!existsSync(log)) return undefined;
+  const found = [...readFileSync(log, "utf8").matchAll(/click to ready (\d+)ms/g)].at(-1);
+  if (found === undefined) return undefined;
+  const ms = Number(found[1]);
+  console.log(`Restart to update: click to ready ${ms}ms`);
+  assert.ok(ms < limit, `Click to ready must be under ${limit}ms, was ${ms}ms`);
+  return ms;
+}
+
 export async function waitForCredentialHelpersExit(helpers, running = processRunning) {
   assert.notEqual(helpers.length, 0, 'A native credential helper must be observed before pending quit');
   await until(() => helpers.every(pid => !running(pid)), 'The credential helper did not exit after pending desktop quit', 10_000);
@@ -661,6 +678,8 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
     await openPackagedSettings(cdp.evaluate);
     await cdp.evaluate("window.desktopShell.update.current()", "wait for deferred bundle cleanup");
     checkPackagedUpdateCleanup(installed, archiveDigest);
+    const clickLog = join(homedir(), "Library", "Application Support", "agent-harness", "desktop", "logs", "desktop-update.log");
+    await until(() => checkClickToReady(clickLog) !== undefined, "The updated desktop did not log click to ready", 15_000);
     await cdp.evaluate("window.desktopShell.window.close()", "close restarted replacement window", 10_000, { expectDisconnect: true });
     await until(() => !processRunning(relaunchedPid), "The restarted replacement window did not quit", 10_000);
     console.log(`Packaged replacement proved ${outcome} credential recovery and upgraded ${baseline} to ${version}`);
