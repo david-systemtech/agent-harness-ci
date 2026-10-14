@@ -144,6 +144,7 @@ export const createCodexAccountProvider = (options: CodexAccountOptions = {}): C
 };
 
 /** Strips terminal colour and cursor sequences, which the CLI's device-flow lines carry. */
+// eslint-disable-next-line no-control-regex -- the escape that starts each colour sequence is what is being removed.
 const plain = (output: string): string => output.replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "");
 
 /** The device page the CLI prints, once a whole URL has arrived. */
