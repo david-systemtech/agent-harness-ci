@@ -363,6 +363,10 @@ export const SignIn = z
     accountId: AccountId.meta({ description: "The account whose directory is being signed in." }),
     state: SignInState,
     url: z.url().nullable().meta({ description: "The verification URL a person opens to sign in, once the provider's CLI has printed it; null until then." }),
+    userCode: z.string().min(1).nullable().optional().meta({
+      description:
+        "A device flow's one-time code, which a person enters on the verification page instead of pasting a code back (Codex's `codex login --device-auth`); absent for a flow that takes a code back (Claude's) and from environments that do not say.",
+    }),
     startedAt: Timestamp.meta({ description: "When the sign-in started." }),
     expiresAt: Timestamp.meta({ description: "When the sign-in expires if it is still waiting: ten minutes after it started, or after the code was written." }),
     fallback: SignInFallback,

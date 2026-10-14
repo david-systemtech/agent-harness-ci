@@ -339,13 +339,23 @@ export const createSignInDirector =
         return;
       }
       sign.child = child;
+      // The link, and for a device flow (Codex's) its one-time code, from whichever stream the CLI prints them on.
+      const said = () => {
+        if (sign.state.state !== "starting" && !(sign.state.state === "awaiting-code" && sign.program.userCode !== undefined && sign.state.userCode == null)) return;
+        const url = sign.program.verificationUrl(sign.stdout) ?? sign.program.verificationUrl(sign.stderr);
+        if (url === null) return;
+        const userCode = sign.program.userCode === undefined ? undefined : (sign.program.userCode(sign.stdout) ?? sign.program.userCode(sign.stderr));
+        if (sign.program.userCode !== undefined && userCode == null) return;
+        update(sign, { state: "awaiting-code", url, ...(userCode != null && { userCode }) });
+      };
       child.onStdout((chunk) => {
         sign.stdout = keep(sign.stdout + chunk);
-        if (sign.state.state !== "starting") return;
-        const url = sign.program.verificationUrl(sign.stdout);
-        if (url !== null) update(sign, { state: "awaiting-code", url });
+        said();
       });
-      child.onStderr((chunk) => (sign.stderr = keep(sign.stderr + chunk)));
+      child.onStderr((chunk) => {
+        sign.stderr = keep(sign.stderr + chunk);
+        said();
+      });
       child.onExit((code, error) => void exited(sign, code, error));
     };
 

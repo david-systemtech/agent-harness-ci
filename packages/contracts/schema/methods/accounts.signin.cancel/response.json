@@ -127,6 +127,18 @@
               ],
               "description": "The verification URL a person opens to sign in, once the provider's CLI has printed it; null until then."
             },
+            "userCode": {
+              "description": "A device flow's one-time code, which a person enters on the verification page instead of pasting a code back (Codex's `codex login --device-auth`); absent for a flow that takes a code back (Claude's) and from environments that do not say.",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "startedAt": {
               "type": "string",
               "format": "date-time",

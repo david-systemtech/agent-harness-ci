@@ -66,6 +66,8 @@ export interface TestEnvironmentOptions {
   readonly adapter?: FakeAdapter;
   /** Adapters beside `adapter`, each for a provider of its own, whose accounts `accounts` names (another fake, or the Claude adapter over a scripted SDK); preset none. */
   readonly otherAdapters?: readonly Adapter[];
+  /** Account-only providers (Codex's, #2169); preset none, so no test reads the machine's own Codex home. */
+  readonly accountProviders?: EnvironmentOptions["accountProviders"];
   /**
    * The accounts carried over from configuration into the account store on
    * the first start (#119's path, kept for this). Preset: one, `claude-max`,
@@ -457,6 +459,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       containerDetector: options.containerDetector ?? { inContainer: () => false },
       interfaces: options.interfaces ?? NO_INTERFACES,
       adapters: [adapter, ...(options.otherAdapters ?? [])],
+      accountProviders: options.accountProviders ?? [],
       accounts,
       probeContainment: async () => (await options.containment) ?? absentProbe(),
       ...passed,
