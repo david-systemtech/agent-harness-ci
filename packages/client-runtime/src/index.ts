@@ -775,3 +775,5 @@ export { undoFile, fileUndoWords, type FileUndoResult } from "./files/undo.js";
 export { clientLocalImportValues } from "./state-import.js";
 
 export { contextOf, type ContextFacts } from "./status/context.js";
+
+export { transcriptTime, transcriptRowTime } from "./transcript/time.js";

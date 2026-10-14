@@ -4,6 +4,7 @@ import {
   quietFor,
   runningCalls,
   transcriptRows,
+  transcriptRowTime,
   type QuietCalls,
   type SessionProjection,
 } from "@agent-harness/client-runtime";
@@ -189,6 +190,7 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
   const rows = useMemo(() => transcriptRows(projection).filter((row) => !(row.kind === "prompt" && row.entry.state === "parked")), [projection]);
   const { queue } = useSessionQueue().runs;
   const drawn = useMemo(() => withQueued(rows, queue), [rows, queue]);
+  const previousTimes = drawn.map((_, index) => { const previous = drawn[index - 1]; return previous?.kind === "row" ? transcriptRowTime(previous.row) : undefined; });
   // What the stream held when it first went live was written before this transcript was watching: only what comes after arrives.
   const [liveFrom, setLiveFrom] = useState<number | null>(null);
   if (liveFrom === null && projection.freshness === "live") setLiveFrom(headOf(projection));
@@ -220,9 +222,9 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
               <p className="text-ink-faint">{projection.deleted ? "This session was deleted." : "Nothing said yet."}</p>
             )}
             <FindQuery value={find.marked}>
-              {drawn.map((item) =>
+              {drawn.map((item, index) =>
                 item.kind === "row" ? (
-                  <TranscriptRowView key={item.row.id} row={item.row} facts={facts} />
+                  <TranscriptRowView key={item.row.id} row={item.row} facts={facts} previousTime={previousTimes[index]} />
                 ) : (
                   <QueuedRow key={`queued:${item.message.messageId}`} message={item.message} />
                 ),

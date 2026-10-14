@@ -60,7 +60,7 @@ const run = (runId: string, state: "running" | "ended", more: Partial<RunSummary
 });
 const view = (items: readonly TranscriptEntry[], runs: readonly RunSummary[] = []): Pick<SessionProjection, "items" | "runs"> => ({ items, runs });
 
-const CONTEXT: LineContext = { width: 80, expanded: false };
+const CONTEXT: LineContext = { width: 80, expanded: false, now: new Date("2026-09-25T12:00:00.000Z") };
 const shown = (lines: ReturnType<typeof transcriptLines>) => lines.map(lineText).filter((line) => line.length > 0);
 
 describe("Workspace check rows", () => {
@@ -123,6 +123,7 @@ describe("a rewound fold's lines", () => {
     expect(shown(transcriptLines(rows.slice(1), { ...CONTEXT, expanded: true, rewound: undo }))).toEqual([
       "↶ Rewound: Then the tests · 1 prompt cut · u undo",
       "┊ ",
+      `┊ ${"10:00".padStart(78)}`,
       "┊ ▌ Then the tests",
       "┊ ",
       "┊ ● Done.",
@@ -145,7 +146,7 @@ describe("a fork's first row", () => {
     const seeded = transcriptRows(view([{ kind: "forked", sequence: 4, fromSessionId: "s-source", atMessageId: "m-2",
       history: { title: "Receipts", anchor: "Add the tests", items: [copied], runs: [] } }]));
     expect(shown(transcriptLines(seeded, CONTEXT))).toEqual(["⑂ Forked from Receipts at Add the tests · o opens it · Enter unfolds"]);
-    expect(shown(transcriptLines(seeded, { ...CONTEXT, expanded: true }))).toEqual(["⑂ Forked from Receipts at Add the tests", "┊ ", "┊ ▌ Fix the receipts"]);
+    expect(shown(transcriptLines(seeded, { ...CONTEXT, expanded: true }))).toEqual(["⑂ Forked from Receipts at Add the tests", "┊ ", `┊ ${"10:00".padStart(78)}`, "┊ ▌ Fix the receipts"]);
   });
 
   it("names what it knows: another session while the source is not read, no prompt for a fork of the whole session; and no key in the pager", () => {
@@ -199,7 +200,7 @@ describe("the turn row", () => {
     expect(turnFacts(finished)).toEqual(["12s", "4.1k in", "205 out", "$0.012"]);
     const [, turn] = transcriptRows(view([text(1, "Done.")], [finished]));
     if (!turn) throw new Error("no turn");
-    expect(rowLines(turn, { ...CONTEXT, planDeltas: () => ["1.2% of the 5-hour window"] }).map(lineText)).toEqual(["  12s · 4.1k in · 205 out · $0.012 · 1.2% of the 5-hour window"]);
+    expect(rowLines(turn, { ...CONTEXT, planDeltas: () => ["1.2% of the 5-hour window"] }).map(lineText)).toEqual(["10:00".padStart(80), "  12s · 4.1k in · 205 out · $0.012 · 1.2% of the 5-hour window"]);
   });
 
   it("says how a run that did not complete ended, an error in red", () => {
@@ -207,8 +208,8 @@ describe("the turn row", () => {
     const [, turn] = transcriptRows(view([text(1, "Hm")], [failed]));
     if (!turn) throw new Error("no turn");
     const lines = rowLines(turn, CONTEXT);
-    expect(lines.map(lineText)).toEqual(["✗ Error · 800ms", "  The provider went away."]);
-    expect(lines[0]?.spans[0]?.color).toBe("red");
+    expect(lines.map(lineText)).toEqual(["10:00".padStart(80), "✗ Error · 800ms", "  The provider went away."]);
+    expect(lines.find(line => lineText(line).startsWith("✗"))?.spans[0]?.color).toBe("red");
   });
 });
 
@@ -239,4 +240,46 @@ describe("an update cut and its continuation", () => {
     expect(lines.join("\n")).toContain("[image state.png · 2 KB]");
     expect(lines.join("\n")).toContain("▌ Go");
   });
+});
+
+it("draws local times on message, tool and turn boundaries, including unfolded calls", () => {
+  const now = new Date(2026, 8, 25, 12);
+  const first = new Date(2026, 8, 24, 23, 58).toISOString();
+  const second = new Date(2026, 8, 25, 0, 5).toISOString();
+  const third = new Date(2026, 8, 25, 0, 6).toISOString();
+  const rows = transcriptRows(view([
+    { ...message(1, "Check totals"), sentAt: first },
+    { kind: "assistant-text", sequence: 2, runId: RUN, itemId: "timed-reply", text: "Totals agree", aborted: false, streaming: false, startedAt: second },
+    { ...call(3, "Read", "ok"), startedAt: third },
+  ], [run(RUN, "ended", { endedAt: third })]));
+  const lines = transcriptLines(rows, { ...CONTEXT, now, expanded: true });
+  expect(shown(lines).join("\n")).toContain("2026-09-24 · 23:58");
+  expect(shown(lines).join("\n")).toContain("2026-09-25 · 00:05");
+  expect(lines.filter(line => lineText(line).includes("00:06"))).toHaveLength(2);
+  expect(lines.filter(line => lineText(line).includes("00:06")).every(line => line.spans.every(span => span.dim))).toBe(true);
+});
+
+
+it("uses the last visible clock of a tool group for the following reply", () => {
+  const first = new Date(2026, 8, 24, 23, 58).toISOString();
+  const second = new Date(2026, 8, 25, 0, 5).toISOString();
+  const rows = transcriptRows(view([
+    { ...call(1, "Read", "ok"), startedAt: first },
+    { ...call(2, "Read", "ok"), startedAt: second },
+    { kind: "assistant-text", sequence: 3, runId: RUN, itemId: "after-calls", text: "Both totals agree", aborted: false, streaming: false, startedAt: new Date(2026, 8, 25, 0, 6).toISOString() },
+  ]));
+  const context = { ...CONTEXT, now: new Date(2026, 8, 25, 12) };
+  const replyTimes = (expanded: boolean) => transcriptLines(rows, { ...context, expanded }).filter(line => line.row === rows.at(-1)?.id).map(lineText);
+  expect(replyTimes(false)).toContain("2026-09-25 · 00:06".padStart(80));
+  expect(replyTimes(true)).toContain("00:06".padStart(80));
+});
+
+it("compares a standing call with the folded summary's visible day", () => {
+  const rows = transcriptRows(view([
+    { ...call(1, "Read", "ok"), startedAt: new Date(2026, 8, 24, 23, 58).toISOString() },
+    { ...call(2, "Read", "ok"), startedAt: new Date(2026, 8, 25, 0, 5).toISOString() },
+    { ...call(3, "Read", "running"), startedAt: new Date(2026, 8, 25, 0, 6).toISOString() },
+  ]));
+  const lines = transcriptLines(rows, { ...CONTEXT, now: new Date(2026, 8, 25, 12) });
+  expect(lines.map(lineText)).toContain("2026-09-25 · 00:06".padStart(80));
 });

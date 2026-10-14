@@ -527,3 +527,21 @@ describe("current request context", () => {
     expect(initial.runs[0]?.context?.model).toBe("opus");
   });
 });
+
+
+describe("transcript timestamps", () => {
+  it("keeps the first delta and tool start times in settled, open and compacted history", () => {
+    const delta = event("assistant.delta", { runId, itemId: "timed", fragments: [{ kind: "text", text: "Hello" }] });
+    const later = event("assistant.delta", { runId, itemId: "timed", fragments: [{ kind: "text", text: " again" }] });
+    const settled = event("assistant.text", { runId, itemId: "timed", text: "Hello again", aborted: false });
+    const tool = event("tool.started", { runId, toolCallId: "timed-tool", name: "Read", input: {}, title: null, agentId: null, parentToolCallId: null });
+    const parts = foldTranscript([delta, later, settled, tool]);
+    expect(parts.items).toEqual([
+      expect.objectContaining({ kind: "assistant-text", startedAt: delta.occurredAt }),
+      expect.objectContaining({ kind: "tool-call", startedAt: tool.occurredAt }),
+    ]);
+    expect(foldTranscript([delta, later], undefined, true).items[0]).toEqual(expect.objectContaining({ startedAt: delta.occurredAt }));
+    expect(foldTranscript([], storedTranscriptParts(parts)).items).toEqual(parts.items);
+    expect(foldTranscript([settled]).items[0]).toEqual(expect.objectContaining({ startedAt: settled.occurredAt }));
+  });
+});

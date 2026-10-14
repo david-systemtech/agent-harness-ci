@@ -14,6 +14,8 @@ import {
   promptsIn,
   summarizeToolInput,
   turnFacts,
+  transcriptTime,
+  transcriptRowTime,
   undoableFold,
   updateInterruptedText,
   type ActivityCounts,
@@ -106,6 +108,9 @@ export const RESULT_TAIL = 1;
 export const PLAN_LINES = 12;
 
 export interface LineContext {
+  /** Client clock and preceding row for local date boundaries. */
+  readonly now?: Date;
+  readonly previousTime?: string | undefined;
   /** The columns a line has. */
   readonly width: number;
   readonly checkOutput?: (terminalId: string) => { readonly output: string; readonly truncated: boolean } | undefined;
@@ -258,7 +263,7 @@ const callLines = (row: string, call: ToolCallEntry, context: LineContext, whole
   else if (call.status === "cancelled") under.push([{ text: "Cancelled", dim: true }]);
   else if (call.status === "ok" && whole) under.push(...cutLines(nonBlank(outputText(call.output)), true));
   if (under.length > 0) body.push(...returned(under));
-  return block(row, { text: TOOL, color: CALL_COLORS[state] ?? TERMINAL_ROLES.success }, body, context.width, spaced);
+  return withTime(block(row, { text: TOOL, color: CALL_COLORS[state] ?? TERMINAL_ROLES.success }, body, context.width, spaced), call.startedAt, context);
 };
 
 /** The counts of the calls folded into the count row, by category. */
@@ -278,7 +283,8 @@ const callsLines = (row: string, calls: readonly ToolCallEntry[], context: LineC
   const summary = describeActivity(countsOf(done));
   const lines: Line[] = [];
   if (summary.length > 0) lines.push(...block(row, { text: TOOL, color: context.expanded ? TERMINAL_ROLES.faint : TERMINAL_ROLES.success }, [[{ text: summary, dim: context.expanded }]], context.width, true));
-  shown.forEach((call, index) => lines.push(...callLines(row, call, context, context.expanded, summary.length === 0 && index === 0)));
+  if (!context.expanded && done.length > 0) lines.splice(0, lines.length, ...withTime(lines, done[0]?.startedAt, context));
+  shown.forEach((call, index) => lines.push(...callLines(row, call, { ...context, previousTime: shown[index - 1]?.startedAt ?? (context.expanded ? undefined : done[0]?.startedAt) ?? context.previousTime }, context.expanded, summary.length === 0 && index === 0)));
   return lines;
 };
 
@@ -378,7 +384,7 @@ const forkedLines = (row: Extract<Row, { kind: "forked" }>, context: LineContext
 export const terminalChip = (attachment: AttachmentRecord): string => `[${attachment.kind} ${attachmentChip(attachment)}]`;
 
 /** The lines of one row. */
-export const rowLines = (row: Row, context: LineContext): Line[] => {
+const rowBodyLines = (row: Row, context: LineContext): Line[] => {
   const { width } = context;
   switch (row.kind) {
     case "user": {
@@ -443,8 +449,33 @@ export const rowLines = (row: Row, context: LineContext): Line[] => {
 };
 
 /** Every line of `rows`, in order. */
+const withTime = (lines: Line[], time: string | undefined, context: LineContext): Line[] => {
+  const words = transcriptTime(time, context.now ?? new Date(), context.previousTime);
+  if (words === undefined || lines.length === 0) return lines;
+  const at = lines[0]?.spans.length === 0 ? 1 : 0;
+  const timestamp: Line = { row: lines[0]!.row, spans: [{ text: words.padStart(Math.max(words.length, context.width)), dim: true }] };
+  return [...lines.slice(0, at), timestamp, ...lines.slice(at)];
+};
+
+export const rowLines = (row: Row, context: LineContext): Line[] => {
+  const lines = rowBodyLines(row, context);
+  return row.kind === "calls" ? lines : withTime(lines, transcriptRowTime(row), context);
+};
+
+/** The last clock a row shows: a tool group's follows its fold, the folded summary showing its first finished call's. */
+const visibleRowTime = (row: Row, expanded: boolean): string | undefined => {
+  if (row.kind !== "calls") return transcriptRowTime(row);
+  const done = row.calls.filter(folded);
+  return row.calls.filter((call) => !folded(call)).findLast((call) => call.startedAt !== undefined)?.startedAt
+    ?? (expanded ? done.findLast((call) => call.startedAt !== undefined)?.startedAt : done[0]?.startedAt);
+};
+
 export const transcriptLines = (rows: readonly Row[], context: LineContext, unfolded: ReadonlySet<string> = new Set()): Line[] =>
-  rows.flatMap((row) => rowLines(row, unfolded.has(row.id) ? { ...context, expanded: true } : context));
+  rows.flatMap((row, index) => {
+    const previous = rows[index - 1];
+    const local = { ...context, previousTime: previous === undefined ? context.previousTime : visibleRowTime(previous, context.expanded === true || unfolded.has(previous.id)) };
+    return rowLines(row, unfolded.has(row.id) ? { ...local, expanded: true } : local);
+  });
 
 /** A line's text, as plain characters: what a test, `/copy` and the pager's search read. */
 export const lineText = (line: Line): string => line.spans.map((span) => span.text).join("");

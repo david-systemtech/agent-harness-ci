@@ -5,7 +5,7 @@ import { DocumentTile } from "../../src/transcript/document-tiles.js";
 import { DiffView } from "../../src/side-column/diff-view.js";
 
 const call = (toolCallId: string, name: string, input: ToolCallEntry["input"], output: string | null, status: ToolCallEntry["status"] = "ok"): ToolCallEntry => ({
-  kind: "tool-call", sequence: 1, runId: "scene-run", toolCallId, name, input, output, status,
+  kind: "tool-call", startedAt: "2026-09-23T23:58:00.000Z", sequence: 1, runId: "scene-run", toolCallId, name, input, output, status,
   title: null, agentId: null, parentToolCallId: null, decision: null, update: null, durationMs: status === "running" ? null : 1234,
 });
 const calls = [
@@ -32,6 +32,7 @@ const SessionToolsScene = () => <main data-scene="session-tools" className="h-sc
 
 export const geometry = ({ width, height }: SceneViewport): readonly SceneGeometry[] => [
   { selector: "main[data-scene=session-tools]", width, height, tolerance: 0.1 },
+  { selector: "time", unbroken: true, contentFits: true },
   { selector: "[data-diff-gutter]", width: 40, tolerance: 0.1 },
 ];
 export default SessionToolsScene;
