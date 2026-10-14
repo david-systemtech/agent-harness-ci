@@ -475,6 +475,7 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
    * back to the version before it if it never reports ready.
    */
   const switchVersion = async (staged: ShellStagedBuild, prepared: Prepared, restart: boolean): Promise<ShellApplyOutcome> => {
+    await refreshHelper(dirname(prepared.target));
     const switched = await system.run(windowsPowerShell(), helperArguments("-Switch", staged.version)).catch((error: unknown) => ({ code: -1, stderr: messageOf(error) }));
     if (switched.code !== 0) {
       return failed("install", `Could not point the desktop at ${staged.version} (${lastLine(switched.stderr) ?? `the launch helper exited with ${switched.code}`}), so ${stays()}.`);
@@ -485,6 +486,26 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
       app.relaunch({ execPath: prepared.target, args: ["--updated"] });
     }
     return APPLIED;
+  };
+
+  /**
+   * Puts the launch helper of the version switched to in place of the one in
+   * the data directory, which only a full setup wrote: a version installed
+   * ahead of the click brings its own (`--stage` extracts it beside the app),
+   * so the helper that switches and watches knows what this version asks of
+   * it. Written beside it and renamed into place; one that cannot be is said,
+   * and the one there is used.
+   */
+  const refreshHelper = async (folder: string): Promise<void> => {
+    const helper = join(platform.paths.data, LAUNCH_HELPER);
+    const brought = await files.readFile(join(folder, LAUNCH_HELPER)).catch(() => undefined);
+    if (brought === undefined) return;
+    try {
+      await files.writeFile(`${helper}.tmp`, brought);
+      await files.rename(`${helper}.tmp`, helper);
+    } catch (error) {
+      report(new Error(`The desktop could not put the launch helper of ${basename(folder)} in place: ${messageOf(error)}`));
+    }
   };
 
   /** The launch helper run as the shortcuts run it, for the install's own executable, in `mode`. */

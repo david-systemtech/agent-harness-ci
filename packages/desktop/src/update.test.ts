@@ -433,6 +433,27 @@ describe("apply on Windows", () => {
     expect(electron.app.calls.map(([method]) => method)).toContain("relaunch");
   });
 
+  it("puts the launch helper the installed version brought in place before it switches, so the helper that switches knows the switch", async () => {
+    const system = fakeSystem();
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
+    const install = windowsInstall(system, staged);
+    const { shell, electron, platform } = await installed("win32", install.executable, system);
+    writeFileSync(join(platform.paths.data, "desktop-launch.ps1"), "# the helper of 0.4.0");
+    await shell().update.apply(staged, "quit");
+    writeFileSync(join(dirname(install.version), "desktop-launch.ps1"), "# the helper of 0.6.0");
+    const helpers: string[] = [];
+    const answered = system.run.bind(system);
+    system.run = (command, args) => {
+      if (args.includes("-Switch")) helpers.push(readFileSync(join(platform.paths.data, "desktop-launch.ps1"), "utf8"));
+      return answered(command, args);
+    };
+
+    expect(await shell().update.apply(staged, "now")).toEqual({ outcome: "applied" });
+    await electron.app.quitted;
+    expect(helpers).toEqual(["# the helper of 0.6.0"]);
+    expect(existsSync(join(platform.paths.data, "desktop-launch.ps1.tmp"))).toBe(false);
+  });
+
   it("keeps the running version and restarts nothing when the launch helper cannot switch the pointer", async () => {
     const system = fakeSystem();
     const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
