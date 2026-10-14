@@ -662,7 +662,8 @@ jobs:
           $node = Join-Path $server "node\node.exe"
           $cli = Join-Path $server "packages\cli\dist\main.js"
           $dataDir = Join-Path $env:LOCALAPPDATA "agent-harness"
-          New-Item -ItemType Directory -Path $dataDir | Out-Null
+          # The desktop setup already created this directory for its launch helper (#2146), so creating it must tolerate that.
+          New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
           $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
           $listener.Start()
           $port = $listener.LocalEndpoint.Port
