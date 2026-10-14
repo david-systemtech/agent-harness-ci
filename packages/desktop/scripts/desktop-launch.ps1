@@ -57,12 +57,12 @@ if ($Switch) {
   try {
     try { $entered = $mutex.WaitOne() } catch [Threading.AbandonedMutexException] { $entered = $true }
     $before = ''
-    if (Test-Path -LiteralPath $pointer -PathType Leaf) { $before = ([string](Get-Content -LiteralPath $pointer -Raw)).Trim() }
+    if (Test-Path -LiteralPath $pointer -PathType Leaf) { $before = [IO.File]::ReadAllText($pointer).Trim() }
     [IO.File]::WriteAllText($previousPointer, $before)
     $written = $pointer + '.tmp'
     [IO.File]::WriteAllText($written, $Switch)
     # Replaced in one step, so a launch reads the old version or the new one.
-    if (Test-Path -LiteralPath $pointer) { [IO.File]::Replace($written, $pointer, $null) }
+    if (Test-Path -LiteralPath $pointer) { [IO.File]::Replace($written, $pointer, [NullString]::Value) }
     else { [IO.File]::Move($written, $pointer) }
   } finally {
     if ($entered) { $mutex.ReleaseMutex() }
@@ -85,13 +85,13 @@ if ($Watch) {
   }
   $incoming = Get-VersionApp $Watch
   $previous = ''
-  if (Test-Path -LiteralPath $previousPointer -PathType Leaf) { $previous = ([string](Get-Content -LiteralPath $previousPointer -Raw)).Trim() }
+  if (Test-Path -LiteralPath $previousPointer -PathType Leaf) { $previous = [IO.File]::ReadAllText($previousPointer).Trim() }
   $mutex = [Threading.Mutex]::new($false, 'Local\agent-harness-desktop-install')
   $entered = $false
   try {
     try { $entered = $mutex.WaitOne() } catch [Threading.AbandonedMutexException] { $entered = $true }
     $now = ''
-    if (Test-Path -LiteralPath $pointer -PathType Leaf) { $now = ([string](Get-Content -LiteralPath $pointer -Raw)).Trim() }
+    if (Test-Path -LiteralPath $pointer -PathType Leaf) { $now = [IO.File]::ReadAllText($pointer).Trim() }
     # A setup or another switch since then decided what launches: leave it.
     if ($now -ne $Watch) { exit 0 }
     if ($previous -and (Get-VersionApp $previous)) { [IO.File]::WriteAllText($pointer, $previous) }
@@ -156,8 +156,8 @@ try {
 # A version installed beside the app ahead of Restart to update (#2194):
 # the desktop renames the pointer into place at the click, naming it.
 if (Test-Path -LiteralPath $pointer -PathType Leaf) {
-  # An empty pointer reads as $null; the cast keeps Trim from throwing.
-  $candidate = Get-VersionApp ([string](Get-Content -LiteralPath $pointer -Raw)).Trim()
+  # Read as text, so an empty pointer is an empty string (Get-Content gives $null).
+  $candidate = Get-VersionApp ([IO.File]::ReadAllText($pointer).Trim())
   if ($null -ne $candidate) { $App = $candidate }
 }
 $arguments = @()

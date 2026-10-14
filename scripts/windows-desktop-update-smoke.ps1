@@ -84,41 +84,7 @@ if ($Setup) {
   $dataDir = Join-Path $env:LOCALAPPDATA 'agent-harness\desktop'
   $stagedExe = Join-Path $staging $installed.Name
   $stagedVersion = ([string](Get-Item -LiteralPath $stagedExe).VersionInfo.ProductVersion).Trim()
-  if ($stagedVersion -notmatch '^[0-9A-Za-z][0-9A-Za-z.+-]*
-  # The launch helper follows the pointer the desktop renames into place at the click.
-  $pointerWork = Join-Path $env:TEMP ('desktop-pointer-check-' + [Guid]::NewGuid())
-  $versionDir = Join-Path $pointerWork 'versions\9.9.9-smoke'
-  New-Item -ItemType Directory -Path $versionDir | Out-Null
-  $pointed = Join-Path $pointerWork 'pointed.txt'
-  Set-Content -LiteralPath (Join-Path $versionDir 'app.cmd') -Encoding Ascii -Value ('@echo pointed > "' + $pointed + '"')
-  $pointer = Join-Path $env:LOCALAPPDATA 'agent-harness\desktop\current'
-  try {
-    Set-Content -LiteralPath $pointer -Encoding Ascii -NoNewline -Value '9.9.9-smoke'
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $helper -App (Join-Path $pointerWork 'app.cmd') -NoWindow
-    $pointerDeadline = [datetime]::UtcNow.AddSeconds(30)
-    while (!(Test-Path -LiteralPath $pointed)) {
-      if ([datetime]::UtcNow -gt $pointerDeadline) { throw 'The launch helper did not follow the current version pointer' }
-      Start-Sleep -Milliseconds 100
-    }
-    Write-Output 'Verified the launch helper follows the current version pointer'
-  } finally {
-    Remove-Item -LiteralPath $pointer -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $pointerWork -Recurse -Force
-  }
-}
-# Restart to update's click to the new window, when an update was driven here (#2194).
-if (Test-Path -LiteralPath $log) {
-  $click = Select-String -LiteralPath $log -Pattern 'click to ready (\d+)ms' | Select-Object -Last 1
-  if ($null -ne $click) {
-    $ms = [int]$click.Matches[0].Groups[1].Value
-    Write-Output "Restart to update: click to ready $($ms)ms"
-    if ($ms -ge 10000) { throw "Click to ready must be under 10000ms, was $($ms)ms" }
-  }
-  Get-Content -LiteralPath $log
-}
-
-exit 0
-) { throw "The staged app names no version: '$stagedVersion'" }
+  if ($stagedVersion -notmatch '^[0-9A-Za-z][0-9A-Za-z.+-]*$') { throw "The staged app names no version: '$stagedVersion'" }
   $versionDir = Join-Path $install ('versions\' + $stagedVersion)
   Remove-Item -LiteralPath $versionDir -Recurse -Force -ErrorAction SilentlyContinue
   Rename-Item -LiteralPath $staging -NewName $stagedVersion
