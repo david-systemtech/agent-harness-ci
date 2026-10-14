@@ -3507,6 +3507,234 @@
       "title": "SetupMintedPayload"
     },
     {
+      "path": "desktop/kind.json",
+      "title": "DesktopKind"
+    },
+    {
+      "path": "desktop/session-desktop.json",
+      "title": "SessionDesktop"
+    },
+    {
+      "path": "desktop/resolution-reason.json",
+      "title": "DesktopResolutionReason"
+    },
+    {
+      "path": "desktop/run-desktop-resolution.json",
+      "title": "RunDesktopResolution"
+    },
+    {
+      "path": "desktop/members/screenshot.json",
+      "title": "ComputerScreenshotInput"
+    },
+    {
+      "path": "desktop/members/zoom.json",
+      "title": "ComputerZoomInput"
+    },
+    {
+      "path": "desktop/members/cursor_position.json",
+      "title": "ComputerCursorPositionInput"
+    },
+    {
+      "path": "desktop/members/left_click.json",
+      "title": "ComputerLeftClickInput"
+    },
+    {
+      "path": "desktop/members/right_click.json",
+      "title": "ComputerRightClickInput"
+    },
+    {
+      "path": "desktop/members/middle_click.json",
+      "title": "ComputerMiddleClickInput"
+    },
+    {
+      "path": "desktop/members/double_click.json",
+      "title": "ComputerDoubleClickInput"
+    },
+    {
+      "path": "desktop/members/triple_click.json",
+      "title": "ComputerTripleClickInput"
+    },
+    {
+      "path": "desktop/members/left_click_drag.json",
+      "title": "ComputerLeftClickDragInput"
+    },
+    {
+      "path": "desktop/members/mouse_move.json",
+      "title": "ComputerMouseMoveInput"
+    },
+    {
+      "path": "desktop/members/scroll.json",
+      "title": "ComputerScrollInput"
+    },
+    {
+      "path": "desktop/members/type.json",
+      "title": "ComputerTypeInput"
+    },
+    {
+      "path": "desktop/members/key.json",
+      "title": "ComputerKeyInput"
+    },
+    {
+      "path": "desktop/members/hold_key.json",
+      "title": "ComputerHoldKeyInput"
+    },
+    {
+      "path": "desktop/members/wait.json",
+      "title": "ComputerWaitInput"
+    },
+    {
+      "path": "desktop/members/left_mouse_down.json",
+      "title": "ComputerLeftMouseDownInput"
+    },
+    {
+      "path": "desktop/members/left_mouse_up.json",
+      "title": "ComputerLeftMouseUpInput"
+    },
+    {
+      "path": "desktop/operations/geometry/args.json",
+      "title": "DesktopGeometryArgs"
+    },
+    {
+      "path": "desktop/operations/geometry/value.json",
+      "title": "DesktopGeometryValue"
+    },
+    {
+      "path": "desktop/operations/capture/args.json",
+      "title": "DesktopCaptureArgs"
+    },
+    {
+      "path": "desktop/operations/capture/value.json",
+      "title": "DesktopCaptureValue"
+    },
+    {
+      "path": "desktop/operations/zoom/args.json",
+      "title": "DesktopZoomArgs"
+    },
+    {
+      "path": "desktop/operations/zoom/value.json",
+      "title": "DesktopZoomValue"
+    },
+    {
+      "path": "desktop/operations/cursor/args.json",
+      "title": "DesktopCursorArgs"
+    },
+    {
+      "path": "desktop/operations/cursor/value.json",
+      "title": "DesktopCursorValue"
+    },
+    {
+      "path": "desktop/operations/click/args.json",
+      "title": "DesktopClickArgs"
+    },
+    {
+      "path": "desktop/operations/click/value.json",
+      "title": "DesktopClickValue"
+    },
+    {
+      "path": "desktop/operations/drag/args.json",
+      "title": "DesktopDragArgs"
+    },
+    {
+      "path": "desktop/operations/drag/value.json",
+      "title": "DesktopDragValue"
+    },
+    {
+      "path": "desktop/operations/move/args.json",
+      "title": "DesktopMoveArgs"
+    },
+    {
+      "path": "desktop/operations/move/value.json",
+      "title": "DesktopMoveValue"
+    },
+    {
+      "path": "desktop/operations/scroll/args.json",
+      "title": "DesktopScrollArgs"
+    },
+    {
+      "path": "desktop/operations/scroll/value.json",
+      "title": "DesktopScrollValue"
+    },
+    {
+      "path": "desktop/operations/type/args.json",
+      "title": "DesktopTypeArgs"
+    },
+    {
+      "path": "desktop/operations/type/value.json",
+      "title": "DesktopTypeValue"
+    },
+    {
+      "path": "desktop/operations/key/args.json",
+      "title": "DesktopKeyArgs"
+    },
+    {
+      "path": "desktop/operations/key/value.json",
+      "title": "DesktopKeyValue"
+    },
+    {
+      "path": "desktop/operations/hold_key/args.json",
+      "title": "DesktopHoldKeyArgs"
+    },
+    {
+      "path": "desktop/operations/hold_key/value.json",
+      "title": "DesktopHoldKeyValue"
+    },
+    {
+      "path": "desktop/operations/mouse_down/args.json",
+      "title": "DesktopMouseDownArgs"
+    },
+    {
+      "path": "desktop/operations/mouse_down/value.json",
+      "title": "DesktopMouseDownValue"
+    },
+    {
+      "path": "desktop/operations/mouse_up/args.json",
+      "title": "DesktopMouseUpArgs"
+    },
+    {
+      "path": "desktop/operations/mouse_up/value.json",
+      "title": "DesktopMouseUpValue"
+    },
+    {
+      "path": "desktop/operations/release/args.json",
+      "title": "DesktopReleaseArgs"
+    },
+    {
+      "path": "desktop/operations/release/value.json",
+      "title": "DesktopReleaseValue"
+    },
+    {
+      "path": "desktop/member.json",
+      "title": "ComputerMember"
+    },
+    {
+      "path": "desktop/point.json",
+      "title": "DesktopPoint"
+    },
+    {
+      "path": "desktop/geometry.json",
+      "title": "DisplayGeometry"
+    },
+    {
+      "path": "desktop/image.json",
+      "title": "DesktopImage"
+    },
+    {
+      "path": "desktop/capture.json",
+      "title": "DesktopCapture"
+    },
+    {
+      "path": "desktop/command.json",
+      "title": "DesktopCommand"
+    },
+    {
+      "path": "desktop/refusal.json",
+      "title": "DesktopRefusal"
+    },
+    {
+      "path": "desktop/outcome.json",
+      "title": "DesktopOutcome"
+    },
+    {
       "path": "browser/page-driver-kind.json",
       "title": "PageDriverKind"
     },

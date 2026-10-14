@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ComputerWaitInput",
+  "type": "object",
+  "properties": {
+    "duration": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 300
+    }
+  },
+  "required": [
+    "duration"
+  ],
+  "additionalProperties": false,
+  "description": "wait: wait duration seconds, then take a screenshot."
+}

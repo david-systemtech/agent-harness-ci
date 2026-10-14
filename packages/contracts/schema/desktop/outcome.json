@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DesktopOutcome",
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        },
+        "value": {
+          "$ref": "#/$defs/__schema0"
+        }
+      },
+      "required": [
+        "ok",
+        "value"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": false
+        },
+        "code": {
+          "type": "string",
+          "enum": [
+            "unavailable",
+            "unsupported",
+            "out_of_bounds",
+            "stale_geometry",
+            "locked",
+            "cancelled",
+            "failed"
+          ],
+          "description": "Why: unavailable (no such desktop here), unsupported (this driver cannot), out_of_bounds (a coordinate outside the screenshot), stale_geometry (the display changed since the last screenshot), locked (the desktop is locked), cancelled, failed."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The sentence the model reads: what went wrong and what it can do instead."
+        }
+      },
+      "required": [
+        "ok",
+        "code",
+        "reason"
+      ],
+      "description": "An operation that did not happen: a sentence the model can act on, never an exception."
+    }
+  ],
+  "description": "An operation's answer on a wire that does not know the operation: its value, or a refusal.",
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
+}

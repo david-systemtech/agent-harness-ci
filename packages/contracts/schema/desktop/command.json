@@ -1,0 +1,553 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DesktopCommand",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "const": "geometry"
+        },
+        "args": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "operation",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "const": "capture"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "longEdge": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 8192,
+              "description": "The longest edge the image may have, in pixels; the aspect ratio is kept."
+            }
+          },
+          "required": [
+            "longEdge"
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "const": "zoom"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "region": {
+              "type": "object",
+              "properties": {
+                "x0": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "y0": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "x1": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "y1": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "x0",
+                "y0",
+                "x1",
+                "y1"
+              ],
+              "description": "A physical region of the display, x1 > x0 and y1 > y0."
+            },
+            "longEdge": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 8192,
+              "description": "The longest edge the image may have, in pixels; the aspect ratio is kept."
+            }
+          },
+          "required": [
+            "region",
+            "longEdge"
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "const": "cursor"
+        },
+        "args": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "operation",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "const": "click"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "button": {
+              "type": "string",
+              "enum": [
+                "left",
+                "right",
+                "middle"
+              ],
+              "description": "Which mouse button: left, right or middle."
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3
+            },
+            "at": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "y": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ],
+              "description": "A point on the display, in physical pixels from its top-left."
+            },
+            "modifiers": {
+              "maxItems": 8,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "description": "Modifier keys held during the action."
+            }
+          },
+          "required": [
+            "button",
+            "count",
+            "modifiers"
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "const": "drag"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "y": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ],
+              "description": "A point on the display, in physical pixels from its top-left."
+            },
+            "to": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "y": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ],
+              "description": "A point on the display, in physical pixels from its top-left."
+            },
+            "modifiers": {
+              "maxItems": 8,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "description": "Modifier keys held during the action."
+            }
+          },
+          "required": [
+            "from",
+            "to",
+            "modifiers"
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "const": "move"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "to": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "y": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ],
+              "description": "A point on the display, in physical pixels from its top-left."
+            }
+          },
+          "required": [
+            "to"
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "const": "scroll"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "direction": {
+              "type": "string",
+              "enum": [
+                "up",
+                "down",
+                "left",
+                "right"
+              ],
+              "description": "Which way the wheel turns: up, down, left or right."
+            },
+            "amount": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "at": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "y": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ],
+              "description": "A point on the display, in physical pixels from its top-left."
+            },
+            "modifiers": {
+              "maxItems": 8,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "description": "Modifier keys held during the action."
+            }
+          },
+          "required": [
+            "direction",
+            "amount",
+            "modifiers"
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "const": "type"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          },
+          "required": [
+            "text"
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "const": "key"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "chords": {
+              "minItems": 1,
+              "maxItems": 16,
+              "type": "array",
+              "items": {
+                "minItems": 1,
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "description": "The keys of one combination, pressed in order and released in reverse."
+              },
+              "description": "Combinations pressed in turn."
+            },
+            "repeat": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          "required": [
+            "chords",
+            "repeat"
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "const": "hold_key"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "keys": {
+              "minItems": 1,
+              "maxItems": 8,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "description": "The keys of one combination, pressed in order and released in reverse."
+            },
+            "durationMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 300000
+            }
+          },
+          "required": [
+            "keys",
+            "durationMs"
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "const": "mouse_down"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "button": {
+              "type": "string",
+              "const": "left"
+            }
+          },
+          "required": [
+            "button"
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "const": "mouse_up"
+        },
+        "args": {
+          "type": "object",
+          "properties": {
+            "button": {
+              "type": "string",
+              "const": "left"
+            }
+          },
+          "required": [
+            "button"
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "args"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "const": "release"
+        },
+        "args": {
+          "type": "object",
+          "properties": {},
+          "description": "Release every held button and key."
+        }
+      },
+      "required": [
+        "operation",
+        "args"
+      ]
+    }
+  ],
+  "description": "One desktop operation and its arguments."
+}

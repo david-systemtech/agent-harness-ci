@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ComputerHoldKeyInput",
+  "type": "object",
+  "properties": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "A key or a +-joined combination (Return, ctrl+s); for key, several separated by spaces are pressed in turn (ctrl+a Delete)."
+    },
+    "duration": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 300
+    }
+  },
+  "required": [
+    "text",
+    "duration"
+  ],
+  "additionalProperties": false,
+  "description": "hold_key: hold a key or combination for duration seconds."
+}

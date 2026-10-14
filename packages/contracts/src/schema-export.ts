@@ -287,6 +287,7 @@ import {
   ChromeId,
   PortFile,
 } from "./browser-bridge.js";
+import { COMPUTER_MEMBERS, COMPUTER_MEMBER_INPUTS, ComputerMember, DesktopCapture, DesktopImage, DesktopPoint, DisplayGeometry, DESKTOP_OPERATIONS, DESKTOP_OPERATION_SCHEMAS, DesktopCommand, DesktopKind, DesktopOutcome, DesktopRefusal, DesktopResolutionReason, RunDesktopResolution, SessionDesktop } from "./desktop-driver.js";
 import { PAGE_VERBS, PAGE_VERB_SCHEMAS, PageCall, PageCommand, PageDriverKind, PageKey, PageOutcome, PageRefusal } from "./browser-driver.js";
 import { OneTimeAllowance, PagePolicy } from "./browser-policy.js";
 import {
@@ -1575,6 +1576,23 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "setup/step-results.json", title: "StepResults", schema: StepResults },
   { path: "setup/prompt-variant.json", title: "PromptVariant", schema: PromptVariant },
   { path: "setup/minted-payload.json", title: "SetupMintedPayload", schema: SetupMintedPayload },
+  { path: "desktop/kind.json", title: "DesktopKind", schema: DesktopKind },
+  { path: "desktop/session-desktop.json", title: "SessionDesktop", schema: SessionDesktop },
+  { path: "desktop/resolution-reason.json", title: "DesktopResolutionReason", schema: DesktopResolutionReason },
+  { path: "desktop/run-desktop-resolution.json", title: "RunDesktopResolution", schema: RunDesktopResolution },
+  ...COMPUTER_MEMBERS.map((member) => ({ path: `desktop/members/${member}.json`, title: `Computer${pascal(member)}Input`, schema: COMPUTER_MEMBER_INPUTS[member] })),
+  ...DESKTOP_OPERATIONS.flatMap((operation) => [
+    { path: `desktop/operations/${operation}/args.json`, title: `Desktop${pascal(operation)}Args`, schema: DESKTOP_OPERATION_SCHEMAS[operation].args },
+    { path: `desktop/operations/${operation}/value.json`, title: `Desktop${pascal(operation)}Value`, schema: DESKTOP_OPERATION_SCHEMAS[operation].value },
+  ]),
+  { path: "desktop/member.json", title: "ComputerMember", schema: ComputerMember },
+  { path: "desktop/point.json", title: "DesktopPoint", schema: DesktopPoint },
+  { path: "desktop/geometry.json", title: "DisplayGeometry", schema: DisplayGeometry },
+  { path: "desktop/image.json", title: "DesktopImage", schema: DesktopImage },
+  { path: "desktop/capture.json", title: "DesktopCapture", schema: DesktopCapture },
+  { path: "desktop/command.json", title: "DesktopCommand", schema: DesktopCommand },
+  { path: "desktop/refusal.json", title: "DesktopRefusal", schema: DesktopRefusal },
+  { path: "desktop/outcome.json", title: "DesktopOutcome", schema: DesktopOutcome },
   { path: "browser/page-driver-kind.json", title: "PageDriverKind", schema: PageDriverKind },
   { path: "browser/page-key.json", title: "PageKey", schema: PageKey },
   ...PAGE_VERBS.flatMap((verb) => [
