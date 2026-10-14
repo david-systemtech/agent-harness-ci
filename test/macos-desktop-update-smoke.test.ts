@@ -95,21 +95,32 @@ describe("the packaged macOS update smoke", () => {
       close: () => {},
       send: message => {
         const request = JSON.parse(message) as { id: number; params: { expression: string } };
+        // The hand-over for the quit installs the build ahead of the click (#2194) and answers, awaited like
+        // CDP's awaitPromise; only the click's apply quits the window, in either order with its reply.
+        let quits = false;
         const value: unknown = runInNewContext(request.params.expression, {
           window: { desktopShell: { update: { apply: async (...args: unknown[]) => {
             applied.push(args);
+            if (args[1] !== "now") return { outcome: "applied" };
+            quits = true;
             if (first === "disconnect") peer.onclose?.();
             return { outcome: "applied" };
           } } } },
         });
-        if (first === "reply") {
-          peer.onmessage?.({ data: JSON.stringify({ id: request.id, result: { result: { value } } }) });
-          peer.onclose?.();
-        }
+        void Promise.resolve(value).then(result => {
+          if (!quits) {
+            peer.onmessage?.({ data: JSON.stringify({ id: request.id, result: { result: { value: result } } }) });
+            return;
+          }
+          if (first === "reply") {
+            peer.onmessage?.({ data: JSON.stringify({ id: request.id, result: { result: { value: result } } }) });
+            peer.onclose?.();
+          }
+        });
       },
     };
     await restartPackagedDesktop(createCdpEvaluator(peer).evaluate, staged);
-    expect(applied).toEqual([[staged, "now"]]);
+    expect(applied).toEqual([[staged, "quit"], [staged, "now"]]);
   });
 
   const replacedPage = (unavailable: boolean, message = "Stored credentials from the previous build could not be read", repairWorks = true) => {
