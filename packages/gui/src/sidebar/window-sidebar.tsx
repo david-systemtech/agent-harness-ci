@@ -1,6 +1,6 @@
 import { usePhoneFrame } from "../frame/phone-frame.js";
 import type { SessionRow } from "@agent-harness/client-runtime";
-import { createContext, use, useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
+import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { usePresentation } from "../window-context.js";
 
 /**
@@ -22,9 +22,11 @@ interface WindowSidebar {
   readonly searchShown: boolean;
   setSearchShown(shown: boolean): void;
   setFilterFocus(focus: boolean): void;
-  /** The row being dragged from the sidebar; null while none is. */
+  /** The row being dragged from the sidebar, as drawn; null while none is. */
   readonly dragged: SessionRow | null;
   setDragged(row: SessionRow | null): void;
+  /** The row being dragged now, before the window has drawn it so. */
+  draggedNow(): SessionRow | null;
 }
 
 const WindowSidebarContext = createContext<WindowSidebar | null>(null);
@@ -33,8 +35,26 @@ export const WindowSidebarProvider = ({ children }: { readonly children: ReactNo
   const [filter, setFilter] = useState("");
   const [filterFocus, setFilterFocus] = useState(false);
   const [searchShown, setSearchShown] = useState(false);
-  const [dragged, setDragged] = useState<SessionRow | null>(null);
-  const held = useMemo(() => ({ filter, setFilter, filterFocus, setFilterFocus, searchShown, setSearchShown, dragged, setDragged }), [filter, filterFocus, searchShown, dragged]);
+  const [dragged, drawDragged] = useState<SessionRow | null>(null);
+  const now = useRef<SessionRow | null>(null);
+  const starting = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // A drag is drawn (the pinned block, the panes' drop targets) only after
+  // its dragstart has been dispatched: Chromium ends a native drag at once
+  // when the page re-lays out under its source during dragstart, so no drop
+  // would ever fire (#2204). Drop handlers read `draggedNow` meanwhile.
+  const setDragged = useCallback((row: SessionRow | null) => {
+    now.current = row;
+    clearTimeout(starting.current);
+    starting.current = undefined;
+    if (row === null) return drawDragged(null);
+    starting.current = setTimeout(() => {
+      starting.current = undefined;
+      drawDragged(now.current);
+    }, 0);
+  }, []);
+  const draggedNow = useCallback(() => now.current, []);
+  useEffect(() => () => clearTimeout(starting.current), []);
+  const held = useMemo(() => ({ filter, setFilter, filterFocus, setFilterFocus, searchShown, setSearchShown, dragged, setDragged, draggedNow }), [filter, filterFocus, searchShown, dragged, setDragged, draggedNow]);
   return <WindowSidebarContext value={held}>{children}</WindowSidebarContext>;
 };
 
@@ -79,8 +99,12 @@ export const useFilterFocus = (field: RefObject<HTMLInputElement | null>): void 
   }, [field, filterFocus, setFilterFocus]);
 };
 
-/** The row being dragged from the sidebar (null while none is), and the setter that starts or ends a drag. */
-export const useDraggedRow = (): readonly [SessionRow | null, (row: SessionRow | null) => void] => {
-  const { dragged, setDragged } = useWindowSidebar();
-  return [dragged, setDragged];
+/**
+ * The row being dragged from the sidebar as drawn (null while none is), the
+ * setter that starts a drag (drawn once its dragstart is over) or ends one,
+ * and the row dragged now, drawn or not.
+ */
+export const useDraggedRow = (): readonly [SessionRow | null, (row: SessionRow | null) => void, () => SessionRow | null] => {
+  const { dragged, setDragged, draggedNow } = useWindowSidebar();
+  return [dragged, setDragged, draggedNow];
 };

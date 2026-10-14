@@ -31,6 +31,7 @@ export const useDragRow = (row: SessionRow) => {
     onDragStart: (event: DragEvent) => {
       event.dataTransfer.setData(SESSION_DRAG_TYPE, JSON.stringify({ environmentId: row.environmentId, sessionId: row.summary.id }));
       event.dataTransfer.effectAllowed = "move";
+      // Drawn after this event, so the row stays put under the pointer while Chromium starts the drag (#2204).
       setDragged(row);
     },
     onDragEnd: () => setDragged(null),
@@ -41,11 +42,12 @@ export const useDragRow = (row: SessionRow) => {
 export const useDropTarget = (target: DropTarget) => {
   const runtime = useRuntime();
   const organise = useOrganise();
-  const [dragged, setDragged] = useDraggedRow();
+  const [, setDragged, draggedNow] = useDraggedRow();
   const [over, setOver] = useState(false);
 
   /** The dragged session as the list holds it now, and what dropping it here does; null while no session is dragged. */
   const planned = () => {
+    const dragged = draggedNow();
     if (dragged === null) return null;
     const row = runtime.projections.sessionList.read().rows.find((held) => rowKey(held) === rowKey(dragged)) ?? dragged;
     return { row, plan: dropOnto(row, target) };

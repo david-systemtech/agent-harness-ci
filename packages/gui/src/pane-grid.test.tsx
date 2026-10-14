@@ -67,11 +67,12 @@ const dataTransfer = () => {
  * Drags the sidebar's row `title` onto the target `zone` over `pane` ("Open here", "Open to the right", "Open below"),
  * which a pane grows while a session is dragged, and drops it; answers whether the drop was taken, as the pointer shows it.
  */
-const dropOn = (title: string, pane: () => HTMLElement, zone: string): boolean => {
+const dropOn = async (title: string, pane: () => HTMLElement, zone: string): Promise<boolean> => {
   const from = row(title);
   const carried = dataTransfer();
   fireEvent.dragStart(from, { dataTransfer: carried });
-  const onto = within(pane().closest("[data-panel]") as HTMLElement).getByLabelText(zone);
+  // The drop targets are drawn once dragstart is over, as in Chromium (#2204).
+  const onto = await within(pane().closest("[data-panel]") as HTMLElement).findByLabelText(zone);
   fireEvent.dragEnter(onto, { dataTransfer: carried });
   const taken = !fireEvent.dragOver(onto, { dataTransfer: carried });
   fireEvent.drop(onto, { dataTransfer: carried });
@@ -153,7 +154,7 @@ describe("the row's pixel floor", () => {
       await app.user.keyboard("{Escape}");
       await press(app, "{Control>}{Shift>}n{/Shift}{/Control}");
       expect(panes()).toHaveLength(2);
-      expect(dropOn("Fix the rail", () => paneOf("Train tidy"), "Open to the right")).toBe(false);
+      expect(await dropOn("Fix the rail", () => paneOf("Train tidy"), "Open to the right")).toBe(false);
       expect(panes()).toHaveLength(2);
       await press(app, SPLIT_DOWN);
       expect(panes()).toHaveLength(3);
@@ -177,8 +178,8 @@ describe("eight panes", () => {
     await press(app, SPLIT_DOWN);
     expect(panes()).toHaveLength(8);
 
-    expect(dropOn("Fix the rail", () => paneOf("Train tidy"), "Open to the right")).toBe(false);
-    expect(dropOn("Fix the rail", () => paneOf("Train tidy"), "Open below")).toBe(false);
+    expect(await dropOn("Fix the rail", () => paneOf("Train tidy"), "Open to the right")).toBe(false);
+    expect(await dropOn("Fix the rail", () => paneOf("Train tidy"), "Open below")).toBe(false);
     expect(panes()).toHaveLength(8);
     expect(gridLine()).toBe("The grid holds eight panes; close one first.");
 
@@ -190,7 +191,7 @@ describe("eight panes", () => {
     await app.user.keyboard("{Escape}");
 
     // Opening in a pane adds none: it is not refused.
-    expect(dropOn("Fix the rail", () => panes()[7] as HTMLElement, "Open here")).toBe(true);
+    expect(await dropOn("Fix the rail", () => panes()[7] as HTMLElement, "Open here")).toBe(true);
     await waitFor(() => expect(grid().flat()).toContain("*Fix the rail"));
     expect(panes()).toHaveLength(8);
 
@@ -208,23 +209,69 @@ describe("a session dragged onto the grid", () => {
     await press(app, SPLIT_RIGHT);
     expect(grid()).toEqual([["Train tidy", "*·"]]);
 
-    expect(dropOn("Fix the rail", () => paneOf("·"), "Open here")).toBe(true);
+    expect(await dropOn("Fix the rail", () => paneOf("·"), "Open here")).toBe(true);
     await waitFor(() => expect(grid()).toEqual([["Train tidy", "*Fix the rail"]]));
 
-    expect(dropOn("Brand copy", () => paneOf("Train tidy"), "Open below")).toBe(true);
+    expect(await dropOn("Brand copy", () => paneOf("Train tidy"), "Open below")).toBe(true);
     await waitFor(() => expect(grid()).toEqual([["Train tidy", "Fix the rail"], ["*Brand copy"]]));
 
-    expect(dropOn("Spare", () => paneOf("Train tidy"), "Open to the right")).toBe(true);
+    expect(await dropOn("Spare", () => paneOf("Train tidy"), "Open to the right")).toBe(true);
     await waitFor(() => expect(grid()).toEqual([["Train tidy", "*Spare", "Fix the rail"], ["Brand copy"]]));
 
     // A session shows in one pane at a time.
-    expect(dropOn("Train tidy", () => paneOf("Brand copy"), "Open here")).toBe(true);
+    expect(await dropOn("Train tidy", () => paneOf("Brand copy"), "Open here")).toBe(true);
     await waitFor(() => expect(grid()).toEqual([["*Train tidy", "Spare", "Fix the rail"], ["Brand copy"]]));
-    expect(dropOn("Fix the rail", () => paneOf("Brand copy"), "Open to the right")).toBe(true);
+    expect(await dropOn("Fix the rail", () => paneOf("Brand copy"), "Open to the right")).toBe(true);
     await waitFor(() => expect(grid()).toEqual([["Train tidy", "Spare", "*Fix the rail"], ["Brand copy"]]));
     await app.user.click(row("Spare"));
     await waitFor(() => expect(grid()).toEqual([["Train tidy", "*Spare", "Fix the rail"], ["Brand copy"]]));
     // Nothing covers the panes once the drag is over.
+    expect(screen.queryByLabelText("Open here")).toBeNull();
+  });
+});
+
+describe("a closed session dragged from the sidebar into the main area", () => {
+  it("opens at the centre of the one pane, and beside it at its edge, while the grid shows another session", async () => {
+    await withTrain();
+    expect(grid()).toEqual([["*Train tidy"]]);
+
+    expect(await dropOn("Fix the rail", () => paneOf("Train tidy"), "Open to the right")).toBe(true);
+    await waitFor(() => expect(grid()).toEqual([["Train tidy", "*Fix the rail"]]));
+
+    expect(await dropOn("Brand copy", () => paneOf("Fix the rail"), "Open here")).toBe(true);
+    await waitFor(() => expect(grid()).toEqual([["Train tidy", "*Brand copy"]]));
+    expect(screen.queryByLabelText("Open here")).toBeNull();
+  });
+});
+
+describe("a session row dragged from the sidebar", () => {
+  it("keeps its node through dragstart: nothing above it is drawn in the same task, and a closed session dropped on a pane opens there", async () => {
+    // Nothing pinned, so a drag draws the empty pinned block above the rows.
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Loose" }, { title: "Shown" }] }] });
+    await settled(app, "Loose");
+    await app.user.click(row("Shown"));
+    await within(paneOf("Shown")).findByRole("region", { name: "Transcript" });
+    const from = row("Loose");
+    const line = from.closest("li") as HTMLElement;
+    const list = from.closest("[data-sidebar-scroll]") as HTMLElement;
+    const before = [...list.querySelectorAll("*")];
+    const carried = dataTransfer();
+    fireEvent.dragStart(from, { dataTransfer: carried });
+    // Chromium ends a drag at once when the page changes under its source while dragstart is dispatched, and no drop fires.
+    expect([...list.querySelectorAll("*")]).toEqual(before);
+    expect(screen.queryByLabelText("Open here")).toBeNull();
+    const pinned = await within(sidebar()).findByText("Pinned: drop here to pin it.");
+    expect(from.isConnected).toBe(true);
+    expect(row("Loose")).toBe(from);
+    expect(from.closest("li")).toBe(line);
+    expect(pinned.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const onto = within(paneOf("Shown").closest("[data-panel]") as HTMLElement).getByLabelText("Open here");
+    fireEvent.dragEnter(onto, { dataTransfer: carried });
+    expect(fireEvent.dragOver(onto, { dataTransfer: carried })).toBe(false);
+    fireEvent.drop(onto, { dataTransfer: carried });
+    fireEvent.dragEnd(from, { dataTransfer: carried });
+    await waitFor(() => expect(grid()).toEqual([["*Loose"]]));
+    expect(within(sidebar()).queryByText("Pinned: drop here to pin it.")).toBeNull();
     expect(screen.queryByLabelText("Open here")).toBeNull();
   });
 });

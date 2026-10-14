@@ -44,7 +44,8 @@ export const useMeasureGridRow = (rowId: string): RefCallback<HTMLDivElement> =>
   const measure = sizes?.measure;
   return useCallback(node => {
     if (node === null || measure === undefined) return;
-    const update = () => measure(rowId, node.offsetWidth);
+    // A row not laid out yet (0) is unmeasured, so it refuses no pane.
+    const update = () => measure(rowId, node.offsetWidth > 0 ? node.offsetWidth : undefined);
     update();
     const observer = new ResizeObserver(update);
     observer.observe(node);
