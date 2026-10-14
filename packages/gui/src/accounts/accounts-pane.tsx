@@ -1,6 +1,6 @@
 import { SettingsCardGrid } from "../settings/part.js";
 import { AccessUnavailable } from "../connections/limited-access.js";
-import { clockTime, emailLabel, nameProblem, newAccountLabel, relabelAccount, uuidv7, type AccountOutcome, type EnvironmentView, type Runtime } from "@agent-harness/client-runtime";
+import { CODEX_PROVIDER, clockTime, emailLabel, runsSessions, nameProblem, newAccountLabel, relabelAccount, uuidv7, type AccountOutcome, type EnvironmentView, type Runtime } from "@agent-harness/client-runtime";
 import { settingsRow, type AccountIdentity, type AccountRecord } from "@agent-harness/contracts";
 import { Plus, RotateCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -12,7 +12,7 @@ import { CopyLine } from "../settings/copy-line.js";
 import { AccountAction } from "./action.js";
 import { useClock, useFollowed, useObservable, useRuntime, useShell } from "../window-context.js";
 import { AccountCard } from "./account-card.js";
-import { SignInQuestion } from "./adopt-offer.js";
+import { CodexQuestion, SignInQuestion } from "./adopt-offer.js";
 import { ConfirmRemove } from "./confirm-remove.js";
 import { SignInCard } from "./sign-in-card.js";
 import { Input } from "../ui/index.js";
@@ -29,6 +29,8 @@ type Opening = {
   readonly label?: string;
   readonly nameByEmail?: boolean;
   readonly suggestion?: { readonly label: string; readonly email: string };
+  /** The provider a new account is added on: `codex` for Add a Codex account (#2169); absent for Claude. */
+  readonly provider?: string;
 };
 
 /** The sign-in card the pane has open, keyed so another replaces it whole; `succeeded`, the line its Done will say once its sign-in has. */
@@ -172,6 +174,8 @@ export const AccountsList = ({ view, label = "", labelTaken, nameRequired, inlin
     signIn({ account: null, label: typed === "" ? newAccountLabel(accounts ?? []) : typed, nameByEmail: typed === "" });
     if (typed !== "") labelTaken?.();
   };
+  // A new Codex account (#2169) is named `Codex account` until it signs in, then by its email.
+  const signInCodex = () => signIn({ account: null, label: newAccountLabel(accounts ?? [], CODEX_PROVIDER), nameByEmail: true, provider: CODEX_PROVIDER });
   const adopted = (outcome: AccountOutcome) => {
     if (outcome.needsName) nameRequired?.();
     if (outcome.ok) labelTaken?.();
@@ -183,11 +187,12 @@ export const AccountsList = ({ view, label = "", labelTaken, nameRequired, inlin
       {!ready && <p className="text-sm text-amber">{unreachedLine(runtime, view, accounts !== null)}</p>}
       {ready && admin.status === "absent" && <AccessUnavailable environmentId={view.environmentId} answer={admin}><p data-phone-grant-guidance={shell === undefined || undefined} className="text-sm text-amber">You can look but not change this. {admin.message}{shell === undefined && " Pair again using a Custom code with admin from a trusted client to sign in or change environment settings."}</p></AccessUnavailable>}
       {ready && <SignInQuestion environmentId={environmentId} computer={computerOf(view)} writable={writable} {...(held ? { held: SIGN_IN_HELD } : {})} label={label.trim()} signIn={signInNew} say={adopted} />}
+      {ready && <CodexQuestion environmentId={environmentId} computer={computerOf(view)} writable={writable} {...(held ? { held: SIGN_IN_HELD } : {})} label={label.trim()} signIn={signInCodex} say={adopted} />}
       {accounts !== null && environments.filter(source => source.environmentId !== environmentId && source.enabled).map(source => (
         <AccountsElsewhere key={source.environmentId} source={source} here={accounts} disabled={!writable || held}
           suggest={(suggestion) => signIn({ account: null, suggestion })} />
       ))}
-      {signing !== undefined && <SignInCard key={signing.key} nameByEmail={signing.nameByEmail === true} {...(signing.suggestion === undefined ? {} : { suggestion: signing.suggestion })} {...(signing.label === undefined ? {} : { label: signing.label })} inline={inlineSignIn} environmentId={environmentId} account={signing.account} close={() => setSigning(undefined)}
+      {signing !== undefined && <SignInCard key={signing.key} nameByEmail={signing.nameByEmail === true} {...(signing.suggestion === undefined ? {} : { suggestion: signing.suggestion })} {...(signing.label === undefined ? {} : { label: signing.label })} {...(signing.provider === undefined ? {} : { provider: signing.provider })} inline={inlineSignIn} environmentId={environmentId} account={signing.account} close={() => setSigning(undefined)}
         succeeded={(line) => setSigning((open) => open?.key === signing.key ? { ...open, succeeded: line } : open)} say={say} />}
       {said !== undefined && <SaidLine said={said} />}
       {accounts === null
@@ -198,7 +203,7 @@ export const AccountsList = ({ view, label = "", labelTaken, nameRequired, inlin
               <AccountAction icon={RotateCw} variant="outline" className="self-start" onClick={() => runtime.requests.refresh(environmentId, "accounts.list", {})}>Check again</AccountAction>
             </>)
         : accounts.length > 0 && <SettingsCardGrid>{accounts.map((account) => (
-            <AccountCard selected={values !== null && account.id === (values["accounts.defaultAccount"] ?? accounts[0]?.id)} key={account.id} environmentId={environmentId} account={account} gauges={gauges} writable={writable} signIn={() => signIn({ account })} {...(held ? { signInHeld: SIGN_IN_HELD } : {})} remove={() => remove(account)} say={setSaid} />
+            <AccountCard selected={values !== null && runsSessions(account) && account.id === (values["accounts.defaultAccount"] ?? accounts.find(runsSessions)?.id)} key={account.id} environmentId={environmentId} account={account} gauges={gauges} writable={writable} signIn={() => signIn({ account })} {...(held ? { signInHeld: SIGN_IN_HELD } : {})} remove={() => remove(account)} say={setSaid} />
           ))}</SettingsCardGrid>}
       {removing !== undefined && <ConfirmRemove environmentId={environmentId} computer={computerOf(view)} account={removing} close={() => remove(undefined)} say={setSaid} />}
     </>

@@ -131,6 +131,30 @@ describe("/account", () => {
     expect(env.requests("setup.check").every((r) => r.params.step === "account")).toBe(true);
   });
 
+  it("adds a Codex account: accounts.add with provider codex, the page and the code to enter, no code taken back; a Codex account is no session's account (#2169)", async () => {
+    const { app, env } = await launch([desk({ accounts: [{ id: "account-1", label: "work", identity: MILO }, { id: "account-2", label: "personal", identity: HOME }, { id: "account-3", label: "codex home", provider: "codex" }] })]);
+    await command(app, "/account");
+    await app.waitFor("+ Add a Codex account");
+    expect(app.frame()).not.toContain("codex home");
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.waitFor("Add a Codex account on desk");
+    await app.type("side");
+    await app.press(KEY.enter);
+    await app.waitFor("Starting the sign-in");
+    expect(env.requests("accounts.add").map((r) => r.params)).toEqual([expect.objectContaining({ label: "side", provider: "codex" })]);
+
+    env.signIn("awaiting-code", { url: "https://auth.openai.com/codex/device", userCode: "ABCD-EFGHJ" });
+    await app.waitFor("ABCD-EFGHJ");
+    expect(app.frame()).toContain("https://auth.openai.com/codex/device");
+    expect(app.frame()).not.toContain("Then paste the code it shows:");
+    await app.paste("abc-123");
+    await app.press(KEY.enter);
+    expect(env.requests("accounts.signin.code")).toHaveLength(0);
+
+    env.signIn("done");
+    await app.waitFor("side is signed in.");
+  });
+
   it("says a sign-in that failed, expired or was cancelled in one line each, in setup-copy.md §5.2's words", async () => {
     for (const [state, line, cause] of [
       ["failed", "The sign-in did not finish.", undefined],

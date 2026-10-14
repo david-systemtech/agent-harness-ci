@@ -228,6 +228,13 @@ quoted from the files named; a builder greps for them.
   - When Claude Code is here but signed out: line `Claude Code is on this computer but not signed in. Sign in below instead.`
   - Always: **Sign in with Claude** (opens §5.2 with the label taken from the email after sign-in; "Label for the new account" moves to More options).
   - Another computer's account: `{email} is signed in on {computer}. Each computer signs in on its own.` **Sign in here too**.
+- Codex, under the question (#2169), heading `Codex`, hint `Codex accounts are used inside Claude runs.`; shown once the environment's
+  `accounts.probe {provider: "codex"}` answers (an environment without Codex shows none of it):
+  - When Codex on this computer is signed in and no account holds it: line `Use the Codex sign-in on {computer} ({email}).` with
+    **Use this Codex sign-in** (`accounts.adopt`, provider `codex`); signed out: `Codex is on {computer} but not signed in. Sign in below instead.`
+  - Always: **Add a Codex account** (opens §5.2 on a new account `Codex account` (`Codex account 2`, …), named by its email once signed in).
+  - A Codex account's row names `Codex` beside its label, with `Codex accounts are used inside Claude runs.`; it is never marked
+    `Default`, never offered as the default account or a session's account, and does not count towards Continue.
 - Account rows: label, email, `Signed in` / `Signed out` / `Sign-in ran out`; buttons **Sign in again**, and in More options **Rename**, **Remove…**.
   The folder path and the plan readings are in Details.
 - After the first sign-in: `New sessions will use {model name} with high effort. You can change this in Settings.` The default
@@ -278,6 +285,10 @@ quoted from the files named; a builder greps for them.
 - Time: `{m} min left` (muted); at 1 min `Less than a minute left.`
 - The terminal command moves to fold `Sign in from a terminal instead` with its Copy.
 - The full URL is never shown as text (Copy link and Details only).
+- Codex (#2169): title `Add a Codex account on {name}`, then `Sign in to Codex` (`Sign in to Codex on {name}`). Its device sign-in shows
+  `Open the link and enter this code: {code}` with **Open the sign-in page** · **Copy code** · **Copy link**, then
+  `Sign in to Codex there. This finishes by itself once the code is entered.` No code field, no **Paste from clipboard**, no **Sign in**:
+  the card waits for the sign-in to end. Details: `Waiting for the code to be entered on the Codex page.`, the page and the code.
 
 | Old | New |
 | --- | --- |

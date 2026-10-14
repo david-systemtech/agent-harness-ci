@@ -181,6 +181,51 @@ describe("Accounts", () => {
     expect(within(work).queryByText("Default")).toBeNull();
   });
 
+  it("never marks a Codex account as the default: its card names Codex and says it is used inside Claude runs (ticket 2169)", async () => {
+    const app = await opened({ desk: { accounts: [{ label: "codex", provider: "codex" }, { label: "work" }], settings: { "accounts.defaultAccount": "account-1" } } });
+    const accounts = await openRow(app, "Accounts");
+    const codex = await within(accounts).findByRole("region", { name: /^codex/ });
+    const work = within(accounts).getByRole("region", { name: "work" });
+    expect(within(codex).getByText("Codex")).toBeDefined();
+    expect(within(codex).getByText("Codex accounts are used inside Claude runs.")).toBeDefined();
+    expect(within(codex).queryByText("Default")).toBeNull();
+    expect(codex.hasAttribute("data-default-account")).toBe(false);
+    expect(within(work).queryByText("Codex")).toBeNull();
+    app.environment("desk").setSettings({ "accounts.defaultAccount": null });
+    await within(work).findByText("Default");
+    expect(within(codex).queryByText("Default")).toBeNull();
+  });
+
+  it("offers Codex beside Claude: uses this computer's Codex sign-in with accounts.adopt, and adds a Codex account whose device sign-in shows the code to enter and takes no code back (ticket 2169)", async () => {
+    const app = await opened({ desk: { codexAmbient: { present: true, signedIn: true, identity: { provider: "codex", email: "milo@codex.test", organisation: null } } } });
+    const desk = app.environment("desk");
+    const accounts = await openRow(app, "Accounts");
+    const codex = await within(accounts).findByRole("group", { name: "Codex" });
+    expect(within(codex).getByText("Use the Codex sign-in on this computer (milo@codex.test).")).toBeDefined();
+    // Claude's question comes first, unchanged.
+    expect(within(question(accounts)).getByRole("button", { name: "Sign in with Claude" })).toBeDefined();
+    await app.user.click(within(codex).getByRole("button", { name: "Use this Codex sign-in" }));
+    await waitFor(() => expect(desk.requests("accounts.adopt").map((request) => request.params)).toEqual([expect.objectContaining({ provider: "codex" })]));
+    const adopted = await within(accounts).findByRole("region", { name: /^milo@codex\.test/ });
+    expect(within(adopted).getByText("Codex")).toBeDefined();
+    await waitFor(() => expect(within(codex).queryByRole("button", { name: "Use this Codex sign-in" })).toBeNull());
+
+    await app.user.click(within(codex).getByRole("button", { name: "Add a Codex account" }));
+    const signing = await screen.findByRole("region", { name: "Sign in to Codex" });
+    expect(desk.requests("accounts.add").map((request) => request.params)).toEqual([expect.objectContaining({ provider: "codex", label: "Codex account", nameByEmail: true })]);
+    desk.signIn("awaiting-code", { url: "https://auth.openai.com/codex/device", userCode: "ABCD-EFGHJ" });
+    expect(await within(signing).findByText("ABCD-EFGHJ")).toBeDefined();
+    expect(within(signing).getByText(/Open the link and enter this code/)).toBeDefined();
+    expect(within(signing).queryByRole("link", { name: "Open the sign-in page" }) ?? within(signing).queryByRole("button", { name: "Open the sign-in page" })).not.toBeNull();
+    expect(within(signing).getByRole("button", { name: "Copy the code" })).toBeDefined();
+    expect(within(signing).queryByRole("textbox", { name: "Code" })).toBeNull();
+    expect(within(signing).queryByRole("button", { name: "Paste from clipboard" })).toBeNull();
+    expect(within(signing).queryByRole("button", { name: "Sign in" })).toBeNull();
+    desk.signIn("done");
+    expect(await within(accounts).findByText("Codex account is signed in.")).toBeDefined();
+    expect(desk.requests("accounts.signin.code")).toHaveLength(0);
+  });
+
   it("offers this computer's Claude Code sign-in from accounts.probe, pre-selected, uses it with accounts.adopt, and says a refusal in one line, its raw words under Details", async () => {
     const app = await opened({ desk: { accounts: [{ label: "milo@example.test", directory: { kind: "owned", path: "/home/milo/.agent-harness/accounts/1" } }], ambient: { present: true, signedIn: true, identity: MILO } } });
     const desk = app.environment("desk");

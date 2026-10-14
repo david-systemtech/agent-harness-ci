@@ -1,5 +1,5 @@
-import { adoptAccount, ambientSignIn, uuidv7, type AccountOutcome } from "@agent-harness/client-runtime";
-import { KeyRound, LogIn } from "lucide-react";
+import { CODEX_IN_CLAUDE_RUNS, CODEX_PROVIDER, adoptAccount, ambientSignIn, uuidv7, type AccountOutcome } from "@agent-harness/client-runtime";
+import { KeyRound, LogIn, SquareTerminal } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { RadioGroup, RadioGroupItem, Tooltip } from "../ui/index.js";
 import { AccountAction } from "./action.js";
@@ -94,3 +94,56 @@ const Choice = ({ value, label, selected }: { readonly value: Answer; readonly l
     <span className="min-w-0 text-sm text-ink">{label}</span>
   </label>
 );
+
+/** The params `accounts.probe` reads Codex's own sign-in with: a constant, so the request cache keeps one entry. */
+const CODEX_PROBE = { provider: CODEX_PROVIDER } as const;
+
+/**
+ * Codex beside Claude (#2169): shown once the environment's `accounts.probe`
+ * answers for Codex (an environment that does not know Codex shows nothing).
+ * While Codex on this computer is signed in and no account holds it, Use
+ * this Codex sign-in sends `accounts.adopt` with provider `codex`; while it
+ * is here but signed out, a line says so. Add a Codex account, always there,
+ * opens the sign-in card on a new Codex account (`accounts.add` with provider
+ * `codex`), whose device sign-in shows a code to enter on the Codex page.
+ */
+export const CodexQuestion = ({ environmentId, computer, writable, held, label, signIn, say }: SignInQuestionProps) => {
+  const runtime = useRuntime();
+  const clock = useClock();
+  const heading = useId();
+  const why = useId();
+  const probed = runtime.capability(environmentId, "accounts.probe").status === "present";
+  const probe = useFollowed(useMemo(() => (probed ? runtime.requests.cached(environmentId, "accounts.probe", CODEX_PROBE) : undefined), [runtime, environmentId, probed]))?.result;
+  const [sending, setSending] = useState(false);
+  if (probe?.provider !== CODEX_PROVIDER) return null;
+  const ambient = ambientSignIn(probe, computer);
+  const offer = ambient?.kind === "offer" ? ambient.choice : undefined;
+  const waits = { disabled: !writable || held !== undefined, ...(held === undefined ? {} : { "aria-describedby": why }) };
+  const adopt = () => {
+    setSending(true);
+    void adoptAccount(runtime, environmentId, label, uuidv7(clock.now()), CODEX_PROVIDER).then((adopted) => {
+      setSending(false);
+      say(adopted);
+    });
+  };
+  return (
+    <section role="group" aria-labelledby={heading} data-codex-accounts className="flex flex-col gap-2">
+      <h3 id={heading} className="text-sm font-medium text-ink">
+        Codex
+      </h3>
+      <p className="text-2xs text-ink-faint">{CODEX_IN_CLAUDE_RUNS}</p>
+      {ambient !== undefined && <p className="text-sm text-ink-muted">{ambient.kind === "offer" ? `${offer}.` : ambient.line}</p>}
+      <div className="flex flex-wrap gap-2">
+        {offer !== undefined && (
+          <AccountAction icon={KeyRound} variant="outline" {...waits} disabled={waits.disabled || sending} onClick={adopt}>
+            Use this Codex sign-in
+          </AccountAction>
+        )}
+        <AccountAction icon={SquareTerminal} variant="outline" {...waits} onClick={signIn}>
+          Add a Codex account
+        </AccountAction>
+      </div>
+      {held !== undefined && <p id={why} className="text-2xs text-ink-muted">{held}</p>}
+    </section>
+  );
+};

@@ -12,9 +12,24 @@ import { clockTime, whenWords } from "../transcript/format.js";
  * choices of the Account step's defaults, and a pooled gauge's parts. Pure.
  */
 
+/** The provider whose accounts are only a home other runs are handed (#2169): it signs in and is adopted, but runs no session until its adapter comes (#2170). */
+export const CODEX_PROVIDER = "codex";
+
+/** A provider as a person reads it: Claude, Codex, else its id. */
+export const providerName = (provider: string): string => (provider === "claude" ? "Claude" : provider === CODEX_PROVIDER ? "Codex" : provider);
+
+/** The provider's own CLI as a line names it: Claude Code, Codex, else its id. */
+export const providerToolName = (provider: string): string => (provider === "claude" ? "Claude Code" : providerName(provider));
+
+/** Whether an account can run a session, so a session's account and the default account can name it: not a Codex account (#2169). */
+export const runsSessions = (account: Pick<AccountRecord, "provider">): boolean => account.provider !== CODEX_PROVIDER;
+
+/** Why a Codex account is never a session's account nor the default (#2169). */
+export const CODEX_IN_CLAUDE_RUNS = "Codex accounts are used inside Claude runs.";
+
 /** An account's folder, for its Details (setup-copy.md §5.1): where it is, and whose it is. */
-export const directoryWords = (account: Pick<AccountRecord, "directory">): string =>
-  `Folder: ${account.directory.path} (${account.directory.kind === "adopted" ? "Claude Code's own, used in place" : "made by agent-harness"})`;
+export const directoryWords = (account: Pick<AccountRecord, "directory"> & { readonly provider?: string }): string =>
+  `Folder: ${account.directory.path} (${account.directory.kind === "adopted" ? `${providerToolName(account.provider ?? "claude")}'s own, used in place` : "made by agent-harness"})`;
 
 /** An account's state as its row says it (setup-copy.md §5.1); an unreadable read's error is for Details. */
 const ACCOUNT_STATE_WORDS: Readonly<Record<AccountRecord["status"]["state"], string>> = {
@@ -43,9 +58,10 @@ export type AmbientSignIn = { readonly kind: "offer"; readonly choice: string } 
  */
 export const ambientSignIn = (probe: AmbientProbe | null | undefined, computer: string): AmbientSignIn | undefined => {
   if (!probe || probe.directory === null || !probe.present || probe.accountId !== null) return undefined;
-  if (!probe.signedIn) return { kind: "signed-out", line: `Claude Code is on ${computer} but not signed in. Sign in below instead.` };
+  const tool = providerToolName(probe.provider);
+  if (!probe.signedIn) return { kind: "signed-out", line: `${tool} is on ${computer} but not signed in. Sign in below instead.` };
   const email = probe.identity?.email;
-  return { kind: "offer", choice: `Use the Claude Code sign-in on ${computer}${email === undefined ? "" : ` (${email})`}` };
+  return { kind: "offer", choice: `Use the ${tool} sign-in on ${computer}${email === undefined ? "" : ` (${email})`}` };
 };
 
 /** What removing an account leaves, as the confirmation says it, with no folder path (ADR 0018: Claude Code's own folder is never touched). */

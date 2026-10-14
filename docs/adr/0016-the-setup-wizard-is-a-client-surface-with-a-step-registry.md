@@ -14,6 +14,6 @@ Decided 2026-09-23 on the map ticket "Decision: the setup wizard as a first-clas
 
 ## Consequences
 
-- Milestone 1 steps, in order: Account; Carry over; Your machines; Memory bank; Skills; Key manager; Instructions; Browser (skippable); Permissions; Appearance. Codex and local-model parts of Account and Carry over arrive with their adapters.
+- Milestone 1 steps, in order: Account; Carry over; Your machines; Memory bank; Skills; Key manager; Instructions; Browser (skippable); Permissions; Appearance. Codex and local-model parts of Account and Carry over arrive with their adapters; Account's Codex part came first (#2169): it adopts or adds a Codex account beside Claude's, which Claude runs are handed until Codex's adapter runs sessions (#2170), so a Codex account does not satisfy the step.
 - A wizard step never holds a fact the orientation block renders: it writes the setting, and the block says what is true.
 - A shortened "what's new" checklist offered after a feature update is on the roadmap; the full checklist, re-runnable, serves until then.

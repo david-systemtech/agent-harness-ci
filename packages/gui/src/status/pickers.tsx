@@ -9,6 +9,7 @@ import {
   modelChoiceWarning,
   modelChoiceWords,
   modelsOf,
+  runsSessions,
   sessionModeOf,
   setSessionContainment,
   setSessionMode,
@@ -205,8 +206,14 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
   const runtime = useRuntime();
   const environments = useObservable(runtime.projections.environments);
   const environment = environments.find((view) => view.environmentId === environmentId);
-  const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId]));
-  const catalogues = useObservable(useMemo(() => runtime.projections.models(environmentId), [runtime, environmentId]));
+  const listed = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId]));
+  // A Codex account runs no session (#2169): it is used inside Claude runs, so it is never a session's account.
+  const accounts = useMemo(() => ({ ...listed, value: listed.value === null ? null : listed.value.filter(runsSessions) }), [listed]);
+  const listedModels = useObservable(useMemo(() => runtime.projections.models(environmentId), [runtime, environmentId]));
+  const catalogues = useMemo(() => {
+    const codex = new Set((listed.value ?? []).filter((account) => !runsSessions(account)).map((account) => account.id));
+    return { ...listedModels, value: listedModels.value === null ? null : listedModels.value.filter((catalogue) => !codex.has(catalogue.accountId)) };
+  }, [listed, listedModels]);
   const runs = useObservable(useMemo(() => runtime.projections.runs.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const listingModels = useOffer(environmentId, "models.list");
   const listingAccounts = useOffer(environmentId, "accounts.list");

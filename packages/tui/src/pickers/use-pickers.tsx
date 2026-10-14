@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import {
   BETWEEN_ENVIRONMENTS,
+  CODEX_PROVIDER,
   addAccount as addAccountOn,
   cancelSignIn as cancelSignInOn,
   describeKey,
@@ -10,6 +11,7 @@ import {
   handedOffAlreadyWords,
   handingOffWords,
   labelProblem,
+  runsSessions,
   modelDisplayName,
   modelsOf,
   noKeysLine,
@@ -213,6 +215,8 @@ export const usePickers = (host: PickersHost): Pickers => {
   }, [runtime, kind, views, request]);
 
   const accountList = (): readonly AccountRecord[] => accounts?.read().value ?? [];
+  /** The accounts a session can run on: not a Codex account, which is used inside Claude runs (#2169). */
+  const sessionAccounts = (): readonly AccountRecord[] => accountList().filter(runsSessions);
 
   /** The sign-in the card follows: its account's, from when the card started it on (the runtime's rule, #402). */
   const followed = (card: Extract<Panel, { kind: "signin" }>) =>
@@ -256,7 +260,7 @@ export const usePickers = (host: PickersHost): Pickers => {
     const problem = labelProblem(label);
     if (problem !== undefined) return host.change((c) => (c.kind === "signin" ? { ...c, error: problem } : c));
     host.change((c) => (c.kind === "signin" ? { ...c, label, sending: "add", error: null } : c));
-    void addAccountOn(runtime, card.environmentId, label, host.newCommandId(), nameFor(card.environmentId)).then((added) => {
+    void addAccountOn(runtime, card.environmentId, label, host.newCommandId(), nameFor(card.environmentId), false, card.provider).then((added) => {
       if (added.kind === "refused") return host.change((c) => (c.kind === "signin" ? { ...c, sending: null, error: added.line } : c));
       void runtime.setup.check(card.environmentId, "account");
       if (added.kind === "added") {
@@ -359,10 +363,10 @@ export const usePickers = (host: PickersHost): Pickers => {
   const accountPanelRows = (card: Extract<Panel, { kind: "accounts" }>): readonly PanelRow[] =>
     (accounts?.read().value ?? null) === null
       ? []
-      : accountRows(accountList(), card.purpose, { environmentId: card.environmentId, usage: runtime.projections.usage.read(), sessionAccount: sessionAccount() });
+      : accountRows(sessionAccounts(), card.purpose, { environmentId: card.environmentId, usage: runtime.projections.usage.read(), sessionAccount: sessionAccount() });
 
   const accountCursor = (card: Extract<Panel, { kind: "accounts" }>): number =>
-    card.cursor ?? startingAccount(accountList(), card.purpose === "handoff" ? recommendation?.read().result?.accountId : undefined, sessionAccount());
+    card.cursor ?? startingAccount(sessionAccounts(), card.purpose === "handoff" ? recommendation?.read().result?.accountId : undefined, sessionAccount());
 
   const modelList = (card: Extract<Panel, { kind: "models" }>) => modelsOf(models?.read().value ?? [], card.accountId);
   /** The model and effort the session's next run goes out on: its own (#1961), else, from an environment that keeps none, the latest run's. */
@@ -592,7 +596,7 @@ export const usePickers = (host: PickersHost): Pickers => {
     choose(card) {
       switch (card.kind) {
         case "accounts": {
-          const list = accountList();
+          const list = sessionAccounts();
           const at = accountCursor(card);
           const account = list[at];
           if (account) {
@@ -600,16 +604,17 @@ export const usePickers = (host: PickersHost): Pickers => {
             if (account.status.state !== "signed-in") return startSignIn(card.environmentId, account);
             return handOff(card.environmentId, account);
           }
-          if (at !== list.length || accountPanelRows(card).length === 0) return;
+          const codex = card.purpose === "account" && at === list.length + 1;
+          if ((at !== list.length && !codex) || accountPanelRows(card).length === 0) return;
           if (card.purpose === "handoff") return host.say(`Not handed off: ${BETWEEN_ENVIRONMENTS}.`);
           const absent = lacking(card.environmentId, "accounts.add");
-          if (absent !== undefined) return host.say(`Cannot add an account on ${nameFor(card.environmentId)}: ${absent}`);
-          return host.open({ kind: "signin", environmentId: card.environmentId, label: "", accountId: null, startedAt: null, sending: null, text: "", error: null });
+          if (absent !== undefined) return host.say(`Cannot add ${codex ? "a Codex account" : "an account"} on ${nameFor(card.environmentId)}: ${absent}`);
+          return host.open({ kind: "signin", environmentId: card.environmentId, label: "", accountId: null, startedAt: null, sending: null, text: "", error: null, ...(codex && { provider: CODEX_PROVIDER }) });
         }
         case "signin":
           if (card.sending !== null) return;
           if (card.accountId === null) return addAccount(card);
-          if (followed(card)?.state === "awaiting-code") return sendCode(card);
+          if (followed(card)?.state === "awaiting-code" && followed(card)?.userCode == null) return sendCode(card);
           return;
         case "models": {
           if (!opened) return host.say("No session is open: a model rides a session's runs. /resume opens one, /new starts one.");
@@ -726,7 +731,7 @@ export const usePickers = (host: PickersHost): Pickers => {
     takesText(card) {
       if (card.kind === "settings") return card.edit?.kind === "text";
       if (card.kind !== "signin" || card.sending !== null) return false;
-      return card.accountId === null || followed(card)?.state === "awaiting-code";
+      return card.accountId === null || (followed(card)?.state === "awaiting-code" && followed(card)?.userCode == null);
     },
 
     typed(card, text) {
@@ -804,18 +809,21 @@ export const usePickers = (host: PickersHost): Pickers => {
           const lines: (readonly Span[])[] = [];
           if (card.accountId === null && card.sending === null) {
             return (
-              <LinesPanel title={`Add an account on ${name}`} hint={hint} lines={[[{ text: "The email it signs in as makes a good label.", dim: true }], ...(card.error ? [[{ text: card.error, color: TERMINAL_ROLES.danger }]] : [])]}>
+              <LinesPanel title={card.provider === CODEX_PROVIDER ? `Add a Codex account on ${name}` : `Add an account on ${name}`} hint={hint} lines={[[{ text: "The email it signs in as makes a good label.", dim: true }], ...(card.error ? [[{ text: card.error, color: TERMINAL_ROLES.danger }]] : [])]}>
                 <TypedLine prompt="Label for the new account:" text={card.text} />
               </LinesPanel>
             );
           }
           // The page stays in sight while a code is checked, so another code can follow a refused one.
-          if (held?.url != null && (held.state === "awaiting-code" || held.state === "submitting" || card.sending === "code")) {
+          // Codex's device flow (#2169): the code is entered on the page, so nothing is pasted back.
+          if (held?.url != null && held.userCode != null && held.state === "awaiting-code") {
+            lines.push([{ text: "Open this page and enter this code:" }], [{ text: held.url, color: TERMINAL_ROLES.machine }], [{ text: held.userCode, bold: true }], [], [{ text: "This finishes by itself once the code is entered.", dim: true }]);
+          } else if (held?.url != null && (held.state === "awaiting-code" || held.state === "submitting" || card.sending === "code")) {
             lines.push([{ text: "Open this page and sign in:" }], [{ text: held.url, color: TERMINAL_ROLES.machine }], []);
           }
           if (card.sending === "code" || held?.state === "submitting") lines.push([{ text: "Checking the code…", dim: true }]);
           else if (!held || held.state === "starting" || card.sending !== null) lines.push([{ text: "Starting the sign-in…", dim: true }]);
-          const typing = held?.state === "awaiting-code" && card.sending === null;
+          const typing = held?.state === "awaiting-code" && held.userCode == null && card.sending === null;
           const after: (readonly Span[])[] = [
             ...(card.error ? [[{ text: card.error, color: TERMINAL_ROLES.danger }]] : []),
             ...(held ? [[], [{ text: `Or run this in a terminal on ${name}'s machine:`, dim: true }], [{ text: fallbackOf(held, directory) }]] : []),
