@@ -90,6 +90,27 @@ describe("the release manifest", () => {
     expect(read.assets.map((asset) => asset.platform)).toContain("linux-arm64");
   });
 
+  it("keeps, on a desktop build, where the environment is inside it: the macOS zip's folder, and the Windows setup's payload and folder", () => {
+    const desktop = manifest.assets[3] as (typeof manifest.assets)[number];
+    const zip = { ...desktop, environment: { path: "agent-harness.app/Contents/Resources/server" } };
+    const setup = { ...desktop, name: "agent-harness-desktop-win32-x64-setup.exe", platform: "win32-x64", format: "nsis", environment: { payload: "app-64.7z", path: "resources/server" } };
+    const read = ReleaseManifest.parse({ ...manifest, assets: [zip, setup] });
+    expect(read.assets).toEqual([zip, setup]);
+  });
+
+  it("refuses a desktop build whose environment folder is not a relative path inside it: absolute, climbing out, with a backslash or an empty part", () => {
+    const desktop = manifest.assets[3] as (typeof manifest.assets)[number];
+    for (const path of ["/agent-harness.app/Contents/Resources/server", "../server", "agent-harness.app/../server", "resources\\server", "resources//server", "resources/server/", "", "./server"]) {
+      expect(ReleaseManifest.safeParse({ ...manifest, assets: [{ ...desktop, environment: { path } }] }).success, path).toBe(false);
+    }
+    expect(ReleaseManifest.safeParse({ ...manifest, assets: [{ ...desktop, environment: { payload: "", path: "resources/server" } }] }).success).toBe(false);
+  });
+
+  it("reads a manifest whose desktop builds say nothing of the environment, as every release before #2196 publishes", () => {
+    const read = ReleaseManifest.parse(manifest);
+    for (const asset of read.assets) expect(asset).not.toHaveProperty("environment");
+  });
+
   it("names the kinds and platforms this version publishes: M1's three platforms", () => {
     expect(RELEASE_ASSET_KINDS).toEqual(["environment", "desktop", "install-script", "compose", "host-updater", "schema"]);
     expect(RELEASE_PLATFORMS).toEqual(["linux-x64", "darwin-arm64", "win32-x64"]);

@@ -4,7 +4,7 @@ import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { ContractError, type ReleaseAsset } from "@agent-harness/contracts";
 import type { MethodHandler } from "../serve/methods.js";
-import type { ChannelSettings, ReleaseChannelReader } from "./channel.js";
+import type { ChannelFailure, ChannelSettings, DownloadableAsset, ReleaseChannelReader } from "./channel.js";
 
 /**
  * The desktop's builds, staged by its local environment (launcher-update
@@ -65,35 +65,79 @@ const removeOthers = async (folder: string, kept: string): Promise<void> => {
   }
 };
 
+/** The fetch of a desktop build under way in each folder of builds: the next waits for it, so two never write the same folder. */
+const queues = new Map<string, Promise<unknown>>();
+
+/** Runs `work` once every fetch of a desktop build into `builds` before it has ended. */
+const inTurn = <T>(builds: string, work: () => Promise<T>): Promise<T> => {
+  const turn = (queues.get(builds) ?? Promise.resolve()).then(work);
+  queues.set(
+    builds,
+    turn.catch(() => undefined),
+  );
+  return turn;
+};
+
+/**
+ * Fetches `build`, a desktop build, into `desktop-builds/<version>/` of
+ * `dataDir`, and answers what `use` makes of its path; one already there
+ * that still matches its size and SHA-256 is used without a download. The
+ * desktop's stage and the environment's update from the desktop build
+ * (#2196) both fetch through it, one at a time, so a desktop machine
+ * downloads one file per update: whichever asks second finds it there. Its
+ * use runs in the same turn, so the desktop's stage never removes a build
+ * the environment is unpacking. It removes nothing itself.
+ */
+export const fetchDesktopBuild = <T>(
+  dataDir: string,
+  build: DownloadableAsset,
+  download: ReleaseChannelReader["download"],
+  use: (path: string) => Promise<T>,
+): Promise<T | ChannelFailure> => {
+  const builds = join(dataDir, DESKTOP_BUILDS_DIRECTORY);
+  return inTurn(builds, async () => {
+    const { version, artefact } = build;
+    // The name is the release's; one that is not a plain file name is no build this environment writes.
+    if (basename(artefact.name) !== artefact.name || artefact.name.startsWith(".")) {
+      return { outcome: "failed", reason: "manifest", message: `The release ${version} names its desktop build ${JSON.stringify(artefact.name)}, which is no file name.` } as const;
+    }
+    const path = join(builds, version, artefact.name);
+    if (await matches(path, artefact)) return use(path);
+    await mkdir(builds, { recursive: true, mode: 0o700 });
+    const partial = join(builds, `.${version}-${randomUUID()}.download`);
+    try {
+      const failed = await download(build, partial);
+      if (failed !== null) return failed;
+      await mkdir(join(builds, version), { recursive: true, mode: 0o700 });
+      await rename(partial, path);
+    } finally {
+      // Gone once renamed into place; what a failed download left is a cleanup, which never fails the answer.
+      await rm(partial, { force: true }).catch((error: unknown) => console.error(`Cleaning up the desktop build's download ${partial} failed:`, error));
+    }
+    return use(path);
+  });
+};
+
 export const desktopStage = (options: DesktopStageOptions): MethodHandler<"updates.desktop.stage"> => {
   const builds = join(options.dataDir, DESKTOP_BUILDS_DIRECTORY);
-  /** The staging under way: the next waits for it, so two never write the same folder. */
+  /** The staging under way: the next waits for it, so two never stage at once. */
   let queue: Promise<unknown> = Promise.resolve();
 
   const stageBuild = async (platform: string, format: string) => {
     const build = await options.channel.desktopBuild(platform, format, options.settings());
     if ("code" in build) throw new ContractError(build);
     const { version, artefact } = build;
-    // The name is the release's; one that is not a plain file name is no build this environment writes.
-    if (basename(artefact.name) !== artefact.name || artefact.name.startsWith(".")) {
-      throw new ContractError({ code: "conflict", message: `The release ${version} names its desktop build ${JSON.stringify(artefact.name)}, which is no file name.`, data: { reason: "manifest" } });
-    }
-    const path = join(builds, version, artefact.name);
-    if (!(await matches(path, artefact))) {
-      await mkdir(builds, { recursive: true, mode: 0o700 });
-      const download = join(builds, `.${version}-${randomUUID()}.download`);
-      try {
-        const failed = await options.channel.download(build, download);
-        if (failed !== null) throw new ContractError({ code: "conflict", message: failed.message, data: { reason: failed.reason } });
-        await mkdir(join(builds, version), { recursive: true, mode: 0o700 });
-        await rename(download, path);
-      } finally {
-        // Gone once renamed into place; what a failed download left is a cleanup, which never fails the answer.
-        await rm(download, { force: true }).catch((error: unknown) => console.error(`Cleaning up the desktop build's download ${download} failed:`, error));
-      }
-    }
-    await removeOthers(builds, version);
-    return { path, version, sha256: artefact.sha256 };
+    const staged = await fetchDesktopBuild(
+      options.dataDir,
+      build,
+      (asset, destination) => options.channel.download(asset, destination),
+      async (path) => {
+        await removeOthers(builds, version);
+        return { path, version, sha256: artefact.sha256 };
+      },
+    );
+    if ("outcome" in staged) throw new ContractError({ code: "conflict", message: staged.message, data: { reason: staged.reason } });
+    return staged;
   };
 
   return ({ platform, format }, context) => {

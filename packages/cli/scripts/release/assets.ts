@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { AssetFormat, PRODUCT_NAME, RELEASE_MANIFEST_FILE, ReleaseAssetKind, ReleasePlatform, type ReleaseAsset, type ReleaseImage } from "@agent-harness/contracts";
+import { AssetFormat, PRODUCT_NAME, type DesktopEnvironment, RELEASE_MANIFEST_FILE, ReleaseAssetKind, ReleasePlatform, type ReleaseAsset, type ReleaseImage } from "@agent-harness/contracts";
 import { CHECKSUMS_FILE, sha256OfFile } from "./archive.js";
 import { BuildError } from "./targets.js";
 
@@ -45,6 +45,37 @@ export const DESKTOP_KIND = "desktop";
  * when no `AGENT_HARNESS_IMAGE` is set.
  */
 export const UNRELEASED_IMAGE = "git.systemtech.dev:5526/david/agent-harness:unreleased";
+
+/**
+ * Where the environment is in the macOS desktop build (#2196): the zip holds
+ * the app bundle, and electron-builder puts the server it bundles among the
+ * bundle's resources, so an environment on a Mac without its own asset
+ * unpacks only this folder of the zip.
+ */
+export const DARWIN_DESKTOP_ENVIRONMENT: DesktopEnvironment = { path: `${PRODUCT_NAME}.app/Contents/Resources/server` };
+
+/**
+ * Where the environment is in the Windows desktop setup (#2196): the NSIS
+ * setup stores the app as app-64.7z, uncompressed, and the server is under
+ * its resources (the desktop's PACKAGED_SERVER), so an environment on
+ * Windows without its own asset carves out the 7z and unpacks only that
+ * folder of it.
+ */
+export const WIN32_DESKTOP_ENVIRONMENT: DesktopEnvironment = { payload: "app-64.7z", path: "resources/server" };
+
+/**
+ * Where the environment is in `asset`: on a macOS zip or a Windows setup,
+ * the folder above; on anything else, undefined, since no environment
+ * updates from it (a Linux desktop build, say, is a pacman package an
+ * environment does not unpack).
+ */
+const environmentIn = (asset: OtherAsset): DesktopEnvironment | undefined => {
+  if (asset.kind !== DESKTOP_KIND || asset.target === undefined) return undefined;
+  const { platform, format } = asset.target;
+  if (platform.startsWith("darwin-") && format === "zip") return DARWIN_DESKTOP_ENVIRONMENT;
+  if (platform.startsWith("win32-") && format === "nsis") return WIN32_DESKTOP_ENVIRONMENT;
+  return undefined;
+};
 
 const run = promisify(execFile);
 
@@ -108,7 +139,7 @@ export const checkOtherAssets = (assets: readonly OtherAsset[], artefactNames: r
 /**
  * Writes `asset` into `out`, as the release publishes it
  * (a compose file naming `image`'s reference), and answers its manifest
- * entry.
+ * entry, with where the environment is on a desktop build that bundles one.
  */
 export const writeOtherAsset = async (asset: OtherAsset, out: string, image: ReleaseImage): Promise<ReleaseAsset> => {
   const name = nameOf(asset);
@@ -117,5 +148,7 @@ export const writeOtherAsset = async (asset: OtherAsset, out: string, image: Rel
   else if (asset.kind === "compose") writeFileSync(path, readFileSync(asset.path, "utf8").replace(UNRELEASED_IMAGE, () => image.reference));
   else copyFileSync(asset.path, path);
   const sha256 = await sha256OfFile(path);
-  return { name, kind: asset.kind, platform: asset.target?.platform ?? null, format: asset.target?.format ?? formatOf(name), size: statSync(path).size, sha256 };
+  const entry: ReleaseAsset = { name, kind: asset.kind, platform: asset.target?.platform ?? null, format: asset.target?.format ?? formatOf(name), size: statSync(path).size, sha256 };
+  const environment = environmentIn(asset);
+  return environment === undefined ? entry : { ...entry, environment };
 };

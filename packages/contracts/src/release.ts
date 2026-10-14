@@ -94,6 +94,37 @@ export const AssetFormat = z
   });
 export type AssetFormat = z.infer<typeof AssetFormat>;
 
+/** A relative path inside a build, `/` separated: no leading `/`, no backslash, no empty, `.` or `..` part. */
+const InnerPath = z
+  .string()
+  .min(1)
+  .refine((path) => !path.includes("\\") && path.split("/").every((part) => part !== "" && part !== "." && part !== ".."), "a relative path, / separated, with no empty, . or .. part");
+
+/**
+ * Where the environment is inside a desktop build (#2196): an environment
+ * whose platform has no `environment` asset in the release updates from the
+ * desktop build carrying this, unpacking only the server it bundles. Optional
+ * and only on a desktop build: a reader that does not know it strips it, and
+ * never takes a desktop build for an environment.
+ */
+export const DesktopEnvironment = z
+  .object({
+    payload: z
+      .string()
+      .min(1)
+      .optional()
+      .meta({
+        description:
+          "The archive inside the build the environment is in, where the build is an installer that stores one: app-64.7z, which the Windows setup stores uncompressed and the environment carves out of it by its 7z signature. Absent where the build is itself the archive (the macOS zip).",
+      }),
+    path: InnerPath.meta({
+      description:
+        "The environment's folder inside the build, or inside its payload, as a relative / separated path: under the app bundle's Contents/Resources in the macOS zip, under resources in the Windows setup's app-64.7z. Unpacked, it has the environment asset's top level (node/, packages/cli/, bin/).",
+    }),
+  })
+  .meta({ description: "Where the environment is inside a desktop build: the payload archive it is in, if any, and its folder." });
+export type DesktopEnvironment = z.infer<typeof DesktopEnvironment>;
+
 /** One asset of a release, as the manifest lists it. */
 export const ReleaseAsset = z
   .object({
@@ -103,8 +134,12 @@ export const ReleaseAsset = z
     format: AssetFormat.nullable().meta({ description: "How it is packed; null for a plain file." }),
     size: z.int().nonnegative().meta({ description: "Its size in bytes, checked with its SHA-256 before it is unpacked." }),
     sha256: Sha256,
+    environment: DesktopEnvironment.optional().meta({
+      description:
+        "On a desktop build, where the environment it bundles is: an environment whose platform has no environment asset updates from it (#2196). Absent on every other asset.",
+    }),
   })
-  .meta({ description: "One asset of a release: its name, kind, platform, format, size and SHA-256." });
+  .meta({ description: "One asset of a release: its name, kind, platform, format, size and SHA-256, and on a desktop build where the environment inside it is." });
 export type ReleaseAsset = z.infer<typeof ReleaseAsset>;
 
 /** The container image a release publishes, by its exact reference and digest: never a moving tag. */

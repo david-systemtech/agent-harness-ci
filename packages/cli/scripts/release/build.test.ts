@@ -413,25 +413,27 @@ describe("the release's other assets", { timeout: BUILD_MS }, () => {
     expect(text(join(schema, "schema", "release", "manifest.json"))).toBe('{"title":"ReleaseManifest"}\n');
   });
 
-  it("take the desktop builds, each written with a line in SHA256SUMS and listed in release.json with kind desktop, the platform and the format it was named with", async () => {
+  it("take the desktop builds, each written with a line in SHA256SUMS and listed in release.json with kind desktop, the platform and the format it was named with, and the macOS zip and Windows setup with where the environment is in them", async () => {
     build = fixtureBuild();
     await buildRelease(build.options({ platforms: ["linux-x64"], assets: desktopBuilds() }), build.seams);
     const names = ["agent-harness-desktop-darwin-arm64.zip", "agent-harness-desktop-win32-x64-setup.exe", "agent-harness-desktop-linux-x64.pacman"];
     checkSums(build.out, ["agent-harness-linux-x64.tar.gz", ...names, "release.json"]);
-    const listed = (name: string, platform: string, format: string) => ({
+    const listed = (name: string, platform: string, format: string, environment?: object) => ({
       name,
       kind: "desktop",
       platform,
       format,
       size: statSync(join(build.out, name)).size,
       sha256: sums(build.out)[name],
+      ...(environment === undefined ? {} : { environment }),
     });
     const manifest = ReleaseManifest.parse(JSON.parse(text(join(build.out, "release.json"))));
     expect(manifest.assets.slice(1)).toEqual([
-      listed("agent-harness-desktop-darwin-arm64.zip", "darwin-arm64", "zip"),
-      listed("agent-harness-desktop-win32-x64-setup.exe", "win32-x64", "nsis"),
+      listed("agent-harness-desktop-darwin-arm64.zip", "darwin-arm64", "zip", { path: "agent-harness.app/Contents/Resources/server" }),
+      listed("agent-harness-desktop-win32-x64-setup.exe", "win32-x64", "nsis", { payload: "app-64.7z", path: "resources/server" }),
       listed("agent-harness-desktop-linux-x64.pacman", "linux-x64", "pacman"),
     ]);
+    expect(manifest.assets.find(({ name }) => name.endsWith(".pacman"))).not.toHaveProperty("environment");
     expect(text(join(build.out, "agent-harness-desktop-win32-x64-setup.exe"))).toBe("the nsis desktop build\n");
   });
 
