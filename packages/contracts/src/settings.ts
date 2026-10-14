@@ -312,6 +312,10 @@ const SETTING_WORDS = {
     label: "Allow background browser use",
     description: "Allow agent runs to use the environment's browser without opening a visible window.",
   },
+  "desktop.contained.allowRuns": {
+    label: "Allow contained desktop use",
+    description: "Allow agent runs to drive this environment's contained desktop when their session chooses it. Off, no run drives it.",
+  },
   "browser.headless.endpoint": {
     label: "Background browser address",
     description: "Connect to a browser you manage using its debugging address. Choose none to let the environment start its own browser.",

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionDesktopSetPayload",
+  "type": "object",
+  "properties": {
+    "desktop": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "none",
+            "contained",
+            "local"
+          ],
+          "description": "Which desktop a session's runs may drive: none, contained (the run environment's configured contained desktop) or local (this person's live desktop)."
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "description": "The session's desktop now: none, contained or local."
+    }
+  },
+  "required": [
+    "desktop"
+  ],
+  "description": "session.desktop.set: the session's desktop was set, by sessions.setDesktop or sessions.create. Its next run resolves it."
+}

@@ -37,6 +37,7 @@ const browserPresets = {
   "browser.deepReadEverywhere": false,
   "browser.reach": {},
   "browser.headless.allowRuns": true,
+  "desktop.contained.allowRuns": true,
   "browser.headless.endpoint": null,
   "browser.headless.executable": null,
   "browser.headless.limits": { maxContexts: 2, idleMinutes: 10, tabHeapMb: 500, exitMinutes: 5 },

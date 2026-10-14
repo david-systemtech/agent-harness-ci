@@ -577,6 +577,10 @@
           },
           "description": "browser.internalHosts: the internal hosts, as host patterns, that the headless browser and web_read may reach; loopback, private, link-local, CGNAT and unique-local addresses and .local, .internal and .lan names are refused unless listed, and cloud metadata addresses always. Preset localhost, 127.0.0.1 and ::1."
         },
+        "desktop.contained.allowRuns": {
+          "type": "boolean",
+          "description": "desktop.contained.allowRuns: whether runs on this environment may drive its contained desktop, an explicit session choice included; off, a contained desktop resolves to none (operator-disabled). Preset off."
+        },
         "credentials.injection": {
           "type": "string",
           "enum": [
@@ -670,6 +674,7 @@
         "browser.headless.executable",
         "browser.headless.limits",
         "browser.internalHosts",
+        "desktop.contained.allowRuns",
         "credentials.injection",
         "credentials.injectionByAccount",
         "network.bindTailnet",

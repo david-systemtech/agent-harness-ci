@@ -89,6 +89,7 @@ export const freshSummary = {
   runChoice: null,
   mode: null,
   browser: null,
+  desktop: null,
   pullRequests: [],
   draft: null,
   draftRevision: 0,
@@ -207,6 +208,17 @@ const eventPayloads: Record<string, Fixtures> = {
   "run.browser.resolved": {
     valid: [{ runId, ...resolution }, { runId, ...resolution, requested: { kind: "dock" }, browser: { kind: "none" }, reason: "unattended" }],
     invalid: [resolution, { runId: "r-1", ...resolution }, { runId, ...resolution, reason: "because" }],
+  },
+  "session.desktop.set": {
+    valid: [{ desktop: { kind: "none" } }, { desktop: { kind: "contained" } }, { desktop: { kind: "local" } }],
+    invalid: [{}, { desktop: null }, { desktop: { kind: "vnc" } }],
+  },
+  "run.desktop.resolved": {
+    valid: [
+      { runId, requested: { kind: "contained" }, desktop: { kind: "contained" }, reason: "selected", message: "The session chose the contained desktop." },
+      { runId, requested: { kind: "contained" }, desktop: { kind: "none" }, reason: "operator-disabled", message: "desktop.contained.allowRuns is off." },
+    ],
+    invalid: [{ requested: { kind: "none" }, desktop: { kind: "none" }, reason: "none", message: "None." }, { runId, requested: { kind: "none" }, desktop: { kind: "none" }, reason: "because", message: "None." }],
   },
   "session.model-set": {
     valid: [{ model: "claude-sonnet-5-5", effort: "high" }, { model: "claude-sonnet-5-5", effort: null }],
@@ -472,6 +484,13 @@ export const sessionMethodFixtures: Record<string, { params: Fixtures; result: F
     params: {
       valid: [...browsers.map((browser) => ({ ...target, browser })), { ...target, browser: null }],
       invalid: [target, ...invalidBrowsers.map((browser) => ({ ...target, browser })), { commandId, browser: null }],
+    },
+    result: summaryResult,
+  },
+  "sessions.setDesktop": {
+    params: {
+      valid: [{ ...target, desktop: { kind: "none" } }, { ...target, desktop: { kind: "contained" } }, { ...target, desktop: { kind: "local" } }],
+      invalid: [target, { ...target, desktop: null }, { ...target, desktop: { kind: "vnc" } }, { commandId, desktop: { kind: "none" } }],
     },
     result: summaryResult,
   },

@@ -296,6 +296,7 @@ import {
   BrowserEvaluateEverywhere,
   BrowserInternalHosts,
   BrowserReach,
+  DesktopContainedAllowRuns,
   HeadlessAllowRuns,
   HeadlessEndpoint,
   HeadlessExecutable,
@@ -577,6 +578,7 @@ import {
 import { Mode, ModeAvailability } from "./permissions-modes.js";
 import { BrowserChooser, SessionBrowser } from "./browser-choice.js";
 import { BROWSER_SESSION_EVENT_TYPES, BrowserResolutionReason, RunBrowserResolution } from "./session-browser.js";
+import { DESKTOP_SESSION_EVENT_TYPES } from "./session-desktop.js";
 import { CHECK_SESSION_EVENT_TYPES, CheckCommand, CheckFailure, ChecksChangedPayload, ChecksFailuresResetPayload, WorkspaceCheck } from "./checks.js";
 import { BrowserOnCreate } from "./methods/sessions.js";
 import { FileChangeId, FileChangeUnrestorableReason, FileUndoAction, FileUndoConflictReason, FilesUndoFinishedPayload } from "./file-undo.js";
@@ -793,6 +795,7 @@ export const publishedEventPayloads = (): [string, z.ZodType][] =>
     ...PERMISSION_SESSION_EVENT_TYPES,
     ...INSTRUCTION_SESSION_EVENT_TYPES,
     ...BROWSER_SESSION_EVENT_TYPES,
+    ...DESKTOP_SESSION_EVENT_TYPES,
     ...CHECK_SESSION_EVENT_TYPES,
     ...GROUP_EVENT_TYPES,
   } as Record<string, EventTypeEntry>).flatMap(([type, entry]) =>
@@ -1462,6 +1465,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/keys/browser.headless.executable.json", title: "HeadlessExecutable", schema: HeadlessExecutable },
   { path: "settings/keys/browser.headless.limits.json", title: "HeadlessLimits", schema: HeadlessLimits },
   { path: "settings/keys/browser.internalHosts.json", title: "BrowserInternalHosts", schema: BrowserInternalHosts },
+  { path: "settings/keys/desktop.contained.allowRuns.json", title: "DesktopContainedAllowRuns", schema: DesktopContainedAllowRuns },
   { path: "settings/keys/credentials.injection.json", title: "CredentialInjection", schema: CredentialInjection },
   { path: "settings/keys/credentials.injectionByAccount.json", title: "CredentialInjectionByAccount", schema: CredentialInjectionByAccount },
   { path: "settings/keys/network.bindTailnet.json", title: "BindTailnet", schema: BindTailnet },

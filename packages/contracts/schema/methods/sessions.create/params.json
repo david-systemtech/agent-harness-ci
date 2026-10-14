@@ -267,6 +267,24 @@
         "value",
         "chosenBy"
       ]
+    },
+    "desktop": {
+      "description": "The session's first desktop, recorded as session.desktop.set after session.created; none (a null field) when absent. sessions.setDesktop changes it.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "none",
+            "contained",
+            "local"
+          ],
+          "description": "Which desktop a session's runs may drive: none, contained (the run environment's configured contained desktop) or local (this person's live desktop)."
+        }
+      },
+      "required": [
+        "kind"
+      ]
     }
   },
   "required": [

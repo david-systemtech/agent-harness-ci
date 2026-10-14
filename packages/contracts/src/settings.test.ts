@@ -91,6 +91,7 @@ describe("the settings keys", () => {
       "browser.headless.executable": null,
       "browser.headless.limits": { maxContexts: 2, idleMinutes: 10, tabHeapMb: 500, exitMinutes: 5 },
       "browser.internalHosts": ["localhost", "127.0.0.1", "::1"],
+      "desktop.contained.allowRuns": false,
       "credentials.injection": "allow",
       "credentials.injectionByAccount": {},
       "network.bindTailnet": true,

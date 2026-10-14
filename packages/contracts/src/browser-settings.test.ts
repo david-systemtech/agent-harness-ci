@@ -23,6 +23,7 @@ describe("the browser settings", () => {
       "browser.headless.executable",
       "browser.headless.limits",
       "browser.internalHosts",
+      "desktop.contained.allowRuns",
     ]);
     const presets = presetSettings();
     expect(Object.fromEntries(BROWSER_SETTINGS_KEYS.map((key) => [key, presets[key]]))).toEqual({
@@ -35,6 +36,7 @@ describe("the browser settings", () => {
       "browser.headless.executable": null,
       "browser.headless.limits": { maxContexts: 2, idleMinutes: 10, tabHeapMb: 500, exitMinutes: 5 },
       "browser.internalHosts": ["localhost", "127.0.0.1", "::1"],
+      "desktop.contained.allowRuns": false,
     });
     for (const key of BROWSER_SETTINGS_KEYS) {
       expect(SETTINGS[key].step, key).toEqual({ id: "browser", row: "access.browser" });

@@ -56,6 +56,11 @@ export const HeadlessAllowRuns = z.boolean().meta({
   description: "browser.headless.allowRuns: whether runs on this environment may drive its headless browser. Preset on.",
 });
 
+export const DesktopContainedAllowRuns = z.boolean().meta({
+  description:
+    "desktop.contained.allowRuns: whether runs on this environment may drive its contained desktop, an explicit session choice included; off, a contained desktop resolves to none (operator-disabled). Preset off.",
+});
+
 /** A CDP address: an http or https address the browser answers `/json/version` on, or a ws or wss address of its DevTools socket. */
 const CDP_ADDRESS = /^(?:https?|wss?):\/\/[^\s/?#]+(?:[/?#]\S*)?$/;
 
@@ -134,6 +139,8 @@ export const BROWSER_SETTINGS = {
     step: BROWSER_STEP,
   }),
   "browser.internalHosts": setting({ schema: BrowserInternalHosts, preset: ["localhost", "127.0.0.1", "::1"], step: BROWSER_STEP }),
+  // The computer spec's operator switch (#2161), on the browser's row until the desktop has its own.
+  "desktop.contained.allowRuns": setting({ schema: DesktopContainedAllowRuns, preset: false, step: BROWSER_STEP }),
 } as const;
 
 export type BrowserSettingsKey = keyof typeof BROWSER_SETTINGS;
