@@ -16,6 +16,7 @@ const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
 /** The permission keys (#129) at their presets: every value set holds them too. */
 const permissionPresets = {
   "permissions.defaultCeiling": "acceptEdits",
+  "permissions.attended.mode": "acceptEdits",
   "permissions.unattended.mode": "acceptEdits",
   "permissions.unattended.bypassAcknowledgedAt": null,
   "permissions.parkedPrompt.ttl": { amount: 24, unit: "hours" },

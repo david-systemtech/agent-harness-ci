@@ -162,8 +162,28 @@ describe("the status line", () => {
     const line = await screen.findByRole("region", { name: "Status line" });
     expect(within(line).getByRole("button", { name: "Account: default account" })).toBeTruthy();
     expect(within(line).getByRole("button", { name: "Model: default model" })).toBeTruthy();
-    expect(within(line).getByRole("button", { name: "Mode: accept edits" })).toBeTruthy();
+    // The session names no mode, so the attended default applies, and the chip says so (issue 2183).
+    expect(within(line).getByRole("button", { name: "Mode: accept edits (default)" })).toBeTruthy();
     expect(within(line).queryByText("idle")).toBeNull();
+  });
+
+  it("starts the mode chip of a session that names no mode at the attended default, lowered to the ceiling, and says default (issue 2183)", async () => {
+    await opened([desk({ sessions: [{ title: "Receipts" }], settings: { "permissions.attended.mode": "bypassPermissions" } })]);
+    const line = await screen.findByRole("region", { name: "Status line" });
+    expect(await within(line).findByRole("button", { name: "Mode: BYPASS (default)" })).toBeTruthy();
+  });
+
+  it("caps the attended default at the ceiling: the chip shows the ceiling, still the default, no clamp (issue 2183)", async () => {
+    await opened([desk({ hello: { ceiling: "acceptEdits" }, sessions: [{ title: "Receipts" }], settings: { "permissions.attended.mode": "bypassPermissions" } })]);
+    const line = await screen.findByRole("region", { name: "Status line" });
+    expect(await within(line).findByRole("button", { name: "Mode: accept edits (default)" })).toBeTruthy();
+  });
+
+  it("keeps a session's own mode over the attended default, without (default) (issue 2183)", async () => {
+    await opened([desk({ settings: { "permissions.attended.mode": "bypassPermissions" } })]);
+    const line = await screen.findByRole("region", { name: "Status line" });
+    expect(await within(line).findByRole("button", { name: /^Mode: auto/ })).toBeTruthy();
+    expect(within(line).queryByRole("button", { name: /^Mode: .*\(default\)$/ })).toBeNull();
   });
 
   it("keeps an unavailable stored model visible in amber and explains it in its tooltip", async () => {

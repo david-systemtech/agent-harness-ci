@@ -1,7 +1,7 @@
-import { MODES, type ContainmentReport, type Mode, type ModeAvailability } from "@agent-harness/contracts";
+import { MODES, presetPermissionSettings, type ContainmentReport, type Mode, type ModeAvailability } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { UNPROBED_REPORT } from "./containment.js";
-import { resolvePolicy, type PolicyInput } from "./resolver.js";
+import { ATTENDED_DEFAULT_MODE, policySettings, resolvePolicy, startingMode, type PolicyInput } from "./resolver.js";
 
 /**
  * The policy resolver on its own (permissions spec, "Modules": the policy
@@ -19,7 +19,7 @@ const input = (overrides: Partial<PolicyInput> = {}): PolicyInput => ({
   requested: null,
   ceiling: "bypassPermissions",
   accountModes: everyMode,
-  settings: { unattendedMode: "acceptEdits", containmentDefault: "off" },
+  settings: { attendedMode: "acceptEdits", unattendedMode: "acceptEdits", containmentDefault: "off" },
   containment: null,
   enforceable: UNPROBED_REPORT,
   ...overrides,
@@ -85,7 +85,7 @@ describe("the policy resolver", () => {
 
   it("gives an unattended run that names no mode the unattended default, within its ceiling, and says so", () => {
     const unattended = { actor: { kind: "routine" } } as const;
-    const bypass = { unattendedMode: "bypassPermissions", containmentDefault: "off" } as const;
+    const bypass = { attendedMode: "acceptEdits", unattendedMode: "bypassPermissions", containmentDefault: "off" } as const;
     expect(resolvePolicy(input({ ...unattended, settings: bypass }))).toEqual({
       actorKind: "routine",
       actorName: null,
@@ -106,8 +106,30 @@ describe("the policy resolver", () => {
   });
 
   it("never applies the unattended default to an attended run", () => {
-    const resolved = resolvePolicy(input({ actor: { kind: "completions", attended: true }, settings: { unattendedMode: "bypassPermissions", containmentDefault: "off" } }));
+    const resolved = resolvePolicy(input({ actor: { kind: "completions", attended: true }, settings: { attendedMode: "acceptEdits", unattendedMode: "bypassPermissions", containmentDefault: "off" } }));
     expect(resolved).toMatchObject({ actorKind: "completions", attended: true, mode: { effective: "acceptEdits" }, unattendedDefaultApplied: false });
+  });
+
+  it("starts an attended run whose session names no mode in the attended default, lowered to the ceiling, its own mode overriding (#2183)", () => {
+    const bypass = { attendedMode: "bypassPermissions", unattendedMode: "acceptEdits", containmentDefault: "off" } as const;
+    const client = { actor: { kind: "client" }, settings: bypass } as const;
+    expect(resolvePolicy(input(client))).toMatchObject({
+      attended: true,
+      mode: { requested: null, effective: "bypassPermissions", clamped: false, clampReason: null },
+      unattendedDefaultApplied: false,
+    });
+    // Capped by the ceiling: the default is lowered, which is no clamp.
+    expect(resolvePolicy(input({ ...client, ceiling: "acceptEdits" }))).toMatchObject({
+      mode: { requested: null, effective: "acceptEdits", ceiling: "acceptEdits", clamped: false, clampReason: null },
+    });
+    expect(resolvePolicy(input({ ...client, ceiling: "plan" }))).toMatchObject({ mode: { requested: null, effective: "plan" } });
+    // A session that names its mode keeps it.
+    expect(resolvePolicy(input({ ...client, requested: "plan" }))).toMatchObject({ mode: { requested: "plan", effective: "plan" } });
+    // The unattended default does not follow the attended one.
+    expect(resolvePolicy(input({ actor: { kind: "routine" }, settings: bypass }))).toMatchObject({ mode: { requested: null, effective: "acceptEdits" } });
+    expect(startingMode(null, true, "acceptEdits", "bypassPermissions")).toBe("bypassPermissions");
+    expect(startingMode(null, true, "bypassPermissions")).toBe(ATTENDED_DEFAULT_MODE);
+    expect(policySettings({ ...presetPermissionSettings(), "permissions.attended.mode": "bypassPermissions" })).toMatchObject({ attendedMode: "bypassPermissions" });
   });
 
   it("derives attendance from who started the run: a client is attended, a routine or a bot never, the completions surface when it says so", () => {
@@ -142,7 +164,7 @@ const containmentOf = (overrides: Partial<PolicyInput>) => {
 };
 
 describe("the policy resolver's containment", () => {
-  const settings = (containmentDefault: PolicyInput["settings"]["containmentDefault"]) => ({ unattendedMode: "acceptEdits", containmentDefault }) as const;
+  const settings = (containmentDefault: PolicyInput["settings"]["containmentDefault"]) => ({ attendedMode: "acceptEdits", unattendedMode: "acceptEdits", containmentDefault }) as const;
 
   it("gives a run the default when its session names no level, with the mechanism the probe found at a workspace level", () => {
     expect(containmentOf({ settings: settings("workspace"), enforceable: bubblewrap() })).toEqual({

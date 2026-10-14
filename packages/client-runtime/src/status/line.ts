@@ -25,13 +25,21 @@ export interface RunChoice {
   readonly effort: string | null;
 }
 
-/** The mode a session runs in as far as its own setting goes: the summary's, else the attended default, acceptEdits lowered to the ceiling (a lowered default is no clamp). */
-export const sessionModeOf = (mode: Mode | null | undefined, ceiling: Mode | null): Mode => mode ?? lowerMode("acceptEdits", ceiling ?? "acceptEdits");
+/**
+ * The mode a session runs in as far as its own setting goes: the summary's,
+ * else the environment's attended default (`permissions.attended.mode`,
+ * #2183; acceptEdits until it is read) lowered to the ceiling (a lowered
+ * default is no clamp).
+ */
+export const sessionModeOf = (mode: Mode | null | undefined, ceiling: Mode | null, attendedDefault: Mode = "acceptEdits"): Mode =>
+  mode ?? lowerMode(attendedDefault, ceiling ?? attendedDefault);
 
 /** The mode the next run from this connection gets, and the mode it was clamped from when it is lower than the one asked for. */
 export interface ModeBadge {
   readonly mode: Mode;
   readonly clampedFrom: Mode | null;
+  /** Whether the session names no mode of its own, so the attended default applies (#2183): the chip says "default" after the mode. */
+  readonly isDefault: boolean;
 }
 
 /**
@@ -41,12 +49,13 @@ export interface ModeBadge {
  * clamped (past a mode its account cannot use), the mode it got, clamped
  * from the one asked for.
  */
-export const modeBadgeOf = (mode: Mode | null | undefined, ceiling: Mode | null, latest: Pick<RunSummary, "mode"> | undefined): ModeBadge => {
-  const asked = sessionModeOf(mode, ceiling);
+export const modeBadgeOf = (mode: Mode | null | undefined, ceiling: Mode | null, latest: Pick<RunSummary, "mode"> | undefined, attendedDefault?: Mode): ModeBadge => {
+  const asked = sessionModeOf(mode, ceiling, attendedDefault);
+  const isDefault = mode == null;
   const got = ceiling === null ? asked : lowerMode(asked, ceiling);
-  if (got !== asked) return { mode: got, clampedFrom: asked };
-  if (latest?.mode.clamped === true && latest.mode.requested === asked) return { mode: latest.mode.effective, clampedFrom: asked };
-  return { mode: got, clampedFrom: null };
+  if (got !== asked) return { mode: got, clampedFrom: asked, isDefault };
+  if (latest?.mode.clamped === true && latest.mode.requested === asked) return { mode: latest.mode.effective, clampedFrom: asked, isDefault };
+  return { mode: got, clampedFrom: null, isDefault };
 };
 
 /** The containment level a session's next run asks for: its own, else the environment's default, marked so. */
@@ -77,6 +86,8 @@ export interface StatusInput {
   readonly containmentSet?: ContainmentLevel | undefined;
   /** The environment's default level, from `permissions.settings.get`. */
   readonly containmentDefault: ContainmentLevel | undefined;
+  /** The environment's attended default (`permissions.attended.mode`, #2183), from `permissions.settings.get`; acceptEdits until it is read. */
+  readonly attendedDefault?: Mode | undefined;
   /** `accounts.handoff.recommend`'s answer for the session's account. */
   readonly recommendation: HandoffRecommendation | null | undefined;
   /** The environment's time now (`runtime.environmentNow`), in milliseconds. */
@@ -153,7 +164,7 @@ export const statusOf = (input: StatusInput): StatusFacts => {
   return {
     accountId: summary?.accountId ?? input.forkedOnto ?? null,
     model: summary?.runChoice ?? (latest ? { model: latest.model, effort: latest.effort } : summary?.model ? { model: summary.model, effort: null } : undefined),
-    mode: modeBadgeOf(summary?.mode, input.ceiling, latest),
+    mode: modeBadgeOf(summary?.mode, input.ceiling, latest, input.attendedDefault),
     containment: own != null ? { level: own, isDefault: false } : input.containmentDefault !== undefined ? { level: input.containmentDefault, isDefault: true } : undefined,
     live,
     activity,

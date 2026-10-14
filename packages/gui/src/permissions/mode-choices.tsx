@@ -1,5 +1,5 @@
 import { MODE_WORDS, confirmationOf, describeKey, plainRefusal, type EnvironmentView } from "@agent-harness/client-runtime";
-import { SETTINGS, settingForm, type Mode } from "@agent-harness/contracts";
+import { SETTINGS, compareModes, lowerMode, settingForm, type Mode } from "@agent-harness/contracts";
 import { Shield, ShieldAlert, X } from "lucide-react";
 import { useId, useState } from "react";
 import { Badge, Button, Dialog, DialogClose, DialogContent } from "../ui/index.js";
@@ -8,16 +8,28 @@ import { TechnicalDetails } from "../setup/details.js";
 import { useDetails } from "../setup/use-details.js";
 import { FieldError } from "./field-error.js";
 
-type ModeKey = "permissions.defaultCeiling" | "permissions.unattended.mode";
+type ModeKey = "permissions.defaultCeiling" | "permissions.attended.mode" | "permissions.unattended.mode";
 
 /** The choice most people should keep, and each key's preset (setup-copy.md §5.12). */
 const RECOMMENDED: Mode = "acceptEdits";
 
-/** What the bypass confirmation says on scheduled runs (setup-copy.md §5.12). */
-const NEVER_ASK = {
-  heading: "Never ask on scheduled runs?",
-  body: "Agents will act without asking and can do anything your account can, inside the sandbox you chose.",
-} as const;
+/** What the bypass confirmation says, on scheduled runs or in new sessions (setup-copy.md §5.12). */
+const NEVER_ASK_BODY = "Agents will act without asking and can do anything your account can, inside the sandbox you chose.";
+const NEVER_ASK_HEADING: Readonly<Record<ModeKey, string>> = {
+  "permissions.defaultCeiling": "Never ask in any session?",
+  "permissions.attended.mode": "Never ask in new sessions?",
+  "permissions.unattended.mode": "Never ask on scheduled runs?",
+};
+
+/**
+ * What the attended default's row says when the ceiling is lower than the
+ * mode chosen (#2183): new sessions start at the ceiling, the lower of the
+ * default ceiling and this connection's own. Undefined when it is not lower.
+ */
+export const cappedDefaultLine = (chosen: Mode, defaultCeiling: Mode, connection: Mode | null): string | undefined => {
+  const ceiling = lowerMode(defaultCeiling, connection ?? defaultCeiling);
+  return compareModes(ceiling, chosen) < 0 ? `New sessions start at ${MODE_WORDS[ceiling].label}: that is the most a session may do here.` : undefined;
+};
 
 /**
  * How much agents may do without asking (setup-copy.md §5.12; permissions
@@ -25,8 +37,9 @@ const NEVER_ASK = {
  * the key takes as a plain choice with its sentence, Edit files, ask for
  * the rest marked Recommended, Never ask in the warning tone, and the key
  * and the mode ids only in Details. Never ask on scheduled runs asks first,
- * and the agreement goes with the write. A refusal is an error in the
- * refusal mapper's words.
+ * and the agreement goes with the write; so does Never ask as the default
+ * for new sessions (#2183), whose row also says when the ceiling is lower
+ * than the mode chosen. A refusal is an error in the refusal mapper's words.
  */
 export const ModeChoices = ({ view, name, writable }: { readonly view: EnvironmentView; readonly name: ModeKey; readonly writable: boolean }) => {
   const settings = useSettingsValues(view.environmentId);
@@ -38,6 +51,7 @@ export const ModeChoices = ({ view, name, writable }: { readonly view: Environme
   if (settings.values === null || form.kind !== "choice") return null;
   const current = settings.values[name] as Mode;
   const modes = form.options as readonly Mode[];
+  const capped = name === "permissions.attended.mode" ? cappedDefaultLine(current, settings.values["permissions.defaultCeiling"] as Mode, view.ceiling) : undefined;
   const save = (mode: Mode, acknowledged = false) => {
     if (!acknowledged && confirmationOf(name, mode) !== undefined) return ask(true);
     say(undefined);
@@ -65,10 +79,11 @@ export const ModeChoices = ({ view, name, writable }: { readonly view: Environme
         </label>;
       })}
     </div>
+    {capped !== undefined && <p className="text-2xs text-amber">{capped}</p>}
     <TechnicalDetails {...details({ line: `${SETTINGS[name].label}: ${MODE_WORDS[current].label}.`, details: [`${name}: ${current}`, ...modes.map((mode) => `${MODE_WORDS[mode].label}: ${mode}`)] })} />
     {refused !== undefined && <FieldError line={refused.line} details={refused.details} />}
     <Dialog open={asking} onOpenChange={ask}>
-      {asking && <DialogContent title={NEVER_ASK.heading} description={NEVER_ASK.body}>
+      {asking && <DialogContent title={NEVER_ASK_HEADING[name]} description={NEVER_ASK_BODY}>
         <div className="flex justify-end gap-1.5"><DialogClose asChild><Button title="Cancel (Esc)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button></DialogClose>
           <Button variant="destructive" title="Never ask (Enter or Space)" onClick={() => { ask(false); save("bypassPermissions", true); }}><ShieldAlert aria-hidden="true" data-icon="inline-start" />Never ask</Button></div>
       </DialogContent>}

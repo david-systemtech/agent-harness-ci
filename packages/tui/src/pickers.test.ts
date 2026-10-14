@@ -579,8 +579,8 @@ describe("/settings", () => {
     expect(frame).toMatch(/How much agents may do without asking\s+acceptEdits/);
     expect(frame).toMatch(/If nobody answers a question\s+24 hours/);
     expect(frame).toMatch(/Agreed to never ask on scheduled runs\s+none\s+read-only/);
-    // Down to the Service row's keys, past the five, one, five, nine, two and seven of the rows above it.
-    await app.press(...Array.from({ length: 29 }, () => KEY.down));
+    // Down to the Service row's keys, past the five, one, six, nine, two and seven of the rows above it.
+    await app.press(...Array.from({ length: 30 }, () => KEY.down));
     await app.waitFor(/Settle idle sessions\s+14 days/);
     // The key under the cursor says what it is.
     expect(app.frame()).toContain("Move quiet sessions out of the active list after this long.");
@@ -614,7 +614,7 @@ describe("/settings", () => {
     await app.waitFor("How much agents may do without asking is auto.");
     expect(env.requests("permissions.settings.set").map((r) => r.params)).toEqual([expect.objectContaining({ values: { "permissions.defaultCeiling": "auto" } })]);
     // A switch flips on Enter: down past the rest of Permissions, Browser, Key managers and Your machines to the Service row's second key.
-    await app.press(...Array.from({ length: 24 }, () => KEY.down), KEY.enter);
+    await app.press(...Array.from({ length: 25 }, () => KEY.down), KEY.enter);
     await app.waitFor("Settle sessions after merge is on.");
     expect(env.settings()["sessions.autoSettleOnMerge"]).toBe(true);
   });
@@ -637,7 +637,7 @@ describe("/settings", () => {
     const { app, env } = await launch();
     await command(app, "/settings access.permissions");
     await app.waitFor("Settings on desk");
-    await app.press(KEY.down, KEY.enter);
+    await app.press(KEY.down, KEY.down, KEY.enter);
     await app.waitFor("For scheduled and automatic runs:");
     await app.press(KEY.down, KEY.enter);
     await app.waitFor(`${BYPASS} Make bypassPermissions the unattended mode? y/n`);
@@ -657,16 +657,31 @@ describe("/settings", () => {
     expect(env.requests("settings.update")).toEqual([]);
   });
 
+  it("asks with the bypass sentence before the default mode for new attended sessions becomes bypassPermissions (#2183)", async () => {
+    const { app, env } = await launch();
+    await command(app, "/settings access.permissions");
+    await app.waitFor("Settings on desk");
+    await app.press(KEY.down, KEY.enter);
+    await app.waitFor("Default mode for new attended sessions:");
+    await app.press(KEY.down, KEY.enter);
+    await app.waitFor(`${BYPASS} Make bypassPermissions the default mode for new attended sessions? y/n`);
+    await app.press("y");
+    await app.waitFor("Default mode for new attended sessions is bypassPermissions.");
+    expect(env.requests("permissions.settings.set").map((request) => request.params)).toEqual([
+      expect.objectContaining({ values: { "permissions.attended.mode": "bypassPermissions" }, acknowledgeBypass: true }),
+    ]);
+  });
+
   it("takes no paste into a value being typed while a question is asked (PR review)", async () => {
     const { app } = await launch();
     await command(app, "/settings");
     await app.waitFor("Settings on desk");
-    await app.press(KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter);
     await app.waitFor("For scheduled and automatic runs:");
     await app.press(KEY.down, KEY.enter);
     await app.waitFor("Make bypassPermissions the unattended mode? y/n");
     // The question stands while the list below it opens a value to type.
-    await app.press(KEY.up, KEY.up, KEY.up, KEY.enter);
+    await app.press(KEY.up, KEY.up, KEY.up, KEY.up, KEY.enter);
     await app.waitFor("New value for Stop idle agent processes after minutes (now 30)");
     expect(app.frame()).toContain("Make bypassPermissions the unattended mode? y/n");
     await app.paste("45");
@@ -709,7 +724,7 @@ describe("/settings by row (#389)", () => {
     expect(app.frame()).toMatch(/Default account and model\n.*Default account\s+none/);
     expect(app.frame()).toContain("The account to use when a session has no account of its own.");
     // Down the list, each row's label over its keys: Instructions, then Permissions, then Browser, then Key managers, then Your machines, then Service.
-    await app.press(...Array.from({ length: 31 }, () => KEY.down));
+    await app.press(...Array.from({ length: 32 }, () => KEY.down));
     await app.waitFor(/Compact quiet transcripts after days\s+90/);
     const lines = linesOf(app.frame());
     const at = (text: string) => lines.findIndex((line) => line.startsWith(text));

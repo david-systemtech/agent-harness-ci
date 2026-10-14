@@ -111,9 +111,10 @@ describe("the bypass sentence", () => {
 });
 
 describe("the permission settings", () => {
-  it("are the five keys the Permissions step writes, each with a schema its preset passes", () => {
+  it("are the six keys the Permissions step writes, each with a schema its preset passes", () => {
     expect(PERMISSION_SETTINGS_KEYS).toEqual([
       "permissions.defaultCeiling",
+      "permissions.attended.mode",
       "permissions.unattended.mode",
       "permissions.unattended.bypassAcknowledgedAt",
       "permissions.parkedPrompt.ttl",
@@ -127,9 +128,10 @@ describe("the permission settings", () => {
     }
   });
 
-  it("preset the default ceiling acceptEdits, the unattended mode acceptEdits unacknowledged, the TTL 24 hours, containment off", () => {
+  it("preset the default ceiling acceptEdits, the attended default acceptEdits, the unattended mode acceptEdits unacknowledged, the TTL 24 hours, containment off", () => {
     expect(presetPermissionSettings()).toEqual({
       "permissions.defaultCeiling": "acceptEdits",
+      "permissions.attended.mode": "acceptEdits",
       "permissions.unattended.mode": "acceptEdits",
       "permissions.unattended.bypassAcknowledgedAt": null,
       "permissions.parkedPrompt.ttl": { amount: 24, unit: "hours" },
@@ -141,6 +143,11 @@ describe("the permission settings", () => {
     expect(UnattendedMode.safeParse("acceptEdits").success).toBe(true);
     expect(UnattendedMode.safeParse("bypassPermissions").success).toBe(true);
     for (const other of ["plan", "auto", "default"]) expect(UnattendedMode.safeParse(other).success, other).toBe(false);
+  });
+
+  it("take acceptEdits or bypassPermissions as the attended default, and no other (#2183)", () => {
+    expect(PermissionSettingsPatch.safeParse({ "permissions.attended.mode": "bypassPermissions" }).success).toBe(true);
+    for (const other of ["plan", "auto", "default", null]) expect(PermissionSettingsPatch.safeParse({ "permissions.attended.mode": other }).success, String(other)).toBe(false);
   });
 
   it("take a duration or never as the parked-prompt TTL", () => {

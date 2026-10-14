@@ -707,6 +707,7 @@ describe("permissions.settings.get", () => {
     expect(await reader.request("permissions.settings.get", {})).toEqual({
       values: {
         "permissions.defaultCeiling": "acceptEdits",
+        "permissions.attended.mode": "acceptEdits",
         "permissions.unattended.mode": "acceptEdits",
         "permissions.unattended.bypassAcknowledgedAt": null,
         "permissions.parkedPrompt.ttl": { amount: 24, unit: "hours" },
@@ -794,6 +795,34 @@ describe("permissions.settings.set", () => {
     await send(admin, "permissions.settings.set", { values: { "permissions.unattended.mode": "bypassPermissions" }, acknowledgeBypass: true });
     expect(await accessEvents(admin, "bypass.acknowledged")).toHaveLength(1);
     expect((await admin.request("permissions.settings.get", {})).values["permissions.unattended.bypassAcknowledgedAt"]).toBe(MANUAL_CLOCK_START);
+  });
+
+  it("stores the attended default, asking the bypass acknowledgement first, and starts a new attended session in it, lowered to the ceiling (#2183)", async () => {
+    const t = await start();
+    const admin = await t.client();
+    const head = t.env.log.head();
+    const refused = await refusal(admin.request("permissions.settings.set", { commandId: randomUUID(), values: { "permissions.attended.mode": "bypassPermissions" } }));
+    expect(refused).toMatchObject({ code: "invalid_params", data: { issues: [{ path: ["acknowledgeBypass"] }] } });
+    expect(t.env.log.head()).toBe(head);
+    for (const value of ["plan", "default", null]) {
+      expect(await refusal(admin.request("permissions.settings.set", { commandId: randomUUID(), values: { "permissions.attended.mode": value } } as never)), String(value)).toMatchObject({ code: "invalid_params" });
+    }
+    const answer = await send(admin, "permissions.settings.set", { values: { "permissions.attended.mode": "bypassPermissions" }, acknowledgeBypass: true });
+    expect(answer.result?.values).toMatchObject({ "permissions.attended.mode": "bypassPermissions", "permissions.unattended.bypassAcknowledgedAt": MANUAL_CLOCK_START });
+    expect(await accessEvents(admin, "bypass.acknowledged")).toMatchObject([{ payload: { setting: "permissions.attended.mode" } }]);
+    expect((await admin.request("permissions.settings.get", {})).values["permissions.attended.mode"]).toBe("bypassPermissions");
+
+    const high = await pairedClient(t, "bypassPermissions");
+    const fresh = await create(high);
+    const first = await startRun(high, fresh.id);
+    await untilEnded(t, fresh.id, first.runId);
+    expect(policyOf(t, fresh.id, first.runId)).toMatchObject({ attended: true, mode: { requested: null, effective: "bypassPermissions", clamped: false } });
+
+    const low = await pairedClient(t, "acceptEdits");
+    const capped = await create(low);
+    const second = await startRun(low, capped.id);
+    await untilEnded(t, capped.id, second.runId);
+    expect(policyOf(t, capped.id, second.runId)).toMatchObject({ mode: { requested: null, effective: "acceptEdits", ceiling: "acceptEdits", clamped: false, clampReason: null } });
   });
 
   it("refuses an unattended mode other than acceptEdits or bypassPermissions, and the acknowledgement time as a value, invalid_params", async () => {

@@ -80,6 +80,7 @@ export const StatusLine = ({ environmentId, sessionId, compact = false }: Status
     ceiling,
     forkedOnto: handedOnto,
     containmentDefault: permissions?.result?.values["permissions.containment.default"],
+    attendedDefault: permissions?.result?.values["permissions.attended.mode"],
     recommendation: recommendation?.result,
     now: () => runtime.environmentNow(environmentId).getTime(),
   });
@@ -102,9 +103,10 @@ export const StatusLine = ({ environmentId, sessionId, compact = false }: Status
           environmentId={environmentId}
           sessionId={sessionId}
           mode={facts.mode.mode}
-          value={`${modeLabel(MODE_BADGE_WORDS[facts.mode.mode])}${facts.mode.clampedFrom !== null ? ` ${clampWords(facts.mode.clampedFrom)}` : ""}`}
+          value={`${modeLabel(MODE_BADGE_WORDS[facts.mode.mode])}${facts.mode.isDefault ? " (default)" : ""}${facts.mode.clampedFrom !== null ? ` ${clampWords(facts.mode.clampedFrom)}` : ""}`}
         >
           <span className={facts.mode.mode === "bypassPermissions" ? "font-semibold text-signal" : "text-ink"}>{modeLabel(MODE_BADGE_WORDS[facts.mode.mode])}</span>
+          {facts.mode.isDefault && <span className="text-ink-faint"> (default)</span>}
           {facts.mode.clampedFrom !== null && <span className="text-amber"> {clampWords(facts.mode.clampedFrom)}</span>}
         </ModePicker>
         <ContainmentPicker environmentId={environmentId} sessionId={sessionId} containment={facts.containment} />

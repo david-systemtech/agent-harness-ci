@@ -105,6 +105,7 @@ export const useStatus = (inputs: StatusInputs): StatusView => {
           forkedOnto: inputs.forkedOnto,
           containmentSet: inputs.containment,
           containmentDefault: permissions?.read().result?.values["permissions.containment.default"],
+          attendedDefault: permissions?.read().result?.values["permissions.attended.mode"],
           recommendation: recommendation?.read().result,
           now: () => runtime.environmentNow(environmentId).getTime(),
         })
@@ -155,7 +156,7 @@ export const useStatus = (inputs: StatusInputs): StatusView => {
       badge,
       label !== undefined ? { text: label, bold: true } : { text: "default account", dim: true },
       model ? { text: `${modelChoiceWords(model, listed?.label)}${warning === undefined ? "" : " ⚠ unavailable"}`, ...(warning !== undefined && { color: TERMINAL_ROLES.warning }) } : { text: "default model", dim: true },
-      mode.clampedFrom === null ? modeBadge : { ...modeBadge, text: `${modeBadge.text} ${clampWords(mode.clampedFrom)}` },
+      { ...modeBadge, text: `${modeBadge.text}${mode.isDefault ? " (default)" : ""}${mode.clampedFrom === null ? "" : ` ${clampWords(mode.clampedFrom)}`}` },
       ...(containment ? [containmentBadge(containment.level, containment.isDefault)] : []),
     ],
     readings: readingsOf(gaugeOf(runtime.projections.usage.read().gauges, environmentId, facts.accountId), meterCells(inputs.width)),

@@ -22,6 +22,16 @@ export const UnattendedMode = z.enum(UNATTENDED_MODES).meta({
 });
 export type UnattendedMode = z.infer<typeof UnattendedMode>;
 
+/**
+ * The attended default (#2183): what an attended run whose session names no
+ * mode starts in, from the same two values. Clamped to the ceiling and the
+ * account's modes like any start mode; the denylist still asks in every mode.
+ */
+export const AttendedMode = z.enum(UNATTENDED_MODES).meta({
+  description: "The mode an attended run starts in when its session names none: acceptEdits or bypassPermissions, lowered to the ceiling.",
+});
+export type AttendedMode = z.infer<typeof AttendedMode>;
+
 /** The units a parked prompt's TTL is counted in. */
 export const TTL_UNITS = ["minutes", "hours", "days"] as const;
 export const TtlUnit = z.enum(TTL_UNITS).meta({ description: "What a duration is counted in: minutes, hours or days." });
@@ -80,10 +90,11 @@ export const PERMISSION_SETTINGS = {
     preset: "acceptEdits",
     step: PERMISSIONS_STEP, writtenBy: WRITTEN_BY,
   }),
+  "permissions.attended.mode": setting({ schema: AttendedMode, preset: "acceptEdits", step: PERMISSIONS_STEP, writtenBy: WRITTEN_BY }),
   "permissions.unattended.mode": setting({ schema: UnattendedMode, preset: "acceptEdits", step: PERMISSIONS_STEP, writtenBy: WRITTEN_BY }),
   "permissions.unattended.bypassAcknowledgedAt": setting({
     schema: Timestamp.nullable().meta({
-      description: "When bypassPermissions was first acknowledged as the unattended mode; null until it has been. Recorded by the environment, never set directly.",
+      description: "When bypassPermissions was first acknowledged as the unattended or the attended default mode; null until it has been. Recorded by the environment, never set directly.",
     }),
     preset: null,
     step: PERMISSIONS_STEP, writtenBy: WRITTEN_BY,

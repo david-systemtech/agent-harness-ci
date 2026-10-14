@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { SETTINGS, type SettingsKey, denylistPresets, type ContainmentReport } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
+import { cappedDefaultLine } from "./permissions/mode-choices.js";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
 /**
@@ -79,7 +80,7 @@ describe("the permission settings", () => {
       ["auto", "Let Claude decide", "Claude reviews each action and asks you only when it is unsure."],
       ["bypassPermissions", "Never ask", "Agents act without asking. Use it only for trusted work in a sandbox."],
     ] as const;
-    for (const key of ["permissions.defaultCeiling", "permissions.unattended.mode"] as const) {
+    for (const key of ["permissions.defaultCeiling", "permissions.attended.mode", "permissions.unattended.mode"] as const) {
       const group = await within(field(permissions, key)).findByRole("radiogroup");
       const supported = key === "permissions.defaultCeiling" ? choices : choices.filter(([mode]) => mode === "acceptEdits" || mode === "bypassPermissions");
       expect(within(group).getAllByRole("radio")).toHaveLength(supported.length);
@@ -142,6 +143,35 @@ describe("the permission settings", () => {
     ]);
     expect(desk.settings()["permissions.unattended.bypassAcknowledgedAt"]).not.toBeNull();
     expect(within(permissions).queryByText(desk.settings()["permissions.unattended.bypassAcknowledgedAt"] as string)).toBeNull();
+  });
+
+  it("sets the default mode for new attended sessions, asking before Never ask and sending the agreement with it (issue 2183)", async () => {
+    const app = await opened();
+    const desk = app.environment("desk");
+    const permissions = await openPermissions(app);
+    const row = field(permissions, "permissions.attended.mode");
+    expect(within(row).getByText(SETTINGS["permissions.attended.mode"].description)).toBeDefined();
+    const mode = await within(row).findByRole("radiogroup");
+    expect(within(mode).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Edit files, ask for the rest", "Never ask"]);
+    expect((within(mode).getByRole("radio", { name: "Edit files, ask for the rest" }) as HTMLInputElement).checked).toBe(true);
+
+    await app.user.click(within(mode).getByRole("radio", { name: "Never ask" }));
+    const confirm = await screen.findByRole("dialog", { name: "Never ask in new sessions?" });
+    await app.user.click(within(confirm).getByRole("button", { name: "Never ask" }));
+    await waitFor(() => expect(desk.settings()["permissions.attended.mode"]).toBe("bypassPermissions"));
+    expect(desk.requests("permissions.settings.set").map((request) => request.params)).toEqual([
+      { commandId: expect.any(String), values: { "permissions.attended.mode": "bypassPermissions" }, acknowledgeBypass: true },
+    ]);
+    await waitFor(() => expect((within(mode).getByRole("radio", { name: "Never ask" }) as HTMLInputElement).checked).toBe(true));
+    // The default ceiling is acceptEdits: new sessions start there, and the row says so.
+    expect(within(row).getByText("New sessions start at Edit files, ask for the rest: that is the most a session may do here.")).toBeDefined();
+  });
+
+  it("says the capped default only when the lower of the default ceiling and the connection's is below the mode chosen (issue 2183)", () => {
+    expect(cappedDefaultLine("bypassPermissions", "bypassPermissions", "bypassPermissions")).toBeUndefined();
+    expect(cappedDefaultLine("bypassPermissions", "bypassPermissions", null)).toBeUndefined();
+    expect(cappedDefaultLine("acceptEdits", "acceptEdits", "plan")).toBe("New sessions start at Ask before any change: that is the most a session may do here.");
+    expect(cappedDefaultLine("bypassPermissions", "auto", "bypassPermissions")).toBe("New sessions start at Let Claude decide: that is the most a session may do here.");
   });
 
   it("offers one restart guide when the report omits the project-folder levels", async () => {

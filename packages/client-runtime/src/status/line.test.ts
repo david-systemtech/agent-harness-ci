@@ -64,20 +64,24 @@ const outOfRoom: HandoffRecommendation = {
 
 describe("the mode badge", () => {
   it("is the session's mode, or the attended default lowered to the ceiling, which is no clamp", () => {
-    expect(modeBadgeOf("auto", "bypassPermissions", undefined)).toEqual({ mode: "auto", clampedFrom: null });
-    expect(modeBadgeOf(null, "plan", undefined)).toEqual({ mode: "plan", clampedFrom: null });
-    expect(modeBadgeOf(null, null, undefined)).toEqual({ mode: "acceptEdits", clampedFrom: null });
+    expect(modeBadgeOf("auto", "bypassPermissions", undefined)).toEqual({ mode: "auto", clampedFrom: null, isDefault: false });
+    expect(modeBadgeOf(null, "plan", undefined)).toEqual({ mode: "plan", clampedFrom: null, isDefault: true });
+    expect(modeBadgeOf(null, null, undefined)).toEqual({ mode: "acceptEdits", clampedFrom: null, isDefault: true });
+    // The environment's attended default (#2183), lowered to the ceiling: still no clamp.
+    expect(modeBadgeOf(null, "bypassPermissions", undefined, "bypassPermissions")).toEqual({ mode: "bypassPermissions", clampedFrom: null, isDefault: true });
+    expect(modeBadgeOf(null, "acceptEdits", undefined, "bypassPermissions")).toEqual({ mode: "acceptEdits", clampedFrom: null, isDefault: true });
+    expect(modeBadgeOf(null, null, undefined, "bypassPermissions")).toEqual({ mode: "bypassPermissions", clampedFrom: null, isDefault: true });
   });
 
   it("shows the clamp of a session's mode above this connection's ceiling", () => {
-    expect(modeBadgeOf("bypassPermissions", "auto", undefined)).toEqual({ mode: "auto", clampedFrom: "bypassPermissions" });
+    expect(modeBadgeOf("bypassPermissions", "auto", undefined)).toEqual({ mode: "auto", clampedFrom: "bypassPermissions", isDefault: false });
   });
 
   it("shows the clamp the latest run got for the session's mode, past a mode its account cannot use", () => {
     const clamped = run({ mode: { requested: "auto", effective: "acceptEdits", clamped: true } });
-    expect(modeBadgeOf("auto", "bypassPermissions", clamped)).toEqual({ mode: "acceptEdits", clampedFrom: "auto" });
+    expect(modeBadgeOf("auto", "bypassPermissions", clamped)).toEqual({ mode: "acceptEdits", clampedFrom: "auto", isDefault: false });
     // A run that asked for another mode than the session's now says nothing of it.
-    expect(modeBadgeOf("plan", "bypassPermissions", clamped)).toEqual({ mode: "plan", clampedFrom: null });
+    expect(modeBadgeOf("plan", "bypassPermissions", clamped)).toEqual({ mode: "plan", clampedFrom: null, isDefault: false });
   });
 });
 

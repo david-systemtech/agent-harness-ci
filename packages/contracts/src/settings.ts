@@ -239,6 +239,10 @@ const SETTING_WORDS = {
     label: "How much agents may do without asking",
     description: "This is the most any session may do without asking. A session can always ask more often.",
   },
+  "permissions.attended.mode": {
+    label: "Default mode for new attended sessions",
+    description: "How much a session you start may do without asking, unless you change its mode. It is never more than the most any session may do. Never ask needs your agreement first.",
+  },
   "permissions.unattended.mode": {
     label: "For scheduled and automatic runs",
     description: "How much scheduled and automatic runs may do without asking, unless they choose for themselves. Never ask needs your agreement first.",

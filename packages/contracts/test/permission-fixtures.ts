@@ -24,6 +24,7 @@ const unattendedPolicy = { actorKind: "routine", actorName: "nightly-backup", at
 
 const values = {
   "permissions.defaultCeiling": "acceptEdits",
+  "permissions.attended.mode": "acceptEdits",
   "permissions.unattended.mode": "acceptEdits",
   "permissions.unattended.bypassAcknowledgedAt": null,
   "permissions.parkedPrompt.ttl": { amount: 24, unit: "hours" },
@@ -238,6 +239,7 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
   },
   "permissions/settings-area.json": { valid: ["permissions"], invalid: ["sessions", ""] },
   "permissions/unattended-mode.json": { valid: ["acceptEdits", "bypassPermissions"], invalid: ["plan", "auto", "default"] },
+  "permissions/attended-mode.json": { valid: ["acceptEdits", "bypassPermissions"], invalid: ["plan", "auto", "default"] },
   "permissions/ttl-unit.json": { valid: ["minutes", "hours", "days"], invalid: ["weeks", ""] },
   "permissions/parked-prompt-ttl.json": {
     valid: [{ amount: 24, unit: "hours" }, { amount: 1, unit: "minutes" }, "never"],
