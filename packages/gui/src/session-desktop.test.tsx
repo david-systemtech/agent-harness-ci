@@ -7,7 +7,7 @@ const opened = async () => {
   const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Desktop work" }] }] });
   const desk = app.environment("desk");
   const sessionId = desk.sessionId();
-  desk.wire.answer("browser.status", () => ({ error: { code: "method_not_found", message: "No browser here." } }));
+  desk.wire.answer("browser.status", () => ({ error: { code: "method_not_found", message: "No browser here.", data: {} } }));
   desk.wire.answer("browser.chromes.list", () => ({ result: { chromes: [] } }));
   desk.wire.answer("sessions.setDesktop", (params) => {
     const desktop = params["desktop"] as SessionDesktop;
