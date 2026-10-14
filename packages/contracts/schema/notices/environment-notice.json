@@ -707,6 +707,18 @@
               ],
               "description": "The verification URL a person opens to sign in, once the provider's CLI has printed it; null until then."
             },
+            "userCode": {
+              "description": "A device flow's one-time code, which a person enters on the verification page instead of pasting a code back (Codex's `codex login --device-auth`); absent for a flow that takes a code back (Claude's) and from environments that do not say.",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "startedAt": {
               "type": "string",
               "format": "date-time",
@@ -7232,6 +7244,7 @@
                   "accounts.defaultModelFamily",
                   "accounts.defaultEffort",
                   "accounts.favouriteModels",
+                  "accounts.codexForClaudeRuns",
                   "providers.processIdleMinutes",
                   "permissions.defaultCeiling",
                   "permissions.attended.mode",
@@ -7260,7 +7273,7 @@
                   "network.bindLan",
                   "instructions.orientation"
                 ],
-                "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, accounts.defaultAccount, accounts.defaultModelFamily, accounts.defaultEffort, accounts.favouriteModels, providers.processIdleMinutes, permissions.defaultCeiling, permissions.attended.mode, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default, updates.autoUpdate, updates.channel, updates.pinnedVersion, updates.idleWindowMinutes, updates.deferralCapHours, appearance.theme, browser.devSites, browser.evaluateEverywhere, browser.deepReadEverywhere, browser.reach, browser.headless.allowRuns, browser.headless.endpoint, browser.headless.executable, browser.headless.limits, browser.internalHosts, credentials.injection, credentials.injectionByAccount, network.bindTailnet, network.bindLan, instructions.orientation."
+                "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, accounts.defaultAccount, accounts.defaultModelFamily, accounts.defaultEffort, accounts.favouriteModels, accounts.codexForClaudeRuns, providers.processIdleMinutes, permissions.defaultCeiling, permissions.attended.mode, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default, updates.autoUpdate, updates.channel, updates.pinnedVersion, updates.idleWindowMinutes, updates.deferralCapHours, appearance.theme, browser.devSites, browser.evaluateEverywhere, browser.deepReadEverywhere, browser.reach, browser.headless.allowRuns, browser.headless.endpoint, browser.headless.executable, browser.headless.limits, browser.internalHosts, credentials.injection, credentials.injectionByAccount, network.bindTailnet, network.bindLan, instructions.orientation."
               },
               "uniqueItems": true,
               "description": "The keys whose values changed, each once, in the order settings.updated names them."
@@ -7639,6 +7652,7 @@
                     "type": "string",
                     "enum": [
                       "claude",
+                      "codex",
                       "bao",
                       "vault",
                       "doppler",
@@ -7646,7 +7660,7 @@
                       "bws",
                       "gh"
                     ],
-                    "description": "A managed tool, by the name it is found under on the PATH: claude (claude in your terminal, never the bundled binary), bao (OpenBao), vault (Vault), doppler, op (1Password), bws (Bitwarden Secrets Manager) or gh (GitHub)."
+                    "description": "A managed tool, by the name it is found under on the PATH: claude (claude in your terminal, never the bundled binary), codex (OpenAI's Codex CLI), bao (OpenBao), vault (Vault), doppler, op (1Password), bws (Bitwarden Secrets Manager) or gh (GitHub)."
                   },
                   "label": {
                     "type": "string",
@@ -7704,7 +7718,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "The newest release known, from the source matching its install method (the Homebrew API for homebrew, WinGet's manifests for winget, the npm registry's configured update-channel dist-tag for claude on npm), else the vendor's release feed (GitHub releases for bao, doppler, bws and gh; Claude Code's configured update channel for claude; 1Password's update feed for op; HashiCorp's releases API for vault): fetched by the environment at most once a day, when a client asks tools.list to refresh, and cached on the environment. Null while none is known, and when it is not installed. A version behind it is update-available."
+                    "description": "The newest release known, from the source matching its install method (the Homebrew API for homebrew, WinGet's manifests for winget, the npm registry's configured update-channel dist-tag for claude on npm), else the vendor's release feed (GitHub releases for bao, doppler, bws and gh; Claude Code's configured update channel for claude; the npm registry's latest dist-tag for codex; 1Password's update feed for op; HashiCorp's releases API for vault): fetched by the environment at most once a day, when a client asks tools.list to refresh, and cached on the environment. Null while none is known, and when it is not installed. A version behind it is update-available."
                   },
                   "minimum": {
                     "anyOf": [
@@ -7826,6 +7840,7 @@
               "type": "string",
               "enum": [
                 "claude",
+                "codex",
                 "bao",
                 "doppler",
                 "op",
@@ -7857,7 +7872,7 @@
                 "asdf",
                 "manual"
               ],
-              "description": "A way the harness installs or updates a tool: homebrew; winget; apt or dnf, the vendor's repository added with its signing key; script, the vendor's installer or checked release archive (claude's native installer and bao's archive among them); npm, a global package; scoop, mise or asdf, the package manager's own upgrade of the package the tool was installed as; manual, a binary placed by hand, updated by the vendor's self-update or, for bao, its release archive checked against the published checksums. Only the first five install; the others only update."
+              "description": "A way the harness installs or updates a tool: homebrew; winget; apt or dnf, the vendor's repository added with its signing key; script, the vendor's installer or checked release archive (claude's native installer and bao's archive among them); npm, a global package; scoop, mise or asdf, the package manager's own upgrade of the package the tool was installed as; manual, a binary placed by hand, updated by the vendor's self-update or, for bao, its release archive checked against the published checksums. Only the first five install, and npm, for a tool whose vendor ships it as a global package (codex); the others only update."
             },
             "terminalId": {
               "type": "string",
@@ -7903,6 +7918,7 @@
               "type": "string",
               "enum": [
                 "claude",
+                "codex",
                 "bao",
                 "doppler",
                 "op",
@@ -7934,7 +7950,7 @@
                 "asdf",
                 "manual"
               ],
-              "description": "A way the harness installs or updates a tool: homebrew; winget; apt or dnf, the vendor's repository added with its signing key; script, the vendor's installer or checked release archive (claude's native installer and bao's archive among them); npm, a global package; scoop, mise or asdf, the package manager's own upgrade of the package the tool was installed as; manual, a binary placed by hand, updated by the vendor's self-update or, for bao, its release archive checked against the published checksums. Only the first five install; the others only update."
+              "description": "A way the harness installs or updates a tool: homebrew; winget; apt or dnf, the vendor's repository added with its signing key; script, the vendor's installer or checked release archive (claude's native installer and bao's archive among them); npm, a global package; scoop, mise or asdf, the package manager's own upgrade of the package the tool was installed as; manual, a binary placed by hand, updated by the vendor's self-update or, for bao, its release archive checked against the published checksums. Only the first five install, and npm, for a tool whose vendor ships it as a global package (codex); the others only update."
             },
             "terminalId": {
               "type": "string",
@@ -7992,7 +8008,7 @@
                         "bws",
                         "gh"
                       ],
-                      "description": "A managed tool with a verify command: bao, vault, doppler, op, bws or gh; claude has none."
+                      "description": "A managed tool with a verify command: bao, vault, doppler, op, bws or gh; claude and codex have none."
                     },
                     "outcome": {
                       "type": "string",
@@ -8022,7 +8038,7 @@
                   "type": "null"
                 }
               ],
-              "description": "How the tool's verify command came out once the PATH was read again and the tool probed; null for claude, which has none, and when the environment stopped first."
+              "description": "How the tool's verify command came out once the PATH was read again and the tool probed; null for claude and codex, which have none, and when the environment stopped first."
             }
           },
           "required": [

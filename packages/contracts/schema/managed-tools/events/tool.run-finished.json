@@ -7,6 +7,7 @@
       "type": "string",
       "enum": [
         "claude",
+        "codex",
         "bao",
         "doppler",
         "op",
@@ -38,7 +39,7 @@
         "asdf",
         "manual"
       ],
-      "description": "A way the harness installs or updates a tool: homebrew; winget; apt or dnf, the vendor's repository added with its signing key; script, the vendor's installer or checked release archive (claude's native installer and bao's archive among them); npm, a global package; scoop, mise or asdf, the package manager's own upgrade of the package the tool was installed as; manual, a binary placed by hand, updated by the vendor's self-update or, for bao, its release archive checked against the published checksums. Only the first five install; the others only update."
+      "description": "A way the harness installs or updates a tool: homebrew; winget; apt or dnf, the vendor's repository added with its signing key; script, the vendor's installer or checked release archive (claude's native installer and bao's archive among them); npm, a global package; scoop, mise or asdf, the package manager's own upgrade of the package the tool was installed as; manual, a binary placed by hand, updated by the vendor's self-update or, for bao, its release archive checked against the published checksums. Only the first five install, and npm, for a tool whose vendor ships it as a global package (codex); the others only update."
     },
     "terminalId": {
       "type": "string",
@@ -96,7 +97,7 @@
                 "bws",
                 "gh"
               ],
-              "description": "A managed tool with a verify command: bao, vault, doppler, op, bws or gh; claude has none."
+              "description": "A managed tool with a verify command: bao, vault, doppler, op, bws or gh; claude and codex have none."
             },
             "outcome": {
               "type": "string",
@@ -126,7 +127,7 @@
           "type": "null"
         }
       ],
-      "description": "How the tool's verify command came out once the PATH was read again and the tool probed; null for claude, which has none, and when the environment stopped first."
+      "description": "How the tool's verify command came out once the PATH was read again and the tool probed; null for claude and codex, which have none, and when the environment stopped first."
     }
   },
   "required": [

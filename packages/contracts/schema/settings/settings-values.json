@@ -93,6 +93,28 @@
       "uniqueItems": true,
       "description": "The model ids the account and model picker offers first, in the order the person put them, each once, at most 20; empty for the provider's recommended models. A model the selected account does not list is passed over."
     },
+    "accounts.codexForClaudeRuns": {
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+            },
+            {
+              "type": "boolean",
+              "const": false
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "accounts.codexForClaudeRuns: the Codex account whose directory Claude runs get as CODEX_HOME and CODEX_WORKER_HOME (#2169). Null for the one signed-in Codex account when the environment holds exactly one, none otherwise; an account id for that account while it is held and signed in, none otherwise; false for none. Given only while credentials are injected. Preset null."
+    },
     "providers.processIdleMinutes": {
       "type": "integer",
       "minimum": 1,
@@ -622,6 +644,7 @@
     "accounts.defaultModelFamily",
     "accounts.defaultEffort",
     "accounts.favouriteModels",
+    "accounts.codexForClaudeRuns",
     "providers.processIdleMinutes",
     "permissions.defaultCeiling",
     "permissions.attended.mode",

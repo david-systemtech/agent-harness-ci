@@ -13,6 +13,7 @@
             "type": "string",
             "enum": [
               "claude",
+              "codex",
               "bao",
               "vault",
               "doppler",
@@ -20,7 +21,7 @@
               "bws",
               "gh"
             ],
-            "description": "A managed tool, by the name it is found under on the PATH: claude (claude in your terminal, never the bundled binary), bao (OpenBao), vault (Vault), doppler, op (1Password), bws (Bitwarden Secrets Manager) or gh (GitHub)."
+            "description": "A managed tool, by the name it is found under on the PATH: claude (claude in your terminal, never the bundled binary), codex (OpenAI's Codex CLI), bao (OpenBao), vault (Vault), doppler, op (1Password), bws (Bitwarden Secrets Manager) or gh (GitHub)."
           },
           "label": {
             "type": "string",
@@ -78,7 +79,7 @@
                 "type": "null"
               }
             ],
-            "description": "The newest release known, from the source matching its install method (the Homebrew API for homebrew, WinGet's manifests for winget, the npm registry's configured update-channel dist-tag for claude on npm), else the vendor's release feed (GitHub releases for bao, doppler, bws and gh; Claude Code's configured update channel for claude; 1Password's update feed for op; HashiCorp's releases API for vault): fetched by the environment at most once a day, when a client asks tools.list to refresh, and cached on the environment. Null while none is known, and when it is not installed. A version behind it is update-available."
+            "description": "The newest release known, from the source matching its install method (the Homebrew API for homebrew, WinGet's manifests for winget, the npm registry's configured update-channel dist-tag for claude on npm), else the vendor's release feed (GitHub releases for bao, doppler, bws and gh; Claude Code's configured update channel for claude; the npm registry's latest dist-tag for codex; 1Password's update feed for op; HashiCorp's releases API for vault): fetched by the environment at most once a day, when a client asks tools.list to refresh, and cached on the environment. Null while none is known, and when it is not installed. A version behind it is update-available."
           },
           "minimum": {
             "anyOf": [

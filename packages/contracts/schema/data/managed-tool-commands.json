@@ -301,6 +301,69 @@
       ]
     },
     {
+      "tool": "codex",
+      "method": "homebrew",
+      "platforms": [
+        "darwin",
+        "linux"
+      ],
+      "needs": [
+        "brew"
+      ],
+      "install": [
+        [
+          [
+            "brew",
+            "install",
+            "--cask",
+            "codex"
+          ]
+        ]
+      ],
+      "update": [
+        [
+          [
+            "brew",
+            "upgrade",
+            "--cask",
+            "codex"
+          ]
+        ]
+      ]
+    },
+    {
+      "tool": "codex",
+      "method": "npm",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "needs": [
+        "npm"
+      ],
+      "install": [
+        [
+          [
+            "npm",
+            "install",
+            "-g",
+            "@openai/codex@latest"
+          ]
+        ]
+      ],
+      "update": [
+        [
+          [
+            "npm",
+            "install",
+            "-g",
+            "@openai/codex@latest"
+          ]
+        ]
+      ]
+    },
+    {
       "tool": "bao",
       "method": "homebrew",
       "platforms": [

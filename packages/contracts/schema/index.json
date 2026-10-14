@@ -2955,6 +2955,10 @@
       "title": "FavouriteModels"
     },
     {
+      "path": "settings/keys/accounts.codexForClaudeRuns.json",
+      "title": "CodexForClaudeRuns"
+    },
+    {
       "path": "settings/keys/providers.processIdleMinutes.json",
       "title": "ProcessIdleMinutes"
     },

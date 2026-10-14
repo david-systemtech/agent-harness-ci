@@ -13,7 +13,7 @@
         "bws",
         "gh"
       ],
-      "description": "A managed tool with a verify command: bao, vault, doppler, op, bws or gh; claude has none."
+      "description": "A managed tool with a verify command: bao, vault, doppler, op, bws or gh; claude and codex have none."
     },
     "outcome": {
       "type": "string",

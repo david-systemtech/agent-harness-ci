@@ -255,6 +255,7 @@
               "type": "string",
               "enum": [
                 "claude",
+                "codex",
                 "bao",
                 "vault",
                 "doppler",
@@ -262,7 +263,7 @@
                 "bws",
                 "gh"
               ],
-              "description": "A managed tool, by the name it is found under on the PATH: claude (claude in your terminal, never the bundled binary), bao (OpenBao), vault (Vault), doppler, op (1Password), bws (Bitwarden Secrets Manager) or gh (GitHub)."
+              "description": "A managed tool, by the name it is found under on the PATH: claude (claude in your terminal, never the bundled binary), codex (OpenAI's Codex CLI), bao (OpenBao), vault (Vault), doppler, op (1Password), bws (Bitwarden Secrets Manager) or gh (GitHub)."
             },
             "action": {
               "type": "string",

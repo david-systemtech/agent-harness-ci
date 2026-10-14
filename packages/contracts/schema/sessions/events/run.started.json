@@ -273,6 +273,11 @@
         }
       ],
       "description": "The session the run's session was forked from, on a fork's first run; else null."
+    },
+    "codexAccountId": {
+      "description": "The Codex account chosen for the run as it started (accounts.codexForClaudeRuns, #2169), whose directory its process is given as CODEX_HOME and CODEX_WORKER_HOME while credentials are injected; absent when none was chosen, and from environments that do not say.",
+      "type": "string",
+      "minLength": 1
     }
   },
   "required": [

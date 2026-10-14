@@ -14,6 +14,15 @@
       }
     },
     {
+      "name": "codex",
+      "label": "codex",
+      "minimum": null,
+      "verify": null,
+      "requiredFor": {
+        "kind": "never"
+      }
+    },
+    {
       "name": "bao",
       "label": "OpenBao CLI",
       "minimum": "2.1.1",
