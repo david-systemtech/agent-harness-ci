@@ -229,6 +229,7 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
           browser: (params["browser"] as { value?: unknown } | undefined)?.value ?? null,
           pullRequests: [],
           draft: null,
+          draftRevision: 0,
         });
         add(summary, commandId, "session.created");
         return accepted({ summary });

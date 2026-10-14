@@ -74,4 +74,6 @@ export const SUMMARY_FIELD_OWNERS = {
   pullRequests: { event: "session.pull-request-linked" },
   // Composer: an absolute setter, which a client's outbox coalesces.
   draft: { command: "sessions.setDraft" },
+  // Its revision (#2207): moved on by each set, so a stale base drops the write.
+  draftRevision: { event: "session.draft-set" },
 } as const satisfies { readonly [K in keyof SessionSummary]-?: SummaryFieldOwner };

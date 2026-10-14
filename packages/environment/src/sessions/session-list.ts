@@ -192,7 +192,9 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
     organise(event, db, {});
   },
   // The draft is not an organisation change, so it leaves updatedAt where it was.
-  "session.draft-set": (event, db) => setColumns(event, db, { draft: (event.payload as SessionDraftSetPayload).draft }),
+  // Each set moves the draft's revision on (#2207), which a client's sessions.setDraft names as its base.
+  "session.draft-set": (event, db) =>
+    db.run("UPDATE sessions SET draft = ?, draft_revision = draft_revision + 1 WHERE id = ?", (event.payload as SessionDraftSetPayload).draft, event.streamId),
   // Delete and restore leave updatedAt where it was too, so a restored session comes back unchanged.
   // Its summary leaves the list (`remove`) and comes back whole (`add`), since the list reads only sessions not deleted.
   "session.deleted": (event, db) => {

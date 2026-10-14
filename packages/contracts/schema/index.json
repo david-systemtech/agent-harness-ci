@@ -343,6 +343,10 @@
       "title": "StoredDraft"
     },
     {
+      "path": "sessions/draft-revision.json",
+      "title": "DraftRevision"
+    },
+    {
       "path": "sessions/group-name.json",
       "title": "GroupName"
     },

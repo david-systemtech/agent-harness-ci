@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DraftRevision",
+  "type": "integer",
+  "minimum": 0,
+  "maximum": 9007199254740991,
+  "description": "The revision of the session's draft: how many times it has been set (each session.draft-set), 0 for one never set. sessions.setDraft sends the one its client last saw as baseRevision."
+}

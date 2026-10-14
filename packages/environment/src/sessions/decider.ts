@@ -58,6 +58,8 @@ export interface SessionState {
   /** As the summary holds them: trimmed, one per case-folded key, sorted by it. */
   readonly tags: readonly string[];
   readonly draft: string | null;
+  /** How many times the draft has been set: the revision a `sessions.setDraft` names as its base (#2207). */
+  readonly draftRevision: number;
   /** What a user's settle or unsettle holds the session to until its next activity, or null. */
   readonly settledOverride: "settled" | "active" | null;
   /** The browser the session chose, or null for none chosen (#550). */
@@ -80,6 +82,7 @@ export const PURGED_STATE: SessionState = {
   snoozedUntil: null,
   tags: [],
   draft: null,
+  draftRevision: 0,
   settledOverride: null,
   browser: null,
 };
@@ -215,6 +218,8 @@ export interface TagSession extends OnSession {
 /** `sessions.setDraft`: the draft that replaces the stored one; null or empty clears it. */
 export interface SetDraft extends OnSession {
   readonly draft: string | null;
+  /** The draft revision the client last saw; undefined (a client from before #2207) for an unconditional write. */
+  readonly baseRevision?: number | undefined;
 }
 
 /** A session command's state, or the refusal when the session is not there: never created, deleted or purged. */
@@ -443,11 +448,16 @@ export const decideSetBrowser = (state: SessionState | null, command: SetBrowser
 
 /**
  * Replaces the session's draft with the one sent, exactly as sent; an empty
- * draft is none. The draft already stored is unchanged.
+ * draft is none. The draft already stored is unchanged. A write whose base
+ * revision is older than the stored one was typed over a draft another
+ * client has since replaced (#2207): it is dropped, so a page replaying a
+ * stale queued draft after a reconnect leaves the newer one. No base is an
+ * unconditional write, as a client from before the revision sends.
  */
 export const decideSetDraft = (state: SessionState | null, command: SetDraft): Decision => {
   const session = present(state, command.sessionId);
   if ("rejected" in session) return session;
+  if (command.baseRevision !== undefined && command.baseRevision < session.draftRevision) return unchanged;
   const draft = command.draft === "" ? null : command.draft;
   if (draft === session.draft) return unchanged;
   const payload: SessionDraftSetPayload = { draft };

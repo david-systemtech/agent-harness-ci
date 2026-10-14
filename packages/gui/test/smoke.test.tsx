@@ -67,6 +67,7 @@ const openWindow = async (t: TestEnvironment, opening?: { readonly sessionId: st
   const user = userEvent.setup();
   return {
     platform,
+    runtime,
     environmentId,
     sessionId,
     inWindow,
@@ -139,6 +140,9 @@ describe("the composer through the real spine", { concurrent: false }, () => {
     other.runtime.drafts.flush();
     await waitFor(() => expect(other.draft()).toBe("typed on the laptop again"), { timeout: 5000 });
     expect(window.box.value).toBe("typed on the laptop, and more");
+    // Once the window has the laptop's draft revision, what it saves is typed on it, so it is the newer draft (#2207).
+    const revision = () => window.runtime.projections.sessionList.read().rows.find((row) => row.summary.id === window.sessionId)?.summary.draftRevision;
+    await waitFor(() => expect(revision()).toBe(2), { timeout: 5000 });
 
     act(() => window.platform.clock.advance(DRAFT_DEBOUNCE_MS));
     await waitFor(() => expect(other.draft()).toBe("typed on the laptop, and more"), { timeout: 5000 });

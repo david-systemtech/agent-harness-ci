@@ -91,6 +91,7 @@ export const freshSummary = {
   browser: null,
   pullRequests: [],
   draft: null,
+  draftRevision: 0,
 };
 
 const fullSummary = {
@@ -290,6 +291,7 @@ export const sessionSchemaFixtures: Record<string, Fixtures> = {
   },
   "sessions/draft.json": { valid: ["", "Now the retention sweep", "x".repeat(65_536)], invalid: [null, "x".repeat(65_537)] },
   "sessions/stored-draft.json": { valid: [null, "Now the retention sweep", "x".repeat(65_536)], invalid: ["", "x".repeat(65_537), 7] },
+  "sessions/draft-revision.json": { valid: [0, 1, 4096], invalid: [-1, 1.5, "1", null] },
   "sessions/group-name.json": {
     valid: ["Meadowstudios", "x".repeat(80), ` ${"x".repeat(80)} `, "Moon \t Gems\n and friends", "naïve", "日本語"],
     invalid: ["", "  ", "x".repeat(81), "a\u0000b", "a\u001Bb", "a\u0085b", "\u200B", "a\u200Bb", "\u200B\u200B", "\uFEFF", "a\uFEFFb", "a\u2060b"],

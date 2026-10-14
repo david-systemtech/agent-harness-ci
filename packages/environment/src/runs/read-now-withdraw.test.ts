@@ -534,7 +534,7 @@ describe("runs.withdraw", () => {
       // The draft reaches every client through the list's summary patch.
       let heard = await list.next();
       while (heard.type !== "session.draft-set") heard = await list.next();
-      expect(patchOf(heard)).toEqual({ op: "set", sessionId: id, fields: { draft: "Also the tests" } });
+      expect(patchOf(heard)).toEqual({ op: "set", sessionId: id, fields: { draft: "Also the tests", draftRevision: 1 } });
       // The provider is asked only for a message it holds.
       expect(t.adapter.runs[0]?.withdrawals).toEqual(heldBy === "provider" ? [withdrawn] : []);
 

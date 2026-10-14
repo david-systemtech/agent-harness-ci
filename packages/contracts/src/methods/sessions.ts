@@ -9,6 +9,7 @@ import { OrderKey } from "../ordering.js";
 import {
   DeletedSessionSummary,
   Draft,
+  DraftRevision,
   Group,
   GroupId,
   GroupName,
@@ -206,6 +207,13 @@ export const sessionsUntag = defineMethod({
  * or an empty string. An absolute setter: the value sent replaces the stored
  * one, so a client's outbox keeps only the latest of several queued for a
  * session. Setting it does not move `updatedAt`.
+ *
+ * Revised (#2207): `baseRevision` is the draft revision the client last saw
+ * (the summary's `draftRevision`). A write whose base is older than the
+ * stored revision was typed over a draft another client has since replaced,
+ * so it is dropped: accepted, nothing appended, the result the summary with
+ * the stored draft, which the client adopts. Without `baseRevision` (a
+ * client from before it) the write is unconditional, as it always was.
  */
 export const sessionsSetDraft = defineMethod({
   name: "sessions.setDraft",
@@ -214,6 +222,10 @@ export const sessionsSetDraft = defineMethod({
   params: commandParams({
     ...sessionTarget,
     draft: Draft.nullable().meta({ description: "The draft that replaces the stored one; null or an empty string clears it." }),
+    baseRevision: DraftRevision.optional().meta({
+      description:
+        "The draft revision the client last saw (the summary's draftRevision). A write whose base is older than the stored revision is dropped: accepted, nothing appended, the result the summary with the stored draft. Absent, the write is unconditional.",
+    }),
   }),
   result: summaryResult,
   errors: [],

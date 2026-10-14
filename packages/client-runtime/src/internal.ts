@@ -173,7 +173,11 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   });
   const drafts = createDrafts({
     clock: platform.clock,
-    dispatch: (environmentId, sessionId, draft) => void outbox.dispatch(environmentId, "sessions.setDraft", { sessionId, draft }),
+    // With the draft revision this client last saw (#2207), so a draft typed over one another client has since replaced is dropped.
+    dispatch: (environmentId, sessionId, draft) => {
+      const baseRevision = lists.read().get(environmentId)?.data?.sessions.get(sessionId.toLowerCase())?.draftRevision;
+      void outbox.dispatch(environmentId, "sessions.setDraft", { sessionId, draft, ...(baseRevision !== undefined && { baseRevision }) });
+    },
     report,
   });
   registry.seams.onForget((environmentId) => drafts.forget(environmentId));

@@ -93,6 +93,17 @@ export const StoredDraft = Draft.min(1)
 export type StoredDraft = z.infer<typeof StoredDraft>;
 
 /**
+ * The revision of a session's draft (#2207): how many times it has been
+ * set (each `session.draft-set`), 0 for one never set. A client sends the
+ * revision it last saw with `sessions.setDraft`, so a draft it wrote
+ * before another client's newer one cannot overwrite that one.
+ */
+export const DraftRevision = z.int().nonnegative().meta({
+  description: "The revision of the session's draft: how many times it has been set (each session.draft-set), 0 for one never set. sessions.setDraft sends the one its client last saw as baseRevision.",
+});
+export type DraftRevision = z.infer<typeof DraftRevision>;
+
+/**
  * A group's name: 1 to 80 characters once trimmed, no control or format
  * (zero-width) characters other than white space; stored trimmed with white
  * space collapsed, unique per environment ignoring case.
@@ -398,6 +409,7 @@ export const SessionSummary = z
     pullRequests: z.array(PullRequest),
     // Composer: the draft is a session field, so it follows the session between clients.
     draft: StoredDraft,
+    draftRevision: DraftRevision,
   })
   .meta({
     description: "A session as every client renders its list row: identity, title, filing, shelf, place, activity, mode, browser, forge and the composer draft.",

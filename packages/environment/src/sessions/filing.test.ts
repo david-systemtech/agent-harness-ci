@@ -351,11 +351,11 @@ describe("sessions.setDraft", () => {
 
     const answer = await command(client, "sessions.setDraft", { sessionId: id, draft: "Now the retention sweep\n\nand then" });
 
-    const expected = freshSummary(id, { draft: "Now the retention sweep\n\nand then" });
+    const expected = freshSummary(id, { draft: "Now the retention sweep\n\nand then", draftRevision: 1 });
     expect(answer).toEqual({ receipt: { status: "accepted", sequence: t.env.log.head(), changed: true }, result: { summary: expected } });
     const event = await list.next();
     expect(event).toMatchObject({ type: "session.draft-set", streamId: id, payload: { draft: "Now the retention sweep\n\nand then" } });
-    expect(patchOf(event)).toEqual({ op: "set", sessionId: id, fields: { draft: "Now the retention sweep\n\nand then" } });
+    expect(patchOf(event)).toEqual({ op: "set", sessionId: id, fields: { draft: "Now the retention sweep\n\nand then", draftRevision: 1 } });
     expect(await get(client, id)).toEqual(expected);
   });
 
@@ -365,7 +365,7 @@ describe("sessions.setDraft", () => {
     await command(client, "sessions.setDraft", { sessionId: id, draft: "first" });
     await list.next();
     await command(client, "sessions.setDraft", { sessionId: id, draft: "  second  " });
-    expect(patchOf(await list.next())).toEqual({ op: "set", sessionId: id, fields: { draft: "  second  " } });
+    expect(patchOf(await list.next())).toEqual({ op: "set", sessionId: id, fields: { draft: "  second  ", draftRevision: 2 } });
     expect((await get(client, id)).draft).toBe("  second  ");
   });
 
@@ -382,10 +382,28 @@ describe("sessions.setDraft", () => {
 
     const event = await list.next();
     expect(event).toMatchObject({ type: "session.draft-set", payload: { draft: null } });
-    expect(patchOf(event)).toEqual({ op: "set", sessionId: id, fields: { draft: null } });
+    expect(patchOf(event)).toEqual({ op: "set", sessionId: id, fields: { draft: null, draftRevision: 2 } });
     await command(client, "sessions.setDraft", { sessionId: id, draft: "again" });
     await command(client, "sessions.setDraft", { sessionId: id, draft: null });
     expect((await get(client, id)).draft).toBeNull();
+  });
+
+  // The draft revision (#2207): page A queued a draft offline on revision 0, page B wrote a newer one, then A replays.
+  it("drops a replayed draft whose base is older than the stored revision: the newer draft stays, and the answer carries it", async () => {
+    const t = await start();
+    const { client, id, list } = await withSession(t);
+    expect((await get(client, id)).draftRevision).toBe(0);
+    await command(client, "sessions.setDraft", { sessionId: id, draft: "First session route draft", baseRevision: 0 });
+    expect(patchOf(await list.next())).toEqual({ op: "set", sessionId: id, fields: { draft: "First session route draft", draftRevision: 1 } });
+
+    const replay = await expectNoOp(t, () => command(client, "sessions.setDraft", { sessionId: id, draft: "Draft retained across a client update.", baseRevision: 0 }));
+
+    expect(replay).toMatchObject({ receipt: { status: "accepted", changed: false }, result: { summary: { draft: "First session route draft", draftRevision: 1 } } });
+    expect(await get(client, id)).toMatchObject({ draft: "First session route draft", draftRevision: 1 });
+    // On the revision it now holds, A writes; and a write without a base (a client from before the revision) is unconditional.
+    await command(client, "sessions.setDraft", { sessionId: id, draft: "A again", baseRevision: 1 });
+    await command(client, "sessions.setDraft", { sessionId: id, draft: "an older client" });
+    expect(await get(client, id)).toMatchObject({ draft: "an older client", draftRevision: 3 });
   });
 
   it(`refuses a draft over ${MAX_DRAFT_LENGTH} characters invalid_params, and takes one of exactly that`, async () => {
@@ -509,7 +527,7 @@ describe("two clients", () => {
     }
 
     expect(events.map((event) => event.sequence)).toEqual([...receipts].sort((a, b) => a - b));
-    const expected = freshSummary(id, { tags: ["wip"], draft: "typed on the desktop", activeOrderKey: "t", updatedAt: at(10_000) });
+    const expected = freshSummary(id, { tags: ["wip"], draft: "typed on the desktop", draftRevision: 2, activeOrderKey: "t", updatedAt: at(10_000) });
     const summary = await get(second, id);
     expect(summary).toEqual(expected);
     expect(reduce(snapshot, events).sessions).toEqual([expected]);

@@ -920,8 +920,68 @@ describe("drafts", () => {
     expect(row(runtime, sessionId)?.summary.draft).toBe("Hello");
     clock.advance(1);
     await flush();
-    expect(requests(wire, "sessions.setDraft").map((f) => f.params)).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId, draft: "Hello" }]);
+    // With the draft revision the list last showed (#2207).
+    expect(requests(wire, "sessions.setDraft").map((f) => f.params)).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId, draft: "Hello", baseRevision: 0 }]);
     expect(DRAFT_DEBOUNCE_MS).toBe(1000);
+  });
+
+  // #2207: page A queued a draft offline, page B wrote a newer one; A's replay after its reconnect must not overwrite B's.
+  it("loses a stale draft replayed after a reconnect to another client's newer one, which this client then shows", async () => {
+    const a = await paired({ list: true });
+    const b = await paired({ list: true, clock: a.clock });
+    const sessionId = randomUUID();
+    listed(a.list, 10, [summaryOf(sessionId)]);
+    listed(b.list, 10, [summaryOf(sessionId)]);
+    await flush();
+    await cut(a.wire);
+    a.runtime.drafts.set(a.id, sessionId, "Draft retained across a client update.");
+    a.clock.advance(DRAFT_DEBOUNCE_MS);
+    await flush();
+    expect(row(a.runtime, sessionId)).toMatchObject({ summary: { draft: "Draft retained across a client update." }, pending: true });
+
+    // B writes on the revision it saw, and the environment takes it: revision 1.
+    b.wire.answer("sessions.setDraft", () => undefined);
+    b.runtime.drafts.set(b.id, sessionId, "First session route draft");
+    a.clock.advance(DRAFT_DEBOUNCE_MS);
+    const fromB = await b.wire.server.request("sessions.setDraft");
+    expect(fromB.params).toMatchObject({ sessionId, draft: "First session route draft", baseRevision: 0 });
+    const newer = { ...summaryOf(sessionId), draft: "First session route draft", draftRevision: 1 };
+    b.wire.server.send({ type: "response", id: fromB.id, result: { receipt: accepted(11), result: { summary: newer } } });
+
+    // A comes back and replays its draft on the revision it saw before B's; the environment drops it and answers with B's.
+    a.wire.answer("sessions.setDraft", () => undefined);
+    await mend(a.wire, a.clock, a.runtime);
+    const again = await subscription(a.wire, "sessions.subscribe");
+    again.synchronized(10);
+    again.event(sessionEvent(11, { op: "set", sessionId, fields: { draft: "First session route draft", draftRevision: 1 } }, "session.draft-set"));
+    const replay = await a.wire.server.request("sessions.setDraft");
+    expect(replay.params).toMatchObject({ sessionId, draft: "Draft retained across a client update.", baseRevision: 0 });
+    a.wire.server.send({ type: "response", id: replay.id, result: { receipt: accepted(11, false), result: { summary: newer } } });
+    await flush();
+
+    expect(row(a.runtime, sessionId)).toMatchObject({ summary: { draft: "First session route draft", draftRevision: 1 }, pending: false });
+    expect(row(b.runtime, sessionId)?.summary.draft).toBe("First session route draft");
+  });
+
+  it("rebases a draft typed while its own earlier one was in flight onto the revision that one wrote, rather than drop it as stale", async () => {
+    const { runtime, wire, clock, id, list } = await paired({ list: true });
+    const sessionId = randomUUID();
+    listed(list, 10, [summaryOf(sessionId)]);
+    await flush();
+    wire.answer("sessions.setDraft", () => undefined);
+    runtime.drafts.set(id, sessionId, "one");
+    clock.advance(DRAFT_DEBOUNCE_MS);
+    const first = await wire.server.request("sessions.setDraft");
+    runtime.drafts.set(id, sessionId, "one two");
+    clock.advance(DRAFT_DEBOUNCE_MS);
+    await flush();
+    expect(first.params).toMatchObject({ draft: "one", baseRevision: 0 });
+
+    wire.server.send({ type: "response", id: first.id, result: { receipt: accepted(11), result: { summary: { ...summaryOf(sessionId), draft: "one", draftRevision: 1 } } } });
+    const second = await wire.server.request("sessions.setDraft");
+
+    expect(second.params).toMatchObject({ draft: "one two", baseRevision: 1 });
+    expect(row(runtime, sessionId)?.summary.draft).toBe("one two");
   });
 
   it("checkpoints a waiting draft without closing the runtime, retaining it for another client start", async () => {
