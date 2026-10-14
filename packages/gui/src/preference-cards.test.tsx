@@ -90,9 +90,9 @@ describe("on a fresh environment", () => {
 
     // setup-copy.md §5.12's four choices, the preset still chosen, Recommended on it, and the mode ids only in Details.
     const ceiling = await within(field(permissions, "permissions.defaultCeiling")).findByRole("radiogroup");
-    expect(radios(ceiling)).toEqual([["Ask before any change", false], ["Edit files, ask for the rest", true], ["Let Claude decide", false], ["Never ask", false]]);
-    expect(within(within(ceiling).getByRole("radio", { name: "Edit files, ask for the rest" }).closest("label")!).getByText("Recommended")).toBeDefined();
-    expect(within(ceiling).getByRole("radio", { name: "Edit files, ask for the rest", description: "Agents can edit files in your project. They ask before running commands." })).toBeDefined();
+    expect(radios(ceiling)).toEqual([["Plan", false], ["Accept edits", true], ["Auto", false], ["Bypass permissions", false]]);
+    expect(within(within(ceiling).getByRole("radio", { name: "Accept edits" }).closest("label")!).getByText("Recommended")).toBeDefined();
+    expect(within(ceiling).getByRole("radio", { name: "Accept edits", description: "Agents can edit files in your project. They ask before running commands." })).toBeDefined();
     for (const raw of ["acceptEdits", "permissions.defaultCeiling", "bypassPermissions"]) expect(within(permissions).queryByText(raw, { exact: false }), raw).toBeNull();
     await app.user.click(within(field(permissions, "permissions.defaultCeiling")).getByRole("button", { name: "Details" }));
     expect(within(field(permissions, "permissions.defaultCeiling")).getByText(/permissions\.defaultCeiling: acceptEdits/)).toBeDefined();
@@ -100,7 +100,7 @@ describe("on a fresh environment", () => {
     // The rest under More safety settings, shut until chosen; the acknowledgement's time is not shown.
     expect(within(permissions).queryByRole("group", { name: SETTINGS["permissions.unattended.mode"].label })).toBeNull();
     await moreSafety(app, permissions);
-    expect(radios(within(field(permissions, "permissions.unattended.mode")).getByRole("radiogroup"))).toEqual([["Edit files, ask for the rest", true], ["Never ask", false]]);
+    expect(radios(within(field(permissions, "permissions.unattended.mode")).getByRole("radiogroup"))).toEqual([["Accept edits", true], ["Bypass permissions", false]]);
     expect(within(permissions).queryByRole("group", { name: SETTINGS["permissions.unattended.bypassAcknowledgedAt"].label })).toBeNull();
     expect(within(permissions).queryByText(/Permission bypass acknowledged/)).toBeNull();
     const timeout = within(field(permissions, "permissions.parkedPrompt.ttl")).getByRole("combobox", { name: "Deny it after" }) as HTMLSelectElement;
@@ -372,20 +372,20 @@ describe("the Permissions card's sandbox", () => {
 });
 
 describe("the Permissions card's More safety settings", () => {
-  it("asks before scheduled runs may never ask, in §5.12's words, and sends the agreement with it", async () => {
+  it("asks before unattended runs may bypass permissions, in §5.12's words, and sends the agreement with it", async () => {
     const app = await firstLaunch();
     const desk = app.environment("desk");
     const permissions = await cardOf(app, "Permissions");
     await moreSafety(app, permissions);
     const unattended = within(field(permissions, "permissions.unattended.mode")).getByRole("radiogroup");
-    await app.user.click(within(unattended).getByRole("radio", { name: "Never ask" }));
-    const cancelled = await screen.findByRole("dialog", { name: "Never ask on scheduled runs?" });
+    await app.user.click(within(unattended).getByRole("radio", { name: "Bypass permissions" }));
+    const cancelled = await screen.findByRole("dialog", { name: "Allow Bypass permissions on unattended runs?" });
     expect(within(cancelled).getByText("Agents will act without asking and can do anything your account can, inside the sandbox you chose.")).toBeDefined();
     await app.user.click(within(cancelled).getByRole("button", { name: "Cancel" }));
     expect(desk.requests("permissions.settings.set")).toEqual([]);
 
-    await app.user.click(within(unattended).getByRole("radio", { name: "Never ask" }));
-    await app.user.click(within(await screen.findByRole("dialog", { name: "Never ask on scheduled runs?" })).getByRole("button", { name: "Never ask" }));
+    await app.user.click(within(unattended).getByRole("radio", { name: "Bypass permissions" }));
+    await app.user.click(within(await screen.findByRole("dialog", { name: "Allow Bypass permissions on unattended runs?" })).getByRole("button", { name: "Bypass permissions" }));
     await waitFor(() => expect(desk.settings()["permissions.unattended.mode"]).toBe("bypassPermissions"));
     expect(desk.requests("permissions.settings.set").map((request) => request.params)).toEqual([
       { commandId: expect.any(String), values: { "permissions.unattended.mode": "bypassPermissions" }, acknowledgeBypass: true },
@@ -530,7 +530,7 @@ describe("without admin", () => {
     expect(await within(permissions).findByText(looking)).toBeDefined();
     expect(within(permissions).getAllByText(/^You can look but not change this\./)).toHaveLength(1);
     expect(within(permissions).getByRole("button", { name: "Restore them" }).hasAttribute("disabled")).toBe(true);
-    expect(within(field(permissions, "permissions.defaultCeiling")).getByRole("radio", { name: "Ask before any change" }).hasAttribute("disabled")).toBe(true);
+    expect(within(field(permissions, "permissions.defaultCeiling")).getByRole("radio", { name: "Plan" }).hasAttribute("disabled")).toBe(true);
     await moreSafety(app, permissions);
     expect(within(await section(permissions, "Paths")).getByRole("button", { name: "Restore built-in entries" }).hasAttribute("disabled")).toBe(true);
     for (const radio of within(field(permissions, "permissions.containment.default")).getAllByRole("radio")) {

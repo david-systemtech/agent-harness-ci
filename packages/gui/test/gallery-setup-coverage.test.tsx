@@ -224,7 +224,7 @@ it("captures the Permissions card's four choices, and a sandbox that does not wo
   try {
     const card = await screen.findByRole("region", { name: "Permissions" });
     const ceiling = await within(card).findByRole("radiogroup", { name: "How much agents may do without asking" });
-    expect(within(ceiling).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Ask before any change", "Edit files, ask for the rest", "Let Claude decide", "Never ask"]);
+    expect(within(ceiling).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Plan", "Accept edits", "Auto", "Bypass permissions"]);
     expect(within(card).getByRole("button", { name: "More safety settings" })).toBeDefined();
   } finally { choices.unmount(); }
   const Sandbox = setupRegionScene("permissions-sandbox");

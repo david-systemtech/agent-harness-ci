@@ -20,13 +20,13 @@ const openMode = async (extra: Partial<ScriptedEnvironment> = {}) => {
 
 it("shows the current mode and ceiling reason, then sets an allowed mode once and closes", async () => {
   const { app, env, sheet, trigger } = await openMode();
-  expect(within(sheet).getByRole("button", { name: "accept edits" }).getAttribute("aria-pressed")).toBe("true");
-  const bypass = within(sheet).getByRole("button", { name: "BYPASS" });
+  expect(within(sheet).getByRole("button", { name: "Accept edits" }).getAttribute("aria-pressed")).toBe("true");
+  const bypass = within(sheet).getByRole("button", { name: "Bypass permissions" });
   expect(bypass.getAttribute("disabled")).not.toBeNull();
   expect(bypass.textContent).toContain("above this connection's ceiling (acceptEdits)");
   await app.user.click(bypass);
   expect(env.requests("permissions.mode.set")).toHaveLength(0);
-  await app.user.click(within(sheet).getByRole("button", { name: "plan" }));
+  await app.user.click(within(sheet).getByRole("button", { name: "Plan" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Mode" })).toBeNull());
   expect(env.requests("permissions.mode.set").map(request => request.params)).toEqual([expect.objectContaining({ sessionId: env.sessionId(), mode: "plan" })]);
   expect(trigger.getAttribute("aria-label")).toBe("Mode: plan");
@@ -35,11 +35,11 @@ it("shows the current mode and ceiling reason, then sets an allowed mode once an
 
 it("keeps a failed selection actionable and leaves the current mode unchanged", async () => {
   const { app, env, sheet, trigger } = await openMode({ receipts: { "permissions.mode.set": { rejected: "forbidden", message: "Reconnect to try again." } } });
-  await app.user.click(within(sheet).getByRole("button", { name: "plan" }));
+  await app.user.click(within(sheet).getByRole("button", { name: "Plan" }));
   expect((await within(sheet).findByRole("alert")).textContent).toContain("Reconnect to try again.");
   expect(trigger.getAttribute("aria-label")).toBe("Mode: accept edits");
-  expect(within(sheet).getByRole("button", { name: "accept edits" }).getAttribute("aria-pressed")).toBe("true");
-  await app.user.click(within(sheet).getByRole("button", { name: "plan" }));
+  expect(within(sheet).getByRole("button", { name: "Accept edits" }).getAttribute("aria-pressed")).toBe("true");
+  await app.user.click(within(sheet).getByRole("button", { name: "Plan" }));
   await waitFor(() => expect(env.requests("permissions.mode.set")).toHaveLength(2));
 });
 
@@ -48,7 +48,7 @@ it("traps Tab and dismisses with Close or Escape without changing the draft, ses
   const close = within(sheet).getByRole("button", { name: "Close mode picker" });
   close.focus();
   await app.user.keyboard("{Shift>}{Tab}{/Shift}");
-  expect(document.activeElement).toBe(within(sheet).getByRole("button", { name: "accept edits" }));
+  expect(document.activeElement).toBe(within(sheet).getByRole("button", { name: "Accept edits" }));
   await app.user.keyboard("{Tab}");
   expect(document.activeElement).toBe(close);
   await app.user.click(close);
@@ -76,10 +76,10 @@ it("focuses an enabled fallback when the stored selection is above the ceiling, 
   act(() => sheet.focus());
   expect(document.activeElement).toBe(close);
   await app.user.keyboard("{Tab}");
-  expect(document.activeElement).toBe(within(sheet).getByRole("button", { name: "plan" }));
+  expect(document.activeElement).toBe(within(sheet).getByRole("button", { name: "Plan" }));
   act(() => sheet.focus());
   await app.user.keyboard("{Shift>}{Tab}{/Shift}");
-  expect(document.activeElement).toBe(within(sheet).getByRole("button", { name: "accept edits" }));
+  expect(document.activeElement).toBe(within(sheet).getByRole("button", { name: "Accept edits" }));
 });
 
 it("keeps a reopened sheet and its retry alert when a dismissed opening completes", async () => {
@@ -92,17 +92,17 @@ it("keeps a reopened sheet and its retry alert when a dismissed opening complete
     .mockReturnValueOnce(first.then(() => dispatch(env.environmentId, "permissions.mode.set", { sessionId: env.sessionId(), mode: "plan" })))
     .mockReturnValueOnce(second.then(() => ({ ok: false, commandId: null, error: { code: "forbidden", message: "Reconnect to try again." } })));
   onTestFinished(() => { pending.mockRestore(); });
-  await app.user.click(within(sheet).getByRole("button", { name: "plan" }));
+  await app.user.click(within(sheet).getByRole("button", { name: "Plan" }));
   await app.user.click(within(sheet).getByRole("button", { name: "Close mode picker" }));
   await app.user.click(trigger);
   const reopened = await screen.findByRole("dialog", { name: "Mode" });
-  await app.user.click(within(reopened).getByRole("button", { name: "accept edits" }));
+  await app.user.click(within(reopened).getByRole("button", { name: "Accept edits" }));
   expect(pending).toHaveBeenCalledTimes(2);
   await act(async () => { releaseFirst(); await pending.mock.results[0]?.value; });
   await waitFor(() => expect(trigger.getAttribute("aria-label")).toBe("Mode: plan"));
   expect(screen.getByRole("dialog", { name: "Mode" })).toBe(reopened);
   act(() => releaseSecond());
   expect((await within(reopened).findByRole("alert")).textContent).toContain("Reconnect to try again.");
-  await app.user.click(within(reopened).getByRole("button", { name: "accept edits" }));
+  await app.user.click(within(reopened).getByRole("button", { name: "Accept edits" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Mode" })).toBeNull());
 });

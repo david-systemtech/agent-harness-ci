@@ -249,16 +249,16 @@ const SETTING_WORDS = {
     description: "This is the most any session may do without asking. A session can always ask more often.",
   },
   "permissions.attended.mode": {
-    label: "Default mode for new attended sessions",
-    description: "How much a session you start may do without asking, unless you change its mode. It is never more than the most any session may do. Never ask needs your agreement first.",
+    label: "New sessions start in",
+    description: "The mode a session you start begins in, until you change it; never more than the most any session may do. Scheduled and automatic runs follow Unattended runs start in instead. Bypass permissions needs your agreement first.",
   },
   "permissions.unattended.mode": {
-    label: "For scheduled and automatic runs",
-    description: "How much scheduled and automatic runs may do without asking, unless they choose for themselves. Never ask needs your agreement first.",
+    label: "Unattended runs start in",
+    description: "The mode of scheduled and automatic runs nobody is watching (routines, bots, completions), unless they choose for themselves. Sessions you start follow New sessions start in instead. Bypass permissions needs your agreement first.",
   },
   "permissions.unattended.bypassAcknowledgedAt": {
-    label: "Agreed to never ask on scheduled runs",
-    description: "When you agreed that scheduled runs may act without asking. It is recorded when you agree.",
+    label: "Agreed to Bypass permissions",
+    description: "When you first agreed to Bypass permissions as a default mode. It is recorded when you agree.",
   },
   "permissions.parkedPrompt.ttl": {
     label: "If nobody answers a question",

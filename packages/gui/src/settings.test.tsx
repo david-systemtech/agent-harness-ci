@@ -324,7 +324,7 @@ describe("built and unbuilt row controls", () => {
     expect(within(again).getByRole("switch", { name: "Tell agents about this computer" }).getAttribute("aria-checked")).toBe("true");
     const permissions = await openRow(app, "Permissions");
     const ceiling = within(field(permissions, "permissions.defaultCeiling")).getByRole("radiogroup");
-    expect(within(ceiling).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Ask before any change", "Edit files, ask for the rest", "Let Claude decide", "Never ask"]);
+    expect(within(ceiling).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Plan", "Accept edits", "Auto", "Bypass permissions"]);
     const banks = await openRow(app, "Memory banks");
     expect(await within(banks).findByRole("radiogroup", { name: "What would you like?" })).toBeDefined();
     expect(within(banks).getByRole("button", { name: "Open the Memory bank step in Set up" })).toBeDefined();
@@ -351,9 +351,9 @@ describe("built and unbuilt row controls", () => {
     await waitFor(() => expect(desk.settings()["sessions.transcriptCompactAfterDays"]).toBe(45));
 
     const permissions = await openRow(app, "Permissions");
-    await app.user.click(await within(field(permissions, "permissions.unattended.mode")).findByRole("radio", { name: "Never ask" }));
-    const confirm = await screen.findByRole("dialog", { name: "Never ask on scheduled runs?" });
-    await app.user.click(within(confirm).getByRole("button", { name: "Never ask" }));
+    await app.user.click(await within(field(permissions, "permissions.unattended.mode")).findByRole("radio", { name: "Bypass permissions" }));
+    const confirm = await screen.findByRole("dialog", { name: "Allow Bypass permissions on unattended runs?" });
+    await app.user.click(within(confirm).getByRole("button", { name: "Bypass permissions" }));
     await waitFor(() => expect(desk.settings()["permissions.unattended.mode"]).toBe("bypassPermissions"));
     expect(desk.requests("permissions.settings.set")[0]?.params).toMatchObject({ acknowledgeBypass: true });
 

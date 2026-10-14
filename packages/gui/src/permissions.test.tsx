@@ -71,14 +71,14 @@ const levels = (region: HTMLElement) =>
     });
 
 describe("the permission settings", () => {
-  it("names each mode choice in plain words with its sentence, Recommended on the preset, Never ask in the warning tone, and the ids only in Details", async () => {
+  it("names each mode choice in plain words with its sentence, Recommended on the preset, Bypass permissions in the warning tone, and the ids only in Details", async () => {
     const app = await opened();
     const permissions = await openPermissions(app);
     const choices = [
-      ["plan", "Ask before any change", "Agents can read and plan. They ask before changing anything."],
-      ["acceptEdits", "Edit files, ask for the rest", "Agents can edit files in your project. They ask before running commands."],
-      ["auto", "Let Claude decide", "Claude reviews each action and asks you only when it is unsure."],
-      ["bypassPermissions", "Never ask", "Agents act without asking. Use it only for trusted work in a sandbox."],
+      ["plan", "Plan", "Agents can read and plan. They ask before changing anything."],
+      ["acceptEdits", "Accept edits", "Agents can edit files in your project. They ask before running commands."],
+      ["auto", "Auto", "Claude reviews each action and asks you only when it is unsure."],
+      ["bypassPermissions", "Bypass permissions", "Agents act without asking. Use it only for trusted work in a sandbox."],
     ] as const;
     for (const key of ["permissions.defaultCeiling", "permissions.attended.mode", "permissions.unattended.mode"] as const) {
       const group = await within(field(permissions, key)).findByRole("radiogroup");
@@ -102,8 +102,8 @@ describe("the permission settings", () => {
     const permissions = await openPermissions(app);
 
     const ceiling = await within(field(permissions, "permissions.defaultCeiling")).findByRole("radiogroup");
-    expect(within(ceiling).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Ask before any change", "Edit files, ask for the rest", "Let Claude decide", "Never ask"]);
-    await app.user.click(within(ceiling).getByRole("radio", { name: "Ask before any change" }));
+    expect(within(ceiling).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Plan", "Accept edits", "Auto", "Bypass permissions"]);
+    await app.user.click(within(ceiling).getByRole("radio", { name: "Plan" }));
     await waitFor(() => expect(desk.settings()["permissions.defaultCeiling"]).toBe("plan"));
 
     const timeout = () => within(field(permissions, "permissions.parkedPrompt.ttl")).getByRole("combobox", { name: "Deny it after" }) as HTMLSelectElement;
@@ -121,22 +121,22 @@ describe("the permission settings", () => {
     expect(desk.requests("settings.update")).toEqual([]);
   });
 
-  it("asks before scheduled runs may never ask, sends the agreement with it, and does not show when it was agreed", async () => {
+  it("asks before unattended runs may bypass permissions, sends the agreement with it, and does not show when it was agreed", async () => {
     const app = await opened();
     const desk = app.environment("desk");
     const permissions = await openPermissions(app);
     expect(within(permissions).queryByRole("group", { name: SETTINGS["permissions.unattended.bypassAcknowledgedAt"].label })).toBeNull();
 
     const mode = await within(field(permissions, "permissions.unattended.mode")).findByRole("radiogroup");
-    await app.user.click(within(mode).getByRole("radio", { name: "Never ask" }));
-    const cancelled = await screen.findByRole("dialog", { name: "Never ask on scheduled runs?" });
+    await app.user.click(within(mode).getByRole("radio", { name: "Bypass permissions" }));
+    const cancelled = await screen.findByRole("dialog", { name: "Allow Bypass permissions on unattended runs?" });
     expect(within(cancelled).getByText("Agents will act without asking and can do anything your account can, inside the sandbox you chose.")).toBeDefined();
     await app.user.click(within(cancelled).getByRole("button", { name: "Cancel" }));
     expect(desk.requests("permissions.settings.set")).toEqual([]);
 
-    await app.user.click(within(mode).getByRole("radio", { name: "Never ask" }));
-    const confirm = await screen.findByRole("dialog", { name: "Never ask on scheduled runs?" });
-    await app.user.click(within(confirm).getByRole("button", { name: "Never ask" }));
+    await app.user.click(within(mode).getByRole("radio", { name: "Bypass permissions" }));
+    const confirm = await screen.findByRole("dialog", { name: "Allow Bypass permissions on unattended runs?" });
+    await app.user.click(within(confirm).getByRole("button", { name: "Bypass permissions" }));
     await waitFor(() => expect(desk.settings()["permissions.unattended.mode"]).toBe("bypassPermissions"));
     expect(desk.requests("permissions.settings.set").map((request) => request.params)).toEqual([
       { commandId: expect.any(String), values: { "permissions.unattended.mode": "bypassPermissions" }, acknowledgeBypass: true },
@@ -145,33 +145,33 @@ describe("the permission settings", () => {
     expect(within(permissions).queryByText(desk.settings()["permissions.unattended.bypassAcknowledgedAt"] as string)).toBeNull();
   });
 
-  it("sets the default mode for new attended sessions, asking before Never ask and sending the agreement with it (issue 2183)", async () => {
+  it("sets the default mode for new attended sessions, asking before Bypass permissions and sending the agreement with it (issue 2183)", async () => {
     const app = await opened();
     const desk = app.environment("desk");
     const permissions = await openPermissions(app);
     const row = field(permissions, "permissions.attended.mode");
     expect(within(row).getByText(SETTINGS["permissions.attended.mode"].description)).toBeDefined();
     const mode = await within(row).findByRole("radiogroup");
-    expect(within(mode).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Edit files, ask for the rest", "Never ask"]);
-    expect((within(mode).getByRole("radio", { name: "Edit files, ask for the rest" }) as HTMLInputElement).checked).toBe(true);
+    expect(within(mode).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Accept edits", "Bypass permissions"]);
+    expect((within(mode).getByRole("radio", { name: "Accept edits" }) as HTMLInputElement).checked).toBe(true);
 
-    await app.user.click(within(mode).getByRole("radio", { name: "Never ask" }));
-    const confirm = await screen.findByRole("dialog", { name: "Never ask in new sessions?" });
-    await app.user.click(within(confirm).getByRole("button", { name: "Never ask" }));
+    await app.user.click(within(mode).getByRole("radio", { name: "Bypass permissions" }));
+    const confirm = await screen.findByRole("dialog", { name: "Start new sessions in Bypass permissions?" });
+    await app.user.click(within(confirm).getByRole("button", { name: "Bypass permissions" }));
     await waitFor(() => expect(desk.settings()["permissions.attended.mode"]).toBe("bypassPermissions"));
     expect(desk.requests("permissions.settings.set").map((request) => request.params)).toEqual([
       { commandId: expect.any(String), values: { "permissions.attended.mode": "bypassPermissions" }, acknowledgeBypass: true },
     ]);
-    await waitFor(() => expect((within(mode).getByRole("radio", { name: "Never ask" }) as HTMLInputElement).checked).toBe(true));
+    await waitFor(() => expect((within(mode).getByRole("radio", { name: "Bypass permissions" }) as HTMLInputElement).checked).toBe(true));
     // The default ceiling is acceptEdits: new sessions start there, and the row says so.
-    expect(within(row).getByText("New sessions start at Edit files, ask for the rest: that is the most a session may do here.")).toBeDefined();
+    expect(within(row).getByText("New sessions start at Accept edits: that is the most a session may do here.")).toBeDefined();
   });
 
   it("says the capped default only when the lower of the default ceiling and the connection's is below the mode chosen (issue 2183)", () => {
     expect(cappedDefaultLine("bypassPermissions", "bypassPermissions", "bypassPermissions")).toBeUndefined();
     expect(cappedDefaultLine("bypassPermissions", "bypassPermissions", null)).toBeUndefined();
-    expect(cappedDefaultLine("acceptEdits", "acceptEdits", "plan")).toBe("New sessions start at Ask before any change: that is the most a session may do here.");
-    expect(cappedDefaultLine("bypassPermissions", "auto", "bypassPermissions")).toBe("New sessions start at Let Claude decide: that is the most a session may do here.");
+    expect(cappedDefaultLine("acceptEdits", "acceptEdits", "plan")).toBe("New sessions start at Plan: that is the most a session may do here.");
+    expect(cappedDefaultLine("bypassPermissions", "auto", "bypassPermissions")).toBe("New sessions start at Auto: that is the most a session may do here.");
   });
 
   it("offers one restart guide when the report omits the project-folder levels", async () => {
@@ -224,9 +224,9 @@ describe("the permission settings", () => {
     const app = await opened();
     const permissions = await openPermissions(app);
     const ceiling = await within(field(permissions, "permissions.defaultCeiling")).findByRole("radiogroup");
-    await waitFor(() => expect(within(ceiling).getByRole("radio", { name: "Edit files, ask for the rest" })).toBeDefined());
+    await waitFor(() => expect(within(ceiling).getByRole("radio", { name: "Accept edits" })).toBeDefined());
     app.environment("desk").setSettings({ "permissions.defaultCeiling": "auto", "permissions.containment.default": "off" });
-    await waitFor(() => expect((within(ceiling).getByRole("radio", { name: "Let Claude decide" }) as HTMLInputElement).checked).toBe(true));
+    await waitFor(() => expect((within(ceiling).getByRole("radio", { name: "Auto" }) as HTMLInputElement).checked).toBe(true));
     await waitFor(() => expect(levels(permissions).find(([, chosen]) => chosen)?.[0]).toBe("Off: Works here"));
   });
 
@@ -237,7 +237,7 @@ describe("the permission settings", () => {
     expect(within(laptop).getAllByText(/^You can look but not change this\./)).toHaveLength(1);
     await waitFor(() => expect(levels(laptop)).toHaveLength(3));
     for (const radio of within(laptop).getAllByRole("radio")) expect(radio.hasAttribute("disabled")).toBe(true);
-    expect(within(field(laptop, "permissions.defaultCeiling")).getByRole("radio", { name: "Ask before any change" }).hasAttribute("disabled")).toBe(true);
+    expect(within(field(laptop, "permissions.defaultCeiling")).getByRole("radio", { name: "Plan" }).hasAttribute("disabled")).toBe(true);
     expect(within(field(laptop, "permissions.parkedPrompt.ttl")).getByRole("combobox", { name: "Deny it after" }).hasAttribute("disabled")).toBe(true);
 
     const scripted = app.environment("laptop");
@@ -248,7 +248,7 @@ describe("the permission settings", () => {
     expect(within(cached).queryByText(/^You can look but not change this\./)).toBeNull();
     expect(levels(cached)[1]).toEqual(["Project folder: Needs setup", false]);
     for (const radio of within(cached).getAllByRole("radio")) expect(radio.hasAttribute("disabled")).toBe(true);
-    expect(within(field(cached, "permissions.defaultCeiling")).getByRole("radio", { name: "Ask before any change" }).hasAttribute("disabled")).toBe(true);
+    expect(within(field(cached, "permissions.defaultCeiling")).getByRole("radio", { name: "Plan" }).hasAttribute("disabled")).toBe(true);
   });
 });
 

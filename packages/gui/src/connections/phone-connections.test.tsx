@@ -39,7 +39,7 @@ it("Custom cannot grant a missing scope or a ceiling above the minter", async ()
   expect((within(scopes).getByRole("checkbox", { name: "Change settings and sign in accounts" }) as HTMLButtonElement).disabled).toBe(false);
   const part = screen.getByRole("region", { name: "Pair another client" });
   const ceiling = within(part).getByRole("radiogroup", { name: "How much may its agents do without asking?" });
-  expect((within(ceiling).getByRole("radio", { name: "Never ask" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((within(ceiling).getByRole("radio", { name: "Bypass permissions" }) as HTMLButtonElement).disabled).toBe(true);
 });
 it("a trusted admin can save separate client and connection origins", async () => {
   vi.stubGlobal("innerWidth", 390);

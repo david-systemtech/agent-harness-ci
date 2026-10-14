@@ -317,7 +317,7 @@ describe("Add a device, Part 1: connect a phone or computer to this one", () => 
     await make();
     expect(desk.requests("access.pairings.create").at(-1)?.params).toMatchObject({ scopes: ["read", "sessions:write", "runs:drive"], ceiling: "acceptEdits" });
     await app.user.click(within(part).getByRole("radio", { name: "A program or bot" }));
-    await app.user.click(within(part).getByRole("radio", { name: "Ask before any change" }));
+    await app.user.click(within(part).getByRole("radio", { name: "Plan" }));
     expect(within(part).queryByRole("group", { name: "Pairing code" })).toBeNull();
     await make();
     await app.user.click(within(part).getByRole("button", { name: "More options" }));
@@ -341,17 +341,17 @@ describe("Add a device, Part 1: connect a phone or computer to this one", () => 
     expect(desk.requests("access.pairings.create")).toHaveLength(2);
   });
 
-  it("asks a program or bot how much its agents may do without asking, in the four plain choices, preset Edit files, ask for the rest", async () => {
+  it("asks a program or bot how much its agents may do without asking, in the four plain choices, preset Accept edits", async () => {
     const { app, part, desk } = await partOne();
     await app.user.click(within(part).getByRole("radio", { name: "A program or bot" }));
     const freedom = within(part).getByRole("radiogroup", { name: "How much may its agents do without asking?" });
     expect(within(freedom).getAllByRole("radio").map((radio) => [radio.getAttribute("aria-label"), radio.getAttribute("aria-checked")])).toEqual([
-      ["Ask before any change", "false"],
-      ["Edit files, ask for the rest", "true"],
-      ["Let Claude decide", "false"],
-      ["Never ask", "false"],
+      ["Plan", "false"],
+      ["Accept edits", "true"],
+      ["Auto", "false"],
+      ["Bypass permissions", "false"],
     ]);
-    await app.user.click(within(freedom).getByRole("radio", { name: "Ask before any change" }));
+    await app.user.click(within(freedom).getByRole("radio", { name: "Plan" }));
     await app.user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
     const code = await made(part);
     expect(code.queryByText(/^On the new device/)).toBeNull();
@@ -376,7 +376,7 @@ describe("Add a device, Part 1: connect a phone or computer to this one", () => 
 
     await app.user.click(within(can).getByRole("checkbox", { name: "Use terminals, files and changes" }));
     await app.user.click(within(can).getByRole("checkbox", { name: "See sessions" }));
-    await app.user.click(within(part).getByRole("radio", { name: "Let Claude decide" }));
+    await app.user.click(within(part).getByRole("radio", { name: "Auto" }));
     await app.user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
     await made(part);
     expect(desk.requests("access.pairings.create").at(-1)?.params).toMatchObject({ scopes: ["read", "terminal"], ceiling: "auto" });
@@ -391,10 +391,10 @@ describe("Add a device, Part 1: connect a phone or computer to this one", () => 
     await app.user.click(within(part).getByRole("radio", { name: "A program or bot" }));
     const freedom = within(part).getByRole("radiogroup", { name: "How much may its agents do without asking?" });
     expect(within(freedom).getAllByRole("radio").map((radio) => [radio.getAttribute("aria-label"), (radio as HTMLButtonElement).disabled])).toEqual([
-      ["Ask before any change", false],
-      ["Edit files, ask for the rest", false],
-      ["Let Claude decide", true],
-      ["Never ask", true],
+      ["Plan", false],
+      ["Accept edits", false],
+      ["Auto", true],
+      ["Bypass permissions", true],
     ]);
     await app.user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
     await made(part);

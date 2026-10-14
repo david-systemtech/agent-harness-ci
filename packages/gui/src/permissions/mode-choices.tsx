@@ -16,9 +16,9 @@ const RECOMMENDED: Mode = "acceptEdits";
 /** What the bypass confirmation says, on scheduled runs or in new sessions (setup-copy.md §5.12). */
 const NEVER_ASK_BODY = "Agents will act without asking and can do anything your account can, inside the sandbox you chose.";
 const NEVER_ASK_HEADING: Readonly<Record<ModeKey, string>> = {
-  "permissions.defaultCeiling": "Never ask in any session?",
-  "permissions.attended.mode": "Never ask in new sessions?",
-  "permissions.unattended.mode": "Never ask on scheduled runs?",
+  "permissions.defaultCeiling": "Allow Bypass permissions in any session?",
+  "permissions.attended.mode": "Start new sessions in Bypass permissions?",
+  "permissions.unattended.mode": "Allow Bypass permissions on unattended runs?",
 };
 
 /**
@@ -35,9 +35,9 @@ export const cappedDefaultLine = (chosen: Mode, defaultCeiling: Mode, connection
  * How much agents may do without asking (setup-copy.md §5.12; permissions
  * spec, "Ceilings", "Attended and unattended runs"; ADR 0006): each mode
  * the key takes as a plain choice with its sentence, Edit files, ask for
- * the rest marked Recommended, Never ask in the warning tone, and the key
- * and the mode ids only in Details. Never ask on scheduled runs asks first,
- * and the agreement goes with the write; so does Never ask as the default
+ * the rest marked Recommended, Bypass permissions in the warning tone, and the key
+ * and the mode ids only in Details. Bypass permissions on scheduled runs asks first,
+ * and the agreement goes with the write; so does Bypass permissions as the default
  * for new sessions (#2183), whose row also says when the ceiling is lower
  * than the mode chosen. A refusal is an error in the refusal mapper's words.
  */
@@ -85,7 +85,7 @@ export const ModeChoices = ({ view, name, writable }: { readonly view: Environme
     <Dialog open={asking} onOpenChange={ask}>
       {asking && <DialogContent title={NEVER_ASK_HEADING[name]} description={NEVER_ASK_BODY}>
         <div className="flex justify-end gap-1.5"><DialogClose asChild><Button title="Cancel (Esc)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button></DialogClose>
-          <Button variant="destructive" title="Never ask (Enter or Space)" onClick={() => { ask(false); save("bypassPermissions", true); }}><ShieldAlert aria-hidden="true" data-icon="inline-start" />Never ask</Button></div>
+          <Button variant="destructive" title="Bypass permissions (Enter or Space)" onClick={() => { ask(false); save("bypassPermissions", true); }}><ShieldAlert aria-hidden="true" data-icon="inline-start" />Bypass permissions</Button></div>
       </DialogContent>}
     </Dialog>
   </div>;

@@ -14,10 +14,10 @@ const refused = (cause: ContainmentCause): Extract<ContainmentAvailability, { re
 describe("the mode choices", () => {
   it("name every mode in §5.12's words, its id kept for Details", () => {
     expect(MODES.map((mode) => [mode, MODE_WORDS[mode].label])).toEqual([
-      ["plan", "Ask before any change"],
-      ["acceptEdits", "Edit files, ask for the rest"],
-      ["auto", "Let Claude decide"],
-      ["bypassPermissions", "Never ask"],
+      ["plan", "Plan"],
+      ["acceptEdits", "Accept edits"],
+      ["auto", "Auto"],
+      ["bypassPermissions", "Bypass permissions"],
     ]);
     expect(MODE_WORDS.acceptEdits.note).toBe("Agents can edit files in your project. They ask before running commands.");
     expect(MODE_WORDS.bypassPermissions.note).toBe("Agents act without asking. Use it only for trusted work in a sandbox.");

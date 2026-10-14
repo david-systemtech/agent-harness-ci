@@ -67,10 +67,10 @@ export interface CeilingChoice {
 }
 
 const CEILING_WORDS: { readonly [M in Mode]: Omit<CeilingChoice, "mode"> } = {
-  plan: { label: "Ask before any change", note: "Agents can read and plan. They ask before changing anything." },
-  acceptEdits: { label: "Edit files, ask for the rest", note: "Agents can edit files in your project. They ask before running commands." },
-  auto: { label: "Let Claude decide", note: "Claude reviews each action and asks you only when it is unsure." },
-  bypassPermissions: { label: "Never ask", note: "Agents act without asking. Use it only for trusted work in a sandbox." },
+  plan: { label: "Plan", note: "Agents can read and plan. They ask before changing anything." },
+  acceptEdits: { label: "Accept edits", note: "Agents can edit files in your project. They ask before running commands." },
+  auto: { label: "Auto", note: "Claude reviews each action and asks you only when it is unsure." },
+  bypassPermissions: { label: "Bypass permissions", note: "Agents act without asking. Use it only for trusted work in a sandbox." },
 };
 
 /** "How much may its agents do without asking?": one choice per mode, in the modes' order. */
