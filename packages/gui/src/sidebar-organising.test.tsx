@@ -450,7 +450,7 @@ describe("dragging", () => {
     const desk = app.environment("desk");
     expect(carried.types).toEqual(["application/x-agent-harness-session"]);
     expect(JSON.parse(carried.getData("application/x-agent-harness-session"))).toEqual({ environmentId: desk.environmentId, sessionId: desk.sessionId(0) });
-    const zone = within(sidebar()).getByText("Pinned: drop here to pin it.");
+    const zone = await within(sidebar()).findByText("Pinned: drop here to pin it.");
     expect(fireEvent.dragOver(zone, { dataTransfer: carried })).toBe(false);
     fireEvent.drop(zone, { dataTransfer: carried });
     fireEvent.dragEnd(loose, { dataTransfer: carried });
