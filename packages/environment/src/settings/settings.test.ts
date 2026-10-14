@@ -57,6 +57,7 @@ describe("settings.get", () => {
         "accounts.defaultModelFamily": null,
         "accounts.defaultEffort": null,
         "accounts.favouriteModels": [],
+        "accounts.codexForClaudeRuns": null,
         "providers.processIdleMinutes": 30,
         ...presetPermissionSettings(),
         "updates.autoUpdate": true,

@@ -1,4 +1,4 @@
-import { modelPreset, presetModelDefaults, uuidv7, type AccountOutcome, type EnvironmentView } from "@agent-harness/client-runtime";
+import { modelPreset, presetModelDefaults, runsSessions, uuidv7, type AccountOutcome, type EnvironmentView } from "@agent-harness/client-runtime";
 import { settingsRow, type AccountRecord } from "@agent-harness/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Part } from "../settings/part.js";
@@ -24,16 +24,17 @@ const SIGN_IN_TO_CONTINUE = "Sign in to continue. Account is the one required st
  * which the card presets (`usePresetOnFirstSignIn`). The step's More options
  * hold the name for the next new account and the default account, model
  * family and effort, written through `settings.update`. Continue waits until
- * an account on the environment checked is signed in; the step is never
- * skipped. Claude's parts alone: Codex and local models come with their
- * adapters (milestone 2, ADR 0016).
+ * a Claude account on the environment checked is signed in; the step is never
+ * skipped. Both providers are listed, Claude first, then Codex (#2169): a
+ * Codex account is adopted or added beside, but runs no session until its
+ * adapter comes (#2170), so it neither lets Continue past nor takes the preset.
  */
 export const AccountStepCard = ({ environmentId, step }: StepCardProps) => {
   const runtime = useRuntime();
   const shell = useShell();
   const view = useObservable(runtime.projections.environments).find((environment) => environment.environmentId === environmentId);
   const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId])).value;
-  const signedIn = accounts?.some((account) => account.status.state === "signed-in") ?? false;
+  const signedIn = accounts?.some((account) => runsSessions(account) && account.status.state === "signed-in") ?? false;
   const [label, setLabel] = useState("");
   useHoldContinue(signedIn ? undefined : SIGN_IN_TO_CONTINUE);
   return (
@@ -86,7 +87,7 @@ const usePresetOnFirstSignIn = (view: EnvironmentView, accounts: readonly Accoun
 
   useEffect(() => {
     if (accounts === null) return;
-    const first = accounts.find((account) => account.status.state === "signed-in");
+    const first = accounts.find((account) => runsSessions(account) && account.status.state === "signed-in");
     if (owed.current === "unread") owed.current = first === undefined ? "waiting" : null;
     else if (owed.current === "waiting" && first !== undefined) owed.current = first;
     const account = owed.current;

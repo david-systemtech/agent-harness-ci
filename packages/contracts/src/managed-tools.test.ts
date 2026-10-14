@@ -31,14 +31,15 @@ import {
  */
 
 describe("the Managed tools table", () => {
-  it("holds claude, bao, vault, doppler, op, bws and gh, in that order, each an entry of the tool schema", () => {
-    expect(MANAGED_TOOLS.map((tool) => tool.name)).toEqual(["claude", "bao", "vault", "doppler", "op", "bws", "gh"]);
+  it("holds claude, codex, bao, vault, doppler, op, bws and gh, in that order, each an entry of the tool schema", () => {
+    expect(MANAGED_TOOLS.map((tool) => tool.name)).toEqual(["claude", "codex", "bao", "vault", "doppler", "op", "bws", "gh"]);
     for (const tool of MANAGED_TOOLS) expect(ManagedTool.parse(tool), tool.name).toEqual(tool);
   });
 
   it("declares the minimums: bao 2.1.1, vault 1.14.0, doppler 3.76.0, op 2.18.0, bws 0.3.0 and gh 2.40", () => {
     expect(Object.fromEntries(MANAGED_TOOLS.map((tool) => [tool.name, tool.minimum]))).toEqual({
       claude: null,
+      codex: null,
       bao: "2.1.1",
       vault: "1.14.0",
       doppler: "3.76.0",
@@ -52,6 +53,7 @@ describe("the Managed tools table", () => {
   it("declares each verify command as the fixed arguments after the tool's name", () => {
     expect(Object.fromEntries(MANAGED_TOOLS.map((tool) => [tool.name, tool.verify]))).toEqual({
       claude: null,
+      codex: null,
       bao: ["token", "lookup"],
       vault: ["token", "lookup"],
       doppler: ["secrets", "--only-names", "--json"],
@@ -65,9 +67,14 @@ describe("the Managed tools table", () => {
     expect(managedTool("claude")).toMatchObject({ label: "claude in your terminal", requiredFor: { kind: "never" } });
   });
 
+  it("labels codex codex and never requires it: it has no minimum, verify command or doctor, and serves no key manager (#2169)", () => {
+    expect(managedTool("codex")).toEqual({ name: "codex", label: "codex", minimum: null, verify: null, requiredFor: { kind: "never" } });
+  });
+
   it("requires a key-manager CLI for its provider's injecting connection, bao or vault for OpenBao, and gh for a forge account reading gh", () => {
     expect(Object.fromEntries(MANAGED_TOOLS.map((tool) => [tool.name, tool.requiredFor]))).toEqual({
       claude: { kind: "never" },
+      codex: { kind: "never" },
       bao: { kind: "key-manager", provider: "openbao" },
       vault: { kind: "key-manager", provider: "openbao" },
       doppler: { kind: "key-manager", provider: "doppler" },

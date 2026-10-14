@@ -110,10 +110,22 @@ export interface AccountDefaults {
 
 const NO_DEFAULTS: AccountDefaults = { account: null, modelFamily: null, effort: null };
 
+/**
+ * What the account service reads a provider's accounts through: every
+ * session adapter is one, and so is a provider that holds accounts runs use
+ * without running sessions itself (Codex's, #2169, whose home is injected
+ * into Claude runs; its adapter is #2170).
+ */
+export type AccountProvider = Pick<Adapter, "status" | "models" | "observeIdentity" | "ambientDirectory"> & {
+  readonly descriptor: Pick<Adapter["descriptor"], "provider" | "displayName">;
+};
+
 export interface AccountServiceOptions {
   readonly log: EventLog;
   readonly clock: Clock;
   readonly adapters: readonly Adapter[];
+  /** Providers whose accounts the store holds though no session adapter serves them (Codex's, #2169): after the adapters, never the default provider, never a run's account. */
+  readonly accountProviders?: readonly AccountProvider[];
   /** The environment's id: the id of its stream, where the `account.updated` notices go. */
   readonly environmentId: string;
   /** Where owned directories are made (`<data dir>/accounts`); null for an environment with none, which cannot add. */
@@ -238,6 +250,11 @@ const conflict = (aggregate: StreamRef, reason: string, message: string, data: R
 export const createAccountService = (options: AccountServiceOptions): AccountService => {
   const { log, clock, environmentId } = options;
   const adapters: AdapterRegistry = createAdapterRegistry(options.adapters);
+  // Every provider whose accounts the store reads: the session adapters first, then the account-only ones.
+  const providerList: readonly AccountProvider[] = [...adapters.list(), ...(options.accountProviders ?? []).filter((one) => adapters.get(one.descriptor.provider) === undefined)];
+  const providers = { get: (id: string) => providerList.find((one) => one.descriptor.provider === id), list: () => providerList };
+  /** Whether a session adapter serves the account's provider, so a run (and the default account) may use it. */
+  const runnable = (record: AccountRecord): boolean => adapters.get(record.provider) !== undefined;
   const probeTimeoutMs = options.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
   const defaults = options.defaults ?? (() => NO_DEFAULTS);
   const ownedRoot = options.ownedRoot === null ? null : resolve(options.ownedRoot);
@@ -273,8 +290,8 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
   const refOf = (record: AccountRecord): AccountRef => ({ id: record.id, directory: record.directory.path });
 
   /** The adapter `provider` names, else the first; `invalid_params` for a provider no adapter serves. */
-  const adapterFor = (provider: string | undefined): Adapter => {
-    const adapter = provider === undefined ? adapters.list()[0] : adapters.get(provider);
+  const adapterFor = (provider: string | undefined): AccountProvider => {
+    const adapter = provider === undefined ? providers.list()[0] : providers.get(provider);
     if (adapter === undefined) {
       const message = provider === undefined ? "No provider is served on this environment." : `No adapter serves the provider ${provider} on this environment.`;
       throw new ContractError(invalidParams([{ code: "custom", path: ["provider"], message }], message));
@@ -295,7 +312,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
   /** The directories nothing may delete: every account's the environment holds, and each provider's own on this machine. */
   const directoriesInUse = (): string[] => [
     ...listAccounts(reader).map((record) => resolve(record.directory.path)),
-    ...adapters.list().flatMap((adapter) => {
+    ...providers.list().flatMap((adapter) => {
       const own = adapter.ambientDirectory?.() ?? null;
       return own === null ? [] : [resolve(own)];
     }),
@@ -341,7 +358,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
     if (running !== undefined) return running;
     const reading = (async () => {
       const record = liveAccount(reader, accountId);
-      const adapter = record === null ? undefined : adapters.get(record.provider);
+      const adapter = record === null ? undefined : providers.get(record.provider);
       if (record === null || adapter === undefined) return;
       try {
         const catalogue = await probeWork((signal) => adapter.models(refOf(record), signal), `The model listing of the account ${record.label}`);
@@ -459,7 +476,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
     const reading = (async () => {
       const record = liveAccount(reader, accountId);
       if (record === null) return;
-      const adapter = adapters.get(record.provider);
+      const adapter = providers.get(record.provider);
       let observed: Observed;
       if (adapter === undefined) observed = { state: "unreadable", identity: null, detail: `No adapter serves the provider ${record.provider} on this environment.` };
       else {
@@ -545,7 +562,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
     if (configured.length === 0 || anyAccountEver(reader)) return;
     log.atomically((tx) => {
       for (const account of configured) {
-        const adapter = adapters.get(account.provider);
+        const adapter = providers.get(account.provider);
         const directory = account.directory ?? adapter?.ambientDirectory?.() ?? null;
         const label = AccountLabel.safeParse(account.id);
         if (adapter === undefined || directory === null || !label.success) {
@@ -651,7 +668,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
     async start() {
       carryOver();
       sweepOwnedDirectories();
-      await Promise.all(adapters.list().map((adapter) => probe(adapter.descriptor.provider, true)));
+      await Promise.all(providers.list().map((adapter) => probe(adapter.descriptor.provider, true)));
       await Promise.all(liveIds().map((id) => Promise.all([readStatus(id, { quiet: true }), readModels(id)])));
     },
 
@@ -813,8 +830,9 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
 
     defaultId() {
       const chosen = defaults().account;
-      if (chosen !== null && liveAccount(reader, chosen) !== null) return chosen;
-      return liveIds()[0] ?? null;
+      const held = liveAccount(reader, chosen ?? "");
+      if (chosen !== null && held !== null && runnable(held)) return chosen;
+      return listAccounts(reader).find(runnable)?.id ?? null;
     },
 
     defaults,

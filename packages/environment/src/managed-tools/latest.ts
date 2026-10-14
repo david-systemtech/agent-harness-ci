@@ -16,7 +16,8 @@ import { writeFileAtomic } from "../serve/files.js";
  * most once a day per tool, from the source matching the tool's install
  * method (the Homebrew API for `homebrew`, WinGet's manifests for `winget`,
  * the npm registry for `npm`), else from the vendor's release feed, which
- * for `bao`, `doppler`, `bws` and `gh` is their GitHub releases. What was
+ * for `bao`, `doppler`, `bws` and `gh` is their GitHub releases and for
+ * `codex` the npm registry's `latest` dist-tag of `@openai/codex`. What was
  * fetched is cached in the data directory, so a restart keeps it and does
  * not fetch again within the day. A fetch that fails, or takes longer than
  * ten seconds on the environment's clock, leaves the last version known in
@@ -87,7 +88,8 @@ interface ToolReleases {
  * Where each tool is published (the Homebrew names and WinGet ids are the
  * key-managers spec's command table's). `vault` left Homebrew's core when
  * its licence changed and WinGet's table here never installs it, so it is
- * HashiCorp's releases alone; `bws` is on neither.
+ * HashiCorp's releases alone; `bws` is on neither; `codex` is published
+ * to npm, whose `latest` dist-tag is its feed.
  */
 export const TOOL_RELEASES: Readonly<Record<ManagedToolName, ToolReleases>> = {
   claude: {
@@ -95,6 +97,11 @@ export const TOOL_RELEASES: Readonly<Record<ManagedToolName, ToolReleases>> = {
     winget: { kind: "winget", id: "Anthropic.ClaudeCode" },
     npm: { kind: "npm", name: "@anthropic-ai/claude-code" },
     feed: { kind: "claude-channel", channel: "latest" },
+  },
+  codex: {
+    homebrew: { kind: "homebrew-cask", name: "codex" },
+    npm: { kind: "npm", name: "@openai/codex" },
+    feed: { kind: "npm", name: "@openai/codex" },
   },
   bao: {
     homebrew: { kind: "homebrew-formula", name: "openbao" },

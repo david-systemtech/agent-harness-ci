@@ -288,6 +288,8 @@ export interface AdapterHostOptions {
    * headless browser (`presetBrowser`).
    */
   readonly resolveBrowser?: BrowserSeam;
+  /** The Codex account chosen for Claude runs (#2169, `accounts/codex-injection.ts`), read as each run starts and recorded on its run.started; preset: none. */
+  readonly codexAccount?: () => string | null;
   /**
    * The process environments' registry (#307, `process-environment.ts`):
    * each run's injection answer, asked once as it launches and carried in
@@ -1007,6 +1009,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       actor,
       resolvePolicy,
       resolveBrowser,
+      codexAccountId: options.codexAccount?.() ?? null,
       defaults: { modelFamily, effort },
       runId: randomUUID(),
     };

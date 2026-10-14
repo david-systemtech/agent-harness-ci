@@ -12,7 +12,7 @@ import { StepId } from "./steps.js";
  * **sidecar**, `agents/agent-harness.yaml` beside its `SKILL.md` (frontmatter
  * keys would break claude.ai's upload), else the **overlay** the harness
  * ships declares it, keyed by the member's origin (`readiness-overlay.ts`).
- * A declaration is `version: 1` and a list of checks of seven kinds, each
+ * A declaration is `version: 1` and a list of checks of eight kinds, each
  * with an optional one-line `why` and an optional `fix`. The environment
  * evaluates them in the session's workspace and answers each member
  * `ready`, `setup-needed` or `unsupported`; readiness is advisory and never
@@ -59,7 +59,7 @@ const explained = {
   fix: ReadinessFix.optional(),
 };
 
-// The seven kinds -----------------------------------------------------------------------
+// The eight kinds -----------------------------------------------------------------------
 
 const FileCheck = z
   .strictObject({
@@ -160,12 +160,23 @@ const ProviderCheck = z
     ],
   });
 
-/** One check of a declaration. */
-export const ReadinessCheck = z
-  .discriminatedUnion("kind", [FileCheck, ToolCheck, SecretCheck, GitCheck, SkillCheck, McpCheck, ProviderCheck])
+const AccountCheck = z
+  .strictObject({
+    kind: z.literal("account"),
+    provider: ProviderId.meta({ description: "The provider an account must be of, such as codex." }),
+    ...explained,
+  })
   .meta({
     description:
-      "One check a skill declares: file, tool, secret, git, skill, mcp or provider, with its parameters, an optional one-line why and an optional fix (a slash command or a Set up step id).",
+      "account: this environment holds a signed-in account of the provider, whatever account the session runs on (#2169: the codex-workers skill needs a signed-in Codex account, whose home Claude runs are given).",
+  });
+
+/** One check of a declaration. */
+export const ReadinessCheck = z
+  .discriminatedUnion("kind", [FileCheck, ToolCheck, SecretCheck, GitCheck, SkillCheck, McpCheck, ProviderCheck, AccountCheck])
+  .meta({
+    description:
+      "One check a skill declares: file, tool, secret, git, skill, mcp, provider or account, with its parameters, an optional one-line why and an optional fix (a slash command or a Set up step id).",
   });
 export type ReadinessCheck = z.infer<typeof ReadinessCheck>;
 

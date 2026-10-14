@@ -110,6 +110,10 @@ import type { SignInSpawn } from "../accounts/signin-process.js";
 import { CLAUDE_PROVIDER, type HostEnvironment } from "../adapters/claude/credentials.js";
 import { bundledExecutable } from "../adapters/claude/executable.js";
 import { claudeSignInProgram } from "../adapters/claude/signin.js";
+import { codexSignInProgram, createCodexAccountProvider } from "../adapters/codex/account.js";
+import { CODEX_PROVIDER } from "../adapters/codex/constants.js";
+import type { AccountProvider } from "../accounts/account-service.js";
+import { chooseCodexAccount, codexExempt, createCodexSupplier } from "../accounts/codex-injection.js";
 import { readClaudeCodeVersion } from "../adapters/claude/version.js";
 import { usageMethods } from "../accounts/usage-methods.js";
 import { createUsagePool } from "../accounts/usage-pool.js";
@@ -418,6 +422,8 @@ export interface EnvironmentOptions {
   readonly containerDetector?: ContainerDetector;
   /** The adapters the adapter host holds, one per provider. Preset: the Claude adapter, with auto memory under the data directory. */
   readonly adapters?: readonly Adapter[];
+  /** Providers whose accounts the store holds though no adapter runs their sessions (#2169). Preset: Codex's, its homes read from `signInProcess.hostEnv`. */
+  readonly accountProviders?: readonly AccountProvider[];
   /**
    * Accounts carried over from configuration (#119): adopted in place into
    * the account store, under their own ids, the first time the environment
@@ -443,6 +449,8 @@ export interface EnvironmentOptions {
     readonly hostEnv?: HostEnvironment;
     readonly bundled?: string | null;
     readonly managedTool?: () => string | null | Promise<string | null>;
+    /** The managed tool `codex` a Codex account's sign-in runs (#2169); preset: the registry's `codex` row. */
+    readonly codexTool?: () => string | null | Promise<string | null>;
     readonly cwd?: string;
   };
   /** How long an account's status or model probe may take. Preset: `PROBE_TIMEOUT_MS`. */
@@ -1387,6 +1395,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
             ...(signInProcess.hostEnv !== undefined && { hostEnv: signInProcess.hostEnv }),
             managedTool: signInProcess.managedTool ?? (async () => signInExecutable((await managedTools.row("claude")).path)),
           }),
+          // Codex accounts (#2169) sign in through the managed tool `codex` alone: no binary ships with the harness.
+          [CODEX_PROVIDER]: codexSignInProgram({
+            ...(signInProcess.hostEnv !== undefined && { hostEnv: signInProcess.hostEnv }),
+            managedTool: signInProcess.codexTool ?? (async () => (await managedTools.row("codex")).path),
+          }),
         },
         ...(signInProcess.spawn !== undefined && { spawn: signInProcess.spawn }),
         ...(signInProcess.cwd !== undefined && { cwd: signInProcess.cwd }),
@@ -1397,6 +1410,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       log,
       clock,
       adapters,
+      accountProviders: options.accountProviders ?? [createCodexAccountProvider(signInProcess.hostEnv !== undefined ? { hostEnv: signInProcess.hostEnv } : {})],
       environmentId: record.id,
       ownedRoot: join(dataDir, ACCOUNTS_DIRECTORY),
       configured: options.accounts ?? [],
@@ -1409,6 +1423,19 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     });
     closers.push(() => store.close());
     await store.start();
+    // The Codex account chosen for Claude runs (#2169, accounts.codexForClaudeRuns): its directory, read as each run is built,
+    // given to each Claude run as CODEX_HOME and CODEX_WORKER_HOME, writable under containment, and exempt from the denylist
+    // below as the key-manager CLIs' directory is (#368). A read that fails gives none, logged.
+    const codexAccount = () => {
+      try {
+        return chooseCodexAccount(store.list(), settings()["accounts.codexForClaudeRuns"]);
+      } catch (error) {
+        console.error("Reading the Codex account for Claude runs failed; runs get none:", error);
+        return null;
+      }
+    };
+    const codexHome = (): string | null => codexAccount()?.directory.path ?? null;
+    processEnvironments.register(createCodexSupplier({ codexHome }));
     const created = createAdapterHost({
       log,
       clock,
@@ -1446,8 +1473,19 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       routineSkills: (sessionId) => firingSkillsOfSession({ all: (sql, ...params) => log.read(sql, ...params) }, sessionId),
       // The unattended and bypass rules, and the TTL a prompt that parks is fixed with (#131).
       autoAnswer,
+      // The Codex account chosen for Claude runs, recorded on each run.started (#2169).
+      codexAccount: () => codexAccount()?.id ?? null,
       // The tool gate's rules (#132): the denylist, read as it is when each call is made.
-      gateRules: [denylistRule({ ...denylistContext, denylist: readDenylistNow })],
+      gateRules: [
+        denylistRule({
+          ...denylistContext,
+          denylist: readDenylistNow,
+          // Read at each call, so the Codex account chosen now is the one left out (#2169).
+          get exempt() {
+            return [...denylistContext.exempt, ...codexExempt(codexHome)];
+          },
+        }),
+      ],
       bankCheckouts: (scope) => bankCheckouts(bankService.entries().map(({ entry }) => entry), scope),
       // What an unattended run projects onto its provider's own rules (#140), read as it starts.
       // Projected onto an unattended run's sandbox: the directories git's credential helper is read from (#315), and the paths
@@ -1456,7 +1494,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
         const denylist = readDenylistNow();
         const context = { ...denylistContext, denylist: () => denylist };
         const helper = [...coveredDirectories(context, helperPaths), ...coveredPaths(context, helperReads)];
-        return providerDenylist(denylist, { ...denylistContext, exempt: [...denylistContext.exempt, ...helper] });
+        return providerDenylist(denylist, { ...denylistContext, exempt: [...denylistContext.exempt, ...codexExempt(codexHome), ...helper] });
       },
       promptTtlMs: () => parkedPromptTtlMs(permissionSettings()["permissions.parkedPrompt.ttl"]),
       processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
@@ -1485,12 +1523,21 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   // Plan usage (#136): one reading per account, read through the host and kept six minutes, a run's plan.limit folded in
   // from the log, usage.updated on a change; heard from here on, before the wire opens.
+  // Codex accounts' plan usage (#2169) is read from their homes by the Codex provider; every other account's through its adapter.
+  const codexUsage = createCodexAccountProvider(options.signInProcess?.hostEnv !== undefined ? { hostEnv: options.signInProcess.hostEnv } : {});
+  const isCodex = (id: string) => accounts.list().find((one) => one.id === id && one.provider === CODEX_PROVIDER);
   const usagePool = createUsagePool({
     log,
     clock,
     environmentId: record.id,
     accounts,
-    host,
+    host: {
+      account: (id) => (isCodex(id) !== undefined ? { descriptor: { planUsage: true, displayName: "Codex" } } : host.account(id)),
+      usage: (id) => {
+        const codex = isCodex(id);
+        return codex === undefined ? host.usage(id) : codexUsage.usage({ id, directory: codex.directory.path, label: codex.label });
+      },
+    },
     ...(options.usageReadTimeoutMs !== undefined && { readTimeoutMs: options.usageReadTimeoutMs }),
   });
   closers.push(() => usagePool.close());
@@ -1997,6 +2044,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       keyManagers,
       toolServers: runServers,
       forgeAccounts: () => forge.list(),
+      accounts: () => accounts.list().map((one) => ({ provider: one.provider, signedIn: one.status.state === "signed-in" })),
     }),
     // The extension's folder and its listener (#547), browser.status; pairing and the paired Chromes (#548).
     ...browser.handlers,

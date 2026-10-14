@@ -329,7 +329,7 @@ import {
   CatalogueTag,
 } from "./catalogue.js";
 import { CATALOGUE } from "./catalogue-data.js";
-import { CredentialInjection, CredentialInjectionByAccount, InjectionAnswer, RunInjection } from "./credential-settings.js";
+import { CodexForClaudeRuns, CredentialInjection, CredentialInjectionByAccount, InjectionAnswer, RunInjection } from "./credential-settings.js";
 import { CommandReceipt } from "./receipt.js";
 import {
   ActivityState,
@@ -1446,6 +1446,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/keys/accounts.defaultModelFamily.json", title: "DefaultModelFamily", schema: DefaultModelFamily },
   { path: "settings/keys/accounts.defaultEffort.json", title: "DefaultEffort", schema: DefaultEffort },
   { path: "settings/keys/accounts.favouriteModels.json", title: "FavouriteModels", schema: FavouriteModels },
+  { path: "settings/keys/accounts.codexForClaudeRuns.json", title: "CodexForClaudeRuns", schema: CodexForClaudeRuns },
   { path: "settings/keys/providers.processIdleMinutes.json", title: "ProcessIdleMinutes", schema: ProcessIdleMinutes },
   { path: "settings/keys/updates.autoUpdate.json", title: "AutoUpdate", schema: AutoUpdate },
   { path: "settings/keys/updates.channel.json", title: "ReleaseChannel", schema: ReleaseChannel },

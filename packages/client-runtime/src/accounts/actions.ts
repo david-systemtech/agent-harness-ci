@@ -3,7 +3,7 @@ import type { Runtime } from "../runtime.js";
 import { adminCall } from "../status/actions.js";
 import { modelDisplayName } from "../status/words.js";
 import { plainRefusal, type PlainRefusal, type RefusedAnswer } from "../words/refusal.js";
-import { familyChoices } from "./words.js";
+import { familyChoices, providerName, providerToolName } from "./words.js";
 
 /**
  * What the Accounts pane and the Account step send, as both renderers send
@@ -31,10 +31,11 @@ export interface AccountOutcome {
 export const NEW_ACCOUNT_LABEL = "Claude account";
 
 /** `Claude account`, or `Claude account 2` and on: the first no account has, ignoring case, as the environment compares labels. */
-export const newAccountLabel = (accounts: readonly Pick<AccountRecord, "label">[]): string => {
+export const newAccountLabel = (accounts: readonly Pick<AccountRecord, "label">[], provider = "claude"): string => {
   const taken = new Set(accounts.map((account) => account.label.toLowerCase()));
-  let label = NEW_ACCOUNT_LABEL;
-  for (let number = 2; taken.has(label.toLowerCase()); number++) label = `${NEW_ACCOUNT_LABEL} ${number}`;
+  const base = provider === "claude" ? NEW_ACCOUNT_LABEL : `${providerName(provider)} account`;
+  let label = base;
+  for (let number = 2; taken.has(label.toLowerCase()); number++) label = `${base} ${number}`;
   return label;
 };
 
@@ -75,20 +76,21 @@ const refusedWords = (refusal: RefusedAnswer, verb: string): PlainRefusal => {
 const refused = ({ refusal }: { readonly refusal: RefusedAnswer }, verb: string): AccountOutcome => ({ ok: false, ...refusedWords(refusal, verb) });
 
 /**
- * Uses the computer's own Claude Code sign-in (`accounts.adopt`), named
- * `label`, or by the email it signs in as when `label` is empty.
+ * Uses the computer's own Claude Code sign-in (`accounts.adopt`), or the
+ * `provider`'s own (Codex's, #2169), named `label`, or by the email it
+ * signs in as when `label` is empty.
  */
-export const adoptAccount = async (runtime: Pick<Runtime, "requests">, environmentId: string, label: string, commandId: string): Promise<AccountOutcome> => {
+export const adoptAccount = async (runtime: Pick<Runtime, "requests">, environmentId: string, label: string, commandId: string, provider?: string): Promise<AccountOutcome> => {
   const typed = label.trim();
   const problem = typed === "" ? undefined : nameProblem(typed);
   if (problem !== undefined) return { ok: false, line: problem };
-  const answer = await adminCall(() => runtime.requests.call(environmentId, "accounts.adopt", { commandId, ...(typed !== "" && { label: typed }) }));
+  const answer = await adminCall(() => runtime.requests.call(environmentId, "accounts.adopt", { commandId, ...(provider !== undefined && { provider }), ...(typed !== "" && { label: typed }) }));
   if (!answer.ok) {
     const reason = answer.refusal.data?.["reason"];
     const needsName = answer.refusal.code === "conflict" && (reason === "no_email" || reason === "label_taken");
     return { ...refused(answer, "Use this sign-in"), ...(needsName ? { needsName: true } : {}) };
   }
-  return { ok: true, line: `${answer.result?.account.label ?? (typed === "" ? "The Claude Code sign-in" : typed)} is signed in.` };
+  return { ok: true, line: `${answer.result?.account.label ?? (typed === "" ? `The ${providerToolName(provider ?? "claude")} sign-in` : typed)} is signed in.` };
 };
 
 /** Renames the account (`accounts.relabel`) to `label`, trimmed; a name it cannot have is said and not sent. */

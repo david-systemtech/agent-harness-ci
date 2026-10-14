@@ -131,6 +131,30 @@ describe("/account", () => {
     expect(env.requests("setup.check").every((r) => r.params.step === "account")).toBe(true);
   });
 
+  it("adds a Codex account: accounts.add with provider codex, the page and the code to enter, no code taken back; a Codex account is no session's account (#2169)", async () => {
+    const { app, env } = await launch([desk({ accounts: [{ id: "account-1", label: "work", identity: MILO }, { id: "account-2", label: "personal", identity: HOME }, { id: "account-3", label: "codex home", provider: "codex" }] })]);
+    await command(app, "/account");
+    await app.waitFor("+ Add a Codex account");
+    expect(app.frame()).not.toContain("codex home");
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.waitFor("Add a Codex account on desk");
+    await app.type("side");
+    await app.press(KEY.enter);
+    await app.waitFor("Starting the sign-in");
+    expect(env.requests("accounts.add").map((r) => r.params)).toEqual([expect.objectContaining({ label: "side", provider: "codex" })]);
+
+    env.signIn("awaiting-code", { url: "https://auth.openai.com/codex/device", userCode: "ABCD-EFGHJ" });
+    await app.waitFor("ABCD-EFGHJ");
+    expect(app.frame()).toContain("https://auth.openai.com/codex/device");
+    expect(app.frame()).not.toContain("Then paste the code it shows:");
+    await app.paste("abc-123");
+    await app.press(KEY.enter);
+    expect(env.requests("accounts.signin.code")).toHaveLength(0);
+
+    env.signIn("done");
+    await app.waitFor("side is signed in.");
+  });
+
   it("says a sign-in that failed, expired or was cancelled in one line each, in setup-copy.md §5.2's words", async () => {
     for (const [state, line, cause] of [
       ["failed", "The sign-in did not finish.", undefined],
@@ -574,13 +598,14 @@ describe("/settings", () => {
     await command(app, "/settings");
     await app.waitFor("Settings on desk");
     const frame = app.frame();
+    expect(frame).toMatch(/Codex account for Claude runs\s+none/);
     expect(frame).toMatch(/Default account\s+none/);
     expect(frame).toMatch(/Stop idle agent processes after minutes\s+30/);
     expect(frame).toMatch(/How much agents may do without asking\s+acceptEdits/);
     expect(frame).toMatch(/If nobody answers a question\s+24 hours/);
     expect(frame).toMatch(/Agreed to never ask on scheduled runs\s+none\s+read-only/);
-    // Down to the Service row's keys, past the five, one, six, nine, two and seven of the rows above it.
-    await app.press(...Array.from({ length: 30 }, () => KEY.down));
+    // Down to the Service row's keys, past the one, five, one, six, nine, two and seven of the rows above it.
+    await app.press(...Array.from({ length: 31 }, () => KEY.down));
     await app.waitFor(/Settle idle sessions\s+14 days/);
     // The key under the cursor says what it is.
     expect(app.frame()).toContain("Move quiet sessions out of the active list after this long.");
@@ -594,7 +619,7 @@ describe("/settings", () => {
     await command(app, "/settings");
     await app.waitFor("Settings on desk");
     // A typed value, checked against the key's schema before it is sent.
-    await app.press(KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter);
     await app.waitFor("New value for Stop idle agent processes after minutes (now 30)");
     // The value being typed holds its key: ↓ moves nothing.
     await app.press(KEY.down);
@@ -676,7 +701,7 @@ describe("/settings", () => {
     const { app } = await launch();
     await command(app, "/settings");
     await app.waitFor("Settings on desk");
-    await app.press(KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter);
     await app.waitFor("For scheduled and automatic runs:");
     await app.press(KEY.down, KEY.enter);
     await app.waitFor("Make bypassPermissions the unattended mode? y/n");
@@ -720,11 +745,11 @@ describe("/settings by row (#389)", () => {
     const { app } = await launch();
     await command(app, "/settings");
     await app.waitFor("Settings on desk");
-    // The first row with keys heads the list, the key under the cursor described.
-    expect(app.frame()).toMatch(/Default account and model\n.*Default account\s+none/);
-    expect(app.frame()).toContain("The account to use when a session has no account of its own.");
+    // The first row with keys heads the list, the key under the cursor described: Accounts' Codex account for Claude runs (ticket 2169).
+    expect(app.frame()).toMatch(/Accounts\n.*Codex account for Claude runs\s+none\n\s*Default account and model\n.*Default account\s+none/);
+    expect(app.frame()).toContain("The Codex account Claude runs can call codex with.");
     // Down the list, each row's label over its keys: Instructions, then Permissions, then Browser, then Key managers, then Your machines, then Service.
-    await app.press(...Array.from({ length: 32 }, () => KEY.down));
+    await app.press(...Array.from({ length: 33 }, () => KEY.down));
     await app.waitFor(/Compact quiet transcripts after days\s+90/);
     const lines = linesOf(app.frame());
     const at = (text: string) => lines.findIndex((line) => line.startsWith(text));
@@ -777,7 +802,7 @@ describe("/settings by row (#389)", () => {
     await app.press(KEY.esc);
     await command(app, "/settings secrets");
     await app.waitFor(
-      "No settings row is named secrets. The rows holding settings: accounts.default-model, knowledge.instructions, access.permissions, access.browser, access.key-managers, environments.machines, environments.service, appearance.theme.",
+      "No settings row is named secrets. The rows holding settings: accounts.accounts, accounts.default-model, knowledge.instructions, access.permissions, access.browser, access.key-managers, environments.machines, environments.service, appearance.theme.",
     );
   });
 });

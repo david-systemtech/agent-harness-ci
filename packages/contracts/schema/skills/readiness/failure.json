@@ -790,9 +790,63 @@
               }
             }
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "account"
+            },
+            "provider": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$",
+              "description": "The provider an account must be of, such as codex."
+            },
+            "why": {
+              "type": "string",
+              "maxLength": 300,
+              "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+              "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+            },
+            "fix": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 300,
+                  "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                  "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "account",
+                    "carry-over",
+                    "your-machines",
+                    "forges",
+                    "key-manager",
+                    "memory-bank",
+                    "skills",
+                    "instructions",
+                    "browser",
+                    "permissions",
+                    "appearance"
+                  ],
+                  "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                }
+              ],
+              "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+            }
+          },
+          "required": [
+            "kind",
+            "provider"
+          ],
+          "additionalProperties": false,
+          "description": "account: this environment holds a signed-in account of the provider, whatever account the session runs on (#2169: the codex-workers skill needs a signed-in Codex account, whose home Claude runs are given)."
         }
       ],
-      "description": "One check a skill declares: file, tool, secret, git, skill, mcp or provider, with its parameters, an optional one-line why and an optional fix (a slash command or a Set up step id)."
+      "description": "One check a skill declares: file, tool, secret, git, skill, mcp, provider or account, with its parameters, an optional one-line why and an optional fix (a slash command or a Set up step id)."
     },
     "outcome": {
       "type": "string",

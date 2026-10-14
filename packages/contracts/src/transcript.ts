@@ -154,6 +154,10 @@ export const RunStartedPayload = z
     }),
     resumedFrom: z.string().min(1).nullable().meta({ description: "The provider's session id the run resumes; null for a fresh one." }),
     forkedFrom: SessionId.nullable().meta({ description: "The session the run's session was forked from, on a fork's first run; else null." }),
+    codexAccountId: z.string().min(1).optional().meta({
+      description:
+        "The Codex account chosen for the run as it started (accounts.codexForClaudeRuns, #2169), whose directory its process is given as CODEX_HOME and CODEX_WORKER_HOME while credentials are injected; absent when none was chosen, and from environments that do not say.",
+    }),
   })
   .meta({ description: "run.started: a run of the session started; its startedAt is the event's occurredAt." });
 export type RunStartedPayload = z.infer<typeof RunStartedPayload>;

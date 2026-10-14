@@ -638,6 +638,8 @@ export {
   type SignInEnding,
 } from "./status/sign-in.js";
 export {
+  CODEX_IN_CLAUDE_RUNS,
+  CODEX_PROVIDER,
   DEFAULT_CHOICE_WORDS,
   NO_PLAN_READING,
   NO_WINDOWS_READ,
@@ -651,8 +653,11 @@ export {
   gaugeWho,
   planWords,
   pooledWords,
+  providerName,
+  providerToolName,
   removalWords,
   resetWords,
+  runsSessions,
   type AmbientSignIn,
   type FamilyChoice,
 } from "./accounts/words.js";

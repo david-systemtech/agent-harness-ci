@@ -207,17 +207,19 @@ posix("a tool's latest version", () => {
     path.install("op", { at: "homebrew/Caskroom/1password-cli/2.39.0/op", output: "2.39.0" });
     path.install("doppler", { at: "AppData/Local/Microsoft/WinGet/Packages/Doppler.doppler_Microsoft.Winget.Source_8wekyb3d8bbwe/doppler", output: "v3.76.0" });
     path.install("claude", { at: "lib/node_modules/@anthropic-ai/claude-code/cli.js", output: "2.1.283 (Claude Code)" });
+    path.install("codex", { at: "homebrew/Caskroom/codex/0.45.0/codex", output: "codex-cli 0.45.0" });
     const reads = {
       gh: released.formula("gh", "2.101.0"),
       op: released.cask("1password-cli", "2.39.0"),
       doppler: released.winget("Doppler.doppler", ["3.75.3", "3.76.10", "3.76.6", "4.0.0-beta.1"], ["README.md"]),
       claude: released.npm("@anthropic-ai/claude-code", "2.1.285"),
+      codex: released.cask("codex", "0.46.0"),
     };
     const { t, client } = await withTools(path, released);
 
     // A client never fetches: the rows answer the latest cached, none yet, and nothing was read.
     const before = await list(client);
-    expect(byTool(before.tools, "latest", "status")).toMatchObject({ gh: [null, "current"], op: [null, "current"], doppler: [null, "current"], claude: [null, "current"] });
+    expect(byTool(before.tools, "latest", "status")).toMatchObject({ gh: [null, "current"], op: [null, "current"], doppler: [null, "current"], claude: [null, "current"], codex: [null, "current"] });
     expect(released.server.requests).toEqual([]);
 
     const from = t.env.log.head();
@@ -227,6 +229,7 @@ posix("a tool's latest version", () => {
     const after = (await list(client)).tools;
     expect(byTool(after, "method", "version", "latest", "status")).toEqual({
       claude: ["npm", "2.1.283", "2.1.285", "update-available"],
+      codex: ["homebrew", "0.45.0", "0.46.0", "update-available"],
       bao: [null, null, null, "not-installed"],
       vault: [null, null, null, "not-installed"],
       doppler: ["winget", "3.76.0", "3.76.10", "update-available"],
@@ -235,13 +238,13 @@ posix("a tool's latest version", () => {
       gh: ["homebrew", "2.63.2", "2.101.0", "update-available"],
     });
     // The notice carried every row the latest versions changed, as tools.list now answers them.
-    expect(updated).toEqual(after.filter((row) => ["claude", "doppler", "op", "gh"].includes(row.tool)));
+    expect(updated).toEqual(after.filter((row) => ["claude", "codex", "doppler", "op", "gh"].includes(row.tool)));
     for (const [tool, read] of Object.entries(reads)) expect(released.reads(read), tool).toBe(1);
     // Only the installed tools' sources were read.
-    expect(released.server.requests).toHaveLength(4);
+    expect(released.server.requests).toHaveLength(5);
   });
 
-  it("is otherwise read from the vendor's release feed: GitHub releases for bao, doppler, bws and gh, past drafts, prereleases and other products' tags; Claude Code's latest channel; 1Password's feed; HashiCorp's releases", async () => {
+  it("is otherwise read from the vendor's release feed: GitHub releases for bao, doppler, bws and gh, past drafts, prereleases and other products' tags; Claude Code's latest channel; the npm registry's latest for codex; 1Password's feed; HashiCorp's releases", async () => {
     const released = await sources();
     const path = fakePath();
     const bao = path.install("bao", { output: "OpenBao v2.6.3" });
@@ -251,6 +254,7 @@ posix("a tool's latest version", () => {
     path.install("claude", { at: ".local/share/claude/versions/2.1.283", output: "2.1.283 (Claude Code)" });
     path.install("op", { output: "2.38.0" });
     path.install("vault", { output: "Vault v1.15.0" });
+    path.install("codex", { output: "codex-cli 0.46.0" });
     released.github("openbao/openbao", [{ tag: "v2.8.0-beta20261001", prerelease: true }, { tag: "v2.9.0", draft: true }, "v2.7.0", "v2.6.3"]);
     released.github("DopplerHQ/cli", ["3.76.6", "3.76.5"]);
     released.github("bitwarden/sdk-sm", ["rust-v3.0.0", "napi-v3.0.0", "bws-v2.1.0", "python-v2.1.0", "bws-v2.0.0"]);
@@ -258,6 +262,7 @@ posix("a tool's latest version", () => {
     released.claude("2.1.285");
     released.onePassword("2.39.0");
     released.hashicorp("vault", "2.1.1");
+    released.npm("@openai/codex", "0.47.0");
     // bao is owned by the system's package manager: its vendor's repository publishes what its GitHub releases do.
     const { t, client } = await withTools(path, released, { managedTools: { packageOwner: async (file) => (file === bao.file ? { kind: "owned", manager: "dpkg", package: "openbao" } : { kind: "none" }) } });
 
@@ -267,6 +272,7 @@ posix("a tool's latest version", () => {
 
     expect(byTool((await list(client)).tools, "method", "latest", "status")).toEqual({
       claude: ["native", "2.1.285", "update-available"],
+      codex: ["manual", "0.47.0", "update-available"],
       bao: ["apt", "2.7.0", "update-available"],
       vault: ["manual", "2.1.1", "update-available"],
       doppler: ["mise", "3.76.6", "current"],

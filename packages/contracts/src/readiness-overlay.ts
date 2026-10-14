@@ -63,6 +63,29 @@ const pocock = (path: string, checks: readonly ReadinessCheck[], removedUpstream
   declaration: { version: 1, checks: [...checks] },
 });
 
+/**
+ * David's catalogue (#2169): `codex-workers` runs `codex exec` workers
+ * from a Claude session through its python3 wrapper, on the Codex home a
+ * Claude run is given (`CODEX_WORKER_HOME`), so it needs the codex CLI,
+ * python3 and a signed-in Codex account on this environment.
+ */
+const AGENT_SKILLS_CATALOGUE = "https://git.systemtech.dev/david/agent-skills";
+
+export const CODEX_WORKERS_ENTRY: ReadinessOverlay[number] = {
+  repository: AGENT_SKILLS_CATALOGUE,
+  path: "skills/codex-workers",
+  removedUpstream: false,
+  declaration: {
+    version: 1,
+    checks: [
+      { kind: "provider", providers: ["claude"], why: "It orchestrates Codex workers from a Claude session; a Codex session ignores it." },
+      { kind: "tool", command: "codex", why: "The workers run codex exec: install codex from Settings, About, Tools." },
+      { kind: "tool", command: "python3", why: "Its scripts/codex-worker wrapper is a python3 script." },
+      { kind: "account", provider: "codex", why: "The workers run on a signed-in Codex account, whose home Claude runs are given.", fix: "account" },
+    ],
+  },
+};
+
 export const READINESS_OVERLAY: ReadinessOverlay = [
   pocock("skills/engineering/code-review", [
     ...TRACKER,
@@ -95,4 +118,5 @@ export const READINESS_OVERLAY: ReadinessOverlay = [
   pocock("skills/misc/setup-pre-commit", [
     { kind: "file", paths: ["package.json"], why: "It sets up Husky and lint-staged in a project with a package.json." },
   ]),
+  CODEX_WORKERS_ENTRY,
 ];

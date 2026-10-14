@@ -1,5 +1,5 @@
 import { AccessUnavailable } from "../connections/limited-access.js";
-import { DEFAULT_CHOICE_WORDS, accountChoiceWords, addFavourite, effortChoices, effortName, familyChoices, favouriteCandidates, favouriteModelIds, identityWords, modelDisplayName, modelName, moveFavourite, removeFavourite, type EnvironmentView } from "@agent-harness/client-runtime";
+import { DEFAULT_CHOICE_WORDS, runsSessions, accountChoiceWords, addFavourite, effortChoices, effortName, familyChoices, favouriteCandidates, favouriteModelIds, identityWords, modelDisplayName, modelName, moveFavourite, removeFavourite, type EnvironmentView } from "@agent-harness/client-runtime";
 import { FAVOURITE_MODELS_MAX, settingsRow, type ModelEntry } from "@agent-harness/contracts";
 import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, Cpu, Gauge, KeyRound, Plus, RefreshCw, Search, Star, X } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -79,9 +79,11 @@ export const DefaultChoices = ({ view }: { readonly view: EnvironmentView }) => 
   const { environmentId } = view;
   const settings = useSettingsValues(environmentId);
   const accountAnswer = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId]));
-  const accounts = accountAnswer.value ?? [];
+  // A Codex account runs no session (#2169): never the default account, its models never a default family.
+  const accounts = (accountAnswer.value ?? []).filter(runsSessions);
   const modelAnswer = useObservable(useMemo(() => runtime.projections.models(environmentId), [runtime, environmentId]));
-  const catalogues = modelAnswer.value ?? [];
+  const codex = new Set((accountAnswer.value ?? []).filter((account) => !runsSessions(account)).map((account) => account.id));
+  const catalogues = (modelAnswer.value ?? []).filter((catalogue) => !codex.has(catalogue.accountId));
   const [line, setLine] = useState<string | undefined>(undefined);
   const writable = view.phase === "ready" && runtime.capability(environmentId, "settings.update").status === "present";
   const narrow = useNarrowRunPicker(1200);

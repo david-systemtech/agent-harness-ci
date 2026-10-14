@@ -96,6 +96,8 @@ export interface SignInProgram {
   env(directory: string): Record<string, string>;
   /** The verification URL, once the output so far holds a whole one; null until then. */
   verificationUrl(output: string): string | null;
+  /** A device flow's one-time code a person enters on the verification page (Codex's), once the output holds it; absent for a flow that takes a code back (Claude's). */
+  userCode?(output: string): string | null;
   /** The command a person runs in a terminal on the environment's machine instead, the directory quoted. */
   fallback(directory: string, executable: string): SignInFallback;
   /** The executable a fallback names before one has been chosen and none is bundled: the managed tool's name. */

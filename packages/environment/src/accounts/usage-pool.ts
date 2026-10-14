@@ -10,7 +10,7 @@ import {
   type UsageVerdict,
   type UsageWindow,
 } from "@agent-harness/contracts";
-import type { UsageReading } from "../adapter/contract.js";
+import type { AdapterDescriptor, UsageReading } from "../adapter/contract.js";
 import type { AdapterHost } from "../adapter/host.js";
 import { formatActor, type EventEnvelope, type EventLog } from "../event-log/event-log.js";
 import { readRun } from "../runs/run-reads.js";
@@ -112,7 +112,8 @@ export interface UsagePoolOptions {
   readonly environmentId: string;
   /** The accounts the environment holds, in the store's order. */
   readonly accounts: { list(): AccountRecord[] };
-  readonly host: Pick<AdapterHost, "usage" | "account">;
+  /** Where a reading comes from: the adapter host, or for an account-only provider's account (Codex's, #2169) the provider; only the descriptor's plan-usage flag and name are read. */
+  readonly host: Pick<AdapterHost, "usage"> & { account(id: string): { readonly descriptor: Pick<AdapterDescriptor, "planUsage" | "displayName"> } | null };
   /** Preset `USAGE_READ_TIMEOUT_MS`. */
   readonly readTimeoutMs?: number;
 }

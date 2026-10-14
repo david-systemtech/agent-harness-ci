@@ -1,4 +1,5 @@
 import {
+  CODEX_IN_CLAUDE_RUNS,
   ACCOUNT_STATUS_WORDS,
   BETWEEN_ENVIRONMENTS,
   NOTHING_TO_REVIEW,
@@ -89,6 +90,8 @@ export type Panel =
       readonly startedAt: string | null;
       /** The command on its way, whose answer the keys wait for: the new account, the sign-in's start, or the code; null for none. */
       readonly sending: "add" | "start" | "code" | null;
+      /** The provider a new account is added on: `codex` for Add a Codex account (#2169); absent for the environment's first, Claude. */
+      readonly provider?: string;
     } & Typed)
   /** `/model`: the models of the account, then the efforts of the model chosen. */
   | { readonly kind: "models"; readonly environmentId: string; readonly accountId: string | null; readonly cursor: number; readonly model: ModelEntry | null; readonly modelCursor: number }
@@ -126,13 +129,15 @@ const pad = (text: string, width: number): string => text + " ".repeat(Math.max(
 
 /** The row that adds an account: last in `/account`. */
 export const ADD_ACCOUNT = "+ Add an account";
+/** The row that adds a Codex account (#2169): after Add an account in `/account`. */
+export const ADD_CODEX_ACCOUNT = "+ Add a Codex account";
 /** The row that answers hand-off between environments absent: last in `/handoff`. */
 export const OTHER_ENVIRONMENT = "On another environment";
 
 /**
  * The accounts as rows: label, identity, sign-in status, the session's
  * marked; the plan reading of each account's identity under it. `/account`
- * ends with "add an account", `/handoff` with the absent row for another
+ * ends with "add an account" and "add a Codex account" (#2169), `/handoff` with the absent row for another
  * environment.
  */
 export const accountRows = (
@@ -159,7 +164,7 @@ export const accountRows = (
     };
   });
   return purpose === "account"
-    ? [...rows, { key: "add", cells: [{ text: ADD_ACCOUNT }], dim: false }]
+    ? [...rows, { key: "add", cells: [{ text: ADD_ACCOUNT }], dim: false }, { key: "add-codex", cells: [{ text: ADD_CODEX_ACCOUNT }], dim: false, note: { text: CODEX_IN_CLAUDE_RUNS, dim: true } }]
     : [...rows, { key: "elsewhere", cells: [{ text: OTHER_ENVIRONMENT }], dim: true, note: { text: "absent", dim: true }, under: { text: `    ${BETWEEN_ENVIRONMENTS}`, dim: true } }];
 };
 

@@ -1,4 +1,4 @@
-import { LOCAL_PLACEHOLDER_ID, addAccount, cancelSignIn, fallbackOf, followedSignIn, labelProblem, sendSignInCode, signInEnd, signInFailed, signInLeftWords, startSignIn, uuidv4, type SignInEnding } from "@agent-harness/client-runtime";
+import { LOCAL_PLACEHOLDER_ID, addAccount, providerName, cancelSignIn, fallbackOf, followedSignIn, labelProblem, sendSignInCode, signInEnd, signInFailed, signInLeftWords, startSignIn, uuidv4, type SignInEnding } from "@agent-harness/client-runtime";
 import { Check, ClipboardPaste, Copy, ExternalLink, KeyRound, LoaderCircle, LogIn, Plus, RotateCcw, X } from "lucide-react";
 import { SIGN_IN_ENDED_STATES, SignInCode, type AccountRecord, type SignInState } from "@agent-harness/contracts";
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
@@ -27,6 +27,8 @@ export interface SignInCardProps {
   readonly label?: string;
   /** True only when the opener generated the name, rather than a person typing it. */
   readonly nameByEmail?: boolean;
+  /** The provider a new account is added on (`accounts.add`'s `provider`, #2169): `codex` for Add a Codex account; absent for the environment's first, Claude. */
+  readonly provider?: string;
   /** Closes the card. */
   readonly close: () => void;
   /** Told, inline, as the sign-in succeeds, with the line Done will say: the card waits only on Done from then on. */
@@ -83,7 +85,7 @@ const CopyAction = ({ text, copy, label, children }: { readonly text: string; re
  *   refusal of the first start. Closing the card cancels the sign-in it
  *   started (`accounts.signin.cancel`), since the card is its attendant.
  */
-export const SignInCard = ({ environmentId, account, close, say, succeeded, inline = false, suggestion, label: given, nameByEmail = false }: SignInCardProps) => {
+export const SignInCard = ({ environmentId, account, close, say, succeeded, inline = false, suggestion, label: given, nameByEmail = false, provider }: SignInCardProps) => {
   const heading = useId();
   const codeForm = useId();
   const codeError = useId();
@@ -201,7 +203,7 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
     setLabel(trimmed);
     setSending("add");
     setError(null);
-    void addAccount(runtime, environmentId, trimmed, uuidv4(), environment, generatedName).then((added) => {
+    void addAccount(runtime, environmentId, trimmed, uuidv4(), environment, generatedName, provider).then((added) => {
       if (added.kind === "refused") {
         setSending(null);
         return setError(added.line);
@@ -270,14 +272,18 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
     void cancelSignIn(runtime, environmentId, { id: accountId, label }, uuidv4()).then(({ ok, line }) => say(line, ok));
   };
 
-  const directory = accounts.value?.find((candidate) => candidate.id === accountId)?.directory.path;
+  const record = accounts.value?.find((candidate) => candidate.id === accountId);
+  const directory = record?.directory.path;
+  // Codex's device flow (#2169): a one-time code is entered on the provider's page, so nothing is pasted back here.
+  const userCode = followed?.userCode ?? null;
+  const name = providerName(record?.provider ?? provider ?? "claude");
   const labelling = accountId === null && sending !== "add";
   const showsPage = stopped === null && url !== null && (followed?.state === "awaiting-code" || followed?.state === "submitting" || sending === "code");
   const checking = sending === "code" || followed?.state === "submitting";
-  const takesCode = stopped === null && followed?.state === "awaiting-code" && sending === null;
-  const stepsShown = showsPage && (!localBrowser || pageFold);
+  const takesCode = stopped === null && followed?.state === "awaiting-code" && sending === null && userCode === null;
+  const stepsShown = showsPage && (!localBrowser || pageFold || userCode !== null);
 
-  const title = account === null && accountId === null ? `Add an account on ${environment}` : thisComputer ? "Sign in to Claude" : `Sign in to Claude on ${environment}`;
+  const title = account === null && accountId === null ? (name === "Claude" ? `Add an account on ${environment}` : `Add a ${name} account on ${environment}`) : thisComputer ? `Sign in to ${name}` : `Sign in to ${name} on ${environment}`;
   const clipboard = runtime.capability(LOCAL_PLACEHOLDER_ID, "shell.clipboard").status === "present" ? shell?.clipboard : undefined;
   const canReadClipboard = clipboard !== undefined || typeof navigator.clipboard?.readText === "function";
   const copyText = (text: string) => clipboard?.writeText(text) ?? navigator.clipboard.writeText(text);
@@ -291,7 +297,7 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
     <ol className="flex list-decimal flex-col gap-3 pl-5">
       <li>
         <div className="flex min-w-0 flex-col gap-2">
-          <span>Open the Claude sign-in page.</span>
+          <span>Open the {name} sign-in page.</span>
           <div className="flex flex-wrap items-start gap-2">
             {shell === undefined ? <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-2 text-sm text-beam-text underline"><ExternalLink aria-hidden="true" className="size-4" />Open the sign-in page</a> : <AccountAction icon={ExternalLink}
               aria-disabled={openAbsent ? true : undefined}
@@ -302,7 +308,7 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
             <CopyAction text={url} copy={copyText}>Copy link</CopyAction>
           </div>
           {openAbsent && <p className="text-xs text-ink-muted">This app cannot open your browser here. Choose Copy link instead.</p>}
-          <SignInQr url={url} />
+          <SignInQr url={url} provider={name} />
         </div>
       </li>
       <li><div><span>Sign in and choose Authorize.</span></div></li>
@@ -323,6 +329,24 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
         </div>
       </li>
     </ol>
+  );
+  /** The device flow's page and code (#2169): open the link and enter the code; the card waits for the sign-in to end. */
+  const device = url !== null && userCode !== null && (
+    <div data-sign-in-device className="flex min-w-0 flex-col gap-2">
+      <p>Open the link and enter this code: <code data-sign-in-user-code className="font-mono text-base font-medium tracking-wider text-ink select-all">{userCode}</code></p>
+      <div className="flex flex-wrap items-start gap-2">
+        {shell === undefined ? <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-2 text-sm text-beam-text underline"><ExternalLink aria-hidden="true" className="size-4" />Open the sign-in page</a> : <AccountAction icon={ExternalLink}
+          aria-disabled={openAbsent ? true : undefined}
+          onClick={() => { if (!openAbsent) void shell?.openExternal?.(url); }}
+        >
+          Open the sign-in page
+        </AccountAction>}
+        <CopyAction text={userCode} copy={copyText} label="Copy the code">Copy code</CopyAction>
+        <CopyAction text={url} copy={copyText}>Copy link</CopyAction>
+      </div>
+      {openAbsent && <p className="text-xs text-ink-muted">This app cannot open your browser here. Choose Copy link instead.</p>}
+      <p className="text-ink-muted">Sign in to {name} there. This finishes by itself once the code is entered.</p>
+    </div>
   );
   const content = completed !== null ? <div className="flex flex-col gap-3">
     <p role="status" className="flex items-center gap-2 text-sm text-mint"><Check aria-hidden="true" className="size-4" />{completed}</p>
@@ -356,9 +380,9 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
                 details={details({ computer: { name: environment }, line: stopped.line, details: stopped.details })}
               />
             )}
-            {showsPage && (localBrowser ? (
+            {showsPage && userCode !== null ? device : showsPage && (localBrowser ? (
               <>
-                <p>A Claude page opened in your browser. Sign in there and choose Authorize. This window finishes by itself.</p>
+                <p>A {name} page opened in your browser. Sign in there and choose Authorize. This window finishes by itself.</p>
                 <Fold summary="The page did not open?" open={pageFold} onOpenChange={setPageFold}>{steps}</Fold>
               </>
             ) : steps)}
@@ -380,7 +404,7 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
                 </Fold>
               </div>
             )}
-            {showsPage && <TechnicalDetails {...details({ computer: { name: environment }, line: "Waiting for the code from the Claude page.", details: [`Sign-in page: ${url}`] })} />}
+            {showsPage && <TechnicalDetails {...details({ computer: { name: environment }, line: userCode === null ? `Waiting for the code from the ${name} page.` : `Waiting for the code to be entered on the ${name} page.`, details: [`Sign-in page: ${url}`, ...(userCode === null ? [] : [`Code: ${userCode}`])] })} />}
             {inline && leaveButton}
           </div>
         )}

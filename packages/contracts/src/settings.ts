@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { DefaultAccount, DefaultEffort, DefaultModelFamily, FavouriteModels } from "./accounts.js";
 import { BROWSER_SETTINGS } from "./browser-settings.js";
-import { CREDENTIAL_SETTINGS } from "./credential-settings.js";
+import { CodexForClaudeRuns, CREDENTIAL_SETTINGS } from "./credential-settings.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { ReviewSeenPayload } from "./permissions.js";
 import { PERMISSION_SETTINGS } from "./permissions-settings.js";
@@ -174,6 +174,11 @@ const SETTING_DEFINITIONS = {
     preset: [],
     step: DEFAULT_MODEL_PLACE,
   }),
+  "accounts.codexForClaudeRuns": setting({
+    schema: CodexForClaudeRuns,
+    preset: null,
+    step: { id: "account", row: "accounts.accounts" },
+  }),
   "providers.processIdleMinutes": setting({
     schema: ProcessIdleMinutes,
     preset: PROCESS_IDLE_MINUTES_PRESET,
@@ -230,6 +235,10 @@ const SETTING_WORDS = {
   "accounts.favouriteModels": {
     label: "Favourite models",
     description: "The models the account and model picker offers first, in this order. Every other model is under Other models; with none pinned, the picker offers the provider's recommended models.",
+  },
+  "accounts.codexForClaudeRuns": {
+    label: "Codex account for Claude runs",
+    description: "The Codex account Claude runs can call codex with. Choose automatic to use the only signed-in Codex account, or off to give runs none.",
   },
   "providers.processIdleMinutes": {
     label: "Stop idle agent processes after minutes",

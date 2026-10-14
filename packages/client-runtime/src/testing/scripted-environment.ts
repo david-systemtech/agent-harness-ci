@@ -195,6 +195,8 @@ export interface ScriptedEnvironment {
    * adopts while it is there and signed in: preset not there.
    */
   readonly ambient?: Partial<AmbientProbe>;
+  /** What `accounts.probe {provider: "codex"}` reads of the machine's own `/home/milo/.codex`, which `accounts.adopt {provider: "codex"}` adopts (#2169): preset not there. */
+  readonly codexAmbient?: Partial<AmbientProbe>;
   /** The directories a new session is refused in, by the path as recorded (`~` read as the scripted home), each with its problem (`workspace_unusable`): preset none. */
   readonly directories?: Readonly<Record<string, WorkspaceProblem>>;
   /**
@@ -401,7 +403,7 @@ export interface EnvironmentHandle
   /** Holds every answer to `sessions.rewind` until the release is called, each then answered as the environment stands at the release. */
   holdRewinds(): () => void;
   /** Moves the environment's sign-in to `state`, as its director does, and says so with `signin.updated`. */
-  signIn(state: SignInState, fields?: { readonly url?: string | null; readonly error?: string | null; readonly cause?: SignInCause }): void;
+  signIn(state: SignInState, fields?: { readonly url?: string | null; readonly userCode?: string | null; readonly error?: string | null; readonly cause?: SignInCause }): void;
   /** The environment's latest sign-in; null before any. */
   currentSignIn(): SignIn | null;
   /** Changes what `accounts.handoff.recommend` answers, said with a `usage.updated` notice as the environment says a reading changed. */
@@ -1522,6 +1524,17 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     checkedAt: clock.now().toISOString(),
     ...spec.ambient,
   });
+  let codexAmbient = checked(AmbientProbe, {
+    provider: "codex",
+    directory: "/home/milo/.codex",
+    present: false,
+    signedIn: false,
+    identity: null,
+    accountId: null,
+    detail: null,
+    checkedAt: clock.now().toISOString(),
+    ...spec.codexAmbient,
+  });
   const accountUpdated = (accountId: string, change: AccountChange) => notice("account.updated", { accountId, change, warning: null });
   const accountRefusal = (reason: string, message: string, data: Record<string, unknown> = {}): FakeAnswer => ({
     result: { receipt: { status: "rejected", sequence: ++sequence, changed: false, reason: "conflict", error: { code: "conflict", message, data: { reason, ...data } } } },
@@ -1538,13 +1551,26 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   const removeAccount = (held: AccountRecord) => {
     accounts.splice(accounts.indexOf(held), 1);
     if (ambient.accountId === held.id) ambient = { ...ambient, accountId: null };
+    if (codexAmbient.accountId === held.id) codexAmbient = { ...codexAmbient, accountId: null };
     accountUpdated(held.id, "removed");
   };
-  wire.answer("accounts.probe", () => ({ result: { ...ambient, checkedAt: clock.now().toISOString() } }));
+  wire.answer("accounts.probe", (params) => ({ result: { ...(params["provider"] === "codex" ? codexAmbient : ambient), checkedAt: clock.now().toISOString() } }));
   wire.answer("accounts.refresh", () => ({ result: { accounts: [...accounts] } }));
   wire.answer("accounts.adopt", (params) => {
     const refused = rejection("accounts.adopt");
     if (refused) return refused;
+    if (params["provider"] === "codex") {
+      if (codexAmbient.directory === null || !codexAmbient.present || !codexAmbient.signedIn) return accountRefusal("ambient_unavailable", "Codex on this computer is not signed in.", {});
+      const label = (params["label"] as string | undefined) ?? codexAmbient.identity?.email;
+      if (label === undefined) return accountRefusal("no_email", "This sign-in has no email to name the account by. Enter a name.", { directory: codexAmbient.directory });
+      const taken = labelTaken(label);
+      if (taken) return taken;
+      const account = accountOf({ id: `account-${++accountsMinted}`, provider: "codex", label, directory: { kind: "adopted", path: codexAmbient.directory }, identity: codexAmbient.identity }, accounts.length);
+      accounts.push(account);
+      codexAmbient = { ...codexAmbient, accountId: account.id };
+      accountUpdated(account.id, "adopted");
+      return acceptedWith({ account });
+    }
     if (ambient.directory === null || !ambient.present || !ambient.signedIn) {
       const line = ambient.directory === null || !ambient.present ? "Claude Code is not on this computer. Sign in with Claude instead." : "Claude Code on this computer is not signed in. Sign in with Claude instead.";
       return accountRefusal("ambient_unavailable", line, ambient.directory === null ? {} : { directory: ambient.directory });
@@ -1603,9 +1629,9 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
 
   // The sign-in director (ADR 0018): one sign-in at a time, moved by the handle as the provider's CLI would move it.
   let signIn: SignIn | null = null;
-  const moveSignIn = (state: SignInState, fields: { readonly url?: string | null; readonly error?: string | null; readonly cause?: SignInCause } = {}) => {
+  const moveSignIn = (state: SignInState, fields: { readonly url?: string | null; readonly userCode?: string | null; readonly error?: string | null; readonly cause?: SignInCause } = {}) => {
     if (!signIn) throw new Error(`${spec.name} has no sign-in to move.`);
-    signIn = checked(SignIn, { ...signIn, state, ...(fields.url !== undefined && { url: fields.url }), ...(fields.error !== undefined && { error: fields.error }), ...(fields.cause !== undefined && { cause: fields.cause }) });
+    signIn = checked(SignIn, { ...signIn, state, ...(fields.url !== undefined && { url: fields.url }), ...(fields.userCode !== undefined && { userCode: fields.userCode }), ...(fields.error !== undefined && { error: fields.error }), ...(fields.cause !== undefined && { cause: fields.cause }) });
     if (state === "done") {
       const at = accounts.findIndex((a) => a.id === signIn?.accountId);
       const held = accounts[at];
@@ -1643,7 +1669,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const id = ++accountsMinted;
     const label = String(params["label"]);
     const running = runningSignIn();
-    const account = accountOf({ id: `account-${id}`, label, ...(params["nameByEmail"] === true ? { nameByEmail: true } : {}), directory: { kind: "owned", path: `/home/milo/.agent-harness/accounts/${id}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
+    const account = accountOf({ id: `account-${id}`, ...(params["provider"] === "codex" ? { provider: "codex" } : {}), label, ...(params["nameByEmail"] === true ? { nameByEmail: true } : {}), directory: { kind: "owned", path: `/home/milo/.agent-harness/accounts/${id}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
     accounts.push(account);
     const start =
       spec.addSignIn ??

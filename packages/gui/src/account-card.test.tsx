@@ -89,14 +89,17 @@ const opened = async (given: Partial<ScriptedEnvironment> = {}, options: RenderO
 
 describe("the Account card in Set up", () => {
   it("asks how to sign in, with this computer's Claude Code sign-in pre-selected, and uses it with accounts.adopt, its email the label", async () => {
-    // An environment with a second provider: the card draws Claude's parts alone until milestone 2 (ADR 0016).
+    // An environment with a second provider: the card lists Claude's question first, then Codex's (#2169), and no local models.
     const app = await opened({ ambient: { present: true, signedIn: true, identity: MILO }, providers: [{}, { provider: "codex", displayName: "Codex" }] });
     const desk = app.environment("desk");
     const choice = await within(step()).findByRole("radio", { name: "Use the Claude Code sign-in on this computer (milo@example.test)" });
     expect(choice.getAttribute("aria-checked")).toBe("true");
     expect(within(question()).getByRole("radio", { name: "Sign in with Claude" }).getAttribute("aria-checked")).toBe("false");
     expect(desk.requests("accounts.probe").length).toBeGreaterThan(0);
-    expect(within(step()).queryByText(/codex|local model/i)).toBeNull();
+    const codex = await within(step()).findByRole("group", { name: "Codex" });
+    expect(question().compareDocumentPosition(codex) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(codex).getByRole("button", { name: "Add a Codex account" })).toBeDefined();
+    expect(within(step()).queryByText(/local model/i)).toBeNull();
     expect(within(step()).queryByRole("combobox", { name: /provider/i })).toBeNull();
     // No label is asked for first, and no folder path is shown.
     expect(within(step()).queryByRole("textbox")).toBeNull();
