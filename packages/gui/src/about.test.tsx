@@ -207,6 +207,14 @@ describe("Restart to update", () => {
     await waitFor(() => expect(app.shell.calls.filter(([member]) => member === "update.apply").map(([, ...args]) => args)).toEqual([[STAGED, "quit"], [STAGED, "now"]]));
   });
 
+  it("offers Prepare now in the header where installing asks for an administrator, which asks the shell to prepare it, then only Restart to update (#2194)", async () => {
+    const app = await opened({ updates: { status: { newest: "0.6.0" }, desktopBuild: STAGED } });
+    await app.user.click(await within(header()).findByRole("button", { name: "Prepare now" }));
+    await waitFor(() => expect(app.shell.calls.filter(([member]) => member === "update.apply").map(([, ...args]) => args)).toEqual([[STAGED, "quit"], [STAGED, "prepare"]]));
+    await waitFor(() => expect(within(header()).queryByRole("button", { name: "Prepare now" })).toBeNull());
+    expect(within(header()).getByRole("button", { name: "Restart to update" })).toBeDefined();
+  });
+
   it("says where it was clicked why an install failed and the command that installs the staged build by hand, and no longer offers the same restart", async () => {
     const message = "Installing 0.6.0 needs pkexec, which polkit provides, and it is not installed, so 0.0.0-fake stays installed.";
     const byHand = `sudo pacman -U ${STAGED.path}`;

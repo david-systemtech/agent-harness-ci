@@ -295,8 +295,11 @@ export interface ShellUpdate {
   /**
    * Applies `staged`: `now` quits, installs it and starts the desktop again
    * (Restart to update); `quit` installs it as the desktop next quits, and
-   * each such call replaces the build the one before handed over. Answers
-   * once it is applied or handed over, else why not.
+   * each such call replaces the build the one before handed over; `prepare`
+   * installs it ahead of the click and switches nothing, for an install whose
+   * preparation asks the person for an administrator (an Arch package's
+   * `pkexec pacman -U`), which only their word starts (#2194). Answers
+   * once it is applied, handed over or prepared, else why not.
    */
   apply(staged: ShellStagedBuild, when: ShellApplyWhen): Promise<ShellApplyOutcome>;
 }
@@ -318,8 +321,8 @@ export interface ShellStagedBuild {
   readonly sha256: string;
 }
 
-/** When a staged build is applied: now, restarting the desktop, or as it next quits. */
-export type ShellApplyWhen = "now" | "quit";
+/** When a staged build is applied: now, restarting the desktop, or as it next quits; or only prepared, at the person's word, for the click to switch to. */
+export type ShellApplyWhen = "now" | "quit" | "prepare";
 
 /**
  * What applying a staged build came to: applied (or, at `quit`, handed over

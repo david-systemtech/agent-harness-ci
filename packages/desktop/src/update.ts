@@ -103,9 +103,9 @@ export const stagedBuild = (value: unknown): ShellStagedBuild => {
   return { path: text(path, "A staged build's path"), version: text(version, "A staged build's version"), sha256: digest };
 };
 
-/** When a staged build is applied: `now`, or as the desktop next quits. */
+/** When a staged build is applied: `now`, or as the desktop next quits; or only prepared (`prepare`), at the person's word. */
 export const applyWhen = (value: unknown): ShellApplyWhen => {
-  if (value !== "now" && value !== "quit") throw new TypeError(`A build is applied now or at the quit, not ${JSON.stringify(value)}.`);
+  if (value !== "now" && value !== "quit" && value !== "prepare") throw new TypeError(`A build is applied now or at the quit, or prepared, not ${JSON.stringify(value)}.`);
   return value;
 };
 
@@ -274,6 +274,8 @@ type Installation =
       /** The folder the build installs into, whose file system must hold it. */
       readonly room: string;
       install(staged: ShellStagedBuild, restart: boolean): Promise<ShellApplyOutcome>;
+      /** The preparation asks the person for an administrator: it runs only at their word (`prepare`), never at the hand-over (#2194). */
+      readonly asks?: true;
       /** Installs `staged` beside the running app, ahead of the click; rejects saying why, the running version untouched. */
       prepare?(staged: ShellStagedBuild): Promise<Prepared>;
       /** Removes what a preparation made that will not be switched to. */
@@ -607,7 +609,23 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
       case "linux": {
         const owned = await system.run("pacman", ["-Qqo", platform.executable]).catch(() => undefined);
         if (owned?.code !== 0) return { format: null, why: "no pacman package installed it, as for an AppImage or a .deb" };
-        return { format: "pacman", afterQuit: false, room: dirname(platform.executable), install: pacmanInstall };
+        return {
+          format: "pacman",
+          afterQuit: false,
+          room: dirname(platform.executable),
+          install: pacmanInstall,
+          // At "Prepare now" (#2194): pacman installs the package in place, asking for an administrator then, so the click only starts it again.
+          asks: true,
+          prepare: async (staged) => {
+            const outcome = await pacmanInstall(staged);
+            if (outcome.outcome === "failed") throw new Error(outcome.message);
+            return { target: platform.executable };
+          },
+          switchTo: (_staged, _prepared, restart) => {
+            if (restart) app.relaunch();
+            return Promise.resolve(APPLIED);
+          },
+        };
       }
     }
   };
@@ -749,10 +767,16 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
       await cleanupReady;
       const found = await installable(staged);
       if (!("install" in found)) return found;
-      if (found.prepare !== undefined && found.switchTo !== undefined) {
+      // A preparation that asks for an administrator runs only at the person's word, or is switched to once it has.
+      const ahead = found.prepare !== undefined && found.switchTo !== undefined && (found.asks !== true || when === "prepare" || prepared.switchable(staged) !== undefined);
+      if (when === "prepare" && !ahead) return APPLIED;
+      if (ahead && found.switchTo !== undefined) {
         // Installed ahead: the hand-over for the quit, right after the download, installs it, and "Restart to update" is offered once it has.
-        const ready = await prepareAhead(found, staged);
+        // A quit while pacman installs at "Prepare now" waits for it, as one while a build installs now does.
+        if (found.asks === true) installingNow = true;
+        const ready = await prepareAhead(found, staged).finally(() => (installingNow = false));
         if ("outcome" in ready) return ready;
+        if (when === "prepare") return APPLIED;
         if (when === "quit") {
           handedOver = { staged, restart: false };
           return APPLIED;

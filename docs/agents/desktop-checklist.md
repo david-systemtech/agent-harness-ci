@@ -421,8 +421,18 @@ installed app) connected to an environment:
    `versions\<version>` directly. The new process logs `Desktop update
    <version>: click to ready <ms>ms`; record it.
 3. Launch from the Start menu or a pin afterwards: the helper follows
-   `current` to the new version. Arch's pacman install is unchanged: its
-   click still asks for an administrator through polkit.
+   `current` to the new version.
+4. Windows rollback: replace `versions\<version>\agent-harness.exe` of a
+   staged version with a file that does not start, then click. Within 60
+   seconds the previous version opens, `current` names it again (or is gone
+   for the install's own folder) and the log says `<version> rolled back: it
+   did not report ready within 60s`.
+5. Fill the disk to under four times the download plus 256 MB: the card says
+   "Not enough space to prepare the update" and the log `<version> stage
+   skipped: free space`.
+6. Arch: the card shows "Prepare now" beside Restart to update. Click it:
+   polkit asks once, pacman installs; Restart to update then only restarts,
+   with no prompt.
 
 ## Windows restart progress and early launch (#2146)
 

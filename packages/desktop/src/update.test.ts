@@ -551,6 +551,47 @@ describe("apply on Arch", () => {
     return gone;
   };
 
+  it("asks for nothing at the hand-over after the download; at Prepare now asks pkexec once to run pacman -U, so the click only starts the new build", async () => {
+    const { system, shell, electron } = await onArch(succeeded);
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst");
+    const pkexec = () => system.ran.filter(([command]) => command === "pkexec");
+
+    expect(await shell().update.apply(staged, "quit")).toEqual({ outcome: "applied" });
+    expect(pkexec()).toEqual([]);
+
+    expect(await shell().update.apply(staged, "prepare")).toEqual({ outcome: "applied" });
+    expect(pkexec()).toEqual([["pkexec", "pacman", "-U", "--noconfirm", staged.path]]);
+    expect(electron.app.calls.map(([method]) => method)).not.toContain("quit");
+
+    expect(await shell().update.apply(staged, "now")).toEqual({ outcome: "applied" });
+    await electron.app.quitted;
+    expect(pkexec()).toHaveLength(1);
+    expect(electron.app.calls.map(([method]) => method).filter((method) => method === "relaunch" || method === "quit")).toEqual(["relaunch", "quit"]);
+  });
+
+  it("installs nothing more at the quit once Prepare now installed the package", async () => {
+    const { system, shell, electron } = await onArch(succeeded);
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst");
+    await shell().update.apply(staged, "quit");
+    await shell().update.apply(staged, "prepare");
+    electron.app.quit();
+    await electron.app.quitted;
+    expect(system.ran.filter(([command]) => command === "pkexec")).toHaveLength(1);
+    expect(electron.app.calls.map(([method]) => method)).not.toContain("relaunch");
+  });
+
+  it("says the update failed to prepare when the authentication at Prepare now is refused, and the click asks again", async () => {
+    const { system, shell, electron } = await onArch({ code: 126, stderr: "Error executing command as another user: Request dismissed" });
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst");
+    await shell().update.apply(staged, "quit");
+
+    expect(await shell().update.apply(staged, "prepare")).toMatchObject({ outcome: "failed", failure: "install", message: expect.stringMatching(/^Update failed to prepare, retry\. Installing 0\.6\.0 needs an administrator, and the authentication was refused/) });
+    system.answer("pkexec", () => succeeded);
+    expect(await shell().update.apply(staged, "now")).toEqual({ outcome: "applied" });
+    await electron.app.quitted;
+    expect(system.ran.filter(([command]) => command === "pkexec")).toHaveLength(2);
+  });
+
   it("at `now`, runs pacman -U on the staged package through pkexec, then starts the new build", async () => {
     const { system, shell, electron } = await onArch(succeeded);
     const staged = stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst");
@@ -821,6 +862,26 @@ describe("free space before a build is installed, issue 2194", () => {
 
     expect(await shell().update.apply(stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst"), "now")).toMatchObject({ outcome: "failed", message: expect.stringMatching(/^Not enough space to prepare the update: /) });
     expect(system.ran.map(([command]) => command)).not.toContain("pkexec");
+    expect(electron.app.calls.map(([method]) => method)).not.toContain("quit");
+  });
+});
+
+describe("prepare, issue 2194", () => {
+  it("only installs ahead on Windows and macOS, switching nothing and starting nothing", async () => {
+    const system = fakeSystem();
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
+    const root = join(scratch(), "Programs", "agent-harness");
+    mkdirSync(root, { recursive: true });
+    system.answer(staged.path, (args) => {
+      const into = (args.at(-1) ?? "").slice("--stage=".length);
+      mkdirSync(into, { recursive: true });
+      writeFileSync(join(into, "agent-harness.exe"), "0.6.0");
+      return succeeded;
+    });
+    const { shell, electron, platform } = await installed("win32", join(root, "agent-harness.exe"), system);
+    expect(await shell().update.apply(staged, "prepare")).toEqual({ outcome: "applied" });
+    expect(existsSync(join(root, "versions", "0.6.0", "agent-harness.exe"))).toBe(true);
+    expect(existsSync(join(platform.paths.data, "current"))).toBe(false);
     expect(electron.app.calls.map(([method]) => method)).not.toContain("quit");
   });
 });
