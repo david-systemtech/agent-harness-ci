@@ -109,6 +109,22 @@ describe("the public GitHub release workflow", () => {
     expect(windows.indexOf(run)).toBeLessThan(windows.indexOf("service install --data-dir"));
   });
 
+  it("asserts Restart to update's click to ready on Windows against the version the switched app names itself, issue 2227", () => {
+    const script = readFileSync(join(root, "scripts/windows-desktop-update-smoke.ps1"), "utf8");
+    const check = script.slice(script.indexOf("$stagedExe = Join-Path $staging"), script.indexOf("# The launch helper follows the pointer"));
+    // electron-builder writes the executable's ProductVersion as four numbers, never the version app.getVersion() returns.
+    expect(check).not.toContain("VersionInfo.ProductVersion");
+    expect(check).toContain("(Join-Path $staging 'resources\\server\\packages\\cli\\dist\\main.js') --version");
+    expect(check.indexOf("$stagedVersion = (&")).toBeLessThan(check.indexOf("'{\"version\":\"' + $stagedVersion"));
+    // No line by the bound fails the smoke; a line is printed and held under 10 seconds.
+    expect(check).not.toContain("logged neither click to ready nor a rollback here");
+    const missing = check.indexOf('throw "Restart to update: the switched version');
+    expect(missing).toBeGreaterThan(check.indexOf("if ($null -eq $readyLine) {"));
+    expect(missing).toBeLessThan(check.indexOf("if ($readyLine.Line -match 'rolled back')"));
+    expect(check).toContain('Write-Output "Restart to update: click to ready $($readyMs)ms"');
+    expect(check).toContain("if ($readyMs -ge 10000) { throw");
+  });
+
   it("checks the actual native screenshot collectors before the packaged macOS smoke", () => {
     const native = step("smoke-macos", "Verify native screenshot diagnostics");
     expect(native).toContain('"$server/node/bin/node" --test scripts/macos-smoke-diagnostics-native.test.mjs');
