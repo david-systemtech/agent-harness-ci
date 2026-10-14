@@ -2,7 +2,7 @@ import { COMPUTER_MEMBERS, type JsonObject, type RunDesktopResolution, type Sess
 import { describe, expect, it } from "vitest";
 import { scriptedDesktop, type ScriptedDesktop } from "../../test/scripted-desktop.js";
 import type { HostToolResult } from "../adapter/contract.js";
-import { COMPUTER_TOOL_SERVER, createComputerToolServers, type DesktopDrivers } from "./tool-server.js";
+import { COMPUTER_TOOL_SERVER, FRAMES_KEPT, createComputerToolServers, type DesktopDrivers } from "./tool-server.js";
 import { containedDesktopDriver } from "./unavailable.js";
 
 /**
@@ -135,6 +135,15 @@ describe("the computer tool server", () => {
     await call("screenshot");
     nextRun();
     expect((await call("mouse_move", { coordinate: [1, 1] })).text).toContain("Take a screenshot first");
+  });
+
+  it("keeps the frames of the most recently captured sessions only", async () => {
+    const desktop = scriptedDesktop();
+    const serverFor = createComputerToolServers({ live: (sessionId) => ({ runId: `run-of-${sessionId}`, desktop: resolved(CONTAINED) }), drivers: { contained: () => desktop } });
+    const tool = (sessionId: string, name: string) => serverFor({ sessionId, desktop: CONTAINED })?.tools.find((candidate) => candidate.name === name);
+    for (let index = 0; index <= FRAMES_KEPT; index += 1) await tool(`session-${index}`, "screenshot")?.call({}, { toolCallId: null });
+    expect((await tool("session-0", "mouse_move")?.call({ coordinate: [1, 1] }, { toolCallId: null }))?.text).toContain("Take a screenshot first");
+    expect((await tool("session-1", "mouse_move")?.call({ coordinate: [1, 1] }, { toolCallId: null }))?.isError).toBe(false);
   });
 
   it("refuses input it does not take, and answers a driver's refusal or failure as an error result", async () => {
