@@ -161,9 +161,18 @@ export const updateSchemaFixtures: Record<string, Fixtures> = {
   "release/asset-kind.json": { valid: ["environment", "desktop", "install-script", "sbom"], invalid: ["", "Desktop", "install script"] },
   "release/platform.json": { valid: ["linux-x64", "darwin-arm64", "win32-x64", "linux-arm64"], invalid: ["linux", "Linux-x64", "", "linux_x64"] },
   "release/asset-format.json": { valid: ["tar.gz", "zip", "nsis", "pacman"], invalid: ["", ".zip", "tar..gz", "ZIP"] },
+  "release/desktop-environment.json": {
+    valid: [{ path: "agent-harness.app/Contents/Resources/server" }, { payload: "app-64.7z", path: "resources/server" }],
+    invalid: [{}, { path: "" }, { payload: "", path: "resources/server" }, { payload: "app-64.7z" }, { path: 1 }],
+  },
   "release/asset.json": {
-    valid: [artefact, script, { ...artefact, kind: "desktop", format: "nsis", platform: "win32-x64", name: "agent-harness-setup.exe" }],
-    invalid: [{ ...artefact, size: -1 }, { ...artefact, sha256: sha("A") }, { ...artefact, platform: undefined }, { ...script, format: "" }],
+    valid: [
+      artefact,
+      script,
+      { ...artefact, kind: "desktop", format: "nsis", platform: "win32-x64", name: "agent-harness-setup.exe" },
+      { ...artefact, kind: "desktop", format: "nsis", platform: "win32-x64", name: "agent-harness-setup.exe", environment: { payload: "app-64.7z", path: "resources/server" } },
+    ],
+    invalid: [{ ...artefact, size: -1 }, { ...artefact, sha256: sha("A") }, { ...artefact, platform: undefined }, { ...script, format: "" }, { ...artefact, kind: "desktop", environment: { path: "" } }],
   },
   "release/image.json": { valid: [image], invalid: [{ reference: image.reference }, { ...image, digest: sha("0") }, { ...image, reference: "" }] },
   "release/source.json": releaseSources,

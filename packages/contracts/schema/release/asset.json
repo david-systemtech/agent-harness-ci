@@ -49,6 +49,25 @@
       "type": "string",
       "pattern": "^[0-9a-f]{64}$",
       "description": "A SHA-256 digest: 64 lowercase hexadecimal digits."
+    },
+    "environment": {
+      "description": "On a desktop build, where the environment it bundles is: an environment whose platform has no environment asset updates from it (#2196). Absent on every other asset.",
+      "type": "object",
+      "properties": {
+        "payload": {
+          "description": "The archive inside the build the environment is in, where the build is an installer that stores one: app-64.7z, which the Windows setup stores uncompressed and the environment carves out of it by its 7z signature. Absent where the build is itself the archive (the macOS zip).",
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The environment's folder inside the build, or inside its payload, as a relative / separated path: under the app bundle's Contents/Resources in the macOS zip, under resources in the Windows setup's app-64.7z. Unpacked, it has the environment asset's top level (node/, packages/cli/, bin/)."
+        }
+      },
+      "required": [
+        "path"
+      ]
     }
   },
   "required": [
@@ -59,5 +78,5 @@
     "size",
     "sha256"
   ],
-  "description": "One asset of a release: its name, kind, platform, format, size and SHA-256."
+  "description": "One asset of a release: its name, kind, platform, format, size and SHA-256, and on a desktop build where the environment inside it is."
 }

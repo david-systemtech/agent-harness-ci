@@ -189,6 +189,24 @@ describe("the schema and artefact rules", () => {
     expect((await client.request("updates.check", {})).target).toEqual({ version: "0.5.0", source: "channel" });
   });
 
+  it("with no environment asset for this platform, targets the release through its desktop build that says where the environment is in it (#2196)", async () => {
+    const { fake, client } = await withChannel("0.4.1");
+    const bytes = new TextEncoder().encode("a desktop build\n");
+    fake.publish({
+      version: "0.5.0",
+      manifest: { assets: [] },
+      desktop: [{ name: "agent-harness-desktop.zip", platform: RUNNING_PLATFORM, format: "zip", bytes, listed: { environment: { path: "agent-harness.app/Contents/Resources/server" } } }],
+    });
+    expect(channelOf(await client.request("updates.check", {}))).toMatchObject({ target: { version: "0.5.0", source: "channel" }, passedOver: null });
+  });
+
+  it("passes over a release whose only desktop build for this platform says nothing of an environment in it, as the Linux package does", async () => {
+    const { fake, client } = await withChannel("0.4.1");
+    const bytes = new TextEncoder().encode("a desktop build\n");
+    fake.publish({ version: "0.5.0", manifest: { assets: [] }, desktop: [{ name: "agent-harness.pacman", platform: RUNNING_PLATFORM, format: "pacman", bytes }] });
+    expect(channelOf(await client.request("updates.check", {}))).toMatchObject({ target: null, passedOver: { version: "0.5.0", reason: "artefact" } });
+  });
+
   it("passes over a release with no artefact for this platform", async () => {
     const { fake, client } = await withChannel("0.4.1");
     fake.publish({ version: "0.5.0", manifest: { assets: [{ name: "agent-harness-plan9-x64.tar.gz", kind: "environment", platform: "plan9-x64", format: "tar.gz", size: 1, sha256: "c".repeat(64) }] } });

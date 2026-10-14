@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -11,7 +12,7 @@ import {
   type UpdateSettingsPatch,
 } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
-import { serverArtefact } from "../../test/artefacts.js";
+import { serverArtefact, unpackedServerArtefact } from "../../test/artefacts.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { gate } from "../../test/fake-adapter.js";
@@ -873,5 +874,105 @@ describe("the Your machines step's updates check", () => {
       reason: "The update to 0.5.0 is waiting for running sessions to finish.",
       details: [`Update due at: ${at(HOUR)}`, "Update state: waiting"],
     });
+  });
+});
+
+describe("updating from the desktop build (#2196)", () => {
+  /** Where the macOS zip carries the environment, as the release build lists it. */
+  const MAC_SERVER = "agent-harness.app/Contents/Resources/server";
+  const BUILD = `agent-harness-desktop-${RUNNING_PLATFORM}.zip`;
+
+  /** A desktop build of `version` laid out as the macOS zip is, its server under MAC_SERVER, packed as the platform's `tar` reads it. */
+  const desktopBuildOf = (version: string): Uint8Array => {
+    const dir = tempDir("agent-harness-desktop-build-");
+    unpackedServerArtefact(join(dir, "root", ...MAC_SERVER.split("/")), version);
+    writeFileSync(join(dir, "root", "agent-harness.app", "Contents", "Info.plist"), "<plist/>\n");
+    const path = join(dir, BUILD);
+    execFileSync("tar", ["-czf", path, "-C", join(dir, "root"), "agent-harness.app"]);
+    return readFileSync(path);
+  };
+
+  /** A release of `version` with no environment asset for this platform, and its desktop build saying where the environment is in it. */
+  const desktopOnly = (version: string, listed: Partial<ReleaseAsset> = {}): FakeRelease => ({
+    version,
+    manifest: { assets: [{ name: "install.sh", kind: "install-script", platform: null, format: null, size: 3, sha256: "b".repeat(64) }] },
+    desktop: [{ name: BUILD, platform: RUNNING_PLATFORM, format: "zip", bytes: desktopBuildOf(version), listed: { environment: { path: MAC_SERVER }, ...listed } }],
+  });
+
+  const buildReads = (fake: FakeReleaseSource) => fake.reads().filter((request) => request.path.endsWith(`/${BUILD}`));
+
+  it("downloads the desktop build once into the desktop's builds, stages the server inside it with an environment asset's top level, and the desktop's stage finds it there", async () => {
+    let staged: string[] = [];
+    const { fake, t, client } = await withReleases({
+      launch: {
+        install: (request) => {
+          staged = readdirSync(request.staged).sort();
+          return { type: "installed" };
+        },
+      },
+    });
+    busy(t);
+    fake.publish(desktopOnly("0.5.0"));
+
+    const status = await check(client);
+
+    expect(status.lastCheck).toEqual({ at: MANUAL_CLOCK_START, result: "ok" });
+    expect(installs(t)).toEqual([{ version: "0.5.0", staged: join(t.dataDir, STAGING_DIRECTORY, "0.5.0") }]);
+    expect(staged).toEqual(["VERSION", "bin", "node", "packages"]);
+    expect(status.pending).toMatchObject({ state: "waiting", toVersion: "0.5.0", source: "channel" });
+    const kept = join(t.dataDir, "desktop-builds", "0.5.0", BUILD);
+    expect(readdirSync(join(t.dataDir, "desktop-builds", "0.5.0"))).toEqual([BUILD]);
+    expect(buildReads(fake)).toHaveLength(1);
+
+    // The desktop's own stage of the same build reuses the file: one download per update.
+    expect(await client.request("updates.desktop.stage", { platform: RUNNING_PLATFORM, format: "zip" })).toMatchObject({ path: kept, version: "0.5.0" });
+    expect(buildReads(fake)).toHaveLength(1);
+  });
+
+  it("prefers the environment asset when the release has one, downloading nothing of the desktop build", async () => {
+    const { fake, t, client } = await withReleases();
+    const bytes = readFileSync(serverArtefact(tempDir("agent-harness-artefact-"), "0.5.0"));
+    const { desktop } = desktopOnly("0.5.0");
+    fake.publish({ version: "0.5.0", artefact: bytes, ...(desktop !== undefined && { desktop }) });
+
+    await check(client);
+
+    expect(artefactReads(fake)).toHaveLength(1);
+    expect(buildReads(fake)).toEqual([]);
+    expect(installs(t)).toEqual([{ version: "0.5.0", staged: join(t.dataDir, STAGING_DIRECTORY, "0.5.0") }]);
+  });
+
+  it("refuses a desktop build that does not match its manifest's SHA-256, staging nothing and keeping nothing", async () => {
+    const { fake, t, client } = await withReleases();
+    fake.publish(desktopOnly("0.5.0", { sha256: "e".repeat(64) }));
+
+    const status = await check(client);
+
+    expect(status.lastCheck).toMatchObject({ result: "failed", reason: "artefact" });
+    expect(installs(t)).toEqual([]);
+    expect(readdirSync(join(t.dataDir, "desktop-builds"))).toEqual([]);
+  });
+
+  it("refuses a desktop build whose environment path holds no server, staging nothing", async () => {
+    const { fake, t, client } = await withReleases();
+    fake.publish(desktopOnly("0.5.0", { environment: { path: "agent-harness.app/Contents/Resources/elsewhere" } }));
+
+    const status = await check(client);
+
+    expect(status.lastCheck).toMatchObject({ result: "failed", reason: "artefact" });
+    expect(installs(t)).toEqual([]);
+  });
+
+  it("stages a release older than a target passed over for having no artefact for this platform: a later shape never strands a machine", async () => {
+    const { fake, t, client } = await withReleases({ launch: launcherSpeaking(1) });
+    fake.publish(release("0.5.0"), {
+      version: "0.6.0",
+      manifest: { assets: [{ name: "agent-harness-plan9-x64.tar.gz", kind: "environment", platform: "plan9-x64", format: "tar.gz", size: 1, sha256: "c".repeat(64) }] },
+    });
+
+    const status = await check(client);
+
+    expect(status.target).toEqual({ version: "0.6.0", source: "channel" });
+    expect(installs(t)).toEqual([{ version: "0.5.0", staged: join(t.dataDir, STAGING_DIRECTORY, "0.5.0") }]);
   });
 });

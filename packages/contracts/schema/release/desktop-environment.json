@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DesktopEnvironment",
+  "type": "object",
+  "properties": {
+    "payload": {
+      "description": "The archive inside the build the environment is in, where the build is an installer that stores one: app-64.7z, which the Windows setup stores uncompressed and the environment carves out of it by its 7z signature. Absent where the build is itself the archive (the macOS zip).",
+      "type": "string",
+      "minLength": 1
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The environment's folder inside the build, or inside its payload, as a relative / separated path: under the app bundle's Contents/Resources in the macOS zip, under resources in the Windows setup's app-64.7z. Unpacked, it has the environment asset's top level (node/, packages/cli/, bin/)."
+    }
+  },
+  "required": [
+    "path"
+  ],
+  "description": "Where the environment is inside a desktop build: the payload archive it is in, if any, and its folder."
+}

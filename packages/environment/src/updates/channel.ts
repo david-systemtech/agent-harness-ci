@@ -290,15 +290,26 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
     }
   };
 
-  /** This platform's artefact of the release, as its manifest lists it and as the release publishes it; null for none. */
-  const artefactOf = (manifest: ReleaseManifest, release: ForgeRelease): Pick<StageableRelease, "artefact" | "asset"> | null => {
+  /** The first of the manifest's assets `taken` that the release publishes, as the manifest lists it and as the release does; null for none. */
+  const publishedOf = (manifest: ReleaseManifest, release: ForgeRelease, taken: (artefact: ReleaseAsset) => boolean): Pick<StageableRelease, "artefact" | "asset"> | null => {
     for (const artefact of manifest.assets) {
-      if (artefact.kind !== "environment" || artefact.platform !== platform) continue;
+      if (!taken(artefact)) continue;
       const asset = release.assets.find((published) => published.name === artefact.name);
       if (asset !== undefined) return { artefact, asset };
     }
     return null;
   };
+
+  /**
+   * This platform's artefact of the release, as its manifest lists it and as
+   * the release publishes it; null for none. The platform's `environment`
+   * asset when the release has one; else its desktop build that says where
+   * the environment is inside it (#2196), whose server is unpacked in its
+   * place.
+   */
+  const artefactOf = (manifest: ReleaseManifest, release: ForgeRelease): Pick<StageableRelease, "artefact" | "asset"> | null =>
+    publishedOf(manifest, release, (artefact) => artefact.kind === "environment" && artefact.platform === platform) ??
+    publishedOf(manifest, release, (artefact) => artefact.kind === "desktop" && artefact.platform === platform && artefact.environment !== undefined);
 
   /** Whether `version`'s release may be the target: its manifest read, this platform's artefact in it, its schema not below the database's. */
   const examine = async ({ version, release }: Versioned): Promise<Examined> => {
@@ -409,7 +420,16 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
     const examined = await choice.examine();
     if (examined.outcome === "failed") return examined;
     const { target } = choice;
-    if (examined.outcome === "passed-over") return reading({ passedOver: { ...target, reason: examined.reason, message: examined.message } });
+    if (examined.outcome === "passed-over") {
+      // A target with no artefact for this platform may still be reached through an older release that has one (#2196), so a later change of
+      // the release's shape never strands a machine; one whose schema is below the database's is not reached at all.
+      if (examined.reason === "artefact" && context.launcherProtocol !== null) {
+        const stone = await steppingStone(listed, target.version, { channel: settings.channel, failed, launcherProtocol: context.launcherProtocol }, examineOf);
+        if (stone !== null && "outcome" in stone) return stone;
+        if (stone !== null) return reading({ target, stage: stone });
+      }
+      return reading({ passedOver: { ...target, reason: examined.reason, message: examined.message } });
+    }
 
     // Staged itself when the running launcher hosts it, or no launcher runs (which stages nothing); else through its stepping stone.
     const { launcherProtocol } = context;

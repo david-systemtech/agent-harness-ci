@@ -123,6 +123,10 @@
       "title": "AssetFormat"
     },
     {
+      "path": "release/desktop-environment.json",
+      "title": "DesktopEnvironment"
+    },
+    {
       "path": "release/asset.json",
       "title": "ReleaseAsset"
     },

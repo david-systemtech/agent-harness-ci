@@ -201,6 +201,7 @@ import {
 import { isCommand } from "./method.js";
 import {
   AssetFormat,
+  DesktopEnvironment,
   ReleaseAsset,
   ReleaseAssetKind,
   ReleaseImage,
@@ -832,6 +833,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "release/asset-kind.json", title: "ReleaseAssetKind", schema: ReleaseAssetKind },
   { path: "release/platform.json", title: "ReleasePlatform", schema: ReleasePlatform },
   { path: "release/asset-format.json", title: "AssetFormat", schema: AssetFormat },
+  { path: "release/desktop-environment.json", title: "DesktopEnvironment", schema: DesktopEnvironment },
   { path: "release/asset.json", title: "ReleaseAsset", schema: ReleaseAsset },
   { path: "release/image.json", title: "ReleaseImage", schema: ReleaseImage },
   { path: "release/manifest.json", title: "ReleaseManifest", schema: ReleaseManifest },

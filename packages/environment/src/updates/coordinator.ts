@@ -37,6 +37,7 @@ import type { ChannelBlock, ChannelContext, ChannelFailure, ChannelReading, Chan
 import type { StagingFailure } from "./checks.js";
 import { settleInterruptedRuns } from "./interrupted-runs.js";
 import { readUpdateHistory, settleLatestUpdate } from "./outcomes.js";
+import { fetchDesktopBuild } from "./desktop-builds.js";
 import { StagingError, downloadDestination, stageArtefact, tarUnpack, unstage, type Unpack } from "./staging.js";
 
 /**
@@ -551,23 +552,34 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
    * Downloads `release`'s artefact into the staging area through the
    * release channel, which checks it against the manifest, unpacks it and
    * has the launcher install it: null once installed, else why not. The
-   * download is removed either way.
+   * download is removed either way. A desktop build carrying the environment
+   * (#2196) is fetched into the desktop's builds instead, where the desktop's
+   * stage finds it already there, and kept; only its server is unpacked.
    */
   const fetchAndInstall = async (release: StageableRelease): Promise<Unstaged | null> => {
-    const archive = downloadDestination(options.dataDir, release.version);
+    const within = release.artefact.kind === "desktop" ? release.artefact.environment : undefined;
+    const archive = within === undefined ? downloadDestination(options.dataDir, release.version) : undefined;
     try {
-      const fetched = await options.channel.download(release, archive);
-      if (fetched !== null) return fetched;
+      let artefact: string;
+      if (archive === undefined) {
+        const fetched = await fetchDesktopBuild(options.dataDir, release, (asset, destination) => options.channel.download(asset, destination));
+        if ("outcome" in fetched) return fetched;
+        artefact = fetched.path;
+      } else {
+        const fetched = await options.channel.download(release, archive);
+        if (fetched !== null) return fetched;
+        artefact = archive;
+      }
       let staged: string;
       try {
-        staged = await stageArtefact({ dataDir: options.dataDir, version: release.version, artefact: archive, unpack });
+        staged = await stageArtefact({ dataDir: options.dataDir, version: release.version, artefact, unpack, ...(within !== undefined && { within }) });
       } catch (error) {
         if (!(error instanceof StagingError)) throw error;
         return { reason: "artefact", message: error.message };
       }
       return await installStaged(release.version, staged);
     } finally {
-      rmSync(archive, { force: true });
+      if (archive !== undefined) rmSync(archive, { force: true });
     }
   };
 

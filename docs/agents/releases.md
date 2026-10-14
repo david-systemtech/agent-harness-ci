@@ -75,6 +75,44 @@ The Forgejo release workflow is retained for manual recovery only: it has no
 push trigger. Do not dispatch it during a GitHub release, since it publishes to
 Forgejo's own release and registry.
 
+## The desktop build as the environment's update
+
+An environment updates from its platform's `kind: "environment"` asset when the
+release has one. Without one, it takes its platform's desktop build carrying an
+`environment` field (#2196), which says where the environment is inside it:
+
+- macOS zip: `{ "path": "agent-harness.app/Contents/Resources/server" }`, the
+  folder inside the zip.
+- Windows NSIS setup: `{ "payload": "app-64.7z", "path": "resources/server" }`.
+  electron-builder stores `app-64.7z` uncompressed in the setup; the
+  environment carves it out and unpacks only that folder.
+- Linux desktop builds (pacman) have no field, so a Linux environment always
+  needs its own asset.
+
+The build writes the field (`packages/cli/scripts/release/assets.ts`). It is
+optional: 0.1.21 and earlier strip it and never take a desktop build for an
+environment. Never add a second `kind: "environment"` entry pointing at the
+desktop file to reach older readers: 0.1.21 and earlier would download the
+desktop build as their artefact, fail to install it and try again at every
+check.
+
+The environment downloads the desktop build into the data directory's shared
+`desktop-builds/<version>/` folder, the one the desktop stages its own update
+in, so a machine running the desktop downloads one file per update rather
+than two. This phase still publishes the environment zip and tarball, so
+every current reader keeps its own asset; phase 4 (#2199) drops them.
+
+Only the environment's folder is unpacked, its leading parts stripped
+(`tar -xf <build> --strip-components <n> <path>`), so the staged tree has the
+top level the environment asset has (`node/`, `packages/cli/`, `bin/`). On
+macOS, bsdtar reads the zip. On Windows the setup is never run (it would kill
+or replace a running desktop): the environment finds the stored 7z by its
+signature and both header CRCs, copies it out, and Windows' bsdtar `tar.exe`
+reads it. That route still needs the Windows release smoke to prove it on the
+runner's `tar.exe`; a pinned `7zr.exe` is the fallback. A target passed over
+for having no artefact for the platform also goes to the stepping-stone
+search, so a later change of the release's shape cannot strand a machine.
+
 ## The smoke of every merge
 
 Each merge to `main` runs the release workflow's builds and platform smokes
