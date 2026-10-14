@@ -13,6 +13,8 @@ import {
   type QueueHolder,
   type RunBrowserResolution,
   type RunBrowserResolvedPayload,
+  type RunDesktopResolution,
+  type RunDesktopResolvedPayload,
   type RunOrigin,
   type RunPolicy,
   type RunPolicyResolvedPayload,
@@ -27,6 +29,7 @@ import { requireCapability } from "../adapter/capabilities.js";
 import type { AdapterDescriptor, AttachmentData, ModelOption, PromptMessage, RunTarget } from "../adapter/contract.js";
 import type { ClientTool, PolicySeam } from "../adapter/seams.js";
 import type { BrowserSeam } from "../browser/run-browser.js";
+import type { DesktopSeam } from "../desktop/run-desktop.js";
 import type { EventInput, JsonObject } from "../event-log/event-log.js";
 import type { RunActor } from "../permissions/resolver.js";
 import type { QueuedMessage, RunRow, SentMessageRow, SessionFacts } from "./run-reads.js";
@@ -67,6 +70,8 @@ export interface LiveRunFacts {
   readonly policy: RunPolicy;
   /** The browser it resolved at its start, which the browser tools drive at each call (#551). */
   readonly browser: RunBrowserResolution;
+  /** The desktop it resolved at its start, which the computer tools drive at each call (#2161). */
+  readonly desktop: RunDesktopResolution;
 }
 
 /** What starting a run on a session depends on. */
@@ -100,6 +105,8 @@ export interface StartFacts {
   readonly resolveBrowser: BrowserSeam;
   /** The Codex account chosen for the run (#2169, accounts.codexForClaudeRuns), recorded on its run.started; null or absent for none. */
   readonly codexAccountId?: string | null;
+  /** The desktop resolver (#2161): the session's desktop as the run may drive it, by attendance, containment and the operator's switch. */
+  readonly resolveDesktop: DesktopSeam;
   /**
    * The Account step's defaults (#134): the family whose strongest model a
    * run takes when neither it nor its session names one, and the effort it
@@ -200,6 +207,8 @@ export interface PlannedRun {
   readonly policy: RunPolicy;
   /** The run's browser as resolved at its start, recorded as `run.browser.resolved`: fixed for the run, whatever the session's field says after. */
   readonly browser: RunBrowserResolution;
+  /** The run's desktop as resolved at its start, recorded as `run.desktop.resolved` (#2161): fixed for the run. */
+  readonly desktop: RunDesktopResolution;
   /** What the run's instructions carry after the composed ones (`StartCommand.appendedInstructions`); null for nothing. */
   readonly appendedInstructions: string | null;
   /** Extra always-on names; kept in memory, inherited by runs of the queue. */
@@ -314,6 +323,12 @@ export const browserResolvedEvent = (runId: string, browser: RunBrowserResolutio
   return { type: "run.browser.resolved", payload };
 };
 
+/** A run's desktop as its `run.desktop.resolved` records it (#2161). */
+export const desktopResolvedEvent = (runId: string, desktop: RunDesktopResolution): EventInput => {
+  const payload: RunDesktopResolvedPayload = { runId, ...desktop };
+  return { type: "run.desktop.resolved", payload };
+};
+
 /**
  * Starts a run: `run.started`, then its policy (`run.policy.resolved`, the
  * run's one, in the same append, so it precedes every event the provider
@@ -384,7 +399,8 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
   const queued: PromptMessage[] = facts.queued.map((message) => ({ messageId: message.messageId, text: message.text, attachments: [] }));
   const sent: PromptMessage[] = command.message === null ? [] : [{ messageId: command.message.messageId, text: command.message.text, attachments: attachments.data }];
   const browser = facts.resolveBrowser({ field: session.browser, attended: policy.attended });
-  const events: EventInput[] = [{ type: "run.started", payload: started }, policyResolvedEvent(runId, policy), browserResolvedEvent(runId, browser)];
+  const desktop = facts.resolveDesktop({ field: session.desktop, attended: policy.attended, containment: policy.containment.effective });
+  const events: EventInput[] = [{ type: "run.started", payload: started }, policyResolvedEvent(runId, policy), browserResolvedEvent(runId, browser), desktopResolvedEvent(runId, desktop)];
   for (const messageId of queuedIds) {
     const delivered: MessageDeliveredPayload = { runId, messageId, delivery: "prompt" };
     events.push({ type: "message.delivered", payload: delivered });
@@ -408,6 +424,7 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
       actor: facts.actor,
       policy,
       browser,
+      desktop,
       appendedInstructions: command.appendedInstructions === undefined || command.appendedInstructions.trim() === "" ? null : command.appendedInstructions,
       alwaysOn: command.alwaysOn ?? [],
       clientTools: command.clientTools ?? [],

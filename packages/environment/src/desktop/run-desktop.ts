@@ -57,3 +57,25 @@ export const resolveRunDesktop = ({ field, attended }: DesktopRequest, settings:
       return { requested, desktop: requested, reason: "selected", message: "The session chose this computer's desktop." };
   }
 };
+
+/** What a run's start hands the desktop seam: the request, and the containment level its policy resolved. */
+export interface RunDesktopRequest extends DesktopRequest {
+  readonly containment: ContainmentLevel;
+}
+
+/** Resolves a run's desktop at its start; the environment's reads `desktop.contained.allowRuns` and what it can drive. */
+export type DesktopSeam = (request: RunDesktopRequest) => RunDesktopResolution;
+
+/** Why the contained desktop is unavailable while this environment has none configured (#2162 configures one). */
+export const NO_CONTAINED_DESKTOP = "none is configured";
+/** Why this person's live desktop is unavailable while the environment has no live helper (#2164 onwards). */
+export const NO_LIVE_DESKTOP = "this environment has no live desktop helper yet";
+
+/** The resolution on the settings' presets (`desktop.contained.allowRuns` off) and no desktop to drive: what the adapter host resolves with unless given its seam. */
+export const presetDesktop: DesktopSeam = ({ containment, ...request }) =>
+  resolveRunDesktop(request, {
+    containedAllowRuns: false,
+    containment,
+    contained: { available: false, reason: NO_CONTAINED_DESKTOP },
+    local: { available: false, reason: NO_LIVE_DESKTOP },
+  });

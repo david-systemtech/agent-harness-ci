@@ -214,6 +214,7 @@ describe("a Claude run through the adapter host", () => {
       "run.started",
       "run.policy.resolved",
       "run.browser.resolved",
+      "run.desktop.resolved",
       "message.sent",
       "run.instructions.composed",
       "session.provider-linked",
@@ -229,8 +230,8 @@ describe("a Claude run through the adapter host", () => {
       { runId, model: "claude-fable-5", contextTokens: 500, contextWindow: 1000000 },
     ]);
     for (const event of events) expect(event.correlationId, event.type).toBe(runId);
-    expect(events[4]?.actor).toBe("system:adapter-host");
-    expect(events.slice(5).map((event) => event.actor)).toEqual(Array(7).fill("adapter:claude"));
+    expect(events[5]?.actor).toBe("system:adapter-host");
+    expect(events.slice(6).map((event) => event.actor)).toEqual(Array(7).fill("adapter:claude"));
     expect(events.at(-1)?.payload).toMatchObject({ reason: "completed", resultText: "Done.", turnCount: 1, usage: [expect.objectContaining({ model: "claude-fable-5", costUsd: 0.01 })] });
     // Released, the process is kept for the next run until the pool's idle stop.
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -393,6 +394,7 @@ describe("a Claude run through the adapter host", () => {
       "run.started",
       "run.policy.resolved",
       "run.browser.resolved",
+      "run.desktop.resolved",
       "message.sent",
       "run.instructions.composed",
       "session.provider-linked",
@@ -403,6 +405,7 @@ describe("a Claude run through the adapter host", () => {
       "run.started",
       "run.policy.resolved",
       "run.browser.resolved",
+      "run.desktop.resolved",
       "message.delivered",
       "session.provider-linked",
       "context.reported",

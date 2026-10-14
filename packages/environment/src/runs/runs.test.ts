@@ -104,6 +104,7 @@ describe("runs.start", () => {
       "run.started",
       "run.policy.resolved",
       "run.browser.resolved",
+      "run.desktop.resolved",
       "message.sent",
       "session.title-generated",
       "run.instructions.composed",
@@ -111,7 +112,8 @@ describe("runs.start", () => {
       "assistant.text",
       "run.ended",
     ]);
-    const [started, , , sent, , , text, , ended] = events as [
+    const [started, , , , sent, , , text, , ended] = events as [
+      EventEnvelope,
       EventEnvelope,
       EventEnvelope,
       EventEnvelope,
@@ -178,8 +180,8 @@ describe("runs.start", () => {
     const { runId } = await startRun(client, id);
     const events = await session.until("run.ended", runId);
     // Its message never reached the adapter, so it is queued again before the end.
-    expect(events.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent", "session.title-generated", "run.instructions.composed", "message.requeued", "run.ended"]);
-    expect(events[7]).toMatchObject({ actor: { kind: "system", id: "adapter-host" }, payload: { reason: "error", error: { message: "No process could be started." } } });
+    expect(events.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "run.desktop.resolved", "message.sent", "session.title-generated", "run.instructions.composed", "message.requeued", "run.ended"]);
+    expect(events[8]).toMatchObject({ actor: { kind: "system", id: "adapter-host" }, payload: { reason: "error", error: { message: "No process could be started." } } });
     expect((await client.request("sessions.get", { sessionId: id })).summary.activity).toMatchObject({ state: "idle" });
   });
 
@@ -200,8 +202,8 @@ describe("runs.start", () => {
     const session = await watch(client, id, t.env.log.head());
     const first = await startRun(client, id, "One");
     const failed = await session.until("run.ended", first.runId);
-    expect(failed.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent", "session.title-generated", "run.instructions.composed", "message.requeued", "run.ended"]);
-    expect(failed[6]).toMatchObject({ actor: { kind: "system", id: "adapter-host" }, payload: { runId: first.runId, messageId: first.messageId } });
+    expect(failed.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "run.desktop.resolved", "message.sent", "session.title-generated", "run.instructions.composed", "message.requeued", "run.ended"]);
+    expect(failed[7]).toMatchObject({ actor: { kind: "system", id: "adapter-host" }, payload: { runId: first.runId, messageId: first.messageId } });
     expect(calls).toBe(1);
 
     const second = await startRun(client, id, "Two");
@@ -236,7 +238,7 @@ describe("runs.start", () => {
     held.open();
     await session.until("run.ended", first.runId);
     const failed = await session.until("run.ended");
-    expect(failed.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.delivered", "run.instructions.composed", "message.requeued", "run.ended"]);
+    expect(failed.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "run.desktop.resolved", "message.delivered", "run.instructions.composed", "message.requeued", "run.ended"]);
     expect(calls).toBe(2);
 
     const next = await startRun(client, id, "Next");
@@ -344,7 +346,7 @@ describe("runs.start", () => {
     const bytes = Buffer.from("not really a png");
     const { runId } = await startRun(client, id, "Look", { attachments: [{ kind: "image", name: "screen.png", mediaType: "image/png", data: bytes.toString("base64") }] });
     const events = await session.until("run.ended", runId);
-    expect(events[3]?.payload["attachments"]).toEqual([{ kind: "image", name: "screen.png", mediaType: "image/png", size: bytes.byteLength }]);
+    expect(events[4]?.payload["attachments"]).toEqual([{ kind: "image", name: "screen.png", mediaType: "image/png", size: bytes.byteLength }]);
     expect(Buffer.from(t.adapter.lastRun().input.prompt[0]?.attachments[0]?.data ?? []).toString()).toBe("not really a png");
   });
 
@@ -393,7 +395,7 @@ describe("a run belongs to the environment", () => {
     held.open();
     await session.until("run.ended", runId);
     const types = second.received.flatMap((f) => (f.type === "event" && f.subscription === session.subscription ? [f.event.type] : []));
-    expect(types).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent", "session.title-generated", "run.instructions.composed", "assistant.text", "assistant.text", "run.ended"]);
+    expect(types).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "run.desktop.resolved", "message.sent", "session.title-generated", "run.instructions.composed", "assistant.text", "assistant.text", "run.ended"]);
     expect(t.adapter.lastRun()).toMatchObject({ interrupted: false, disposed: false });
   });
 
@@ -479,7 +481,7 @@ describe("runs.send", () => {
     const result = answer.result as ResponseOf<"runs.send">["result"] & object;
     expect(result).toMatchObject({ delivery: "prompt", heldBy: null });
     const events = await session.until("run.ended", result.runId);
-    expect(events[3]?.payload).toMatchObject({ messageId: result.messageId, delivery: "prompt" });
+    expect(events[4]?.payload).toMatchObject({ messageId: result.messageId, delivery: "prompt" });
   });
 
   it("steers a message into the live run when the provider can: queued with the provider, then delivered steered, and answered in the same run", async () => {
@@ -574,10 +576,10 @@ describe("runs.send", () => {
     const second = started?.payload["runId"] as string;
     expect(started).toMatchObject({ type: "run.started", actor: { kind: "system", id: "adapter-host" } });
     expect(started?.payload).toMatchObject({ origin: "client", promptMessageId: null, queuedMessageIds: [one.result?.messageId, two.result?.messageId] });
-    expect(next.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.delivered", "message.delivered", "run.instructions.composed", "assistant.text", "run.ended"]);
-    expect(next[3]?.payload).toEqual({ runId: second, messageId: one.result?.messageId, delivery: "prompt" });
-    expect(next[4]?.payload).toEqual({ runId: second, messageId: two.result?.messageId, delivery: "prompt" });
-    expect(next[6]?.payload).toMatchObject({ text: "Read: Second + Third" });
+    expect(next.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "run.desktop.resolved", "message.delivered", "message.delivered", "run.instructions.composed", "assistant.text", "run.ended"]);
+    expect(next[4]?.payload).toEqual({ runId: second, messageId: one.result?.messageId, delivery: "prompt" });
+    expect(next[5]?.payload).toEqual({ runId: second, messageId: two.result?.messageId, delivery: "prompt" });
+    expect(next[7]?.payload).toMatchObject({ text: "Read: Second + Third" });
   });
 
   it("hands a run of the environment's queue the bytes of the messages it reads", async () => {
@@ -778,7 +780,7 @@ describe("a provider-opened turn", () => {
 
     await session.until("run.ended", runId);
     const adopted = await session.until("run.ended");
-    const [started, resolved, , delivered, text] = adopted as [EventEnvelope, EventEnvelope, EventEnvelope, EventEnvelope, EventEnvelope];
+    const [started, resolved, , , delivered, text] = adopted as [EventEnvelope, EventEnvelope, EventEnvelope, EventEnvelope, EventEnvelope, EventEnvelope];
     const second = started.payload["runId"];
     expect(second).not.toBe(runId);
     expect(started).toMatchObject({ streamId: id, actor: { kind: "adapter", id: "fake" }, payload: { origin: "provider", promptMessageId: null, queuedMessageIds: [sent.result?.messageId] } });

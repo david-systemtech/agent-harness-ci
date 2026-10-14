@@ -136,6 +136,7 @@ describe("a run's event stream", () => {
       "run.started",
       "run.policy.resolved",
       "run.browser.resolved",
+      "run.desktop.resolved",
       "message.sent",
       // The host's, once the run's instructions are composed and before its adapter is asked for it (#493).
       "run.instructions.composed",
@@ -154,8 +155,8 @@ describe("a run's event stream", () => {
       expect(event.payload["runId"], event.type).toBe(runId);
       expect(event.correlationId, event.type).toBe(runId);
     }
-    expect(events[4]?.actor).toBe("system:adapter-host");
-    const reported = events.slice(5, -1);
+    expect(events[5]?.actor).toBe("system:adapter-host");
+    const reported = events.slice(6, -1);
     expect(reported.filter((event) => event.type !== "tool.decision").map((event) => event.actor)).toEqual(Array(7).fill("adapter:fake"));
     expect(reported.find((event) => event.type === "tool.decision")).toMatchObject({ actor: "system:adapter-host", payload: { toolCallId: "t-1", decision: "allowed", decidedBy: "mode" } });
     expect(events.at(-1)).toMatchObject({ actor: "adapter:fake", payload: { reason: "completed", resultText: "Hello.", turnCount: 1, error: null } });
@@ -207,6 +208,7 @@ describe("a run's event stream", () => {
       repositoryIdentity: null,
       clientTools: [],
       browser: { kind: "none" },
+      desktop: { kind: "none" },
     });
     expect(eventsOf(t)[0]?.payload).toMatchObject({ mode: { requested: "bypassPermissions", effective: "acceptEdits", clamped: true } });
     expect(eventsOf(t)[1]).toMatchObject({ type: "run.policy.resolved", payload: { runId, mode: { effective: "acceptEdits", ceiling: "acceptEdits", clampReason: "ceiling" } } });
@@ -355,7 +357,7 @@ describe("one end per run on every exit path", () => {
     const runId = startRun(t);
     const ended = await onlyEnd(t, runId);
     expect(ended).toMatchObject({ actor: "system:adapter-host", payload: { reason: "error", error: { message: "The provider went away.", code: null } } });
-    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent", "run.instructions.composed", "assistant.text", "run.ended"]);
+    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "run.desktop.resolved", "message.sent", "run.instructions.composed", "assistant.text", "run.ended"]);
   });
 
   it("ends the run error when its stream stops without an end", async () => {
@@ -384,7 +386,7 @@ describe("one end per run on every exit path", () => {
     expect((await onlyEnd(t, runId)).payload).toMatchObject({ reason: "error" });
     // Its stream may still be open, so the provider's turn is stopped, never kept for the next.
     expect(t.adapter.lastRun()).toMatchObject({ disposed: true, released: false });
-    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent", "run.instructions.composed", "assistant.text", "run.ended"]);
+    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "run.desktop.resolved", "message.sent", "run.instructions.composed", "assistant.text", "run.ended"]);
   });
 
   it("ends the run drained when the environment closes while draining mid-run, disposes it, and drops what it yields after", async () => {
@@ -1198,7 +1200,7 @@ describe("a run composing its instructions (#493)", () => {
     held.open();
     await vi.waitFor(() => expect(begun.answered).toBe(1));
     expect(t.adapter.runs).toHaveLength(0);
-    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent", "message.requeued", "run.ended"]);
+    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "run.desktop.resolved", "message.sent", "message.requeued", "run.ended"]);
   });
 
   it("ends on a read-now, interrupted by it with no provider process begun, and the run of the queue reads what it was launched with", async () => {
@@ -1526,6 +1528,7 @@ describe("the adoption hook", () => {
       "run.started",
       "run.policy.resolved",
       "run.browser.resolved",
+      "run.desktop.resolved",
       "message.sent",
       "run.instructions.composed",
       "message.sent",
@@ -1534,11 +1537,12 @@ describe("the adoption hook", () => {
       "run.started",
       "run.policy.resolved",
       "run.browser.resolved",
+      "run.desktop.resolved",
       "message.delivered",
       "assistant.text",
       "run.ended",
     ]);
-    expect(events[11]?.payload).toEqual({ runId: second, messageId, delivery: "prompt" });
+    expect(events[13]?.payload).toEqual({ runId: second, messageId, delivery: "prompt" });
     expect(t.adapter.runs.map((run) => run.adopted)).toEqual([false, true]);
   });
 });

@@ -90,7 +90,7 @@ describe("a run's scopes", () => {
     const runId = await run(t, client, id);
 
     const workspace = { kind: "directory", path };
-    expect(toolScopes).toEqual([{ sessionId: id, runId, accountId: "claude-max", workspace, repositoryIdentity: IDENTITY, clientTools: [], browser: { kind: "none" } }]);
+    expect(toolScopes).toEqual([{ sessionId: id, runId, accountId: "claude-max", workspace, repositoryIdentity: IDENTITY, clientTools: [], browser: { kind: "none" }, desktop: { kind: "none" } }]);
     expect(instructionScopes).toEqual([expect.objectContaining({ sessionId: id, accountId: "claude-max", workspace, repositoryIdentity: IDENTITY, origin: "client" })]);
     expect(instructionScopes[0]?.trust).toEqual({ key: { kind: "identity", value: IDENTITY }, decision: "undecided" });
   });
