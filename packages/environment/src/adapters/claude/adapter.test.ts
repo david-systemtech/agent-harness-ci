@@ -1170,12 +1170,12 @@ describe("an in-process tool's declared access and its images (#540)", () => {
     external: false,
     tools: [
       {
-        name: "browser_open",
+        name: "navigate",
         description: "Opens a page.",
-        inputSchema: { type: "object", properties: { address: { type: "string" } } },
-        access: (input) => ({ kind: "browse", urls: typeof input["address"] === "string" ? [input["address"]] : [] }),
+        inputSchema: { type: "object", properties: { url: { type: "string" } } },
+        access: (input) => ({ kind: "browse", urls: typeof input["url"] === "string" ? [input["url"]] : [] }),
         call: async (input) => {
-          calls.push(`open ${String(input["address"])}`);
+          calls.push(`open ${String(input["url"])}`);
           return { text: "Opened.", isError: false };
         },
       },
@@ -1186,9 +1186,9 @@ describe("an in-process tool's declared access and its images (#540)", () => {
         access: (input) => ({ kind: "fetch", urls: typeof input["url"] === "string" ? [input["url"]] : [] }),
         call: async () => ({ text: "Read.", isError: false }),
       },
-      { name: "browser_close", description: "Lets the page go.", inputSchema: { type: "object", properties: {} }, call: async () => ({ text: "Closed.", isError: false }) },
+      { name: "close_tab", description: "Lets the page go.", inputSchema: { type: "object", properties: {} }, call: async () => ({ text: "Closed.", isError: false }) },
       {
-        name: "browser_screenshot",
+        name: "screenshot",
         description: "A screenshot.",
         inputSchema: { type: "object", properties: {} },
         call: async () => ({ text: "The page at https://example.com/.", isError: false, images: [{ mediaType: "image/jpeg", data: SHOT }] }),
@@ -1209,16 +1209,16 @@ describe("an in-process tool's declared access and its images (#540)", () => {
   it("hands the gate what the tool declares from the hook, naming the address in the summary, and other for a tool that declares nothing", async () => {
     const { context, checked } = gatedWith(() => ({ decision: "allow" }));
     const { query } = await opened(context);
-    expect(await query.preToolUse("mcp__browser__browser_open", { address: "https://www.paypal.com/" }, { toolUseID: "toolu_open" })).toEqual({});
+    expect(await query.preToolUse("mcp__browser__navigate", { url: "https://www.paypal.com/" }, { toolUseID: "toolu_open" })).toEqual({});
     expect(await query.preToolUse("mcp__browser__web_read", { url: "http://169.254.169.254/latest" }, { toolUseID: "toolu_read" })).toEqual({});
-    expect(await query.preToolUse("mcp__browser__browser_close", { address: "https://www.paypal.com/" }, { toolUseID: "toolu_close" })).toEqual({});
+    expect(await query.preToolUse("mcp__browser__close_tab", { url: "https://www.paypal.com/" }, { toolUseID: "toolu_close" })).toEqual({});
     expect(checked.map(({ call }) => call)).toEqual([
       {
         toolCallId: "toolu_open",
-        tool: "mcp__browser__browser_open",
-        summary: "mcp__browser__browser_open https://www.paypal.com/",
+        tool: "mcp__browser__navigate",
+        summary: "mcp__browser__navigate https://www.paypal.com/",
         access: { kind: "browse", urls: ["https://www.paypal.com/"] },
-        input: { address: "https://www.paypal.com/" },
+        input: { url: "https://www.paypal.com/" },
       },
       {
         toolCallId: "toolu_read",
@@ -1229,10 +1229,10 @@ describe("an in-process tool's declared access and its images (#540)", () => {
       },
       {
         toolCallId: "toolu_close",
-        tool: "mcp__browser__browser_close",
-        summary: "mcp__browser__browser_close",
+        tool: "mcp__browser__close_tab",
+        summary: "mcp__browser__close_tab",
         access: { kind: "other" },
-        input: { address: "https://www.paypal.com/" },
+        input: { url: "https://www.paypal.com/" },
       },
     ]);
   });
@@ -1261,7 +1261,7 @@ describe("an in-process tool's declared access and its images (#540)", () => {
     expect(fake.queries).toHaveLength(1);
     query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [prompts[1]?.uuid as string]));
     await flush();
-    await query.preToolUse("mcp__browser__browser_open", { address: "https://example.com/" }, { toolUseID: "toolu_next" });
+    await query.preToolUse("mcp__browser__navigate", { url: "https://example.com/" }, { toolUseID: "toolu_next" });
     expect(checked.map(({ call }) => call.access)).toEqual([{ kind: "browse", urls: ["https://example.com/"] }]);
     query.emit(sdk.result(PROVIDER_SESSION));
     await drain(next);
@@ -1269,13 +1269,40 @@ describe("an in-process tool's declared access and its images (#540)", () => {
 
   it("answers an image result as image content after the text, which the CLI receives beside it, and a text-only result as text alone", async () => {
     const { query } = await opened(contextWith());
-    const shot = await query.callTool("browser", "browser_screenshot", {}, "toolu_shot");
+    const shot = await query.callTool("browser", "screenshot", {}, "toolu_shot");
     expect(shot.content).toEqual([
       { type: "text", text: "The page at https://example.com/." },
       { type: "image", data: Buffer.from(SHOT).toString("base64"), mimeType: "image/jpeg" },
     ]);
     expect(shot.isError).toBeUndefined();
-    expect((await query.callTool("browser", "browser_open", { address: "https://example.com/" })).content).toEqual([{ type: "text", text: "Opened." }]);
+    expect((await query.callTool("browser", "navigate", { url: "https://example.com/" })).content).toEqual([{ type: "text", text: "Opened." }]);
+  });
+});
+
+describe("the browser toolset's bare member names (#2155)", () => {
+  it("reach the browser server's tool through the run's toolAliases: a bare navigate call is mcp__browser__navigate's", async () => {
+    const calls: string[] = [];
+    const browser: InProcessToolServer = {
+      name: "browser",
+      external: false,
+      tools: [
+        {
+          name: "navigate",
+          description: "Goes to a page.",
+          inputSchema: { type: "object", properties: { url: { type: "string" } } },
+          call: async (input) => {
+            calls.push(`navigate ${String(input["url"])}`);
+            return { text: "Went.", isError: false };
+          },
+        },
+      ],
+    };
+    const input = runInput({ toolServers: [browser] });
+    adapterWith().createRun(input, contextWith());
+    const query = await started();
+    expect(query.options.toolAliases).toEqual({ navigate: "mcp__browser__navigate" });
+    expect((await query.callModelTool("navigate", { url: "https://example.com/" })).content).toEqual([{ type: "text", text: "Went." }]);
+    expect(calls).toEqual(["navigate https://example.com/"]);
   });
 });
 

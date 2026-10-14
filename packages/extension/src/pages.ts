@@ -171,7 +171,7 @@ export const chromePages = ({ chrome, policy }: { readonly chrome: ExtensionChro
         }
         const held = await readBook();
         if (held.tabs.get(pageKey) === tabId && held.tabs.delete(pageKey)) await writeBook(held);
-        throw new Error(`Chrome would not let the extension's debugger attach to this session's tab (${message}), so the tab is left to the person. Open the page again with browser_open.`, {
+        throw new Error(`Chrome would not let the extension's debugger attach to this session's tab (${message}), so the tab is left to the person. Open the page again with navigate.`, {
           cause: error,
         });
       }

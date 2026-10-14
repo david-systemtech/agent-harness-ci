@@ -7,11 +7,11 @@ import { mozillaReaderable, type IsProbablyReaderable } from "./vendor/readabili
 import { mozillaReadability, type ReadabilityConstructor } from "./vendor/readability.js";
 
 /**
- * The reader (browser spec, "`browser_read`" and "`web_read`"): Mozilla
+ * The reader (browser spec, "`get_page_text`" and "`web_read`"): Mozilla
  * Readability 0.6.0 (Apache-2.0, vendored with its notice in ./vendor/) on a
  * copy of a document, so the page itself is left as it was, and its article
  * handed to the Markdown conversion. `web_read` runs it on a fetched page in
- * jsdom, and `browser_read` in the rendered page's isolated world, where it
+ * jsdom, and `get_page_text` in the rendered page's isolated world, where it
  * runs from its source text (./reader-in-page.ts).
  */
 

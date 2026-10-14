@@ -572,7 +572,7 @@ describe("the tool gate on an unattended run", () => {
       [{ tool: "Write", summary: "Write", access: { kind: "write", paths: ["~/.kube/config"] } }, "paths", "~/.kube"],
       [{ tool: "WebFetch", summary: "Fetch", access: { kind: "fetch", urls: ["http://0xA9FEA9FE/latest"] } }, "hosts", "169.254.169.254"],
       [{ tool: "WebSearch", summary: "Search", access: { kind: "search", query: "status", domains: ["api.internal.example"] } }, "hosts", "*.internal.example"],
-      [{ tool: "browser_open", summary: "Open", access: { kind: "browse", urls: ["https://github.com@www.paypal.com/"] } }, "browserDomains", "*.paypal.com"],
+      [{ tool: "navigate", summary: "Open", access: { kind: "browse", urls: ["https://github.com@www.paypal.com/"] } }, "browserDomains", "*.paypal.com"],
       [{ tool: "mcp__memory__read", summary: "Memory", access: { kind: "other" }, input: { path: "~/.gnupg/pubring.kbx", depth: 2 } }, "paths", "~/.gnupg"],
     ];
     for (const [call, section, pattern] of cases) {

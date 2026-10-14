@@ -176,13 +176,13 @@ describe("the extension end to end", () => {
       t,
       client,
       session.id,
-      ["browser_open", { address: "https://example.com/", snapshot: false }],
-      ["browser_snapshot", { filter: "all" }],
-      ["browser_read", {}],
+      ["navigate", { url: "https://example.com/", snapshot: false }],
+      ["read_page", { filter: "all" }],
+      ["get_page_text", {}],
     );
 
     expect(opened?.isError).toBe(false);
-    expect(opened?.text.split("\n")[0]).toBe("Opened https://example.com/. The page is at https://example.com/.");
+    expect(opened?.text.split("\n")[0]).toBe("Went to https://example.com/. The page is at https://example.com/.");
     expect(opened?.text).toContain("Title: Example Domain");
     expect(snapshot?.isError).toBe(false);
     expect(snapshot?.text).toContain('- heading "Example Domain" [level=1] [ref=e1]');

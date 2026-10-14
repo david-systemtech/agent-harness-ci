@@ -42,9 +42,9 @@ export const BrowserChromeCall = PageCall.extend({
 });
 export type BrowserChromeCall = z.infer<typeof BrowserChromeCall>;
 
-/** Lists the paired Chromes through the client's local connection before matching browser_open's name. */
+/** Lists the paired Chromes through the client's local connection before matching select_browser's name. */
 export const BrowserChromeListCall = z.object({
-  operation: z.literal("list").meta({ description: "List the paired Chromes of the target environment before matching browser_open's browser name." }),
+  operation: z.literal("list").meta({ description: "List the paired Chromes of the target environment before matching select_browser's browser name." }),
   environmentId: EnvironmentId.meta({ description: "The environment the Chromes are paired with, which the client reaches through its local connection." }),
   deadline: Timestamp.meta({ description: "When the run stops waiting for the list, on the run environment's clock. A later answer is dropped." }),
 }).meta({ description: "A browser.chrome call that lists another environment's paired Chromes through the addressed client's local connection." });

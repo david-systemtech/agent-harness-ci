@@ -49,7 +49,7 @@ it("a Phone grant chooses headless and sends a provider's browser verb to the en
   const answers: HostToolResult[] = [];
   peer.document("https://news.example/", { title: "News" });
   adapter.nextScripts.push(async function* (controls) {
-    answers.push(yield* callHostTool(controls, { server: "browser", name: "browser_open", input: { address: "https://news.example/", snapshot: false } }));
+    answers.push(yield* callHostTool(controls, { server: "browser", name: "navigate", input: { url: "https://news.example/", snapshot: false } }));
     yield end();
   });
   await act(async () => {

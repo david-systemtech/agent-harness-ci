@@ -104,9 +104,16 @@ export const answerDecision = (prompt: PromptOpenedPayload, answer: PromptAnswer
   );
 };
 
+/**
+ * A browser page tool: any tool on the `browser` server but `web_read`, which reads without a browser. The page tools
+ * take the browser toolset's member names (#2155); a prompt opened under an older name (`browser_navigate`) still counts.
+ */
+const isPageTool = (name: string | null | undefined): boolean =>
+  name !== null && name !== undefined && name.startsWith("mcp__browser__") && name !== "mcp__browser__web_read";
+
 /** Browser navigation keeps checking frames after an allow; its final decision waits for the call. */
 const browsingAfterAllow = (prompt: PromptOpenedPayload, answer: PromptAnsweredPayload): boolean =>
-  (prompt.kind === "denylist" || prompt.kind === "permission") && answer.decision === "allow" && prompt.toolCallId !== null && (prompt.toolName?.startsWith("mcp__browser__browser_") ?? false);
+  (prompt.kind === "denylist" || prompt.kind === "permission") && answer.decision === "allow" && prompt.toolCallId !== null && isPageTool(prompt.toolName);
 
 /**
  * A prompt's `prompt.answered` and the `tool.decision` it makes, for the

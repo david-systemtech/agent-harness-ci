@@ -364,8 +364,12 @@ describe("permissions.prompts.list", () => {
 });
 
 describe("permissions.prompts.answer", () => {
-  it("records a browser permission allowance immediately when the asking run has stopped", async () => {
-    const browser = { toolName: "mcp__browser__browser_open", toolCallId: "browser-permission-for-tests", input: { address: "https://shop.example/" } };
+  // The toolset's member name, and a pre-#2155 name a prompt may still have been opened under.
+  it.each([
+    ["mcp__browser__navigate", { url: "https://shop.example/" }],
+    ["mcp__browser__browser_open", { address: "https://shop.example/" }],
+  ])("records a browser permission allowance immediately when the asking run has stopped (%s)", async (toolName, input) => {
+    const browser = { toolName, toolCallId: "browser-permission-for-tests", input };
     const t = await start({ script: ask("permission", browser, { promptId: "browser-permission" }) });
     const client = await t.client();
     const { id } = await create(client);

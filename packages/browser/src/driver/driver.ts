@@ -273,7 +273,7 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
     return run;
   };
 
-  const goneSentence = (reason: string): string => `The page this session had is gone (${reason}). Open it again with browser_open.`;
+  const goneSentence = (reason: string): string => `The page this session had is gone (${reason}). Open it again with navigate.`;
 
   /** Forgets a page that has gone, letting go of what is left of its session (a crashed page's target stays attached). */
   const forget = (pageKey: PageKey, page: CdpPage): void => {
@@ -295,7 +295,7 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
     } catch (error) {
       return error instanceof Error ? error.message : String(error);
     }
-    if (session === null) return "No page is open for this session. Open one with browser_open first.";
+    if (session === null) return "No page is open for this session. Open one with navigate first.";
     try {
       const page = await CdpPage.attach(session, { ...options, networkAtAttach: options.networkAtAttach ?? false, clock });
       pages.set(pageKey, page);
@@ -500,6 +500,11 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
     },
     type: async (page, args) => {
       const { target } = args;
+      if (target === undefined) {
+        // The toolset's type: the text goes in at the focus, wherever it is.
+        if (args.text !== "") await page.insertText(args.text);
+        return arrival(page, args);
+      }
       const element = await located(page, target);
       if ("ok" in element) return element;
       const notTyped = refused(`${elementNamed(target)} does not take typed text.`);

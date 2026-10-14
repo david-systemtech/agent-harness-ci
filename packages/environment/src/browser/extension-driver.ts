@@ -14,7 +14,7 @@ import type { ChromeCallAnswer } from "./listener.js";
  * Chrome connected now. With none connected the verb answers that the
  * extension only runs while Chrome is open; with several, it is refused
  * naming them and telling the model to ask the person which, whose answer
- * is `browser_open`'s `browser`. What goes wrong is a sentence the model
+ * is `select_browser`'s `browser`. What goes wrong is a sentence the model
  * reads, never an exception: a Chrome no longer paired or not connected, one
  * that disconnects during the verb, and one silent past the verb's deadline.
  * A Chrome running another version of the extension than the folder's is
@@ -68,7 +68,7 @@ export const createExtensionDriver = (options: ExtensionDriverOptions): Extensio
     const [only, ...others] = connected;
     if (only === undefined) return `None of the person's Chromes is connected to ${env}: ${CLOSED}. Ask the person to open Chrome, then try again.`;
     if (others.length > 0) {
-      return `Several of the person's Chromes are connected to ${env}: ${connected.map((chrome) => chrome.name).join(", ")}. Ask the person which one this session should use, then call browser_open with browser set to its name.`;
+      return `Several of the person's Chromes are connected to ${env}: ${connected.map((chrome) => chrome.name).join(", ")}. Ask the person which one this session should use, then call select_browser with browser set to its name.`;
     }
     return only;
   };

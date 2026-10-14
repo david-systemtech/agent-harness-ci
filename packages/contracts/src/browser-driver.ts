@@ -351,8 +351,12 @@ export const PAGE_VERB_SCHEMAS = {
   },
   type: {
     args: z
-      .object({ target: ElementTarget, text: z.string().max(MAX_TEXT).meta({ description: "What the field holds afterwards: typing replaces its contents." }), snapshot: AfterAction })
-      .meta({ description: "type: replace an input's, a textarea's or an editable element's contents." }),
+      .object({
+        target: ElementTarget.optional().meta({ description: "The field whose contents the text replaces; absent, the text is typed at the focus." }),
+        text: z.string().max(MAX_TEXT).meta({ description: "With a target, what the field holds afterwards; without one, the text typed at the focus." }),
+        snapshot: AfterAction,
+      })
+      .meta({ description: "type: type text at the focus, or replace an input's, a textarea's or an editable element's contents." }),
     value: PageArrival,
   },
   read: {

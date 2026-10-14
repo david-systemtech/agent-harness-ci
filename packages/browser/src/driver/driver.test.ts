@@ -304,6 +304,16 @@ describe("click and type by selector", () => {
     expect(peer.sentOf("Input.insertText")[0]?.params).toEqual({ text: "ada@example.com" });
   });
 
+  it("types at the focus with no target: no click, no selection, only the text inserted (#2155)", async () => {
+    const { peer, perform } = await driven();
+    withField(peer);
+    await perform("open", { url: "https://example.com/" });
+    expect(await perform("type", { text: "ada@example.com" })).toMatchObject({ ok: true });
+    expect(mouse(peer)).toEqual([]);
+    expect(peer.sentOf("Runtime.callFunctionOn").map(({ params }) => nameOf(params.functionDeclaration))).not.toContain("selectFieldContents");
+    expect(peer.sentOf("Input.insertText").map(({ params }) => params)).toEqual([{ text: "ada@example.com" }]);
+  });
+
   it("clears the field when the text is empty", async () => {
     const { peer, perform } = await driven();
     withField(peer);
@@ -644,14 +654,14 @@ describe("letting go of a page, and a page that has gone", () => {
 
   it("answers a verb for a session with no page with a sentence", async () => {
     const { perform } = await driven();
-    expect(await perform("screenshot", {})).toEqual({ ok: false, reason: "No page is open for this session. Open one with browser_open first." });
+    expect(await perform("screenshot", {})).toEqual({ ok: false, reason: "No page is open for this session. Open one with navigate first." });
   });
 
   it("answers a sentence, never throwing, for a verb on a page whose tab was closed, and opens a new page after", async () => {
     const { perform, page } = await driven();
     await perform("open", { url: "https://example.com/" });
     page().close();
-    expect(await perform("screenshot", {})).toEqual({ ok: false, reason: "The page this session had is gone (the target was detached or closed). Open it again with browser_open." });
+    expect(await perform("screenshot", {})).toEqual({ ok: false, reason: "The page this session had is gone (the target was detached or closed). Open it again with navigate." });
     expect(await perform("open", {})).toMatchObject({ ok: true, value: { url: "about:blank" } });
   });
 
@@ -662,11 +672,11 @@ describe("letting go of a page, and a page that has gone", () => {
     const inFlight = perform("screenshot", {});
     await expect.poll(() => peer.sentOf("Page.captureScreenshot").length, { timeout: 30_000 }).toBe(1);
     page().close();
-    expect(await inFlight).toEqual({ ok: false, reason: "The page this session had is gone (the target was detached or closed). Open it again with browser_open." });
+    expect(await inFlight).toEqual({ ok: false, reason: "The page this session had is gone (the target was detached or closed). Open it again with navigate." });
 
     await perform("open", {});
     page().crash();
-    await expect.poll(() => perform("screenshot", {}), { timeout: 30_000 }).toEqual({ ok: false, reason: "The page this session had is gone (the page crashed). Open it again with browser_open." });
+    await expect.poll(() => perform("screenshot", {}), { timeout: 30_000 }).toEqual({ ok: false, reason: "The page this session had is gone (the page crashed). Open it again with navigate." });
   });
 
   it("answers a sentence when the browser itself goes away", async () => {

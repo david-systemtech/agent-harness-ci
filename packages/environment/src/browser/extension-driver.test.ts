@@ -164,7 +164,7 @@ describe("the plain My Chrome", () => {
 
     expect((await perform(await clientOf(t), null, { verb: "open", args: { url: "https://example.com/" } })).outcome).toEqual({
       ok: false,
-      reason: `Several of the person's Chromes are connected to ${t.env.name}: Work, Personal. Ask the person which one this session should use, then call browser_open with browser set to its name.`,
+      reason: `Several of the person's Chromes are connected to ${t.env.name}: Work, Personal. Ask the person which one this session should use, then call select_browser with browser set to its name.`,
     });
     expect([...work.extension.calls, ...personal.extension.calls]).toEqual([]);
   });
@@ -289,7 +289,7 @@ const chromeOf = (t: TestEnvironment, chromeId: string | null): SessionBrowser =
 const isFramed = (text: string): boolean => /^\[page content [0-9a-f]+\] /m.test(text) && /^\[end of page content [0-9a-f]+\]$/m.test(text);
 
 describe("the direct path", () => {
-  it("takes every tool, browser_open to browser_close, to the extension of the Chrome the session names, with its arguments, and the model reads the framed answers", async () => {
+  it("takes every tool, navigate to close_tab, to the extension of the Chrome the session names, with its arguments, and the model reads the framed answers", async () => {
     const t = await start();
     const work = await pair(t, "Work");
     const client = await clientOf(t);
@@ -299,36 +299,36 @@ describe("the direct path", () => {
       t,
       client,
       id,
-      ["browser_open", { address: "example.com", snapshot: false }],
-      ["browser_navigate", { address: "https://example.com/next" }],
-      ["browser_snapshot", { filter: "all" }],
-      ["browser_click", { ref: "e2", snapshot: false }],
-      ["browser_type", { selector: "input[name=q]", text: "hello", snapshot: false }],
-      ["browser_read", { offset: 0, links: true }],
-      ["browser_screenshot"],
-      ["browser_click_at", { x: 10, y: 20, snapshot: false }],
-      ["browser_scroll", { direction: "down", amount: 2 }],
-      ["browser_wait_for", { text: "Loaded", timeoutMs: 2_000 }],
-      ["browser_console"],
-      ["browser_network", { failedOnly: true }],
-      ["browser_cookies"],
-      ["browser_storage"],
-      ["browser_evaluate", { expression: "1 + 1" }],
-      ["browser_close"],
+      ["navigate", { url: "example.com", snapshot: false }],
+      ["navigate", { url: "https://example.com/next" }],
+      ["read_page", { filter: "all" }],
+      ["left_click", { target: { type: "ref", ref: "e2" }, snapshot: false }],
+      ["type", { ref: "e3", text: "hello", snapshot: false }],
+      ["get_page_text", { offset: 0, links: true }],
+      ["screenshot"],
+      ["left_click", { target: { type: "coordinate", x: 10, y: 20 }, snapshot: false }],
+      ["scroll", { target: { type: "coordinate", x: 640, y: 400 }, scroll_direction: "down", scroll_amount: 2 }],
+      ["wait", { text: "Loaded", duration: 2 }],
+      ["read_console"],
+      ["read_network", { failedOnly: true }],
+      ["read_cookies"],
+      ["read_storage"],
+      ["javascript_exec", { text: "1 + 1" }],
+      ["close_tab"],
     );
 
     const pageKey = `${t.env.id}/${id}`;
     expect(work.extension.calls.map(asked)).toEqual(
       [
         { verb: "open", args: { url: "example.com" } },
-        { verb: "navigate", args: { url: "https://example.com/next", snapshot: { filter: "interactive", maxChars: 12_000 } } },
+        { verb: "open", args: { url: "https://example.com/next", snapshot: { filter: "interactive", maxChars: 12_000 } } },
         { verb: "snapshot", args: { filter: "all" } },
-        { verb: "click", args: { target: { ref: "e2" } } },
-        { verb: "type", args: { target: { selector: "input[name=q]" }, text: "hello" } },
+        { verb: "left_click", args: { target: { type: "ref", ref: "e2" } } },
+        { verb: "type", args: { target: { ref: "e3" }, text: "hello" } },
         { verb: "read", args: { offset: 0, links: true } },
         { verb: "screenshot", args: {} },
-        { verb: "clickAt", args: { x: 10, y: 20 } },
-        { verb: "scroll", args: { to: { direction: "down", amount: 2 } } },
+        { verb: "left_click", args: { target: { type: "coordinate", x: 10, y: 20 } } },
+        { verb: "scroll", args: { target: { type: "coordinate", x: 640, y: 400 }, scroll_direction: "down", scroll_amount: 2 } },
         { verb: "waitFor", args: { until: { text: "Loaded", timeoutMs: 2_000 } } },
         { verb: "console", args: {} },
         { verb: "network", args: { failedOnly: true } },
@@ -339,7 +339,7 @@ describe("the direct path", () => {
       ].map((command) => ({ pageKey, command })),
     );
     expect(answers.map((answer) => answer.isError)).toEqual(answers.map(() => false));
-    expect(answers[0]?.text.split("\n")[0]).toBe("Opened example.com. The page is at https://example.com.");
+    expect(answers[0]?.text.split("\n")[0]).toBe("Went to example.com. The page is at https://example.com.");
     for (const index of [1, 2, 5, 14]) expect(isFramed(answers[index]?.text ?? ""), String(index)).toBe(true);
     expect(answers[6]?.images).toHaveLength(1);
     expect(answers[15]?.text).toBe("Let go of this session's page. The tab stays open in the person's Chrome for them.");
@@ -355,7 +355,7 @@ describe("the direct path", () => {
     const starterGone = new Promise<void>((resolve) => (gone = resolve));
     const answers: HostToolResult[] = [];
 
-    const runId = await startRun(t, starter, id, calling([["browser_open", { address: "example.com", snapshot: false }], ["browser_snapshot"]], answers, (index) => (index === 1 ? starterGone : undefined)));
+    const runId = await startRun(t, starter, id, calling([["navigate", { url: "example.com", snapshot: false }], ["read_page"]], answers, (index) => (index === 1 ? starterGone : undefined)));
     await vi.waitFor(() => expect(work.extension.calls).toHaveLength(1), { timeout: WAIT_MS });
     await starter.close();
     gone();
@@ -366,7 +366,7 @@ describe("the direct path", () => {
   });
 });
 
-// The several-Chromes question and browser_open's browser argument -------------------------------------------------
+// The several-Chromes question and navigate's browser argument -------------------------------------------------
 
 /** The `browser` server a run was handed. */
 const browserServerOf = (t: TestEnvironment, index: number): InProcessToolServer => {
@@ -375,16 +375,16 @@ const browserServerOf = (t: TestEnvironment, index: number): InProcessToolServer
   return server;
 };
 
-/** The properties of `browser_open`'s input schema in the run's `browser` server. */
-const openArguments = (t: TestEnvironment, index: number): string[] =>
-  Object.keys((browserServerOf(t, index).tools.find((tool) => tool.name === "browser_open")?.inputSchema["properties"] ?? {}) as JsonObject);
+/** The properties of `navigate`'s input schema in the run's `browser` server. */
+const navigateArguments = (t: TestEnvironment, index: number): string[] =>
+  Object.keys((browserServerOf(t, index).tools.find((tool) => tool.name === "navigate")?.inputSchema["properties"] ?? {}) as JsonObject);
 
 const payloadsOf = <P>(t: TestEnvironment, sessionId: string, type: string): P[] =>
   eventsOf(t, sessionId)
     .filter((event) => event.type === type)
     .map((event) => event.payload as P);
 
-describe("browser_open's browser argument", () => {
+describe("select_browser", () => {
   it("is offered only when the session's browser is the plain My Chrome", async () => {
     const t = await start();
     const work = await pair(t, "Work");
@@ -393,7 +393,8 @@ describe("browser_open's browser argument", () => {
       await run(t, client, await sessionWith(client, browser));
     }
 
-    expect([0, 1, 2, 3].map((index) => openArguments(t, index))).toEqual([["address", "snapshot", "browser"], ["address", "snapshot"], ["address", "snapshot"], ["address", "snapshot"]]);
+    expect([0, 1, 2, 3].map((index) => browserServerOf(t, index).tools.some((tool) => tool.name === "select_browser"))).toEqual([true, false, false, false]);
+    expect([0, 1, 2, 3].map((index) => navigateArguments(t, index))).toEqual([["url", "snapshot"], ["url", "snapshot"], ["url", "snapshot"], ["url", "snapshot"]]);
   });
 
   it("naming a Chrome records session.browser.set chosen by the agent, and later verbs, and the next run, go to that Chrome", async () => {
@@ -403,14 +404,15 @@ describe("browser_open's browser argument", () => {
     const client = await clientOf(t);
     const id = await sessionWith(client, chromeOf(t, null));
 
-    const answers = await run(t, client, id, ["browser_snapshot"], ["browser_open", { browser: "personal", address: "example.com", snapshot: false }], ["browser_snapshot"]);
+    const answers = await run(t, client, id, ["read_page"], ["select_browser", { browser: "personal", snapshot: false }], ["read_page"]);
 
     expect(answers[0]).toEqual({
-      text: `Several of the person's Chromes are connected to ${t.env.name}: Work, Personal. Ask the person which one this session should use, then call browser_open with browser set to its name.`,
+      text: `Several of the person's Chromes are connected to ${t.env.name}: Work, Personal. Ask the person which one this session should use, then call select_browser with browser set to its name.`,
       isError: true,
     });
     expect(answers[1]?.isError).toBe(false);
-    expect(answers[1]?.text.split("\n").slice(0, 2)).toEqual(["This session uses the Chrome Personal from now on.", "Opened example.com. The page is at https://example.com."]);
+    expect(answers[1]?.text.split("\n")[0]).toBe("This session uses the Chrome Personal from now on.");
+    expect(answers[1]?.text.split("\n")[1]).toMatch(/^This session's page\. The page is at /);
     expect(answers[2]?.isError).toBe(false);
     expect(personal.extension.calls.map((call) => call.command.verb)).toEqual(["open", "snapshot"]);
     expect(work.extension.calls).toEqual([]);
@@ -419,7 +421,7 @@ describe("browser_open's browser argument", () => {
       { browser: chromeOf(t, personal.id), chosenBy: "agent" },
     ]);
 
-    await run(t, client, id, ["browser_snapshot"]);
+    await run(t, client, id, ["read_page"]);
     expect(payloadsOf(t, id, "run.browser.resolved").at(-1)).toMatchObject({ browser: chromeOf(t, personal.id), reason: "chosen" });
     expect(personal.extension.calls.map((call) => call.command.verb)).toEqual(["open", "snapshot", "snapshot"]);
   });
@@ -435,9 +437,9 @@ describe("browser_open's browser argument", () => {
       t,
       client,
       id,
-      ["browser_open", { browser: "Work", snapshot: false }],
-      ["browser_open", { browser: "Personal", snapshot: false }],
-      ["browser_open", { browser: "Work", snapshot: false }],
+      ["select_browser", { browser: "Work", snapshot: false }],
+      ["select_browser", { browser: "Personal", snapshot: false }],
+      ["select_browser", { browser: "Work", snapshot: false }],
     );
 
     expect(answers[1]).toEqual({ text: "This session uses the Chrome Work, which only the person can change: ask them if this session should use another browser.", isError: true });
@@ -447,16 +449,16 @@ describe("browser_open's browser argument", () => {
     expect(payloadsOf(t, id, "session.browser.set")).toHaveLength(2);
   });
 
-  it("is refused in a session that names a Chrome, whose browser_open takes none, and the session keeps its Chrome", async () => {
+  it("is refused in a session that names a Chrome, which is offered no select_browser and whose navigate takes no browser, and the session keeps its Chrome", async () => {
     const t = await start();
     const work = await pair(t, "Work");
     const personal = await pair(t, "Personal");
     const client = await clientOf(t);
     const id = await sessionWith(client, chromeOf(t, work.id));
 
-    const [answer] = await run(t, client, id, ["browser_open", { browser: "Personal", address: "example.com" }]);
+    const [answer] = await run(t, client, id, ["navigate", { browser: "Personal", url: "example.com" }]);
 
-    expect(answer).toEqual({ text: "browser_open has no argument browser; it takes address, snapshot.", isError: true });
+    expect(answer).toEqual({ text: "navigate has no argument browser; it takes url, snapshot.", isError: true });
     expect([...work.extension.calls, ...personal.extension.calls]).toEqual([]);
     expect(payloadsOf(t, id, "session.browser.set")).toEqual([{ browser: chromeOf(t, work.id), chosenBy: "person" }]);
   });
@@ -468,7 +470,7 @@ describe("browser_open's browser argument", () => {
     const client = await clientOf(t);
     const id = await sessionWith(client, chromeOf(t, null));
 
-    const [answer] = await run(t, client, id, ["browser_open", { browser: "Home", address: "example.com" }]);
+    const [answer] = await run(t, client, id, ["select_browser", { browser: "Home" }]);
 
     expect(answer).toEqual({ text: `No Chrome paired with ${t.env.name} is named Home: the paired Chromes are Work, Personal. Ask the person which one to use.`, isError: true });
     expect(work.extension.calls).toEqual([]);
@@ -478,16 +480,16 @@ describe("browser_open's browser argument", () => {
 
 
 describe("the Chrome's own denylist match", () => {
-  it.each(["browser_open", "browser_read"])("puts %s's refusal to the person, then navigates with the allowance", async (tool) => {
+  it.each(["navigate", "get_page_text"])("puts %s's refusal to the person, then navigates with the allowance", async (tool) => {
     const t = await start();
     const work = await pair(t, "Work");
     const client = await clientOf(t);
     const id = await sessionWith(client, chromeOf(t, work.id));
     const address = "https://payments.example/pay";
     const match = { section: "browserDomains" as const, entry: { id: "payments-for-tests", pattern: "payments.example", note: "Payments", preset: false, enabled: true }, matched: address };
-    work.driver.next(tool === "browser_open" ? "open" : "read", { ok: false, reason: `The page went to ${address}, which the denylist lists (payments.example), so it was stopped at about:blank.`, denylist: { frame: "top-level", match } });
+    work.driver.next(tool === "navigate" ? "open" : "read", { ok: false, reason: `The page went to ${address}, which the denylist lists (payments.example), so it was stopped at about:blank.`, denylist: { frame: "top-level", match } });
     const answers: HostToolResult[] = [];
-    const runId = await startRun(t, client, id, calling([[tool, tool === "browser_open" ? { address, snapshot: false } : {}]], answers));
+    const runId = await startRun(t, client, id, calling([[tool, tool === "navigate" ? { url: address, snapshot: false } : {}]], answers));
     await vi.waitFor(() => expect(eventsOf(t, id).filter((event) => event.type === "prompt.opened")).toHaveLength(1), { timeout: WAIT_MS });
     const p = eventsOf(t, id).find((event) => event.type === "prompt.opened")!.payload as PromptOpenedPayload;
     expect(p).toMatchObject({ kind: "denylist", denylist: [match], reason: expect.stringContaining(t.env.id) });

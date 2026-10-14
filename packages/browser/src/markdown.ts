@@ -1,5 +1,5 @@
 /**
- * Markdown from a Readability article (browser spec, "`browser_read`" and
+ * Markdown from a Readability article (browser spec, "`get_page_text`" and
  * "`web_read`"): the reader runs Readability 0.6.0 on the rendered page, or
  * on jsdom for `web_read`, and hands its article here. The Markdown keeps the
  * headings, paragraphs, lists, tables, code and quotations, and the text is

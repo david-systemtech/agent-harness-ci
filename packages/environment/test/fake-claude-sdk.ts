@@ -258,6 +258,18 @@ export class FakeQuery {
     }
   }
 
+  /**
+   * Calls a tool by the name the model emitted, as the CLI resolves it: a
+   * name in the run's `toolAliases` is looked up as its target (one hop),
+   * and an `mcp__<server>__<tool>` name is called on that in-process server.
+   */
+  async callModelTool(name: string, args: Record<string, unknown>, toolUseID?: string): Promise<CallToolResult> {
+    const resolved = this.options.toolAliases?.[name] ?? name;
+    const match = /^mcp__(.+?)__(.+)$/.exec(resolved);
+    if (match === null) throw new Error(`The model's ${name} resolves to ${resolved}, no in-process tool.`);
+    return this.callTool(match[1] as string, match[2] as string, args, toolUseID);
+  }
+
   // The pinned SDK's run-time signature: `interrupt(e)`, taking `{cancelQueued}` its declarations omit.
   async interrupt(options?: { cancelQueued?: boolean }): Promise<{ still_queued: string[]; cancelled?: string[] } | undefined> {
     this.interrupts += 1;

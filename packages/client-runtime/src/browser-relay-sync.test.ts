@@ -19,7 +19,7 @@ import { inMemoryPlatform } from "./testing/in-memory-platform.js";
  * environments and one client runtime connected to both, local to the desk
  * through its grant and paired with the server, the fake extension paired
  * with the desk and the scripted fake adapter on the server calling
- * `browser_navigate` in a run the runtime started. The verb goes out as the
+ * `navigate` in a run the runtime started. The verb goes out as the
  * server's `client.call` to the runtime, which performs it with
  * `browser.chromes.perform` on the desk, whose extension answers; the
  * runtime answers with `client.answer` and the model reads the framed page.
@@ -48,13 +48,13 @@ const deskWithChrome = async () => {
   return { desk, chromeId: answer.chromeId, extension };
 };
 
-/** Starts a run on `server` from the runtime that calls `browser_navigate`, in a session whose browser is `browser`; answers what the model read. */
+/** Starts a run on `server` from the runtime that calls `navigate`, in a session whose browser is `browser`; answers what the model read. */
 const navigateFrom = async (seams: ConnectionSeams, server: TestEnvironment, browser: SessionBrowser): Promise<{ sessionId: string; answer: HostToolResult }> => {
   const sessionId = randomUUID();
   await send(seams, server.env.id, "sessions.create", { commandId: randomUUID(), id: sessionId, workspace, browser: { value: browser, chosenBy: "person" } });
   const answers: HostToolResult[] = [];
   (server.adapter as FakeAdapter).nextScripts.push(async function* (controls) {
-    answers.push(yield* callHostTool(controls, { server: "browser", name: "browser_navigate", input: { address: "https://example.com/next" } }));
+    answers.push(yield* callHostTool(controls, { server: "browser", name: "navigate", input: { url: "https://example.com/next" } }));
     yield end();
   });
   await send(seams, server.env.id, "runs.start", { commandId: randomUUID(), sessionId, text: "Look at the next page" });
@@ -66,7 +66,7 @@ const navigateFrom = async (seams: ConnectionSeams, server: TestEnvironment, bro
 const isFramed = (text: string): boolean => /^\[page content [0-9a-f]+\] /m.test(text) && /^\[end of page content [0-9a-f]+\]$/m.test(text);
 
 describe.each(["desktop", "tui"] as const)("the browser relay through a %s runtime", (kind) => {
-  it("takes browser_navigate on the server to the Chrome paired with the desk, and the model reads the framed answer", async () => {
+  it("takes navigate on the server to the Chrome paired with the desk, and the model reads the framed answer", async () => {
     const { desk, chromeId, extension } = await deskWithChrome();
     const server = await harness.environment({ name: "server", adapter: fakeAdapter() });
     const { runtime, seams } = harness.withSeams(inMemoryPlatform({ kind, grant: grantReader(desk) }));
@@ -77,7 +77,7 @@ describe.each(["desktop", "tui"] as const)("the browser relay through a %s runti
     const { sessionId, answer } = await navigateFrom(seams, server, { kind: "chrome", environmentId: desk.env.id, chromeId });
 
     expect(extension.calls.map((call) => ({ pageKey: call.pageKey, command: call.command }))).toEqual([
-      { pageKey: `${server.env.id}/${sessionId}`, command: { verb: "navigate", args: { url: "https://example.com/next", snapshot: { filter: "interactive", maxChars: 12_000 } } } },
+      { pageKey: `${server.env.id}/${sessionId}`, command: { verb: "open", args: { url: "https://example.com/next", snapshot: { filter: "interactive", maxChars: 12_000 } } } },
     ]);
     expect(answer.isError).toBe(false);
     expect(answer.text.split("\n")[0]).toBe("Went to https://example.com/next. The page is at https://example.com/next.");
@@ -132,10 +132,10 @@ describe("the several-Chromes answer for a relayed plain My Chrome", () => {
     const { desk, work, personal, paired, server, seams, sessionId } = await relayedPlainChrome();
     const answers: HostToolResult[] = [];
     (server.adapter as FakeAdapter).nextScripts.push(async function* (controls) {
-      answers.push(yield* callHostTool(controls, { server: "browser", name: "browser_snapshot", input: {} }));
-      answers.push(yield* callHostTool(controls, { server: "browser", name: "browser_open", input: { browser: " personal ", address: "https://example.com", snapshot: false } }));
-      answers.push(yield* callHostTool(controls, { server: "browser", name: "browser_open", input: { browser: "Work", snapshot: false } }));
-      answers.push(yield* callHostTool(controls, { server: "browser", name: "browser_snapshot", input: {} }));
+      answers.push(yield* callHostTool(controls, { server: "browser", name: "read_page", input: {} }));
+      answers.push(yield* callHostTool(controls, { server: "browser", name: "select_browser", input: { browser: " personal ", snapshot: false } }));
+      answers.push(yield* callHostTool(controls, { server: "browser", name: "select_browser", input: { browser: "Work", snapshot: false } }));
+      answers.push(yield* callHostTool(controls, { server: "browser", name: "read_page", input: {} }));
       yield end();
     });
     await send(seams, server.env.id, "runs.start", { commandId: randomUUID(), sessionId, text: "Use Personal" });
@@ -153,13 +153,13 @@ describe("the several-Chromes answer for a relayed plain My Chrome", () => {
     ]);
     await vi.waitFor(() => expect(server.env.log.readStream({ kind: "session", id: sessionId }).some((event) => event.type === "run.ended")).toBe(true), { timeout: WAIT_MS });
     (server.adapter as FakeAdapter).nextScripts.push(async function* (controls) {
-      answers.push(yield* callHostTool(controls, { server: "browser", name: "browser_navigate", input: { address: "https://example.com/next", snapshot: false } }));
+      answers.push(yield* callHostTool(controls, { server: "browser", name: "navigate", input: { url: "https://example.com/next", snapshot: false } }));
       yield end();
     });
     await send(seams, server.env.id, "runs.start", { commandId: randomUUID(), sessionId, text: "Next page" });
     await vi.waitFor(() => expect(answers).toHaveLength(5), { timeout: WAIT_MS });
     expect(answers[4]?.isError).toBe(false);
-    expect(personal.calls.map((call) => call.command.verb)).toEqual(["open", "snapshot", "navigate"]);
+    expect(personal.calls.map((call) => call.command.verb)).toEqual(["open", "snapshot", "open"]);
     expect(work.calls).toEqual([]);
   });
 
@@ -170,7 +170,7 @@ describe("the several-Chromes answer for a relayed plain My Chrome", () => {
     const { work, personal, server, seams, sessionId } = await relayedPlainChrome(secondName);
     const answers: HostToolResult[] = [];
     (server.adapter as FakeAdapter).nextScripts.push(async function* (controls) {
-      answers.push(yield* callHostTool(controls, { server: "browser", name: "browser_open", input: { browser: name } }));
+      answers.push(yield* callHostTool(controls, { server: "browser", name: "select_browser", input: { browser: name } }));
       yield end();
     });
     await send(seams, server.env.id, "runs.start", { commandId: randomUUID(), sessionId, text: "Choose a Chrome" });

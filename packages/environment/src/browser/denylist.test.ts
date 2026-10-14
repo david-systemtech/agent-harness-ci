@@ -52,9 +52,9 @@ describe("the denylist on a browser call", () => {
   it.each(["permission", "denylist"] as const)("records an earlier allowance when the browser run stops under a later %s prompt", async (kind) => {
     const { t, client, id } = await headless();
     const toolCallId = "stopped-browser-for-tests";
-    const name = "mcp__browser__browser_open";
+    const name = "mcp__browser__navigate";
     (t.adapter as FakeAdapter).nextScripts.push(async function* (controls) {
-      const input = { address: PAYPAL, snapshot: false };
+      const input = { url: PAYPAL, snapshot: false };
       yield { type: "tool.started", payload: { toolCallId, name, input, title: null, agentId: null, parentToolCallId: null } };
       const gated = await controls.context.gate.check({ toolCallId, tool: name, summary: "Open the page", access: { kind: "browse", urls: [PAYPAL] }, input });
       if (gated.decision !== "allow") throw new Error("Gate denied");
@@ -85,7 +85,7 @@ describe("the denylist on a browser call", () => {
   it("records an allowance answered after the browser run was stopped, beside the next-run answer", async () => {
     const { t, client, id } = await headless();
     const answers: HostToolResult[] = [];
-    script(t, answers, [["browser_open", { address: PAYPAL, snapshot: false }]]);
+    script(t, answers, [["navigate", { url: PAYPAL, snapshot: false }]]);
     await run(client, id);
     const parked = await prompt(t, id);
     await client.apply("providers.processes.stop", { commandId: randomUUID(), sessionId: id });
@@ -100,10 +100,10 @@ describe("the denylist on a browser call", () => {
     ]);
   });
 
-  it("carries the person's allow for browser_open to the headless driver once and judges the next navigation afresh", async () => {
+  it("carries the person's allow for navigate to the headless driver once and judges the next navigation afresh", async () => {
     const { t, client, peer, id } = await headless();
     const answers: HostToolResult[] = [];
-    script(t, answers, [["browser_open", { address: PAYPAL, snapshot: false }], ["browser_navigate", { address: PAYPAL, snapshot: false }]]);
+    script(t, answers, [["navigate", { url: PAYPAL, snapshot: false }], ["navigate", { url: PAYPAL, snapshot: false }]]);
     await run(client, id);
     const first = await prompt(t, id);
     expect(navigations(peer)).toEqual([]);
@@ -122,10 +122,10 @@ describe("the denylist on a browser call", () => {
     const { t, client, peer, id } = await headless();
     peer.document("https://shop.example/pay", { redirect: PAYPAL });
     const answers: HostToolResult[] = [];
-    script(t, answers, [["browser_open", { address: "https://shop.example/pay", snapshot: false }]]);
+    script(t, answers, [["navigate", { url: "https://shop.example/pay", snapshot: false }]]);
     await run(client, id);
     const p = await prompt(t, id);
-    expect(p).toMatchObject({ kind: "denylist", toolName: "mcp__browser__browser_open", denylist: [expect.objectContaining({ matched: PAYPAL })] });
+    expect(p).toMatchObject({ kind: "denylist", toolName: "mcp__browser__navigate", denylist: [expect.objectContaining({ matched: PAYPAL })] });
     expect(answers).toEqual([]);
     expect(navigations(peer).at(-1)).toBe("about:blank");
     await answer(client, id, p, "allow");
@@ -139,7 +139,7 @@ describe("the denylist on a browser call", () => {
     peer.document("https://shop.example/pay", { redirect: PAYPAL });
     if (fails) peer.document(PAYPAL, { frames: [{ url: "https://checkout.stripe.com/pay", crossSite: true }] });
     const answers: HostToolResult[] = [];
-    script(t, answers, [["browser_open", { address: "https://shop.example/pay", snapshot: false }], ["browser_snapshot", {}]]);
+    script(t, answers, [["navigate", { url: "https://shop.example/pay", snapshot: false }], ["read_page", {}]]);
     await run(client, id);
     const p = await prompt(t, id);
     await client.request("permissions.prompts.answer", {
@@ -158,7 +158,7 @@ describe("the denylist on a browser call", () => {
     const { t, client, peer, id } = await headless();
     peer.document("https://shop.example/pay", { frames: [{ url: PAYPAL, crossSite: true }] });
     const answers: HostToolResult[] = [];
-    script(t, answers, [["browser_open", { address: "https://shop.example/pay", snapshot: false }]]);
+    script(t, answers, [["navigate", { url: "https://shop.example/pay", snapshot: false }]]);
     await run(client, id);
     await vi.waitFor(() => expect(answers).toHaveLength(1), { timeout: WAIT_MS });
     await ended(t, id);
@@ -167,7 +167,7 @@ describe("the denylist on a browser call", () => {
     expect(navigations(peer).at(-1)).toBe("about:blank");
     expect(events(t, id).filter((e) => e.type === "prompt.opened")).toEqual([]);
     expect(events(t, id).filter((e) => e.type === "tool.decision").map((e) => e.payload)).toEqual([
-      expect.objectContaining({ decision: "denied", decidedBy: "denylist", tool: "mcp__browser__browser_open", reason: expect.stringContaining(PAYPAL) }),
+      expect.objectContaining({ decision: "denied", decidedBy: "denylist", tool: "mcp__browser__navigate", reason: expect.stringContaining(PAYPAL) }),
     ]);
     const review = await client.apply("permissions.review.list", {});
     expect(review.runs).toEqual([expect.objectContaining({ sessionId: id, counts: expect.objectContaining({ denied: 1 }) })]);
@@ -178,7 +178,7 @@ describe("the denylist on a browser call", () => {
     peer.document("https://shop.example/pay", { redirect: PAYPAL });
     if (by === "ttl") await client.request("permissions.settings.set", { commandId: randomUUID(), values: { "permissions.parkedPrompt.ttl": { amount: 1, unit: "minutes" } } });
     const answers: HostToolResult[] = [];
-    script(t, answers, [["browser_open", { address: "https://shop.example/pay", snapshot: false }]]);
+    script(t, answers, [["navigate", { url: "https://shop.example/pay", snapshot: false }]]);
     if (by === "unattended") t.env.startRun({ sessionId: id, text: "Use the browser", actor: { kind: "completions", attended: false, ceiling: "bypassPermissions", clientSessionId: null } });
     else await run(client, id);
     const p = await prompt(t, id);
@@ -199,7 +199,7 @@ describe("the denylist on a browser call", () => {
     const { t, client, peer, id } = await headless();
     peer.document(PAYPAL, { frames: [{ url: "https://checkout.stripe.com/pay", crossSite: true }] });
     const answers: HostToolResult[] = [];
-    script(t, answers, [["browser_open", { address: PAYPAL, snapshot: false }]]);
+    script(t, answers, [["navigate", { url: PAYPAL, snapshot: false }]]);
     await run(client, id);
     await answer(client, id, await prompt(t, id), "allow");
     await ended(t, id);
@@ -215,11 +215,11 @@ describe("the denylist on a browser call", () => {
     (t.adapter as FakeAdapter).nextScripts.push(async function* (controls) {
       const server = controls.input.toolServers.find((s) => s.name === "browser");
       if (server === undefined || !isInProcess(server)) throw new Error("No browser server");
-      const tool = server.tools.find((candidate) => candidate.name === "browser_open");
-      if (tool === undefined) throw new Error("No browser_open");
+      const tool = server.tools.find((candidate) => candidate.name === "navigate");
+      if (tool === undefined) throw new Error("No navigate");
       const toolCallId = "gate-and-provider-for-tests";
-      const name = "mcp__browser__browser_open";
-      const input = { address: PAYPAL, snapshot: false };
+      const name = "mcp__browser__navigate";
+      const input = { url: PAYPAL, snapshot: false };
       yield { type: "tool.started", payload: { toolCallId, name, input, title: null, agentId: null, parentToolCallId: null } };
       const gated = await controls.context.gate.check({ toolCallId, tool: name, summary: "Open the page", access: tool.access?.(input) ?? { kind: "other" }, input }, controls.signal);
       if (gated.decision !== "allow") throw new Error("Gate denied");

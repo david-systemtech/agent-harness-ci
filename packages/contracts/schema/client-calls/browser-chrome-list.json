@@ -6,7 +6,7 @@
     "operation": {
       "type": "string",
       "const": "list",
-      "description": "List the paired Chromes of the target environment before matching browser_open's browser name."
+      "description": "List the paired Chromes of the target environment before matching select_browser's browser name."
     },
     "environmentId": {
       "type": "string",
