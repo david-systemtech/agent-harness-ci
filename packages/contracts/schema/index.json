@@ -2411,6 +2411,10 @@
       "title": "UnattendedMode"
     },
     {
+      "path": "permissions/attended-mode.json",
+      "title": "AttendedMode"
+    },
+    {
       "path": "permissions/ttl-unit.json",
       "title": "TtlUnit"
     },

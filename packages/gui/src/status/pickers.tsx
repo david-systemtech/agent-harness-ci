@@ -34,7 +34,7 @@ import { MenuSub, MenuSubContent, MenuSubTrigger } from "../ui/menu.js";
 import { SessionBrowserPicker } from "../browser/session-picker.js";
 import { RunChoiceRow, RunPickerColumn, RunPickerContent, RunPickerSteps, RunPickerTrigger, moveInColumns, useNarrowRunPicker, type RunStage } from "./run-picker-parts.js";
 import { useSayModeSet } from "./mode-said.js";
-import { ModeSheet, focusModeSheet, trapModeSheetTab } from "./mode-sheet.js";
+import { ModeSheet, focusModeSheet, trapModeSheetTab, useAttendedDefault } from "./mode-sheet.js";
 import { useHandedOnto } from "./run-choices.js";
 import { AccountChoiceRow, ModelChoices, Waiting, useFavouriteModels } from "./run-picker-lists.js";
 
@@ -336,7 +336,7 @@ const ModeRows = ({ environmentId, sessionId }: { readonly environmentId: string
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const sayModeSet = useSayModeSet();
   const session = projection.summary?.title ?? "this session";
-  const own = sessionModeOf(projection.summary?.mode, picker.ceiling);
+  const own = sessionModeOf(projection.summary?.mode, picker.ceiling, useAttendedDefault(environmentId));
   return picker.modes.map(({ mode, allowed }) => (
       <Item
         key={mode}

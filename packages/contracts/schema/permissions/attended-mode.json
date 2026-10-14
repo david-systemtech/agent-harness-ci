@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AttendedMode",
+  "type": "string",
+  "enum": [
+    "acceptEdits",
+    "bypassPermissions"
+  ],
+  "description": "The mode an attended run starts in when its session names none: acceptEdits or bypassPermissions, lowered to the ceiling."
+}

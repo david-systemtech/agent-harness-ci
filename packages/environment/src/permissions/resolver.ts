@@ -11,6 +11,7 @@ import {
   type RunActorKind,
   type RunInjection,
   type RunPolicy,
+  type AttendedMode,
   type UnattendedMode,
 } from "@agent-harness/contracts";
 import { resolveContainment } from "./containment.js";
@@ -28,9 +29,11 @@ import { resolveContainment } from "./containment.js";
  */
 
 /**
- * The mode an attended run starts in when neither it nor its session names
- * one: acceptEdits, the preset of the default ceiling and of the unattended
- * mode. A chosen default: the harness never hands a provider its own default.
+ * The preset of the mode an attended run starts in when neither it nor its
+ * session names one: acceptEdits, the preset of the default ceiling and of
+ * the unattended mode. The environment's own choice is
+ * `permissions.attended.mode` (#2183), read into `PolicySettings`. A chosen
+ * default: the harness never hands a provider its own default.
  */
 export const ATTENDED_DEFAULT_MODE: Mode = "acceptEdits";
 
@@ -93,6 +96,8 @@ export const actorOfPolicy = (policy: RunPolicy): RunActor => {
 
 /** The settings the resolver reads. */
 export interface PolicySettings {
+  /** What an attended run whose session names no mode starts in (#2183), before the clamp to the ceiling. */
+  readonly attendedMode: AttendedMode;
   readonly unattendedMode: UnattendedMode;
   /** The containment default as it was set; null when it never was, and the preset's `workspace` is asked for (`containment.ts`). */
   readonly containmentDefault: ContainmentLevel | null;
@@ -104,6 +109,7 @@ export interface PolicySettings {
  * value, for a caller with no store behind it).
  */
 export const policySettings = (values: PermissionSettingsValues, storedContainmentDefault: ContainmentLevel | null = values["permissions.containment.default"]): PolicySettings => ({
+  attendedMode: values["permissions.attended.mode"],
   unattendedMode: values["permissions.unattended.mode"],
   containmentDefault: storedContainmentDefault,
 });
@@ -162,21 +168,24 @@ export const noModeAvailable = (ceiling: Mode): string =>
 
 /**
  * The mode a run's clamp starts from: the mode asked for, else the default
- * that stands in for it, `ATTENDED_DEFAULT_MODE` for an attended run and the
- * unattended default for an unattended one.
+ * that stands in for it, the attended default (`permissions.attended.mode`,
+ * preset `ATTENDED_DEFAULT_MODE`) for an attended run and the unattended
+ * default for an unattended one.
  */
-export const startingMode = (requested: Mode | null, attended: boolean, unattendedMode: UnattendedMode): Mode =>
-  requested ?? (attended ? ATTENDED_DEFAULT_MODE : unattendedMode);
+export const startingMode = (requested: Mode | null, attended: boolean, unattendedMode: UnattendedMode, attendedMode: AttendedMode = ATTENDED_DEFAULT_MODE as AttendedMode): Mode =>
+  requested ?? (attended ? attendedMode : unattendedMode);
 
 /**
  * A run's policy. An unattended run that names no mode gets the unattended
- * default; an attended one, `ATTENDED_DEFAULT_MODE`. Either is then clamped
- * to the ceiling and the account's modes, like any request.
+ * default; an attended one, the attended default. Either is then clamped to
+ * the ceiling and the account's modes, like any request: a default above the
+ * ceiling starts at the ceiling, unclamped (a lowered default is no clamp).
+ * The denylist gate asks in every mode, whatever the default.
  */
 export const resolvePolicy = (input: PolicyInput): PolicyOutcome => {
   const attended = isAttended(input.actor);
   const unattendedDefaultApplied = !attended && input.requested === null;
-  const start = startingMode(input.requested, attended, input.settings.unattendedMode);
+  const start = startingMode(input.requested, attended, input.settings.unattendedMode, input.settings.attendedMode);
   const mode = clampMode(input.requested, start, input.ceiling, input.accountModes);
   if (mode === null) return { refused: noModeAvailable(input.ceiling) };
   const injection = actorInjection(input.actor);

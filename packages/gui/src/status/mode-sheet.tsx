@@ -5,7 +5,7 @@ import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { usePaneLine } from "../session/pane-line.js";
 import { Button } from "../ui/index.js";
 import { useSayModeSet } from "./mode-said.js";
-import { useObservable, useRuntime } from "../window-context.js";
+import { useFollowed, useObservable, useRuntime } from "../window-context.js";
 import "./mode-sheet.css";
 
 const descriptions: Readonly<Record<Mode, string>> = {
@@ -37,6 +37,13 @@ export const trapModeSheetTab = (event: KeyboardEvent<HTMLDivElement>) => {
   }
 };
 
+/** The environment's attended default (`permissions.attended.mode`, #2183): what a session that names no mode starts in; undefined until it is read. */
+export const useAttendedDefault = (environmentId: string): Mode | undefined => {
+  const runtime = useRuntime();
+  const permissions = useFollowed(useMemo(() => runtime.requests.cached(environmentId, "permissions.settings.get", {}), [runtime, environmentId]));
+  return permissions?.result?.values["permissions.attended.mode"];
+};
+
 /** Mode-only phone projection; the runtime command and environment still own authority. */
 export const ModeSheet = ({ environmentId, sessionId, close }: {
   readonly environmentId: string; readonly sessionId: string; readonly close: () => void;
@@ -46,7 +53,7 @@ export const ModeSheet = ({ environmentId, sessionId, close }: {
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const [, say] = usePaneLine();
   const sayModeSet = useSayModeSet();
-  const own = sessionModeOf(projection.summary?.mode, picker.ceiling);
+  const own = sessionModeOf(projection.summary?.mode, picker.ceiling, useAttendedDefault(environmentId));
   const busy = useRef(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);

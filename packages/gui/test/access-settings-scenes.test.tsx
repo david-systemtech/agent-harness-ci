@@ -16,6 +16,7 @@ it.each(["light", "dark"] as const)("draws the Permissions scene with the mode c
   close = gallery.close;
   const pane = await screen.findByRole("region", { name: "Permissions" });
   expect(await within(pane).findByRole("radiogroup", { name: "How much agents may do without asking" })).toBeDefined();
+  expect(within(pane).getByRole("radiogroup", { name: "Default mode for new attended sessions" })).toBeDefined();
   expect(within(pane).getByRole("radiogroup", { name: "For scheduled and automatic runs" })).toBeDefined();
   expect(within(pane).getByRole("combobox", { name: "Deny it after" })).toBeDefined();
   for (const name of ["Browser domains", "Paths", "Command patterns", "Hosts"]) expect(await within(pane).findByRole("region", { name })).toBeDefined();

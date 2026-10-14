@@ -677,6 +677,7 @@ export const STEP_REGISTRY = [
     home: "access.permissions",
     writes: [
       "permissions.defaultCeiling",
+      "permissions.attended.mode",
       "permissions.unattended.mode",
       "permissions.unattended.bypassAcknowledgedAt",
       "permissions.parkedPrompt.ttl",
@@ -684,6 +685,13 @@ export const STEP_REGISTRY = [
     ],
     writesState: [{ method: "permissions.denylist.set", parts: DENYLIST_SECTIONS }],
     confirms: [
+      {
+        key: "permissions.attended.mode",
+        value: "bypassPermissions",
+        sentence: BYPASS_SENTENCE,
+        acknowledgement: "acknowledgeBypass",
+        records: "permissions.unattended.bypassAcknowledgedAt",
+      },
       {
         key: "permissions.unattended.mode",
         value: "bypassPermissions",
@@ -694,6 +702,7 @@ export const STEP_REGISTRY = [
     ],
     checks: [
       { key: "permissions.defaultCeiling", check: anyValidValue("permissions.defaultCeiling") },
+      { key: "permissions.attended.mode", check: anyValidValue("permissions.attended.mode") },
       { key: "permissions.unattended.mode", check: anyValidValue("permissions.unattended.mode") },
       { key: "permissions.unattended.bypassAcknowledgedAt", check: anyValidValue("permissions.unattended.bypassAcknowledgedAt") },
       { key: "permissions.parkedPrompt.ttl", check: anyValidValue("permissions.parkedPrompt.ttl") },

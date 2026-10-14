@@ -22,6 +22,14 @@
           ],
           "description": "The ceiling a pairing gives when none is chosen."
         },
+        "permissions.attended.mode": {
+          "type": "string",
+          "enum": [
+            "acceptEdits",
+            "bypassPermissions"
+          ],
+          "description": "The mode an attended run starts in when its session names none: acceptEdits or bypassPermissions, lowered to the ceiling."
+        },
         "permissions.unattended.mode": {
           "type": "string",
           "enum": [

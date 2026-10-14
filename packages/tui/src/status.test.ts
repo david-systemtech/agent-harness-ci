@@ -110,7 +110,7 @@ describe("status line one", () => {
     const { app } = await opened([desk({ sessions: [{ title: "Receipts" }] })]);
     await app.waitFor("default account");
     const [one] = statusLines(app);
-    expect(one).toContain("DE desk · default account · default model · ⏵⏵ accept edits · ◐ workspace (default)");
+    expect(one).toContain("DE desk · default account · default model · ⏵⏵ accept edits (default) · ◐ workspace (default)");
     expect(one).not.toContain("5-hour");
   });
 

@@ -68,6 +68,7 @@ export const PermissionsForm = ({ view, denylist, safety: Safety, restart }: { r
       {!ready && <p className="text-sm text-amber">{readOnlyLine(runtime, view, values !== null)}</p>}
       {ready && admin.status === "absent" && <AccessUnavailable environmentId={view.environmentId} answer={admin}><p className="text-sm text-amber">You can look but not change this. {admin.message}</p></AccessUnavailable>}
       <ModeChoices view={view} name="permissions.defaultCeiling" writable={writable} />
+      <ModeChoices view={view} name="permissions.attended.mode" writable={writable} />
       <Safety>
         <ModeChoices view={view} name="permissions.unattended.mode" writable={writable} />
         <PromptTimeout view={view} writable={writable} />

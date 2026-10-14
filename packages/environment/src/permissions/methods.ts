@@ -166,8 +166,8 @@ export const permissionMethods = (options: PermissionMethodsOptions): Required<P
     "permissions.settings.get": () => readPermissionsReport(reader, report, options.isRoot),
 
     /**
-     * Any subset of the settings. The first time the unattended mode is set to
-     * bypassPermissions it needs `acknowledgeBypass: true`, or it is
+     * Any subset of the settings. The first time the unattended mode or the
+     * attended default is set to bypassPermissions it needs `acknowledgeBypass: true`, or it is
      * `invalid_params` and nothing changes; then the time is recorded and
      * `bypass.acknowledged` appended. A containment default this environment
      * cannot enforce is rejected `containment_unavailable`, but only when it
@@ -188,9 +188,11 @@ export const permissionMethods = (options: PermissionMethodsOptions): Required<P
       const containmentChanged = containment !== undefined && containment !== readStoredContainmentDefault(reader);
       const refused = containmentChanged ? unavailable(containment) : null;
       if (refused !== null) return { aggregate, rejected: refused };
-      const firstBypass = asked["permissions.unattended.mode"] === "bypassPermissions" && held[BYPASS_ACKNOWLEDGED_KEY] === null;
+      // The attended default (#2183) and the unattended mode share the one acknowledgement.
+      const bypassKey = (["permissions.unattended.mode", "permissions.attended.mode"] as const).find((key) => asked[key] === "bypassPermissions");
+      const firstBypass = bypassKey !== undefined && held[BYPASS_ACKNOWLEDGED_KEY] === null;
       if (firstBypass && params.acknowledgeBypass !== true) {
-        const message = `Choosing bypassPermissions as the unattended mode for the first time needs acknowledgeBypass: true, once this has been shown: "${BYPASS_SENTENCE}"`;
+        const message = `Choosing bypassPermissions as the ${bypassKey === "permissions.attended.mode" ? "attended default" : "unattended"} mode for the first time needs acknowledgeBypass: true, once this has been shown: "${BYPASS_SENTENCE}"`;
         throw new ContractError(invalidParams([{ code: "custom", path: ["acknowledgeBypass"], message }], message));
       }
       const next: Record<string, unknown> = { ...held, ...asked };
@@ -202,7 +204,7 @@ export const permissionMethods = (options: PermissionMethodsOptions): Required<P
       const values = next as PermissionSettingsValues;
       if (keys.length === 0) return { aggregate, result: { values } };
       const attribution = byClientSession(context.clientSession.id, context.commandId);
-      if (firstBypass) accessLog.record(context.tx, "bypass.acknowledged", { setting: "permissions.unattended.mode", sentence: BYPASS_SENTENCE }, attribution);
+      if (firstBypass) accessLog.record(context.tx, "bypass.acknowledged", { setting: bypassKey, sentence: BYPASS_SENTENCE }, attribution);
       const changed = Object.fromEntries(keys.map((key) => [key, next[key]]));
       accessLog.record(context.tx, "settings.changed", { area: "permissions", keys, values: changed }, attribution);
       recordSettingsChange(log, options.environmentId, changed, context);

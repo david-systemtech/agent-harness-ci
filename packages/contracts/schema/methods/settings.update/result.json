@@ -112,6 +112,14 @@
           ],
           "description": "The ceiling a pairing gives when none is chosen."
         },
+        "permissions.attended.mode": {
+          "type": "string",
+          "enum": [
+            "acceptEdits",
+            "bypassPermissions"
+          ],
+          "description": "The mode an attended run starts in when its session names none: acceptEdits or bypassPermissions, lowered to the ceiling."
+        },
         "permissions.unattended.mode": {
           "type": "string",
           "enum": [
@@ -132,7 +140,7 @@
               "type": "null"
             }
           ],
-          "description": "When bypassPermissions was first acknowledged as the unattended mode; null until it has been. Recorded by the environment, never set directly."
+          "description": "When bypassPermissions was first acknowledged as the unattended or the attended default mode; null until it has been. Recorded by the environment, never set directly."
         },
         "permissions.parkedPrompt.ttl": {
           "anyOf": [
@@ -619,6 +627,7 @@
         "accounts.favouriteModels",
         "providers.processIdleMinutes",
         "permissions.defaultCeiling",
+        "permissions.attended.mode",
         "permissions.unattended.mode",
         "permissions.unattended.bypassAcknowledgedAt",
         "permissions.parkedPrompt.ttl",

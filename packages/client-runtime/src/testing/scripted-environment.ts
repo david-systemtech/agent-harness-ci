@@ -757,9 +757,9 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     // As the environment's run does (#1961): the model asked for, else the session's; the session's effort while on its model.
     const model = choice.model ?? summary.runChoice?.model ?? summary.model ?? "claude-fake";
     const effort = choice.effort ?? (summary.runChoice?.model === model ? summary.runChoice.effort : null);
-    // As the environment's run does: the session's mode asked for, clamped to the ceiling; acceptEdits when the session has none.
+    // As the environment's run does: the session's mode asked for, clamped to the ceiling; the attended default when the session has none (#2183).
     const requested = summary.mode;
-    const effective = lowerMode(requested ?? "acceptEdits", ceiling());
+    const effective = lowerMode(requested ?? values["permissions.attended.mode"], ceiling());
     const clamped = requested !== null && compareModes(effective, requested) < 0;
     if (text !== null) emit(sessionId, "message.sent", { runId, messageId, text, attachments: records(attachments), delivery: "prompt", heldBy: null, ceiling: ceiling() });
     emit(
@@ -1807,7 +1807,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const unenforceable = level === undefined || level === values["permissions.containment.default"] ? undefined : unavailable(level);
     if (unenforceable) return unenforceable;
     let acknowledged: Partial<SettingsValues> = {};
-    if (asked["permissions.unattended.mode"] === "bypassPermissions" && values["permissions.unattended.bypassAcknowledgedAt"] === null) {
+    const bypassAsked = asked["permissions.unattended.mode"] === "bypassPermissions" || asked["permissions.attended.mode"] === "bypassPermissions";
+    if (bypassAsked && values["permissions.unattended.bypassAcknowledgedAt"] === null) {
       if (params["acknowledgeBypass"] !== true) return { error: { code: "invalid_params", message: `acknowledgeBypass must come with the first bypassPermissions: ${BYPASS_SENTENCE}`, data: {} } };
       acknowledged = { "permissions.unattended.bypassAcknowledgedAt": clock.now().toISOString() };
     }

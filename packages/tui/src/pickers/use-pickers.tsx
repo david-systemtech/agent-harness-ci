@@ -182,7 +182,7 @@ export const usePickers = (host: PickersHost): Pickers => {
   const modes = useMemo(() => (panelEnvironment !== undefined ? runtime.projections.modes(panelEnvironment) : undefined), [runtime, panelEnvironment]);
   useFollow(kind === "modes" ? modes : undefined, request);
   const permissions = useMemo(
-    () => (kind === "containment" && panelEnvironment !== undefined ? runtime.requests.cached(panelEnvironment, "permissions.settings.get", {}) : undefined),
+    () => ((kind === "containment" || kind === "modes") && panelEnvironment !== undefined ? runtime.requests.cached(panelEnvironment, "permissions.settings.get", {}) : undefined),
     [runtime, kind, panelEnvironment],
   );
   useFollow(permissions, request);
@@ -322,9 +322,9 @@ export const usePickers = (host: PickersHost): Pickers => {
 
   const writeSetting = (environmentId: string, key: SettingsKey, value: unknown, acknowledged = false) => {
     if (writerOf(key) === null) return;
-    if (key === "permissions.unattended.mode" && value === "bypassPermissions" && !acknowledged) {
+    if ((key === "permissions.unattended.mode" || key === "permissions.attended.mode") && value === "bypassPermissions" && !acknowledged) {
       return host.ask({
-        text: `${BYPASS_SENTENCE} Make bypassPermissions the unattended mode? y/n`,
+        text: `${BYPASS_SENTENCE} Make bypassPermissions the ${key === "permissions.attended.mode" ? "default mode for new attended sessions" : "unattended mode"}? y/n`,
         yes: () => writeSetting(environmentId, key, value, true),
         no: () => host.say(`${settingLabel(key)} is left as it was.`),
       });
@@ -376,8 +376,8 @@ export const usePickers = (host: PickersHost): Pickers => {
     return model ? { model, effort: null } : undefined;
   };
 
-  /** The session's mode as the status line says it: the summary's, else the attended default, acceptEdits lowered to the ceiling. */
-  const sessionMode = (ceiling: Mode | null): Mode => sessionModeOf(projection?.summary?.mode, ceiling);
+  /** The session's mode as the status line says it: the summary's, else the attended default (#2183) lowered to the ceiling. */
+  const sessionMode = (ceiling: Mode | null): Mode => sessionModeOf(projection?.summary?.mode, ceiling, permissions?.read().result?.values["permissions.attended.mode"]);
   const modeCursor = (card: Extract<Panel, { kind: "modes" }>): number => card.cursor ?? Math.max(0, MODES.indexOf(sessionMode(modes?.read().ceiling ?? null)));
 
   const containmentView = () => {

@@ -470,6 +470,14 @@ describe("the step registry", () => {
     expect(permissions.writesState).toEqual([{ method: "permissions.denylist.set", parts: ["browserDomains", "paths", "commandPatterns", "hosts"] }]);
     expect(permissions.confirms).toEqual([
       {
+        // The attended default (#2183) asks the same sentence and records the same acknowledgement.
+        key: "permissions.attended.mode",
+        value: "bypassPermissions",
+        sentence: BYPASS_SENTENCE,
+        acknowledgement: "acknowledgeBypass",
+        records: "permissions.unattended.bypassAcknowledgedAt",
+      },
+      {
         key: "permissions.unattended.mode",
         value: "bypassPermissions",
         sentence: BYPASS_SENTENCE,
@@ -861,7 +869,7 @@ describe("the step registry", () => {
     expect(stepShapeProblems([{ ...permissions, writesState: [{ method: "permissions.denylist.put", parts: ["paths"] }] }])).toEqual([
       "permissions: writes state through permissions.denylist.put, which is not a method",
     ]);
-    const confirms = permissions.confirms?.map((confirmation) => ({ ...confirmation, records: "permissions.unattended.acknowledged" }));
+    const confirms = permissions.confirms?.slice(0, 1).map((confirmation) => ({ ...confirmation, records: "permissions.unattended.acknowledged" }));
     expect(stepShapeProblems([{ ...permissions, ...(confirms !== undefined && { confirms }) }])).toEqual([
       "permissions: confirms through permissions.unattended.acknowledged, which it does not write",
     ]);

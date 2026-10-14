@@ -699,6 +699,9 @@ Added when the dialog was built (#1843), where the lines above did not reach the
   - `Edit files, ask for the rest` (badge `Recommended`) `Agents can edit files in your project. They ask before running commands.`
   - `Let Claude decide` `Claude reviews each action and asks you only when it is unsure.` (where the provider supports it)
   - `Never ask` (warning tone) `Agents act without asking. Use it only for trusted work in a sandbox.`
+- Under it, `Default mode for new attended sessions` (#2183; the same words, for the two modes that setting takes: `Edit files, ask for the rest`, `Never ask`),
+  with, when the lower of the default ceiling and this connection's is below the mode chosen, `New sessions start at {mode}: that is the most a session may do here.` (warning tone).
+  The status line's mode chip says ` (default)` after the mode while a session names no mode of its own and the default applies.
 - More options `More safety settings`: `For scheduled and automatic runs` (the same words, for the two modes that setting takes: `Edit files, ask for the rest`, `Never ask`;
   #1858: the unattended mode's schema takes no other); `If nobody answers a question` `Deny it after` 1 hour / 24 hours / 2 days / `Never deny it`
   (a value set elsewhere, such as `30 minutes`, shows first as a choice of its own, chosen);
@@ -727,8 +730,8 @@ Added when the dialog was built (#1843), where the lines above did not reach the
   presets missing `Some built-in entries are missing from the {section} always-ask list.` (several: `from the {a}, {b} and {c} always-ask lists.`) **Restore them** Details: `{section}: {n} built-in entries are missing: {three} and {n} more.` or `{section}: holds none of its built-in entries, and no person emptied it.`; root as §5.4.
 - Messages: `Not saved: The containment level {x} cannot be enforced here: …` → `This sandbox does not work on this computer yet. See How to set it up.`;
   any other refusal of a change on the card is the refusal mapper's line as an error, the environment's words in Details;
-  the bypass dialog title `Never ask on scheduled runs?` body `Agents will act without asking and can do anything your account can, inside the sandbox you chose.` **Never ask** / **Cancel**.
-- Setting labels and descriptions (contracts/src/settings.ts): `How much agents may do without asking` (the why line); `For scheduled and automatic runs` `How much scheduled and automatic runs may do without asking, unless they choose for themselves. Never ask needs your agreement first.`;
+  the bypass dialog title `Never ask on scheduled runs?` (for the attended default, `Never ask in new sessions?`) body `Agents will act without asking and can do anything your account can, inside the sandbox you chose.` **Never ask** / **Cancel**.
+- Setting labels and descriptions (contracts/src/settings.ts): `How much agents may do without asking` (the why line); `Default mode for new attended sessions` `How much a session you start may do without asking, unless you change its mode. It is never more than the most any session may do. Never ask needs your agreement first.`; `For scheduled and automatic runs` `How much scheduled and automatic runs may do without asking, unless they choose for themselves. Never ask needs your agreement first.`;
   `If nobody answers a question` `How long an agent's question waits for your answer before it is denied and the run goes on. With Never deny it, the provider may still stop waiting.`;
   `Sandbox` (§2's sentence); the agreement's time `Agreed to never ask on scheduled runs` `When you agreed that scheduled runs may act without asking. It is recorded when you agree.`
 

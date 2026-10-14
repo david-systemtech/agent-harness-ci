@@ -591,7 +591,7 @@ import {
   PromptQuestion,
   PromptQuestionOption,
 } from "./prompts.js";
-import { ParkedPromptTtl, PermissionSettingsPatch, PermissionSettingsValues, SettingsArea, TtlUnit, UnattendedMode } from "./permissions-settings.js";
+import { ParkedPromptTtl, PermissionSettingsPatch, PermissionSettingsValues, SettingsArea, TtlUnit, UnattendedMode, AttendedMode } from "./permissions-settings.js";
 import {
   ReadinessCheck,
   ReadinessDeclaration,
@@ -1309,6 +1309,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "permissions/run-policy.json", title: "RunPolicy", schema: RunPolicy },
   { path: "permissions/settings-area.json", title: "SettingsArea", schema: SettingsArea },
   { path: "permissions/unattended-mode.json", title: "UnattendedMode", schema: UnattendedMode },
+  { path: "permissions/attended-mode.json", title: "AttendedMode", schema: AttendedMode },
   { path: "permissions/ttl-unit.json", title: "TtlUnit", schema: TtlUnit },
   { path: "permissions/parked-prompt-ttl.json", title: "ParkedPromptTtl", schema: ParkedPromptTtl },
   { path: "permissions/settings-values.json", title: "PermissionSettingsValues", schema: PermissionSettingsValues },

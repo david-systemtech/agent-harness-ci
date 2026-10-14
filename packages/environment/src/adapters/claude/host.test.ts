@@ -91,7 +91,7 @@ const containedAt =
       requested,
       ceiling: actor.ceiling,
       accountModes,
-      settings: { unattendedMode: "acceptEdits", containmentDefault: level },
+      settings: { attendedMode: "acceptEdits", unattendedMode: "acceptEdits", containmentDefault: level },
       containment: null,
       enforceable: ENFORCEABLE,
     });
@@ -671,7 +671,7 @@ describe("a Claude run through the adapter host", () => {
     const answeredOf = (t: Setup) => eventsOf(t).filter((event) => event.type === "prompt.answered").map((event) => event.payload as PromptAnsweredPayload);
     /** The client's mode and the ceiling it runs under, as `runs.start` asked for bypassPermissions. */
     const inBypass: PolicySeam = ({ actor, accountModes }) =>
-      resolvePolicy({ actor, requested: "bypassPermissions", ceiling: actor.ceiling, accountModes, settings: { unattendedMode: "bypassPermissions", containmentDefault: "off" }, containment: null, enforceable: ENFORCEABLE });
+      resolvePolicy({ actor, requested: "bypassPermissions", ceiling: actor.ceiling, accountModes, settings: { attendedMode: "acceptEdits", unattendedMode: "bypassPermissions", containmentDefault: "off" }, containment: null, enforceable: ENFORCEABLE });
 
     const opened = async (t: Setup, actor: RunActor = clientActor) => {
       const { runId, messageId } = startRun(t, "Go", actor);
