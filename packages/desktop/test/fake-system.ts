@@ -28,6 +28,8 @@ export interface FakeSystem extends UpdateSystem {
   answer(command: string, answer: (args: readonly string[]) => CommandResult | Promise<CommandResult>): void;
   /** Has the next `call` whose paths `when` accepts fail, as a locked or vanished file would. */
   fail(call: Failable, when?: (...paths: string[]) => boolean): void;
+  /** Has every file system report `bytes` free, as a full disk would; preset plenty. */
+  freeSpace(bytes: number): void;
   /** Makes `path`, and all it holds, read-only, as a disk image or a translocated app is. */
   readOnly(path: string): void;
 }
@@ -47,6 +49,7 @@ export const fakeSystem = (): FakeSystem => {
   const answers = new Map<string, (args: readonly string[]) => CommandResult | Promise<CommandResult>>();
   const failing: { readonly call: Failable; readonly when: (...paths: string[]) => boolean }[] = [];
   const readOnly: string[] = [];
+  let free = 1024 ** 4;
 
   /** Throws when a failure is set for `call` on `paths`, using it up. */
   const failIfSet = (call: Failable, ...paths: string[]): void => {
@@ -61,6 +64,7 @@ export const fakeSystem = (): FakeSystem => {
     readFile,
     writeFile,
     readdir,
+    statfs: () => Promise.resolve({ bavail: free / 4096, bsize: 4096 }),
     access: async (path, mode) => {
       if (mode !== undefined && (mode & constants.W_OK) !== 0 && readOnly.some((folder) => inside(String(path), folder))) {
         throw Object.assign(new Error(`EROFS: read-only file system, access '${String(path)}'`), { code: "EROFS" });
@@ -100,6 +104,7 @@ export const fakeSystem = (): FakeSystem => {
       started.push([command, ...args]);
     },
     answer: (command, answer) => void answers.set(command, answer),
+    freeSpace: (bytes) => void (free = bytes),
     fail: (call, when = () => true) => void failing.push({ call, when }),
     readOnly: (path) => void readOnly.push(path),
   };

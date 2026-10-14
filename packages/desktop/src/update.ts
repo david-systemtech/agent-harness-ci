@@ -1,7 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
-import { access, appendFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { access, appendFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, statfs, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, win32 } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { compareReleaseVersions, ReleaseVersion } from "@agent-harness/contracts";
@@ -37,6 +37,8 @@ export interface UpdateFiles {
   readonly readdir: typeof readdir;
   readonly rename: typeof rename;
   readonly rm: typeof rm;
+  /** The free space of the file system a build installs on, checked before it is (#2194). */
+  readonly statfs: (path: string) => Promise<{ readonly bavail: number; readonly bsize: number }>;
   readonly writeFile: typeof writeFile;
 }
 
@@ -77,7 +79,7 @@ export const NODE_UPDATE_SYSTEM: UpdateSystem = {
         settle();
       });
     }),
-  files: { access, lstat, mkdtemp, readFile, readdir, rename, rm, writeFile },
+  files: { access, lstat, mkdtemp, readFile, readdir, rename, rm, statfs, writeFile },
 };
 
 export interface UpdateParts {
@@ -211,6 +213,21 @@ export const ROLLBACK_BOUND_SECONDS = 60;
 /** Windows PowerShell, which runs the launch helper as the shortcuts do. */
 export const windowsPowerShell = (): string => win32.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
 
+/**
+ * How many times its download a build takes once installed (#2194): a zip
+ * unpacked, a setup's 7z extracted, a zstd package installed each come to
+ * two or three times their download; four is the safe side of all of them.
+ */
+export const INSTALLED_FACTOR = 4;
+
+/** What stays free beyond the installed build, for the app, its logs and the OS to go on writing. */
+export const SPACE_MARGIN_BYTES = 256 * 1024 * 1024;
+
+/** What the update card says when a build is not installed for want of space. */
+export const NO_SPACE = "Not enough space to prepare the update";
+
+const megabytes = (bytes: number): string => `${Math.ceil(bytes / (1024 * 1024))} MB`;
+
 /** A version that is safe as one path segment: `versions/<version>`. */
 const SAFE_VERSION = /^[0-9A-Za-z][0-9A-Za-z.+-]*$/;
 
@@ -254,6 +271,8 @@ type Installation =
   | {
       readonly format: "zip" | "nsis" | "pacman";
       readonly afterQuit: boolean;
+      /** The folder the build installs into, whose file system must hold it. */
+      readonly room: string;
       install(staged: ShellStagedBuild, restart: boolean): Promise<ShellApplyOutcome>;
       /** Installs `staged` beside the running app, ahead of the click; rejects saying why, the running version untouched. */
       prepare?(staged: ShellStagedBuild): Promise<Prepared>;
@@ -560,6 +579,7 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
         return {
           format: "zip",
           afterQuit: false,
+          room: dirname(bundle),
           install: (staged) => swapBundle(bundle, staged),
           prepare: (staged) => prepareBundle(bundle, staged),
           discard: async ({ temporary }) => {
@@ -578,6 +598,7 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
         return {
           format: "nsis",
           afterQuit: true,
+          room: windowsInstallRoot(platform.executable),
           install: runSetup,
           prepare: prepareVersion,
           discard: ({ target }) => files.rm(dirname(target), { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }),
@@ -586,7 +607,7 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
       case "linux": {
         const owned = await system.run("pacman", ["-Qqo", platform.executable]).catch(() => undefined);
         if (owned?.code !== 0) return { format: null, why: "no pacman package installed it, as for an AppImage or a .deb" };
-        return { format: "pacman", afterQuit: false, install: pacmanInstall };
+        return { format: "pacman", afterQuit: false, room: dirname(platform.executable), install: pacmanInstall };
       }
     }
   };
@@ -612,6 +633,29 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
   };
 
   /**
+   * Whether the file system `found` installs on holds `staged` once
+   * installed (its download times `INSTALLED_FACTOR`) and the margin, checked
+   * before anything is installed (#2194): a shortfall logs
+   * `<version> stage skipped: free space` and says "Not enough space to
+   * prepare the update", the running version untouched. Space that cannot be
+   * read is no reason to refuse.
+   */
+  const spaceShort = async (found: Exclude<Installation, { format: null }>, staged: ShellStagedBuild): Promise<ShellApplyOutcome | undefined> => {
+    let needed: number;
+    let free: number;
+    try {
+      needed = (await files.lstat(staged.path)).size * INSTALLED_FACTOR + SPACE_MARGIN_BYTES;
+      const { bavail, bsize } = await files.statfs(found.room);
+      free = bavail * bsize;
+    } catch {
+      return undefined;
+    }
+    if (free >= needed) return undefined;
+    log(`${staged.version} stage skipped: free space`);
+    return failed("install", `${NO_SPACE}: ${staged.version} needs about ${megabytes(needed)} free on the disk of ${found.room}, and ${megabytes(free)} is, so ${stays()}.`);
+  };
+
+  /**
    * Installs `staged` ahead of the click, once (#2194): downloaded, then
    * installing, then installed; a newer build replaces an older one, whose
    * files are removed. A failure logs `<version> stage failed: <reason>`
@@ -620,6 +664,8 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
   const prepareAhead = async (found: Exclude<Installation, { format: null }>, staged: ShellStagedBuild): Promise<Prepared | ShellApplyOutcome> => {
     const ready = prepared.switchable(staged);
     if (ready !== undefined || found.prepare === undefined) return ready ?? APPLIED;
+    const short = await spaceShort(found, staged);
+    if (short !== undefined) return short;
     const replaced = prepared.downloaded(staged);
     if (replaced !== undefined) await found.discard?.(replaced).catch(report);
     prepared.installing(staged);
@@ -722,6 +768,8 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
         }
         return outcome;
       }
+      const short = await spaceShort(found, staged);
+      if (short !== undefined) return short;
       if (when === "now") await recordClick(staged);
       if (when === "quit" || found.afterQuit) {
         handedOver = { staged, restart: when === "now" };

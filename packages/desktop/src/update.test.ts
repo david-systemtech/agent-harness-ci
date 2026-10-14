@@ -8,7 +8,7 @@ import { fakeElectron, type FakeElectron } from "../test/fake-electron.js";
 import { fakeSystem, succeeded, type FakeSystem } from "../test/fake-system.js";
 import { cleanUp, platformOn, scratch, start } from "../test/harness.js";
 import type { DesktopPlatform } from "./platform.js";
-import { desktopUpdate, preparation, ROLLBACK_BOUND_SECONDS, windowsPowerShell, type CommandResult } from "./update.js";
+import { desktopUpdate, INSTALLED_FACTOR, preparation, ROLLBACK_BOUND_SECONDS, SPACE_MARGIN_BYTES, windowsPowerShell, type CommandResult } from "./update.js";
 
 afterEach(cleanUp);
 
@@ -763,6 +763,65 @@ describe("apply, on every platform", () => {
 
     const commands = [...macSystem.ran, ...archSystem.ran, ...archSystem.started, ...windowsSystem.ran, ...windowsSystem.started].map(([command]) => basename(command ?? ""));
     expect(new Set(commands)).toEqual(new Set(["ditto", "pacman", "pkexec", "agent-harness-desktop-win32-x64-setup.exe", basename(windowsPowerShell())]));
+  });
+});
+
+describe("free space before a build is installed, issue 2194", () => {
+  /** The space `staged` needs once installed, with the margin. */
+  const needs = (staged: ShellStagedBuild) => readFileSync(staged.path).length * INSTALLED_FACTOR + SPACE_MARGIN_BYTES;
+
+  it("on Windows, installs nothing beside the app without the space for it, logs the skip and says there is not enough space", async () => {
+    const system = fakeSystem();
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
+    const root = join(scratch(), "Programs", "agent-harness");
+    mkdirSync(root, { recursive: true });
+    system.answer(staged.path, () => succeeded);
+    system.freeSpace(needs(staged) - 4096);
+    const lines: string[] = [];
+    const electron = fakeElectron({ os: "win32" });
+    electron.app.isPackaged = true;
+    const update = desktopUpdate({ app: electron.app, platform: platformOn("win32", { executable: join(root, "agent-harness.exe") }), system, report: () => {}, log: (line) => lines.push(line) });
+
+    const outcome = await update.apply(staged, "quit");
+    expect(outcome).toMatchObject({ outcome: "failed", failure: "install" });
+    expect(outcome.outcome === "failed" && outcome.message).toMatch(/^Not enough space to prepare the update: 0\.6\.0 needs about \d+ MB free on the disk of .+, and \d+ MB is, so 0\.5\.0 stays installed\.$/);
+    expect(lines).toEqual(["0.6.0 stage skipped: free space"]);
+    expect(system.ran).toEqual([]);
+    expect(existsSync(join(root, "versions"))).toBe(false);
+
+    // Once there is room, the same build installs.
+    system.freeSpace(needs(staged));
+    system.answer(staged.path, (args) => {
+      const into = (args.at(-1) ?? "").slice("--stage=".length);
+      mkdirSync(into, { recursive: true });
+      writeFileSync(join(into, "agent-harness.exe"), "0.6.0");
+      return succeeded;
+    });
+    expect(await update.apply(staged, "quit")).toEqual({ outcome: "applied" });
+  });
+
+  it("on macOS, unpacks nothing beside the bundle without the space for it", async () => {
+    const mac = macBundle();
+    const system = fakeSystem();
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-darwin-arm64.zip");
+    system.freeSpace(0);
+    const { shell } = await installed("darwin", mac.executable, system);
+
+    expect(await shell().update.apply(staged, "quit")).toMatchObject({ outcome: "failed", message: expect.stringMatching(/^Not enough space to prepare the update: /) });
+    expect(system.made).toEqual([]);
+    expect(system.ran).toEqual([]);
+  });
+
+  it("on Arch, runs no pacman without the space for the package", async () => {
+    const system = fakeSystem();
+    pacmanOwns(system, "/opt/agent-harness/agent-harness");
+    system.answer("pkexec", () => succeeded);
+    system.freeSpace(1024);
+    const { shell, electron } = await installed("linux", "/opt/agent-harness/agent-harness", system);
+
+    expect(await shell().update.apply(stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst"), "now")).toMatchObject({ outcome: "failed", message: expect.stringMatching(/^Not enough space to prepare the update: /) });
+    expect(system.ran.map(([command]) => command)).not.toContain("pkexec");
+    expect(electron.app.calls.map(([method]) => method)).not.toContain("quit");
   });
 });
 
