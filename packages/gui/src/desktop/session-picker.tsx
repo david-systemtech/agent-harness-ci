@@ -23,7 +23,7 @@ const DesktopChoiceRows = ({ rows, choose }: { readonly rows: readonly DesktopRo
     </MenuItem>)}
 </>;
 
-/** The desktop chip beside the browser's, and its submenu in the run popup: the session's desktop for the next run, and why this run has none when it asked for one. */
+/** The desktop chip beside the browser's (only when a desktop is chosen or a run was refused one), and its submenu in the run popup: the session's desktop for the next run, and why this run has none when it asked for one. */
 export const SessionDesktopPicker = ({ environmentId, sessionId, submenu = false }: { readonly environmentId: string; readonly sessionId: string; readonly submenu?: boolean }) => {
   const runtime = useRuntime();
   const session = useObservableSelector(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]), desktopFields);
@@ -47,6 +47,10 @@ export const SessionDesktopPicker = ({ environmentId, sessionId, submenu = false
     <MenuSubTrigger title={`Desktop · Right arrow to open${absent === undefined ? "" : ` · ${absent}`}`} disabled={disabled}><Monitor aria-hidden="true" />Desktop</MenuSubTrigger>
     <MenuSubContent aria-label="Desktop" className="w-72 max-h-[320px] overflow-y-auto"><DesktopChoiceRows rows={picker.rows} choose={(desktop) => void choose(desktop)} /></MenuSubContent>
   </MenuSub>;
+  // The chip appears only when the session has a desktop chosen, or its latest run asked for one and was refused: a session with none
+  // (every session until a desktop is offered, #2162) keeps the chip row as it was, and the run popup's submenu above is where one is chosen.
+  // When shown it is a chip of the wrapping row like the browser's: it shrinks to its basis and truncates before the row wraps.
+  if (picker.chosen.kind === "none" && picker.refused === null) return null;
   const chosen = picker.rows.find((row) => row.selected)?.label ?? "No desktop";
   const detail = picker.refused === null ? undefined : `${run?.state === "running" ? "This run" : "Last run"}: no desktop. ${picker.refused.message}`;
   const trigger = <MenuTrigger asChild>

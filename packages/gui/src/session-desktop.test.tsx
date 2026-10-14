@@ -21,9 +21,11 @@ const opened = async () => {
 };
 
 describe("the session desktop picker, issue 2161", () => {
-  it("shows a never-set desktop as none and sets the field for the next run through sessions.setDesktop", async () => {
-    const { app } = await opened();
-    const chip = await screen.findByRole("button", { name: "Desktop: No desktop" });
+  it("draws no chip for a never-set desktop, and once one is chosen sets the field for the next run through sessions.setDesktop", async () => {
+    const { app, desk, sessionId } = await opened();
+    expect(within(screen.getByRole("region", { name: "Status line" })).queryByRole("button", { name: /^Desktop: / })).toBeNull();
+    act(() => { desk.emit(sessionId, "session.desktop.set", { desktop: { kind: "local" } }, { fields: { desktop: { kind: "local" } } }); });
+    const chip = await screen.findByRole("button", { name: "Desktop: This computer's desktop" });
     act(() => chip.focus());
     await app.user.keyboard("{Enter}");
     const menu = await screen.findByRole("menu");
