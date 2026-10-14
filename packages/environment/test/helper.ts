@@ -218,6 +218,8 @@ export interface TestEnvironmentOptions {
    * browser unless it gives its own (the scripted CDP peer).
    */
   readonly browser?: EnvironmentOptions["browser"];
+  /** The desktops a run's computer server drives (#2161); preset: none available, as the environment's. */
+  readonly desktop?: EnvironmentOptions["desktop"];
 }
 
 /** The launcher a test environment's headless browser has unless a test gives its own: none, since no test may launch a browser. */
@@ -443,6 +445,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.setupSteps !== undefined && { setupSteps: options.setupSteps }),
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
     webRead: { resolve: noResolver, dial: loopbackDialer, ...options.webRead },
+    ...(options.desktop !== undefined && { desktop: options.desktop }),
     browser: { extensionSource: TEST_EXTENSION, ports: TEST_EXTENSION_PORTS, isExecutable: () => false, launch: refusingLaunch, resolve: noResolver, ...options.browser },
   };
   let env: EnvironmentHandle;

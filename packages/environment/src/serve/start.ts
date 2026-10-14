@@ -74,6 +74,9 @@ import { resolveRunBrowser, type HeadlessAvailabilitySeam } from "../browser/run
 import { chooseChrome } from "../browser/chrome-choice.js";
 import { browserAllowance } from "../browser/denylist.js";
 import { createBrowserToolServers, type PageDrivers } from "../browser/tool-server.js";
+import { NO_CONTAINED_DESKTOP, NO_LIVE_DESKTOP, resolveRunDesktop, type DesktopAvailability } from "../desktop/run-desktop.js";
+import { createComputerToolServers, type DesktopDrivers } from "../desktop/tool-server.js";
+import { containedDesktopDriver } from "../desktop/unavailable.js";
 import { systemDialer, type Dialer } from "../browser/web-fetch.js";
 import { createWebReader } from "../browser/web-read.js";
 import {
@@ -652,6 +655,17 @@ export interface EnvironmentOptions {
     readonly resolve?: Resolver;
     readonly dial?: Dialer;
     readonly hooks?: ExtractionHooks;
+  };
+  /**
+   * The desktops a run's `computer` server drives (computer spec; #2161):
+   * whether each kind is available, asked at each run's start, and its driver
+   * by kind. Preset: neither is available (no contained desktop is configured
+   * until #2162, no live helper until #2164) and the contained stub driver;
+   * tests hand a scripted desktop.
+   */
+  readonly desktop?: {
+    readonly availability?: () => { readonly contained: DesktopAvailability; readonly local: DesktopAvailability };
+    readonly drivers?: DesktopDrivers;
   };
   /**
    * The extension's folder and its listener (#547): the built extension the
@@ -1260,7 +1274,16 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // One set of memory operations behind the runs' tools and the CLI's bank verbs, so one queue's changes are serialized whoever asks.
   const memoryOperations = createMemoryOperations({ log, environmentId: record.id, scrub, promote: (bank, sessionId, drafts) => bankService.promote(bank.id, sessionId, drafts) });
   const memoryTools = createMemoryToolServers(memoryOperations);
-  const runServers: ToolServerFactory = (scope) => [browserTools(scope), ...memoryTools(scope), ...seamServers(scope)];
+  // The computer server (#2161) on a run whose desktop resolved to one, each call driving the desktop of its session's live
+  // run as the host holds it then; none on a run without a desktop.
+  const computerTools = createComputerToolServers({
+    live: (sessionId) => host.live(sessionId),
+    drivers: options.desktop?.drivers ?? { contained: () => containedDesktopDriver(null) },
+  });
+  const runServers: ToolServerFactory = (scope) => {
+    const computer = computerTools({ sessionId: scope.sessionId, desktop: scope.desktop });
+    return [browserTools(scope), ...(computer === null ? [] : [computer]), ...memoryTools(scope), ...seamServers(scope)];
+  };
   // What the client sessions report of their other connections (#382), dropped as each is revoked or expires.
   const knownEnvironments = createKnownEnvironments({ log, stream: environmentStream, environmentId: record.id, clock, clientSessions });
   closers.push(() => knownEnvironments.close());
@@ -1465,6 +1488,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
         resolveRunBrowser(request, {
           allowRuns: settings()["browser.headless.allowRuns"],
           headless: options.browser?.headless?.() ?? browser.headless.availability(),
+        }),
+      // Each run's desktop (#2161): the session's field by attendance and containment, the operator's switch as it is at the
+      // run's start, and what this environment can drive.
+      resolveDesktop: ({ containment: level, ...request }) =>
+        resolveRunDesktop(request, {
+          containedAllowRuns: settings()["desktop.contained.allowRuns"],
+          containment: level,
+          ...(options.desktop?.availability?.() ?? { contained: { available: false, reason: NO_CONTAINED_DESKTOP }, local: { available: false, reason: NO_LIVE_DESKTOP } }),
         }),
       containmentDirectories: sessionDirectories,
       processEnvironments,
