@@ -2,3 +2,8 @@
 [data-limited-access] button { min-width: 44px; min-height: 44px; font-size: 14px; }
 [data-limited-access] button:last-child { margin-left: auto; }
 [data-access-sheet] button, [data-access-unavailable] button { min-height: 44px; white-space: normal; max-width: 100%; }
+/* Same layout bounds as phoneLayoutMedia. At keyboard height the explanation scrolls inside the sheet
+ * and the sheet's controls (close, the full-access action, the pairing form) stay in view. */
+@media (width < 640px), (pointer: coarse) and (hover: none) and (640px <= width <= 960px) and (height <= 500px) {
+  [data-access-sheet] > div:first-child, [data-access-body] { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+}

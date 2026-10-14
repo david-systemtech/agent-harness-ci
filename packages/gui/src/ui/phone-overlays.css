@@ -21,6 +21,9 @@
     white-space: normal;
     overflow-wrap: anywhere;
   }
+  /* A painted 44px control needs no pointer box; touch-target's insets are taken from the padding box,
+   * so at exactly 44px with a 1px border the box would spill 1px past the control and overflow it. */
+  :is([role="dialog"], [data-run-sheet], [data-palette-overlay]) button[data-variant][data-size]::before { content: none; }
 
   /* Menu explanations use the full row on phones; keys remain available on desktop. */
   .phone-menu-row kbd { display: none; }
