@@ -33,6 +33,7 @@ import { useHandOffOnto } from "./hand-off.js";
 import { useSignInCard } from "./pane-dialogs.js";
 import { MenuSub, MenuSubContent, MenuSubTrigger } from "../ui/menu.js";
 import { SessionBrowserPicker } from "../browser/session-picker.js";
+import { SessionDesktopPicker } from "../desktop/session-picker.js";
 import { RunChoiceRow, RunPickerColumn, RunPickerContent, RunPickerSteps, RunPickerTrigger, moveInColumns, useNarrowRunPicker, type RunStage } from "./run-picker-parts.js";
 import { useSayModeSet } from "./mode-said.js";
 import { ModeSheet, focusModeSheet, trapModeSheetTab, useAttendedDefault } from "./mode-sheet.js";
@@ -294,6 +295,7 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
     <div role="group" aria-label="More choices" data-run-column="More choices" className="flex items-center gap-2 border-t border-hairline p-1.5">
       <ModeSubmenu environmentId={environmentId} sessionId={sessionId} />
       <SessionBrowserPicker environmentId={environmentId} sessionId={sessionId} submenu />
+      <SessionDesktopPicker environmentId={environmentId} sessionId={sessionId} submenu />
     </div>
   </div>;
 };

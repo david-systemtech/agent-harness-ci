@@ -656,6 +656,7 @@ export const ACTION_GROUPS = [
     command("terminal", "/terminal", "Open a terminal on the session's environment, in a pane"),
     command("files", "/files [path]", "Browse the workspace's files, and read one in the pager"),
     command("browser", "/browser", "Choose this session's browser for its next run, or pair Chrome"),
+    command("desktop", "/desktop", "Choose this session's desktop for its next run", { guiAbsent: "The desktop chip in the status line chooses it." }),
     command("documents", "/documents", "The pages, SVGs and markdown this session wrote, newest first"),
     command("trust", "/trust [decline]", "Trust this session's repository, or decline its offer", { guiAbsent: "Trust is decided in the session's trust question." }),
     command("notices", "/notices", "Every notice this terminal has shown"),

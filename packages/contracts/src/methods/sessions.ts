@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SessionBrowser } from "../browser-choice.js";
+import { SessionDesktop } from "../desktop-driver.js";
 import { errorSchema } from "../errors.js";
 import { commandParams, defineMethod, subscriptionParams } from "../method.js";
 import { Mode } from "../permissions-modes.js";
@@ -105,6 +106,9 @@ export const sessionsCreate = defineMethod({
     mode: Mode.optional().meta({ description: "The mode the session's runs start in, clamped at each run; permissions.mode.set changes it." }),
     browser: BrowserOnCreate.optional().meta({
       description: "The session's first browser and who chose it, recorded as session.browser.set after session.created; none chosen (null) when absent. sessions.setBrowser changes it.",
+    }),
+    desktop: SessionDesktop.optional().meta({
+      description: "The session's first desktop, recorded as session.desktop.set after session.created; none (a null field) when absent. sessions.setDesktop changes it.",
     }),
   }),
   result: summaryResult,
@@ -250,6 +254,29 @@ export const sessionsSetBrowser = defineMethod({
   params: commandParams({
     ...sessionTarget,
     browser: SessionBrowser.nullable().meta({ description: "The session's browser; null for none chosen." }),
+  }),
+  result: summaryResult,
+  errors: [],
+});
+
+/**
+ * Set the session's desktop (computer spec, "Session field and run
+ * resolution"; ADR 0038): none, contained (the run environment's contained
+ * desktop) or local (this person's live desktop). At `runs:drive`, as
+ * `sessions.setBrowser` is, since it chooses what the session's next run may
+ * drive. Recorded as `session.desktop.set`; the desktop the session has
+ * already appends nothing. A live run keeps the desktop it resolved at its
+ * start; the next run resolves the new one. Setting it does not move
+ * `updatedAt`. A session that is not here, or is deleted, is `not_found`
+ * (data kind `session`).
+ */
+export const sessionsSetDesktop = defineMethod({
+  name: "sessions.setDesktop",
+  scope: "runs:drive",
+  kind: "command",
+  params: commandParams({
+    ...sessionTarget,
+    desktop: SessionDesktop.meta({ description: "The session's desktop: none, contained or local." }),
   }),
   result: summaryResult,
   errors: [],

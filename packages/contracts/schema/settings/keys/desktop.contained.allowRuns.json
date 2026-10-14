@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DesktopContainedAllowRuns",
+  "type": "boolean",
+  "description": "desktop.contained.allowRuns: whether runs on this environment may drive its contained desktop, an explicit session choice included; off, a contained desktop resolves to none (operator-disabled). Preset off."
+}

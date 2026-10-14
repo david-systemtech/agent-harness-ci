@@ -152,6 +152,7 @@ export * from "./release.js";
 export * from "./schema-export.js";
 export * from "./scopes.js";
 export * from "./session-browser.js";
+export * from "./session-desktop.js";
 export * from "./sessions.js";
 export * from "./settings.js";
 export * from "./settings-rows.js";

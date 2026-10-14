@@ -21,6 +21,7 @@ import { useHandoffPicker } from "./pane-dialogs.js";
 import { AccountPicker, ContainmentPicker, ModePicker, ModelPicker, RunPickerRequest, modeLabel, type RunPickerCommand } from "./pickers.js";
 import { useHandedOnto } from "./run-choices.js";
 import { SessionBrowserPicker } from "../browser/session-picker.js";
+import { SessionDesktopPicker } from "../desktop/session-picker.js";
 import { UsageMeter } from "./usage-meter.js";
 import { ActivityMark } from "../session/activity-mark.js";
 import { useProviderProcess } from "./use-process.js";
@@ -111,6 +112,7 @@ export const StatusLine = ({ environmentId, sessionId, compact = false }: Status
         </ModePicker>
         <ContainmentPicker environmentId={environmentId} sessionId={sessionId} containment={facts.containment} />
         <SessionBrowserPicker environmentId={environmentId} sessionId={sessionId} />
+        <SessionDesktopPicker environmentId={environmentId} sessionId={sessionId} />
         {facts.offer !== undefined ? <HandoffOffer offer={facts.offer} /> : <RunLine facts={facts} processKnown={process !== undefined} />}
       </div>
       <span className="ml-auto flex min-w-0 max-w-full items-center gap-2">

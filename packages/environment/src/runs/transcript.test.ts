@@ -81,6 +81,7 @@ const summary = {
   runChoice: null,
   mode: null,
   browser: null,
+  desktop: null,
   pullRequests: [],
   draft: null,
   draftRevision: 0,

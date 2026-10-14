@@ -620,6 +620,32 @@
               ],
               "description": "The session's browser: a Chrome (a null chromeId the plain My Chrome), headless, the dock or none, as sessions.setBrowser or sessions.create last set it; null when none was chosen, so each run resolves a default. Each run resolves it again at its start."
             },
+            "desktop": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "contained",
+                        "local"
+                      ],
+                      "description": "Which desktop a session's runs may drive: none, contained (the run environment's configured contained desktop) or local (this person's live desktop)."
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "description": "The desktop a session's next run may drive; omitted, none."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The session's desktop: none, contained (the run environment's contained desktop) or local (this person's live desktop), as sessions.setDesktop or sessions.create last set it; null when never set, which resolves as none. Each run resolves it again at its start."
+            },
             "pullRequests": {
               "type": "array",
               "items": {
@@ -724,11 +750,12 @@
             "runChoice",
             "mode",
             "browser",
+            "desktop",
             "pullRequests",
             "draft",
             "draftRevision"
           ],
-          "description": "A session as every client renders its list row: identity, title, filing, shelf, place, activity, mode, browser, forge and the composer draft."
+          "description": "A session as every client renders its list row: identity, title, filing, shelf, place, activity, mode, browser, desktop, forge and the composer draft."
         }
       },
       "required": [

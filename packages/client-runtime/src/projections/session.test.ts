@@ -391,6 +391,15 @@ describe("an unknown event type", () => {
   });
 });
 
+describe("a run's desktop resolution (#2161)", () => {
+  it("holds each run's desktop from its run.desktop.resolved, by run; none while none was heard", () => {
+    expect(reduce([]).desktopResolutions).toEqual({});
+    const resolution = { requested: { kind: "contained" }, desktop: { kind: "none" }, reason: "operator-disabled", message: "desktop.contained.allowRuns is off." };
+    const { desktopResolutions } = reduce(numbered(1, [["run.started", recorded("run.started")], ["run.desktop.resolved", { runId: FIXTURE_RUN, ...resolution }]]));
+    expect(desktopResolutions).toEqual({ [FIXTURE_RUN]: resolution });
+  });
+});
+
 describe("a run's policy and the session's containment (#402)", () => {
   it("holds each run's policy from its run.policy.resolved, by run", () => {
     const { policies } = reduce(numbered(1, [["run.started", recorded("run.started")], ["run.policy.resolved", recorded("run.policy.resolved")]]));

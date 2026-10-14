@@ -70,6 +70,7 @@ import {
   originOfActor,
   policyResolvedEvent,
   browserResolvedEvent,
+  desktopResolvedEvent,
   type AccountFacts,
   type LiveRunFacts,
   type PlannedRun,
@@ -137,6 +138,7 @@ import {
   type TrustSeam,
 } from "./seams.js";
 import { presetBrowser, type BrowserSeam } from "../browser/run-browser.js";
+import { presetDesktop, type DesktopSeam } from "../desktop/run-desktop.js";
 
 /**
  * The adapter host (claude-adapter spec, "Modules and ownership" and "The
@@ -290,6 +292,13 @@ export interface AdapterHostOptions {
   readonly resolveBrowser?: BrowserSeam;
   /** The Codex account chosen for Claude runs (#2169, `accounts/codex-injection.ts`), read as each run starts and recorded on its run.started while the run's injection answer is allow (#2224); preset: none. */
   readonly codexAccount?: () => string | null;
+  /**
+   * The desktop resolver runs start through (#2161): the session's desktop by
+   * attendance, containment, `desktop.contained.allowRuns` and what this
+   * environment can drive. Preset: the settings' presets and no desktop
+   * (`presetDesktop`).
+   */
+  readonly resolveDesktop?: DesktopSeam;
   /**
    * The process environments' registry (#307, `process-environment.ts`):
    * each run's injection answer, asked once as it launches and carried in
@@ -736,6 +745,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const promptTtlMs = options.promptTtlMs ?? (() => null);
   const resolvePolicy = options.resolvePolicy ?? presetPolicy;
   const resolveBrowser = options.resolveBrowser ?? presetBrowser;
+  const resolveDesktop = options.resolveDesktop ?? presetDesktop;
   const processEnvironments = options.processEnvironments ?? createProcessEnvironments();
   const directories = options.containmentDirectories ?? temporaryContainmentDirectories();
   const { accounts } = options;
@@ -864,7 +874,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const byRunId = (runId: string): LiveRun | undefined => [...live.values()].find((entry) => entry.runId === runId && isLive(entry));
 
   const liveFacts = (entry: LiveRun | undefined): LiveRunFacts | null =>
-    entry === undefined || !isLive(entry) ? null : { runId: entry.runId, descriptor: entry.descriptor, policy: entry.plan.policy, browser: entry.plan.browser };
+    entry === undefined || !isLive(entry) ? null : { runId: entry.runId, descriptor: entry.descriptor, policy: entry.plan.policy, browser: entry.plan.browser, desktop: entry.plan.desktop };
 
   const append = (sessionId: string, runId: string, actor: string, events: readonly EventInput[], commandId?: string): void => {
     if (events.length > 0) log.append(sessionStream(sessionId), events, { actor, correlationId: runId, ...(commandId !== undefined && { commandId }) });
@@ -1019,6 +1029,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       resolveBrowser,
       // Recorded only where the run is given it: an injection denied for the run (a routine's own deny, its account's, the environment's) gives none, so records none (#2224).
       codexAccountId: codexAccountFor(sessionId, accountId, actor),
+      resolveDesktop,
       defaults: { modelFamily, effort },
       runId: randomUUID(),
     };
@@ -1728,6 +1739,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       repositoryIdentity: plan.repositoryIdentity,
       clientTools: plan.clientTools,
       browser: plan.browser.browser,
+      desktop: plan.desktop.desktop,
     });
     let slash: SlashScope;
     const start = (composed: ComposedInstructions, skillSet: RunSkillSet): void =>
@@ -1890,7 +1902,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     const mode = policy.mode.effective;
     // The turn is a run of its own: its browser is resolved afresh, as its policy is.
     const browser = resolveBrowser({ field: session.browser, attended: policy.attended });
-    const adoptIn = (running: Mode): void => adoptTurn(previous, turn, actor, { policy, browser }, running);
+    const desktop = resolveDesktop({ field: session.desktop, attended: policy.attended, containment: policy.containment.effective });
+    const adoptIn = (running: Mode): void => adoptTurn(previous, turn, actor, { policy, browser, desktop }, running);
     if (mode !== followed.mode) {
       const setMode = turn.setMode;
       if (!descriptor.modeChange || setMode === undefined) {
@@ -1903,7 +1916,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         return refuse(`changing its mode from ${followed.mode} to ${mode} failed: ${messageOf(error)}`);
       }
       if (answer instanceof Promise) {
-        changingMode.set(previous.sessionId, { runId: followed.runId, descriptor, policy: previous.policy, browser: previous.browser });
+        changingMode.set(previous.sessionId, { runId: followed.runId, descriptor, policy: previous.policy, browser: previous.browser, desktop: previous.desktop });
         // Runs once the change has answered, in a promise callback: nothing it does may throw out of it, or the rejection would be nobody's.
         const settled = (work: () => void): void => {
           changingMode.delete(previous.sessionId);
@@ -1947,12 +1960,12 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     previous: PlannedRun,
     turn: ProviderTurn,
     actor: RunActor,
-    { policy, browser }: Pick<PlannedRun, "policy" | "browser">,
+    { policy, browser, desktop }: Pick<PlannedRun, "policy" | "browser" | "desktop">,
     mode: Mode,
   ): void => {
     const runId = randomUUID();
     const { descriptor } = previous.account;
-    const plan: PlannedRun = { ...previous, runId, prompt: [], target: { kind: "fresh" }, mode, actor, policy, browser };
+    const plan: PlannedRun = { ...previous, runId, prompt: [], target: { kind: "fresh" }, mode, actor, policy, browser, desktop };
     const started: RunStartedPayload = {
       runId,
       accountId: plan.account.id,
@@ -1972,7 +1985,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       return { type: "message.delivered", payload };
     });
     try {
-      const events: EventInput[] = [{ type: "run.started", payload: started }, policyResolvedEvent(runId, policy), browserResolvedEvent(runId, browser), ...delivered];
+      const events: EventInput[] = [{ type: "run.started", payload: started }, policyResolvedEvent(runId, policy), browserResolvedEvent(runId, browser), desktopResolvedEvent(runId, desktop), ...delivered];
       const attribution = { actor: formatActor({ kind: "adapter", id: descriptor.provider }), correlationId: runId };
       log.atomically((tx) => appendRunEvents(log, plan.sessionId, events, { ...attribution, tx }));
     } catch (error) {

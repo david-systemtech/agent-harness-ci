@@ -258,6 +258,8 @@ export type {
 } from "./projections/new-session.js";
 export { PRESET_SETTING_KEYS } from "./projections/new-session.js";
 export type { BrowserRow, BrowsersView, BrowserUnavailable, BrowserUnavailableReason } from "./projections/browsers.js";
+export type { DesktopPickerView, DesktopRow } from "./projections/desktops.js";
+export { desktopLabel, desktopPicker } from "./projections/desktops.js";
 export {
   SETUP_AGE_TICK_MS,
   SETUP_CHECK_TIMEOUT_MS,

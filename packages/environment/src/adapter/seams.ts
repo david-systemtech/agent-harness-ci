@@ -14,6 +14,7 @@ import {
   type RunActorKind,
   type RunSkillSet,
   type SessionBrowser,
+  type SessionDesktop,
   type TrustState,
   type Workspace,
 } from "@agent-harness/contracts";
@@ -64,6 +65,8 @@ export interface ToolServerScope {
   readonly clientTools: readonly ClientTool[];
   /** The browser the run resolved at its start (#550), whose kind's verbs the `browser` server offers (#551); none for none. */
   readonly browser: SessionBrowser;
+  /** The desktop the run resolved at its start (#2161), for which the `computer` server is offered; none for none. */
+  readonly desktop: SessionDesktop;
 }
 
 /**

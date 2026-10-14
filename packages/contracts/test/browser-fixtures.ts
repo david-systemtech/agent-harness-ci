@@ -331,6 +331,7 @@ export const browserSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ "acc-1": "headless" }, { "acc-1": { chrome: { environmentId } } }, { "acc-1": { chrome: { environmentId: "desktop", chromeId: null } } }, { "": "per-session" }, []],
   },
   "settings/keys/browser.headless.allowRuns.json": { valid: [true, false], invalid: [null, "on"] },
+  "settings/keys/desktop.contained.allowRuns.json": { valid: [true, false], invalid: [null, "on"] },
   "settings/keys/browser.headless.endpoint.json": {
     valid: [null, "http://browser:9222", "ws://127.0.0.1:9222/devtools/browser/abc", "wss://chromium.example.com/cdp"],
     invalid: ["", "browser:9222", "ftp://browser:9222", "http://"],

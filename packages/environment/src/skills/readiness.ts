@@ -401,6 +401,7 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
         repositoryIdentity: scope.repositoryIdentity,
         clientTools: [],
         browser: { kind: "none" },
+        desktop: { kind: "none" },
       });
       return new Set(servers.map((server) => server.name));
     });

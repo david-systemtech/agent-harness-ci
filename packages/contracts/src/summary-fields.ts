@@ -70,6 +70,8 @@ export const SUMMARY_FIELD_OWNERS = {
   mode: { command: "permissions.mode.set" },
   // Browser (browser spec): `sessions.create` records the first value; the agent's answer to the several-Chromes question writes it too.
   browser: { command: "sessions.setBrowser" },
+  // Desktop (computer spec): `sessions.create` records the first value.
+  desktop: { command: "sessions.setDesktop" },
   // Forge (ADR 0012): the forge workstream's events.
   pullRequests: { event: "session.pull-request-linked" },
   // Composer: an absolute setter, which a client's outbox coalesces.

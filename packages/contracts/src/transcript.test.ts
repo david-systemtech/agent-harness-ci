@@ -202,6 +202,7 @@ describe("the per-session snapshot", () => {
     runChoice: { model: "opus", effort: null },
     mode: "acceptEdits",
     browser: null,
+    desktop: null,
     pullRequests: [],
     draft: null,
     draftRevision: 0,

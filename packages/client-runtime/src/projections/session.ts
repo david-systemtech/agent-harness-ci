@@ -4,8 +4,10 @@ import {
   SESSION_STREAM_KIND,
   FilesUndoFinishedPayload,
   RunBrowserResolvedPayload,
+  RunDesktopResolvedPayload,
   RunSuggestion,
   type RunBrowserResolution,
+  type RunDesktopResolution,
   eventTypeEntry,
   type AssistantDeltaPayload,
   type AssistantTextPayload,
@@ -298,6 +300,8 @@ export interface SessionTranscript {
   readonly policies: Readonly<Record<string, RunPolicy>>;
   /** Browsers resolved at run start after the snapshot, fixed for each run. */
   readonly browserResolutions: Readonly<Record<string, RunBrowserResolution>>;
+  /** Desktops resolved at run start after the snapshot, fixed for each run (#2161). */
+  readonly desktopResolutions: Readonly<Record<string, RunDesktopResolution>>;
   /**
    * The session's own containment level, as its latest `session.containment.set`
    * gave it or the latest run's policy asked for it; null while neither was
@@ -472,6 +476,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
   const parked = new Map<string, ParkedPrompt>(snapshot.parkedPrompts.map((prompt) => [prompt.promptId, prompt]));
   const policies: Record<string, RunPolicy> = {};
   const browserResolutions: Record<string, RunBrowserResolution> = {};
+  const desktopResolutions: Record<string, RunDesktopResolution> = {};
   let containment: ContainmentLevel | null = null;
   let instructions = snapshot.instructions;
   /** The latest rewind standing: the one `sessions.undoRewind` would undo. */
@@ -567,6 +572,11 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
       case "run.browser.resolved": {
         const { runId, ...resolution } = RunBrowserResolvedPayload.parse(event.payload);
         browserResolutions[runId] = resolution;
+        return;
+      }
+      case "run.desktop.resolved": {
+        const { runId, ...resolution } = RunDesktopResolvedPayload.parse(event.payload);
+        desktopResolutions[runId] = resolution;
         return;
       }
       case "run.policy.resolved": {
@@ -832,6 +842,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
     rewound: rewound(),
     policies,
     browserResolutions,
+    desktopResolutions,
     containment,
     instructions,
   };
@@ -916,7 +927,7 @@ export interface SessionProjectionInput {
   readonly waitingDraft: string | null | undefined;
 }
 
-const NO_TRANSCRIPT: SessionTranscript = { suggestion: null, runs: [], items: [], parkedPrompts: [], queued: [], rewound: null, policies: {}, browserResolutions: {}, containment: null, instructions: "" };
+const NO_TRANSCRIPT: SessionTranscript = { suggestion: null, runs: [], items: [], parkedPrompts: [], queued: [], rewound: null, policies: {}, browserResolutions: {}, desktopResolutions: {}, containment: null, instructions: "" };
 
 /** The view of one session: its stream's reduction beside its freshness, its overlaid summary and its draft. `transcript` reuses a reduction of the same data. */
 export const projectSession = (input: SessionProjectionInput, transcript?: SessionTranscript): SessionProjection => {

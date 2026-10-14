@@ -640,6 +640,7 @@ export const STEP_REGISTRY = [
       "browser.headless.executable",
       "browser.headless.limits",
       "browser.internalHosts",
+      "desktop.contained.allowRuns",
     ],
     writesState: [
       { method: "browser.pairing.code", parts: ["pairedChromes"] },
@@ -655,6 +656,7 @@ export const STEP_REGISTRY = [
       { key: "browser.headless.executable", check: anyValidValue("browser.headless.executable") },
       { key: "browser.headless.limits", check: anyValidValue("browser.headless.limits") },
       { key: "browser.internalHosts", check: anyValidValue("browser.internalHosts") },
+      { key: "desktop.contained.allowRuns", check: anyValidValue("desktop.contained.allowRuns") },
     ],
     stateChecks: [
       { id: "browser.present", holds: "A Chrome is paired with this environment.", actions: [] },

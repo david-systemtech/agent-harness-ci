@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AccountId } from "./accounts.js";
 import { SessionBrowser } from "./browser-choice.js";
+import { SessionDesktop } from "./desktop-driver.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { Mode } from "./permissions-modes.js";
 import { OrderKey } from "./ordering.js";
@@ -405,6 +406,11 @@ export const SessionSummary = z
       description:
         "The session's browser: a Chrome (a null chromeId the plain My Chrome), headless, the dock or none, as sessions.setBrowser or sessions.create last set it; null when none was chosen, so each run resolves a default. Each run resolves it again at its start.",
     }),
+    // Desktop (computer spec; ADR 0038): which desktop the session's next run may drive, resolved at each run's start.
+    desktop: SessionDesktop.nullable().meta({
+      description:
+        "The session's desktop: none, contained (the run environment's contained desktop) or local (this person's live desktop), as sessions.setDesktop or sessions.create last set it; null when never set, which resolves as none. Each run resolves it again at its start.",
+    }),
     // Forge (ADR 0012).
     pullRequests: z.array(PullRequest),
     // Composer: the draft is a session field, so it follows the session between clients.
@@ -412,7 +418,7 @@ export const SessionSummary = z
     draftRevision: DraftRevision,
   })
   .meta({
-    description: "A session as every client renders its list row: identity, title, filing, shelf, place, activity, mode, browser, forge and the composer draft.",
+    description: "A session as every client renders its list row: identity, title, filing, shelf, place, activity, mode, browser, desktop, forge and the composer draft.",
   });
 export type SessionSummary = z.infer<typeof SessionSummary>;
 

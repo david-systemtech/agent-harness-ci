@@ -8,6 +8,8 @@ import {
   type SessionDraftSetPayload,
   type SessionForkedPayload,
   type SessionBrowserSetPayload,
+  type SessionDesktop,
+  type SessionDesktopSetPayload,
   type SessionRewindUndonePayload,
   type SessionRewoundPayload,
   type SessionTitleGeneratedPayload,
@@ -107,6 +109,15 @@ const forkBrowser = (log: Pick<EventLog, "read">, sessionId: string): FirstBrows
   if (row === undefined) return null;
   const { browser, chosenBy } = JSON.parse(row.payload) as SessionBrowserSetPayload;
   return browser === null ? null : { value: browser, chosenBy };
+};
+
+/** The source's current desktop (#2161); desktop events survive compaction. */
+const forkDesktop = (log: Pick<EventLog, "read">, sessionId: string): SessionDesktop | null => {
+  const [row] = log.read<{ payload: string }>(
+    `SELECT payload FROM events WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND type = 'session.desktop.set' ORDER BY sequence DESC LIMIT 1`,
+    sessionId,
+  );
+  return row === undefined ? null : (JSON.parse(row.payload) as SessionDesktopSetPayload).desktop;
 };
 
 /** A rewind as the log holds it: its `session.rewound`'s sequence and command, and its payload. */
@@ -457,7 +468,7 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
     const created = decideCreate(
       stateOf(id),
       // The source's workspace, shared whatever its kind, with its repository identity as recorded (#324): nothing is read again.
-      { id, title: params.title ?? null, tags: source.tags, groupId: source.groupId, workspace: facts.workspace, repositoryIdentity: facts.repositoryIdentity, account, model, mode, browser: forkBrowser(log, sourceId) },
+      { id, title: params.title ?? null, tags: source.tags, groupId: source.groupId, workspace: facts.workspace, repositoryIdentity: facts.repositoryIdentity, account, model, mode, browser: forkBrowser(log, sourceId), desktop: forkDesktop(log, sourceId) },
       { groupExists: source.groupId !== null && groupExists(reader, source.groupId) },
     );
     if (created.rejected !== undefined) return { aggregate, rejected: created.rejected };
