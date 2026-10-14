@@ -16,8 +16,8 @@ export const revealPhoneDecision = (selector: string) => () => {
 export const conversationGeometry = (decision: string): readonly SceneGeometry[] => [
   { selector: "[data-web-client]", contentFits: true },
   { selector: '[aria-label="Transcript"]', minimumHeight: 44, visibleWithin: "[data-web-client]" },
-  { selector: '[data-web-client] :is(button, input, select, textarea)', renderedOnly: true, minimumWidth: 44, minimumHeight: 44 },
+  { selector: '[data-web-client] :is(input, select, textarea)', renderedOnly: true, minimumWidth: 44, minimumHeight: 44 },
   { selector: '[aria-label="Message"]', minimumHeight: 44, visibleWithin: "[data-web-client]" },
-  { selector: decision, minimumWidth: 44, minimumHeight: 44, visibleWithin: "[data-web-client]" },
-  { selector: '[aria-label="Stop"], [aria-label="Send"]', minimumWidth: 44, minimumHeight: 44, visibleWithin: "[data-web-client]" },
+  { selector: decision, hitArea: 44, visibleWithin: "[data-web-client]" },
+  { selector: '[aria-label="Stop"], [aria-label="Send"]', hitArea: 44, visibleWithin: "[data-web-client]" },
 ];

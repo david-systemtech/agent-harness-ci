@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { expect, it } from "vitest";
-import { capturePlan, captureShard, sceneFiles } from "../gallery/capture-plan.js";
+import { capturePlan, captureShard, phoneRootFailures, PHONE_PROFILES, sceneFiles } from "../gallery/capture-plan.js";
 
 it("preserves desktop captures and names the bounded phone profiles distinctly", () => {
   const plan = capturePlan(["window-empty", "phone-gallery-conversation"]);
@@ -9,16 +9,16 @@ it("preserves desktop captures and names the bounded phone profiles distinctly",
     "window-empty.light", "window-empty.dark", "window-empty-narrow.light", "window-empty-narrow.dark",
   ]);
   expect(plan.captures.filter(c => c.platform === "web").map(c => [c.name, c.viewport, c.textSize])).toEqual([
-    ["phone-gallery-conversation-phone-390.light", { width: 390, height: 844 }, 14],
-    ["phone-gallery-conversation-phone-390.dark", { width: 390, height: 844 }, 14],
+    ["phone-gallery-conversation-phone-390.light", { width: 390, height: 844 }, 16],
+    ["phone-gallery-conversation-phone-390.dark", { width: 390, height: 844 }, 16],
   ]);
 });
 
 it("captures the phone pairing screen's refused origin once, in the 390 px phone it was seen on (ticket 1739)", () => {
   const plan = capturePlan(["phone-pairing-unlisted-origin"]);
   expect(plan.captures.map(c => [c.name, c.viewport, c.textSize])).toEqual([
-    ["phone-pairing-unlisted-origin-phone-390.light", { width: 390, height: 844 }, 14],
-    ["phone-pairing-unlisted-origin-phone-390.dark", { width: 390, height: 844 }, 14],
+    ["phone-pairing-unlisted-origin-phone-390.light", { width: 390, height: 844 }, 16],
+    ["phone-pairing-unlisted-origin-phone-390.dark", { width: 390, height: 844 }, 16],
   ]);
 });
 
@@ -191,4 +191,10 @@ it("probes short and long permissions with wrapped notices at text size 20 in bo
       { width: 1280, height: 800 }, { width: 1280, height: 700 },
     ]);
   }
+});
+
+it("expects a fixed 16px phone root and a type scale that follows each profile's text size, ticket 2148", () => {
+  for (const { textSize } of PHONE_PROFILES) expect(phoneRootFailures(16, textSize / 14, textSize)).toEqual([]);
+  expect(phoneRootFailures(16 * 20 / 14, 20 / 14, 20)).toEqual([`html.fontSize: got ${16 * 20 / 14}, expected 16`]);
+  expect(phoneRootFailures(16, 1, 16)).toEqual([`html --font-scale: got 1, expected ${16 / 14}`]);
 });

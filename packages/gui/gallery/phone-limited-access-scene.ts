@@ -21,10 +21,10 @@ export const phoneLimitedAccessScene = (step: "strip" | "details" | "pair"): Sce
   readySelector: step === "strip" ? '[data-limited-access]' : step === "details" ? '[data-access-sheet] ul' : '[data-access-sheet] [aria-label="Pair by link"]',
   geometry: ({ width }) => step === "strip" ? [
     { selector: '[data-limited-access]', width, height: 45, contentFits: true },
-    { selector: '[data-limited-access] button', minimumWidth: 44, minimumHeight: 44 },
+    { selector: '[data-limited-access] button', hitArea: 44 },
   ] : [
     { selector: '[data-access-sheet]', visibleWithin: 'body' },
     { selector: '[data-access-sheet] p, [data-access-sheet] li', contentFits: true },
-    { selector: '[data-access-sheet] button', minimumHeight: 44 },
+    { selector: '[data-access-sheet] button', hitArea: 44 },
   ],
 });

@@ -1,7 +1,6 @@
 /* Component-owned phone rules leave the desktop gallery dimensions intact. */
 /* Keep these layout queries identical to phoneLayoutMedia; portals can render without a frame. */
 @media (width < 640px), (pointer: coarse) and (hover: none) and (640px <= width <= 960px) and (height <= 500px) {
-  button[data-variant][data-size],
   .phone-menu-row,
   [data-workspace-picker] button,
   [cmdk-item] {
@@ -10,8 +9,21 @@
     height: auto;
     max-width: 100%;
     white-space: normal;
+  }
+
+  /* Sheets, dialogs and pickers keep painted 44px controls: a compact control's expanded
+   * touch-target would be clipped by the surface's scrollport or overflow it at the edge. */
+  :is([role="dialog"], [data-run-sheet], [data-palette-overlay]) button[data-variant][data-size] {
+    min-width: 44px;
+    min-height: 44px;
+    height: auto;
+    max-width: 100%;
+    white-space: normal;
     overflow-wrap: anywhere;
   }
+  /* A painted 44px control needs no pointer box; touch-target's insets are taken from the padding box,
+   * so at exactly 44px with a 1px border the box would spill 1px past the control and overflow it. */
+  :is([role="dialog"], [data-run-sheet], [data-palette-overlay]) button[data-variant][data-size]::before { content: none; }
 
   /* Menu explanations use the full row on phones; keys remain available on desktop. */
   .phone-menu-row kbd { display: none; }
@@ -20,7 +32,7 @@
   [cmdk-input],
   [data-new-session] textarea {
     min-height: 44px;
-    font-size: max(16px, 1rem);
+    font-size: max(16px, var(--phone-text-body));
   }
   .phone-overlay-surface {
     max-width: calc(100vw - 16px);
@@ -53,11 +65,10 @@
     max-height: calc(100dvh - 32px - var(--phone-frame-safe-top, env(safe-area-inset-top)) - var(--phone-frame-safe-bottom, env(safe-area-inset-bottom)));
     overflow-y: auto;
     overscroll-behavior: contain;
-    overflow-wrap: anywhere;
   }
   .phone-dialog-surface > div:first-child { padding-right: 44px; }
   .phone-dialog-surface > [data-size] { top: 8px; right: 8px; }
-  [data-new-session-chip] { max-width: 100%; padding: 8px; font-size: 1rem; }
+  [data-new-session-chip] { max-width: 100%; padding: 8px; font-size: var(--phone-text-body); }
   [data-workspace-picker] { gap: 12px; }
   [data-workspace-picker] form { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
   [data-workspace-picker] ul { flex-shrink: 0; max-height: 25dvh; }
@@ -74,5 +85,5 @@
   [data-measure="palette"] [cmdk-list] { min-height: 0; flex: 1; max-height: none; }
   [data-command-input] { height: auto; min-height: 44px; }
   [data-palette-overlay] [cmdk-item] kbd { display: none; }
-  [data-palette-overlay] [cmdk-item] .truncate { white-space: normal; overflow-wrap: anywhere; }
+  [data-palette-overlay] [cmdk-item] .truncate { white-space: normal; overflow-wrap: normal; }
 }

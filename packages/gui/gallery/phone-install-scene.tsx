@@ -26,5 +26,5 @@ export const phoneInstallScene = (mode: "install" | "update" | "denial") => func
 export const phoneInstallGeometry = (update: boolean) => [
   { selector: "[data-phone-install-scene]", maxWidth: 390, contentFits: true },
   { selector: "[data-phone-install]", contentFits: true },
-  ...(update ? [{ selector: "[data-client-update] button", minimumHeight: 44, visibleWithin: "[data-phone-install-scene]" }] : []),
+  ...(update ? [{ selector: "[data-client-update] button", hitArea: 44, visibleWithin: "[data-phone-install-scene]" }] : []),
 ];

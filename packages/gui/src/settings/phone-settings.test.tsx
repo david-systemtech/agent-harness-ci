@@ -1,3 +1,4 @@
+import { phoneLayout } from "../../test/phone-layout.js";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
@@ -7,7 +8,7 @@ import { SETTINGS_ROWS, STEP_ORDER, STEP_LABELS } from "@agent-harness/contracts
 import type { Scope } from "@agent-harness/contracts";
 
 const opened = async (scopes?: readonly Scope[]) => {
-  vi.stubGlobal("innerWidth", 390);
+  vi.stubGlobal("innerWidth", 390); phoneLayout();
   const world = await startWebWorld({ environments: [{ name: "desk", reach: "paired", ...(scopes && { scopes }), accounts: [] }] }, { settingsRow: "accounts.accounts" });
   const view = render(<App {...world} web={{ platform: world.platform, route: {} }} />);
   stops.push(async () => { view.unmount(); await world.runtime.close(); await world.presentation.close(); });

@@ -15,7 +15,7 @@ it.each(["data-settings-dialog", "data-phone-setup"])("phone target sizing reach
     style.textContent = readFileSync(new URL("./phone-settings.css", import.meta.url), "utf8");
     document.head.append(style);
     const media = Array.from(style.sheet?.cssRules ?? []).find((rule): rule is CSSMediaRule => "cssRules" in rule);
-    expect(media?.conditionText).toBe("(max-width: 639px)");
+    expect(media?.conditionText).toBe("(width < 640px), (pointer: coarse) and (hover: none) and (640px <= width <= 960px) and (height <= 500px)");
     const styleRules = Array.from(media?.cssRules ?? []).filter((rule): rule is CSSStyleRule => "style" in rule);
     const touchRules = styleRules.filter(rule => rule.style.getPropertyValue("min-height") === "44px");
     for (const row of document.querySelectorAll('[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]')) {

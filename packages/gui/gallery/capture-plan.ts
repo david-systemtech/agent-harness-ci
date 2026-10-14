@@ -20,12 +20,21 @@ export function captureCases(scenes: readonly string[]) {
   return scenes.filter(scene => !scene.startsWith("phone-")).flatMap((scene) => (light(scene) ? ["light", "dark"] as const : ["dark"] as const).map((ladder) => ({ scene, ladder, name: `${scene}.${ladder}` })));
 }
 
+/** The phone root rem stays 16px; the text-size preference reaches type through --font-scale alone (look.md, #2148). */
+export const PHONE_ROOT_FONT_SIZE = 16;
+
+/** Failures when a phone capture's root size or type scale departs from the phone scale for its text size. */
+export const phoneRootFailures = (rootFontSize: number, fontScale: number, textSize: number): string[] => [
+  ...(Math.abs(rootFontSize - PHONE_ROOT_FONT_SIZE) <= 0.5 ? [] : [`html.fontSize: got ${rootFontSize}, expected ${PHONE_ROOT_FONT_SIZE}`]),
+  ...(Math.abs(fontScale - textSize / 14) <= 0.001 ? [] : [`html --font-scale: got ${fontScale}, expected ${textSize / 14}`]),
+];
+
 export const PHONE_PROFILES = [
-  { suffix: "phone-390", viewport: { width: 390, height: 844 }, textSize: 14 },
-  { suffix: "phone-360", viewport: { width: 360, height: 740 }, textSize: 14 },
+  { suffix: "phone-390", viewport: { width: 390, height: 844 }, textSize: 16 },
+  { suffix: "phone-360", viewport: { width: 360, height: 740 }, textSize: 16 },
   { suffix: "phone-390-text-20", viewport: { width: 390, height: 844 }, textSize: 20 },
   // A reduced visual viewport exercises the keyboard layout without an OS keyboard.
-  { suffix: "phone-390-keyboard", viewport: { width: 390, height: 480 }, textSize: 14 },
+  { suffix: "phone-390-keyboard", viewport: { width: 390, height: 480 }, textSize: 16 },
 ] as const;
 
 /** Theme instructions at both phone widths, supported larger text and keyboard height (#2080). */

@@ -1,19 +1,12 @@
 import { Dialog } from "radix-ui";
 import { List, X } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { usePhoneOverlay } from "../ui/phone.js";
 import { Button } from "../ui/button.js";
 import "./phone-settings.css";
 
-/** The phone layout starts where a Settings rail would leave too little room for its pane. */
-export const usePhoneSettings = () => {
-  const [phone, setPhone] = useState(() => window.innerWidth < 640);
-  useEffect(() => {
-    const resized = () => setPhone(window.innerWidth < 640);
-    window.addEventListener("resize", resized);
-    return () => window.removeEventListener("resize", resized);
-  }, []);
-  return phone;
-};
+/** Settings and portaled pickers follow the frame's portrait/landscape decision. */
+export const usePhoneSettings = usePhoneOverlay;
 
 /** Nested modal navigation traps focus, dismisses on Escape, and returns focus to its trigger. */
 export const PhoneNavigation = ({ title, open, onOpenChange, children }: { readonly title: string; readonly open: boolean; readonly onOpenChange: (open: boolean) => void; readonly children: ReactNode }) => (

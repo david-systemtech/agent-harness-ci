@@ -1,0 +1,73 @@
+/* Phone utilities resolve only in the phone media projection, including portals. */
+
+/* Same layout bounds as phoneLayoutMedia; VisualViewport never changes this predicate. */
+@media (width < 640px), (pointer: coarse) and (hover: none) and (640px <= width <= 960px) and (height <= 500px) {
+  html {
+    /* rem and Tailwind spacing stay fixed; the preference scales type alone. */
+    font-size: 16px;
+    --phone-text-caption: max(11px, calc(10.5px * var(--font-scale, 1.142857)));
+    --phone-text-label: max(11px, calc(12.25px * var(--font-scale, 1.142857)));
+    --phone-text-body: calc(14px * var(--font-scale, 1.142857));
+    --phone-text-title: calc(17.5px * var(--font-scale, 1.142857));
+    --phone-text-display: calc(26.25px * var(--font-scale, 1.142857));
+    --phone-text-hero: calc(22.75px * var(--font-scale, 1.142857));
+    --phone-text-headline: calc(14.875px * var(--font-scale, 1.142857));
+    --phone-text-callout: max(11px, calc(13.125px * var(--font-scale, 1.142857)));
+    --phone-text-subhead: var(--phone-text-label);
+    --phone-text-footnote: max(11px, calc(11.375px * var(--font-scale, 1.142857)));
+    --phone-text-badge: max(11px, calc(9.625px * var(--font-scale, 1.142857)));
+    --phone-text-mono-command: var(--phone-text-footnote);
+    --phone-text-mono-output: var(--phone-text-caption);
+    --phone-space-half: 2px;
+    --phone-space-1: 4px;
+    --phone-space-2: 8px;
+    --phone-space-3: 12px;
+    --phone-space-4: 16px;
+    --phone-space-5: 20px;
+    --phone-space-6: 24px;
+    --phone-space-8: 32px;
+    --phone-space-10: 40px;
+    --phone-radius-control: 8px;
+    --phone-radius-machine: 0px;
+    --phone-bar-height: 52px;
+    --phone-toolbar-height: 48px;
+    --phone-row-height: 48px;
+    --phone-row-detail-height: 64px;
+    --phone-hit-area: 44px;
+    --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", "Cascadia Code", "Menlo", "Consolas", monospace;
+    --text-2xs: var(--phone-text-caption);
+    --text-xs: var(--phone-text-caption);
+    --text-sm: var(--phone-text-label);
+    --text-base: var(--phone-text-body);
+    --text-lg: var(--phone-text-title);
+    --text-xl: var(--phone-text-display);
+    --text-2xs--line-height: 1.5;
+    --text-xs--line-height: 1.5;
+    --text-sm--line-height: 1.5;
+    --text-base--line-height: 1.5;
+    --text-lg--line-height: 1.3;
+    --text-xl--line-height: 1.25;
+    --radius: var(--phone-radius-control);
+    --radius-sm: var(--phone-radius-control);
+    --radius-md: var(--phone-radius-control);
+    --radius-lg: var(--phone-radius-control);
+    --radius-xl: var(--phone-radius-control);
+    --radius-2xl: var(--phone-radius-control);
+    --radius-3xl: var(--phone-radius-control);
+    --radius-4xl: var(--phone-radius-control);
+  }
+}
+
+/* A transparent pointer box preserves the visible control's compact dimensions.
+ * Owners leave enough space around small controls; gallery hitArea checks clipping/overlap. */
+@utility touch-target {
+  @media (width < 640px), (pointer: coarse) and (hover: none) and (640px <= width <= 960px) and (height <= 500px) {
+    position: relative;
+    &::before {
+      content: "";
+      position: absolute;
+      inset: min(0px, calc((100% - 44px) / 2));
+    }
+  }
+}

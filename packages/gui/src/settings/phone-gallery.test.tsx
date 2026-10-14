@@ -1,3 +1,4 @@
+import { phoneLayout } from "../../test/phone-layout.js";
 import { screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { mountGallery } from "../../gallery/mount.js";
@@ -5,7 +6,7 @@ import { phoneSettingsScene } from "../../gallery/phone-settings-scene.js";
 let close: (() => Promise<void>) | undefined;
 afterEach(async () => { await close?.(); close = undefined; document.body.replaceChildren(); vi.unstubAllGlobals(); });
 it.each(["constrained", "full", "setup", "picker", "qr"] as const)("phone Settings %s scene mounts the real web surface", async kind => {
-  vi.stubGlobal("innerWidth", 390);
+  vi.stubGlobal("innerWidth", 390); phoneLayout();
   const container = document.createElement("div"); document.body.append(container);
   const scene = phoneSettingsScene(kind);
   const gallery = await mountGallery(container, "phone-settings", "dark", { "phone-settings": scene });

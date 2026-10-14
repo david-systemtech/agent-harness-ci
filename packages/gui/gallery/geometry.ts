@@ -15,6 +15,31 @@ export function measureSceneGeometry(): string[] {
       const rect = element.getBoundingClientRect();
       const style = getComputedStyle(element);
       const visibility: string[] = [];
+      if (check.hitArea !== undefined) {
+        const target = getComputedStyle(element, "::before");
+        const expanded = target.position === "absolute" && target.content !== "none" && target.content !== "normal";
+        const [insetLeft = 0, insetTop = 0, insetRight = 0, insetBottom = 0] = (["left", "top", "right", "bottom"] as const)
+          .map(side => expanded ? Math.min(0, Number.parseFloat(target[side]) || 0) : 0);
+        const [borderLeft = 0, borderTop = 0, borderRight = 0, borderBottom = 0] = (["borderLeftWidth", "borderTopWidth", "borderRightWidth", "borderBottomWidth"] as const)
+          .map(side => Number.parseFloat(style[side]) || 0);
+        const left = Math.min(rect.left, rect.left + borderLeft + insetLeft);
+        const top = Math.min(rect.top, rect.top + borderTop + insetTop);
+        const right = Math.max(rect.right, rect.right - borderRight - insetRight);
+        const bottom = Math.max(rect.bottom, rect.bottom - borderBottom - insetBottom);
+        const width = right - left, height = bottom - top;
+        if (width < check.hitArea - (check.tolerance ?? 0.5) || height < check.hitArea - (check.tolerance ?? 0.5)) {
+          visibility.push(`${check.selector}[${index}]: hit area ${width}×${height} is smaller than ${check.hitArea}px`);
+        } else {
+          const x = (left + right) / 2, y = (top + bottom) / 2;
+          const points = [[x, y], [left + 0.5, y], [right - 0.5, y], [x, top + 0.5], [x, bottom - 0.5]];
+          const disabled = element.matches(":disabled, [aria-disabled='true'], [data-disabled]:not([data-disabled='false'])") || style.pointerEvents === "none";
+          const covered = !disabled && points.some(([px, py]) => {
+            const hit = px! >= 0 && px! < window.innerWidth && py! >= 0 && py! < window.innerHeight ? document.elementFromPoint(px!, py!) : null;
+            return hit === null || !element.contains(hit);
+          });
+          if (covered) visibility.push(`${check.selector}[${index}]: hit area is clipped or covered`);
+        }
+      }
       if (check.hitTestable === true) {
         const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
         const hit = x >= 0 && x < window.innerWidth && y >= 0 && y < window.innerHeight

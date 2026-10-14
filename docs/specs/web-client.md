@@ -121,6 +121,10 @@ continue when the client disconnects, hides a pane or switches sessions.
 
 ## Phone layout and input
 
+[look.md §17: Phone design system](look.md#17-phone-design-system) owns phone
+type, spacing, fonts, corners and touch-target geometry. Desktop measurements
+remain separate; the text-size preference scales only type on phone.
+
 Use one layout predicate for the frame, viewport fitting and phone/overlay
 styles: width below 640px, or a short touch layout with a coarse primary pointer,
 no hover, width 640–960px inclusive and layout height at most 500px. Thus rotation

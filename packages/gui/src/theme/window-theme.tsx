@@ -4,6 +4,7 @@ import { derive, windowBackground, type LadderName } from "@agent-harness/theme"
 import { createContext, use, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useFollowed, useObservable, usePresentation, useRuntime, useShell } from "../window-context.js";
 import { paintLadder } from "./paint.js";
+import { usePhoneOverlay } from "../ui/phone.js";
 
 /** What the window asks its home environment: the theme alone. */
 const THEME_READ: ParamsOf<"settings.get"> = { keys: ["appearance.theme"] };
@@ -92,7 +93,8 @@ const WindowTheme = ({ preview }: { readonly preview: Theme | undefined }) => {
   const [lightOrDark] = usePresentation("lightOrDark");
   const [textSize] = usePresentation("textSize");
   const os = useOsLadder(window);
-  const ladder = lightOrDark === "system" ? os : lightOrDark;
+  const phone = usePhoneOverlay();
+  const ladder = phone || lightOrDark === "system" ? os : lightOrDark;
   const theme = cached ?? DEFAULT_THEME;
   const derived = useMemo(() => derive(theme), [theme]);
   const painted = useMemo(() => (preview === undefined ? derived : derive(preview)), [preview, derived]);

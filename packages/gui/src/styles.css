@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "./phone/tokens.css";
 @import "@fontsource-variable/archivo";
 @import "@fontsource-variable/archivo/wght-italic.css";
 @import "@fontsource-variable/jetbrains-mono";
@@ -140,6 +141,37 @@
   --color-environment-violet: var(--environment-violet);
   --color-environment-pink: var(--environment-pink);
 }
+
+/* Phone utilities read variables defined only by the phone projection. */
+@theme inline {
+  --text-phone-caption: var(--phone-text-caption);
+  --text-phone-caption--line-height: 1.333333;
+  --text-phone-label: var(--phone-text-label);
+  --text-phone-label--line-height: 1.428571;
+  --text-phone-body: var(--phone-text-body);
+  --text-phone-body--line-height: 1.5;
+  --text-phone-title: var(--phone-text-title);
+  --text-phone-title--line-height: 1.3;
+  --text-phone-display: var(--phone-text-display);
+  --text-phone-display--line-height: 1.2;
+  --text-phone-hero: var(--phone-text-hero);
+  --text-phone-headline: var(--phone-text-headline);
+  --text-phone-callout: var(--phone-text-callout);
+  --text-phone-subhead: var(--phone-text-subhead);
+  --text-phone-footnote: var(--phone-text-footnote);
+  --text-phone-badge: var(--phone-text-badge);
+  --text-phone-mono-command: var(--phone-text-mono-command);
+  --text-phone-mono-output: var(--phone-text-mono-output);
+  --spacing-phone-1: var(--phone-space-1);
+  --spacing-phone-2: var(--phone-space-2);
+  --spacing-phone-3: var(--phone-space-3);
+  --spacing-phone-4: var(--phone-space-4);
+  --spacing-phone-6: var(--phone-space-6);
+  --spacing-phone-8: var(--phone-space-8);
+  --radius-phone-control: var(--phone-radius-control);
+  --radius-phone-machine: var(--phone-radius-machine);
+}
+
 
 /* The window's ground and ink before and around the frame, so nothing but the canvas shows while it mounts. */
 @layer base {
@@ -326,7 +358,7 @@
 }
 [data-web-client] :is(button, select, input) { min-height: 44px; }
 [data-web-client] button { min-width: 44px; }
-[data-web-client] :is(input, select, textarea) { font-size: max(16px, 1rem); }
+[data-web-client] :is(input, select, textarea) { font-size: max(16px, var(--phone-text-body, 1rem)); }
 [data-web-client] [data-dock-owner] { min-width: 0; }
 @media (max-width: 639px) {
   [data-web-client] [data-composer-column] { max-width: 100%; }

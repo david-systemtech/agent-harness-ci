@@ -16,7 +16,7 @@
 .phone-frame-drawer [data-sidebar-scroll] { overscroll-behavior: contain; }
 .phone-frame-drawer [data-sidebar-caption],
 .phone-frame-drawer h2 { height: auto; min-height: 44px; }
-.phone-frame-drawer input { min-height: 44px; font-size: max(16px, 1rem); }
+.phone-frame-drawer input { min-height: 44px; font-size: max(16px, var(--phone-text-body, 1rem)); }
 /* Rows grow with text size so secondary details retain their line box. */
 .phone-frame-drawer [data-sidebar-item] { height: auto; min-height: 54px; }
 .phone-frame-drawer [data-sidebar-row] { height: auto; min-width: 0; }
