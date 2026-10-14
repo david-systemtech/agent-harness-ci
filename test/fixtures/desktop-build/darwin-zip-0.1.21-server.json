@@ -1,0 +1,17 @@
+{
+  "source": "agent-harness-desktop-darwin-arm64.zip of v0.1.21: its central directory, summarised under the bundled server",
+  "entries": 19885,
+  "prefix": "agent-harness.app/Contents/Resources/server/",
+  "serverEntries": 19287,
+  "serverTopLevel": [
+    "bin",
+    "node",
+    "node_modules",
+    "packages"
+  ],
+  "members": [
+    "agent-harness.app/Contents/Resources/server/node/bin/node",
+    "agent-harness.app/Contents/Resources/server/packages/cli/dist/main.js",
+    "agent-harness.app/Contents/Resources/server/packages/cli/package.json"
+  ]
+}

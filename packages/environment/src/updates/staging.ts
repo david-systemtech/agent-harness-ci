@@ -115,7 +115,7 @@ export const carveSevenZip = async (file: string, destination: string): Promise<
 };
 
 /** The length of the 7z archive whose start header is at `start` of a file of `size` bytes, or undefined when none is there whole. */
-const sevenZipLengthAt = async (read: (position: number, length: number) => Promise<Buffer>, start: number, size: number): Promise<number | undefined> => {
+export const sevenZipLengthAt = async (read: (position: number, length: number) => Promise<Buffer>, start: number, size: number): Promise<number | undefined> => {
   const header = await read(start, SEVEN_ZIP_START_HEADER);
   if (header.length < SEVEN_ZIP_START_HEADER || header.readUInt32LE(8) !== crc32(header.subarray(12, 32))) return undefined;
   const nextOffset = Number(header.readBigUInt64LE(12));
