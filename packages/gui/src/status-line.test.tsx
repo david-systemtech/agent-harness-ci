@@ -141,8 +141,9 @@ describe("the status line", () => {
       drawings.add(glyph.innerHTML);
     }
     expect(drawings.size).toBe(ENVIRONMENT_ICONS.length);
-    // Drawn, never written: the line does not read "laptop desk".
-    expect(lineText()).not.toMatch(new RegExp(ENVIRONMENT_ICONS.join("|")));
+    // Drawn, never written: the line does not read "laptop desk". The desktop chip's own words name the session's desktop, not the icon.
+    const chip = within(statusLine()).getByRole("button", { name: /^Desktop: / }).textContent ?? "";
+    expect(lineText().replace(chip, "")).not.toMatch(new RegExp(ENVIRONMENT_ICONS.join("|")));
   });
 
   it("draws a dot in the colour's token for an icon this window does not know (a newer environment's), as for an environment from before icons", async () => {
