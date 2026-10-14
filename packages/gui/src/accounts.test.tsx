@@ -196,6 +196,25 @@ describe("Accounts", () => {
     expect(within(codex).queryByText("Default")).toBeNull();
   });
 
+  it("chooses the Codex account for Claude runs once a Codex account is held: Automatic, Off or one by its label, through settings.update (ticket 2169)", async () => {
+    const app = await opened({ desk: { accounts: [{ label: "work" }] } });
+    const desk = app.environment("desk");
+    const accounts = await openRow(app, "Accounts");
+    const codex = await within(accounts).findByRole("group", { name: "Codex" });
+    expect(within(codex).queryByRole("combobox", { name: "Codex account for Claude runs" })).toBeNull();
+    app.environment("desk").changeAccount("account-1", { provider: "codex", label: "codex home" });
+    await within(accounts).findByRole("region", { name: /^codex home/ });
+    const field = await within(within(accounts).getByRole("group", { name: "Codex" })).findByRole("combobox", { name: "Codex account for Claude runs" });
+    expect((field as HTMLSelectElement).value).toBe("auto");
+    expect([...(field as HTMLSelectElement).options].map((option) => option.textContent)).toEqual(["Automatic", "Off", "codex home"]);
+    await app.user.selectOptions(field, "Off");
+    await waitFor(() => expect(desk.requests("settings.update").map((request) => request.params["values"])).toEqual([{ "accounts.codexForClaudeRuns": false }]));
+    await app.user.selectOptions(field, "codex home");
+    await waitFor(() => expect(desk.requests("settings.update").at(-1)?.params["values"]).toEqual({ "accounts.codexForClaudeRuns": "account-1" }));
+    await app.user.selectOptions(field, "Automatic");
+    await waitFor(() => expect(desk.requests("settings.update").at(-1)?.params["values"]).toEqual({ "accounts.codexForClaudeRuns": null }));
+  });
+
   it("offers Codex beside Claude: uses this computer's Codex sign-in with accounts.adopt, and adds a Codex account whose device sign-in shows the code to enter and takes no code back (ticket 2169)", async () => {
     const app = await opened({ desk: { codexAmbient: { present: true, signedIn: true, identity: { provider: "codex", email: "milo@codex.test", organisation: null } } } });
     const desk = app.environment("desk");

@@ -1,4 +1,4 @@
-import { effortName, modelName } from "@agent-harness/client-runtime";
+import { effortName, modelName, runsSessions } from "@agent-harness/client-runtime";
 import { useMemo } from "react";
 import { Select } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
@@ -27,7 +27,7 @@ export const AuthoringPicker = ({ picker }: { readonly picker: ReturnType<typeof
     <label className="flex flex-col gap-1 text-sm">Account
       <Select aria-label="Authoring account" value={view.account.value?.id ?? ""} onChange={(event) => chooseAccount(event.target.value)}>
         <option value="" disabled>No signed-in account</option>
-        {view.account.options.map((account) => <option key={account.id} value={account.id} disabled={account.status.state !== "signed-in"}>{account.label}</option>)}
+        {view.account.options.filter(runsSessions).map((account) => <option key={account.id} value={account.id} disabled={account.status.state !== "signed-in"}>{account.label}</option>)}
       </Select>
     </label>
     <label className="flex flex-col gap-1 text-sm">Model

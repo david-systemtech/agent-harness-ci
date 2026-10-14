@@ -1,5 +1,5 @@
 import { CredentialNoticeProvider } from "../notices/credential-notice.js";
-import { homeEnvironment, LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
+import { homeEnvironment, LOCAL_PLACEHOLDER_ID, runsSessions } from "@agent-harness/client-runtime";
 import { STEP_ORDER, type SettingsRowId, type StepId } from "@agent-harness/contracts";
 import { ArrowLeft, LogOut } from "lucide-react";
 import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -76,7 +76,8 @@ export const ChecklistProvider = ({ children }: { readonly children: ReactNode }
   // The introduction has no picker; the checklist closes against the computer its header shows (setup-copy.md §4.3).
   const accountEnvironmentId = (introduction ? home : picked)?.environmentId ?? LOCAL_PLACEHOLDER_ID;
   const accounts = useObservable(useMemo(() => runtime.projections.accounts(accountEnvironmentId), [runtime, accountEnvironmentId])).value;
-  const signedIn = accounts?.some((account) => account.status.state === "signed-in") ?? false;
+  // A Codex account runs no session (#2169), so it does not sign the Account step in.
+  const signedIn = accounts?.some((account) => runsSessions(account) && account.status.state === "signed-in") ?? false;
   useEffect(() => setCheckedEnvironmentId(undefined), [picked?.environmentId]);
 
   const open = useCallback((at?: StepId, to?: StepPart) => {

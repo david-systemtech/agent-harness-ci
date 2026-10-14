@@ -1,9 +1,11 @@
-import { CODEX_IN_CLAUDE_RUNS, CODEX_PROVIDER, adoptAccount, ambientSignIn, uuidv7, type AccountOutcome } from "@agent-harness/client-runtime";
+import { CODEX_IN_CLAUDE_RUNS, CODEX_PROVIDER, runsSessions, adoptAccount, ambientSignIn, uuidv7, type AccountOutcome } from "@agent-harness/client-runtime";
 import { KeyRound, LogIn, SquareTerminal } from "lucide-react";
 import { useId, useMemo, useState } from "react";
-import { RadioGroup, RadioGroupItem, Tooltip } from "../ui/index.js";
+import { SETTINGS } from "@agent-harness/contracts";
+import { RadioGroup, RadioGroupItem, Select, Tooltip } from "../ui/index.js";
+import { useSettingsValues } from "../settings/settings-values.js";
 import { AccountAction } from "./action.js";
-import { useClock, useFollowed, useRuntime } from "../window-context.js";
+import { useClock, useFollowed, useObservable, useRuntime } from "../window-context.js";
 
 export interface SignInQuestionProps {
   readonly environmentId: string;
@@ -85,6 +87,47 @@ export const SignInQuestion = ({ environmentId, computer, writable, held, label,
   );
 };
 
+/** The key the Codex choice below writes. */
+const CODEX_FOR_RUNS = "accounts.codexForClaudeRuns" as const;
+
+/**
+ * `accounts.codexForClaudeRuns` (#2169), on the Accounts row beside Codex,
+ * drawn once the environment holds a Codex account: Automatic (null, the only
+ * signed-in Codex account), Off (false), or one Codex account by its label,
+ * each written through `settings.update` as the default account is.
+ */
+const CodexForClaudeRuns = ({ environmentId }: { readonly environmentId: string }) => {
+  const runtime = useRuntime();
+  const field = useId();
+  const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId])).value;
+  const settings = useSettingsValues(environmentId);
+  const [line, setLine] = useState<string | undefined>(undefined);
+  const codex = (accounts ?? []).filter((account) => !runsSessions(account));
+  if (codex.length === 0 || settings.values === null) return null;
+  const writer = runtime.capability(environmentId, "settings.update");
+  const value = settings.values[CODEX_FOR_RUNS] as string | false | null | undefined;
+  const chosen = value === false ? "off" : typeof value === "string" ? value : "auto";
+  const removed = typeof value === "string" && !codex.some((account) => account.id === value);
+  const choose = async (next: string) => {
+    setLine(undefined);
+    const saved = await settings.save(CODEX_FOR_RUNS, next === "auto" ? null : next === "off" ? false : next);
+    if (!saved.ok) setLine(`Not saved: ${saved.line}`);
+  };
+  return (
+    <div className="flex flex-col gap-1">
+      <label htmlFor={field} className="text-sm text-ink-muted">{SETTINGS[CODEX_FOR_RUNS].label}</label>
+      <Select id={field} value={chosen} disabled={writer.status !== "present"} onChange={(event) => void choose(event.target.value)} className="w-64 max-w-full">
+        <option value="auto">Automatic</option>
+        <option value="off">Off</option>
+        {codex.map((account) => <option key={account.id} value={account.id}>{account.label}</option>)}
+        {removed && <option value={chosen}>The account you chose was removed</option>}
+      </Select>
+      <p className="text-2xs text-ink-faint">Automatic uses the only signed-in Codex account. Off gives runs none.</p>
+      {line !== undefined && <p role="alert" className="text-xs text-signal"><span className="sr-only">Error: </span>{line}</p>}
+    </div>
+  );
+};
+
 /** One answer, as a described choice row (look.md §12.2). */
 const Choice = ({ value, label, selected }: { readonly value: Answer; readonly label: string; readonly selected: boolean }) => (
   <label className={`flex items-start gap-2.5 rounded-md px-2.5 py-2 hover:bg-wash ${selected ? "bg-wash-strong" : ""}`}>
@@ -144,6 +187,7 @@ export const CodexQuestion = ({ environmentId, computer, writable, held, label, 
         </AccountAction>
       </div>
       {held !== undefined && <p id={why} className="text-2xs text-ink-muted">{held}</p>}
+      <CodexForClaudeRuns environmentId={environmentId} />
     </section>
   );
 };
