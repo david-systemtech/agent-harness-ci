@@ -302,7 +302,7 @@ jobs:
 
       # The asset list: every asset of the release beside the server
       # artefacts and release.json, one `--asset <kind>=<path>` line each,
-      # which the build writes into release-assets with its sidecar and lists
+      # which the build writes into release-assets and lists
       # in release.json (kinds: the contracts' RELEASE_ASSET_KINDS). A file is
       # published under its own name, the compose file with this release's
       # image in place of its unreleased placeholder; a folder as

@@ -10,7 +10,7 @@ import { BuildError } from "./targets.js";
  * The release build's archives and checksums (#356): a server artefact packed
  * as a gzipped tar or a zip with its folder's contents at the archive's top,
  * as the environment's staging and the install script unpack it, and the
- * `.sha256` sidecar beside every asset, in #113's format.
+ * release's one checksums file, `SHA256SUMS` (#2171).
  */
 
 const run = promisify(execFile);
@@ -23,15 +23,16 @@ export const sha256OfFile = async (path: string): Promise<string> => {
 };
 
 /**
- * Writes the sidecar of the asset at `path`, `<asset>.sha256`, in #113's
- * format (`sha256sum`'s line: the digest, two spaces, the asset's name), and
- * answers the digest.
+ * The release's one checksums file (#2171), published beside `release.json`
+ * in place of the per-asset `.sha256` sidecars release 0.1.21 was the last to
+ * carry: `sha256sum`'s line (the digest, two spaces, the name) for every
+ * build and for `release.json`, so `sha256sum -c SHA256SUMS` checks them all.
  */
-export const writeSidecar = async (path: string): Promise<string> => {
-  const digest = await sha256OfFile(path);
-  writeFileSync(`${path}.sha256`, `${digest}  ${basename(path)}\n`);
-  return digest;
-};
+export const CHECKSUMS_FILE = "SHA256SUMS";
+
+/** The text of `SHA256SUMS` for `entries`, one `sha256sum` line each, in their order. */
+export const checksumsText = (entries: readonly { readonly name: string; readonly sha256: string }[]): string =>
+  entries.map(({ name, sha256 }) => `${sha256}  ${name}\n`).join("");
 
 /** Packs the contents of `folder` into the gzipped tar `archive` with the platform's `tar`, which keeps each file's mode. */
 export const packTarGz = async (folder: string, archive: string): Promise<void> => {

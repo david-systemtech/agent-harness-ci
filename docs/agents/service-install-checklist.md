@@ -160,8 +160,9 @@ Container section).
 `install.sh` is an asset of every release, and the Your machines card's line
 runs it with that environment's `--channel` and an optional `--name`. It
 resolves the channel's newest release (`--version` names one), downloads
-`agent-harness-<os>-<arch>.tar.gz`, checks its SHA-256 against the `.sha256`
-published beside it, unpacks it into the data directory's
+`agent-harness-<os>-<arch>.tar.gz`, checks its size and SHA-256 against the
+release's `release.json` (the `.sha256` sidecar only for an older release
+without one; releases after 0.1.21 publish `SHA256SUMS` instead), unpacks it into the data directory's
 `versions/<version>` with the `.complete` sentinel written last, runs that
 version's `service install` and `service start`, waits up to 60 seconds for
 `http://127.0.0.1:<port>/health` to say ready (else it fails naming
@@ -205,8 +206,8 @@ PowerShell 7 (`pwsh`), since the script must run under both.
 
 `install.ps1` is `install.sh`'s twin: an asset of every release, run with
 `-Channel`, `-Version`, `-Name`, `-DataDir`, `-Port` and `-DryRun`. It
-downloads `agent-harness-win32-x64.zip` with `curl.exe`, checks it against its
-`.sha256`, unpacks it into `%LOCALAPPDATA%\agent-harness\versions\<version>`
+downloads `agent-harness-win32-x64.zip` with `curl.exe`, checks it against
+`release.json` (its `.sha256` only for an older release without one), unpacks it into `%LOCALAPPDATA%\agent-harness\versions\<version>`
 with .NET's zip reader (the sentinel last), and runs each verb as the version's
 own `node\node.exe packages\cli\dist\main.js`. It refuses an elevated shell,
 as `whoami /groups` shows its mandatory label. Public GitHub releases need
@@ -283,7 +284,8 @@ platform's desktop for the version, with the `desktop` workflow's steps, and
 put it in the generic package registry as `agent-harness-desktop`.
 `release` takes the three from there and builds the three server artefacts
 on the `ci-x64` label, together with the asset list's other assets, the
-desktops among them, and `release.json`, each with a `.sha256` sidecar. It
+desktops among them, `release.json` and `SHA256SUMS`, one `sha256sum` line
+for each build and `release.json` (#2171; no per-asset sidecars). It
 uploads every file to a draft release whose notes say how to open an
 unsigned desktop the first time, publishes the draft last, and then removes
 the desktops' package. `packages/cli/scripts/release/build.test.ts` and
@@ -299,7 +301,7 @@ section as not run.
 
 1. The label: verify that an x86_64 self-hosted runner carries `ci-x64:docker://node:24-bookworm` and no arm64 runner carries it. Until that label is available, the `release` job waits in the queue and nothing is published.
 2. With David's go-ahead, and the Mac awake, push `v0.0.1-test.1`, the Release image section's step 2. `check` passes before `image` starts (its log says the tag has no release yet); the three desktop jobs start after `image`, `desktop-macos` on the Mac and the other two on `ci-x64` runners, `desktop-windows` in the `electronuserland/builder` Wine image, and each passes its checks and logs `put <its build> in the package agent-harness-desktop 0.0.1-test.1`; `release` starts after all three, on a `ci-x64` runner. Its log gets the three desktops, then its build log names the image job's reference and digest, and writes the three artefacts, `agent-harness-schema.tar.gz`, `install.sh`, `install.ps1`, `compose.yaml`, `host-updater.sh`, the three desktops and `release.json`. Its publish log creates a draft prerelease, uploads 24 files and publishes it, and its last step logs `removed the package agent-harness-desktop 0.0.1-test.1`. A 401 or 403 there means the job's token cannot write releases: add a write-releases token as a secret and name it in the workflow's two `RELEASE_TOKEN` lines. A 401 from the hand-over means `PACKAGES_TOKEN` cannot write the owner's packages.
-3. Read the public GitHub release back: `GET /repos/david-systemtech/agent-harness/releases/tags/v<version>` shows `draft` false, the correct prerelease flag and 14 assets (three server builds, three desktop builds, `release.json`, and a sidecar for each). Download them and verify sidecars with `sha256sum -c`; `release.json` must list all six builds with matching size and SHA-256, plus the exact image reference and digest. Obtain `install.sh`, `install.ps1`, `compose.yaml` and `host-updater.sh` from `https://raw.githubusercontent.com/david-systemtech/agent-harness/v<version>/scripts/<file>`, and schemas from `packages/contracts/schema/` at the same tag. Set `AGENT_HARNESS_IMAGE=ghcr.io/david-systemtech/agent-harness:<version>` in `.env` beside compose. Confirm installers succeed with a manifest and no sidecar, reject a changed archive or size, and still install an older sidecar-only release. On each platform, stage the desktop through `updates.desktop.stage`: the desktop checklist's "Restart to update (#355)".
+3. Read the public GitHub release back: `GET /repos/david-systemtech/agent-harness/releases/tags/v<version>` shows `draft` false, the correct prerelease flag and 8 assets (three server builds, three desktop builds, `release.json` and `SHA256SUMS`; #2171). Download them and verify them with `sha256sum -c SHA256SUMS`; `release.json` must list all six builds with matching size and SHA-256, plus the exact image reference and digest. Obtain `install.sh`, `install.ps1`, `compose.yaml` and `host-updater.sh` from `https://raw.githubusercontent.com/david-systemtech/agent-harness/v<version>/scripts/<file>`, and schemas from `packages/contracts/schema/` at the same tag. Set `AGENT_HARNESS_IMAGE=ghcr.io/david-systemtech/agent-harness:<version>` in `.env` beside compose. Confirm installers succeed with a manifest and no sidecar, reject a changed archive or size, and still install an older sidecar-only release. On each platform, stage the desktop through `updates.desktop.stage`: the desktop checklist's "Restart to update (#355)".
 4. Re-run the tag's workflow from the Actions page. `check` fails with "v0.0.1-test.1 is already published", and `image`, the desktop jobs and `release` do not run, so the registry's `0.0.1-test.1` keeps its digest.
 5. Remove the release in the web UI, keeping the tag, then create a draft release for `v0.0.1-test.1` with one stray file and re-run the workflow. `check` passes with "has a draft release, which this run replaces", and the published release holds the 14 files and not the stray one.
 6. Clean up as the Release image section's step 4 does: delete the test version, the prerelease and the tag, and the `agent-harness-desktop` package's `0.0.1-test.1` if a failed run left it.

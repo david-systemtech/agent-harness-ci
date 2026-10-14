@@ -35,8 +35,8 @@ available without an account.
    so the build under test takes none as its update, as a tag's build does. It
    builds every server artefact, desktop installer and the image without
    publishing or logging in to GHCR. Download the `release-assets`
-   workflow artifact (kept seven days), check `release.json` and its SHA-256
-   sidecars, and run the desktop and service-install checklists on real machines.
+   workflow artifact (kept seven days), check `release.json` and `SHA256SUMS`
+   (`sha256sum -c SHA256SUMS`), and run the desktop and service-install checklists on real machines.
    Its image digest belongs to that local build; it cannot be pulled from GHCR.
 3. Tag the chosen private commit on Forgejo and push the tag to `origin`:
 
@@ -58,9 +58,11 @@ available without an account.
    push the checked image to `ghcr.io/david-systemtech/agent-harness:<version>`
    (up to three attempts, since ghcr can refuse a manifest after accepting its layers)
    and the release job write the three server artefacts, scripts, schema
-   export, manifest and sidecars and publish them.
-5. Verify the single GitHub release holds every manifest asset and sidecar, plus
-   `release.json` and its sidecar. Prerelease tags must show **Pre-release**.
+   export, manifest and `SHA256SUMS` and publish them.
+5. Verify the single GitHub release holds eight assets (#2171): three server
+   builds, three desktop builds, `release.json` and `SHA256SUMS` (one
+   `sha256sum` line for each build and `release.json`; no `.sha256` sidecars
+   since 0.1.21, the last release with them). Prerelease tags must show **Pre-release**.
    Confirm the manifest's image reference and digest can be pulled publicly.
    Only after publishing a stable release does the workflow move `latest` to
    its exact image; prereleases leave `latest` alone.

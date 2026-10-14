@@ -16,7 +16,7 @@ import { releaseWorkflowInput } from "../../../../test/release-workflow-input.js
  * fixture workspace: its packages built, its dependencies installed as pnpm's
  * hoisted linker lays them out, Node's archives and the host's check faked,
  * and observed through what it writes: the artefacts unpacked, their
- * sidecars and `release.json`. What only a real build shows is its run on a
+ * `release.json` and `SHA256SUMS`. What only a real build shows is its run on a
  * runner and the manual checklist.
  */
 
@@ -43,6 +43,12 @@ const links = (root: string): string[] =>
   readdirSync(root, { recursive: true, encoding: "utf8" }).filter((path) => lstatSync(join(root, path)).isSymbolicLink());
 
 const text = (path: string): string => readFileSync(path, "utf8");
+/** Each file's digest as the build's `SHA256SUMS` lists it (#2171), by name. */
+const sums = (out: string): Record<string, string> => Object.fromEntries(text(join(out, "SHA256SUMS")).trimEnd().split("\n").map((line) => line.split("  ", 2).reverse()));
+/** `sha256sum -c SHA256SUMS` in `out`, which must say OK for exactly `names`, in order. */
+const checkSums = (out: string, names: readonly string[]): void => {
+  expect(execFileSync("sha256sum", ["-c", "SHA256SUMS"], { cwd: out, encoding: "utf8" })).toBe(names.map((name) => `${name}: OK\n`).join(""));
+};
 const executable = (path: string): boolean => (statSync(path).mode & 0o111) !== 0;
 
 /** Each test builds, packs and unpacks; the host's check runs the artefact's processes. Generous for a loaded CI runner. */
@@ -221,15 +227,13 @@ describe("the release build", { timeout: BUILD_MS }, () => {
     expect(links(root)).toEqual([]);
   });
 
-  it("writes a sidecar beside every asset in #113's format, and release.json: the host artefact's preflight identity, each artefact's name, kind, platform, format, size and SHA-256, and the image it was given, which the contracts' schema reads back whole", async () => {
+  it("writes no sidecars but SHA256SUMS, sha256sum's line for every asset and release.json, and release.json: the host artefact's preflight identity, each artefact's name, kind, platform, format, size and SHA-256, and the image it was given, which the contracts' schema reads back whole", async () => {
     build = fixtureBuild();
     await buildRelease(build.options(), build.seams);
     const artefacts = ["agent-harness-linux-x64.tar.gz", "agent-harness-darwin-arm64.tar.gz", "agent-harness-win32-x64.zip"];
-    expect(readdirSync(build.out).sort()).toEqual([...artefacts, "release.json"].flatMap((name) => [name, `${name}.sha256`]).sort());
-    for (const name of [...artefacts, "release.json"]) {
-      expect(execFileSync("sha256sum", ["-c", `${name}.sha256`], { cwd: build.out, encoding: "utf8" })).toBe(`${name}: OK\n`);
-    }
-    const digest = (name: string) => text(join(build.out, `${name}.sha256`)).split(" ", 1)[0];
+    expect(readdirSync(build.out).sort()).toEqual([...artefacts, "release.json", "SHA256SUMS"].sort());
+    checkSums(build.out, [...artefacts, "release.json"]);
+    const digest = (name: string) => sums(build.out)[name];
     const size = (name: string) => statSync(join(build.out, name)).size;
     const manifest = JSON.parse(text(join(build.out, "release.json"))) as unknown;
     expect(manifest).toEqual({
@@ -372,25 +376,28 @@ describe("the release's other assets", { timeout: BUILD_MS }, () => {
       "agent-harness-linux-x64.tar.gz", "agent-harness-darwin-arm64.tar.gz", "agent-harness-win32-x64.zip",
       "agent-harness-desktop-darwin-arm64.zip", "agent-harness-desktop-win32-x64-setup.exe", "agent-harness-desktop-linux-x64.pacman",
     ].sort());
-    for (const name of [...manifest.assets.map(({ name }) => name), "release.json"]) {
-      expect(execFileSync("sha256sum", ["-c", `${name}.sha256`], { cwd: build.out, encoding: "utf8" })).toBe(`${name}: OK\n`);
-    }
-    expect(readdirSync(build.out)).toHaveLength(14);
+    checkSums(build.out, [...manifest.assets.map(({ name }) => name), "release.json"]);
+    expect(readdirSync(build.out)).toHaveLength(8);
     const check = join(import.meta.dirname, "../../../../scripts/check-release-assets.mjs");
-    expect(execFileSync(process.execPath, [check, build.out], { encoding: "utf8" })).toContain("Verified six builds and their compatibility sidecars");
+    expect(execFileSync(process.execPath, [check, build.out], { encoding: "utf8" })).toContain("Verified six builds, release.json and SHA256SUMS");
+    const sumsText = text(join(build.out, "SHA256SUMS"));
+    writeFileSync(join(build.out, "SHA256SUMS"), sumsText.replace(/^[0-9a-f]/, (first) => (first === "0" ? "1" : "0")));
+    expect(() => execFileSync(process.execPath, [check, build.out], { stdio: "pipe" })).toThrow(/SHA256SUMS/);
+    writeFileSync(join(build.out, "SHA256SUMS"), sumsText);
+    writeFileSync(join(build.out, "release.json.sha256"), "a sidecar\n");
+    expect(() => execFileSync(process.execPath, [check, build.out], { stdio: "pipe" })).toThrow(/eight assets/);
+    rmSync(join(build.out, "release.json.sha256"));
     writeFileSync(join(build.out, "agent-harness-linux-x64.tar.gz"), "damaged archive");
     expect(() => execFileSync(process.execPath, [check, build.out], { stdio: "pipe" })).toThrow();
   });
 
-  it("are written beside the artefacts with a sidecar each, a folder packed as agent-harness-<kind>.tar.gz, and listed in release.json after them with their kind, no platform and the format their name says", async () => {
+  it("are written beside the artefacts with a line each in SHA256SUMS, a folder packed as agent-harness-<kind>.tar.gz, and listed in release.json after them with their kind, no platform and the format their name says", async () => {
     build = fixtureBuild();
     await buildRelease(build.options({ platforms: ["linux-x64"], assets: otherAssets() }), build.seams);
     const names = ["agent-harness-linux-x64.tar.gz", "agent-harness-schema.tar.gz", "install.sh", "compose.yaml", "host-updater.sh", "release.json"];
-    expect(readdirSync(build.out).sort()).toEqual(names.flatMap((name) => [name, `${name}.sha256`]).sort());
-    for (const name of names) {
-      expect(execFileSync("sha256sum", ["-c", `${name}.sha256`], { cwd: build.out, encoding: "utf8" })).toBe(`${name}: OK\n`);
-    }
-    const digest = (name: string) => text(join(build.out, `${name}.sha256`)).split(" ", 1)[0];
+    expect(readdirSync(build.out).sort()).toEqual([...names, "SHA256SUMS"].sort());
+    checkSums(build.out, names);
+    const digest = (name: string) => sums(build.out)[name];
     const size = (name: string) => statSync(join(build.out, name)).size;
     const manifest = ReleaseManifest.parse(JSON.parse(text(join(build.out, "release.json"))));
     expect(manifest.assets.slice(1)).toEqual([
@@ -406,20 +413,18 @@ describe("the release's other assets", { timeout: BUILD_MS }, () => {
     expect(text(join(schema, "schema", "release", "manifest.json"))).toBe('{"title":"ReleaseManifest"}\n');
   });
 
-  it("take the desktop builds, each written with a sidecar and listed in release.json with kind desktop, the platform and the format it was named with", async () => {
+  it("take the desktop builds, each written with a line in SHA256SUMS and listed in release.json with kind desktop, the platform and the format it was named with", async () => {
     build = fixtureBuild();
     await buildRelease(build.options({ platforms: ["linux-x64"], assets: desktopBuilds() }), build.seams);
     const names = ["agent-harness-desktop-darwin-arm64.zip", "agent-harness-desktop-win32-x64-setup.exe", "agent-harness-desktop-linux-x64.pacman"];
-    for (const name of names) {
-      expect(execFileSync("sha256sum", ["-c", `${name}.sha256`], { cwd: build.out, encoding: "utf8" })).toBe(`${name}: OK\n`);
-    }
+    checkSums(build.out, ["agent-harness-linux-x64.tar.gz", ...names, "release.json"]);
     const listed = (name: string, platform: string, format: string) => ({
       name,
       kind: "desktop",
       platform,
       format,
       size: statSync(join(build.out, name)).size,
-      sha256: text(join(build.out, `${name}.sha256`)).split(" ", 1)[0],
+      sha256: sums(build.out)[name],
     });
     const manifest = ReleaseManifest.parse(JSON.parse(text(join(build.out, "release.json"))));
     expect(manifest.assets.slice(1)).toEqual([
@@ -456,7 +461,7 @@ describe("the release's other assets", { timeout: BUILD_MS }, () => {
     ]);
   });
 
-  it("are refused, before anything is built, when one is missing, not a kind, the artefacts' own kind, named as another asset or its sidecar is, or a compose file without the placeholder written once", async () => {
+  it("are refused, before anything is built, when one is missing, not a kind, the artefacts' own kind, named as another asset, release.json or SHA256SUMS is, or a compose file without the placeholder written once", async () => {
     build = fixtureBuild();
     const sources = join(build.out, "..", "sources");
     mkdirSync(sources, { recursive: true });
@@ -471,10 +476,7 @@ describe("the release's other assets", { timeout: BUILD_MS }, () => {
       [[{ kind: "install-script", path: file("install.sh") }, { kind: "host-updater", path: file("install.sh") }], /two assets named install\.sh/],
       [[{ kind: "install-script", path: file("release.json", "{}\n") }], /two assets named release\.json/],
       [[{ kind: "install-script", path: file("agent-harness-linux-x64.tar.gz") }], /two assets named agent-harness-linux-x64\.tar\.gz/],
-      [[{ kind: "install-script", path: file("agent-harness-linux-x64.tar.gz.sha256") }], /two assets named agent-harness-linux-x64\.tar\.gz\.sha256/],
-      [[{ kind: "install-script", path: file("release.json.sha256") }], /two assets named release\.json\.sha256/],
-      [[{ kind: "install-script", path: file("install.sh") }, { kind: "host-updater", path: file("install.sh.sha256") }], /two assets named install\.sh\.sha256/],
-      [[{ kind: "host-updater", path: file("updater.sh.sha256") }, { kind: "install-script", path: file("updater.sh") }], /two assets named updater\.sh\.sha256/],
+      [[{ kind: "install-script", path: file("SHA256SUMS") }], /two assets named SHA256SUMS/],
       [[{ kind: "compose", path: file("compose.yaml", "services: {}\n") }], /compose\.yaml names the image git\.systemtech\.dev:5526\/david\/agent-harness:unreleased 0 times, not once/],
       [[{ kind: "compose", path: file("twice.yaml", "a: git.systemtech.dev:5526/david/agent-harness:unreleased\nb: git.systemtech.dev:5526/david/agent-harness:unreleased\n") }], /2 times, not once/],
     ];

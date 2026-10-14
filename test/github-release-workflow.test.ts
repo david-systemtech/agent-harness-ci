@@ -429,7 +429,7 @@ esac
     for (const name of ["smoke-linux", "smoke-macos", "smoke-windows"]) {
       expect(job(name).join("\n")).toContain("^Digest: .*release.json");
     }
-    const check = step("release", "Verify manifest digests and compatibility sidecars");
+    const check = step("release", "Verify manifest digests and SHA256SUMS");
     expect(check).toContain("node scripts/check-release-assets.mjs release-assets");
     const release = job("release").join("\n");
     expect(release.indexOf(check)).toBeLessThan(release.indexOf("Keep all artefacts, including for a dry run"));

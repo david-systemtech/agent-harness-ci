@@ -4,10 +4,10 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { packZip, readZipMember, writeSidecar } from "./archive.js";
+import { CHECKSUMS_FILE, checksumsText, packZip, readZipMember, sha256OfFile } from "./archive.js";
 
 /**
- * The release build's zip and sidecars (#356). The Windows artefact is a zip,
+ * The release build's zip and checksums (#356, #2171). The Windows artefact is a zip,
  * which Windows' own `tar` unpacks, and Node's Windows archive is one too; no
  * zip tool is on the Linux runner, so the build writes and reads zips itself.
  * Python's zipfile (on every CI runner) is the independent reader and writer
@@ -84,13 +84,19 @@ describe("the build's zip", () => {
   });
 });
 
-describe("a sidecar", () => {
-  it("is <asset>.sha256 in #113's format, sha256sum's line, which the install script reads the first word of", async () => {
-    const asset = join(base, "agent-harness-linux-x64.tar.gz");
-    writeFileSync(asset, "an artefact\n");
-    const digest = await writeSidecar(asset);
-    expect(readFileSync(`${asset}.sha256`, "utf8")).toBe(`${digest}  agent-harness-linux-x64.tar.gz\n`);
-    expect(digest).toMatch(/^[0-9a-f]{64}$/);
-    expect(execFileSync("sha256sum", ["-c", "agent-harness-linux-x64.tar.gz.sha256"], { cwd: base, encoding: "utf8" })).toBe("agent-harness-linux-x64.tar.gz: OK\n");
+describe("SHA256SUMS", () => {
+  it("holds sha256sum's line for each file in order, which sha256sum -c checks and which a changed file fails", async () => {
+    const names = ["agent-harness-linux-x64.tar.gz", "release.json"];
+    for (const name of names) writeFileSync(join(base, name), `${name}\n`);
+    const entries = [];
+    for (const name of names) entries.push({ name, sha256: await sha256OfFile(join(base, name)) });
+    const text = checksumsText(entries);
+    expect(text).toBe(entries.map(({ name, sha256 }) => `${sha256}  ${name}\n`).join(""));
+    expect(entries[0]?.sha256).toBe(sha(Buffer.from("agent-harness-linux-x64.tar.gz\n")));
+    writeFileSync(join(base, CHECKSUMS_FILE), text);
+    expect(CHECKSUMS_FILE).toBe("SHA256SUMS");
+    expect(execFileSync("sha256sum", ["-c", CHECKSUMS_FILE], { cwd: base, encoding: "utf8" })).toBe("agent-harness-linux-x64.tar.gz: OK\nrelease.json: OK\n");
+    writeFileSync(join(base, "release.json"), "changed\n");
+    expect(() => execFileSync("sha256sum", ["-c", "--quiet", CHECKSUMS_FILE], { cwd: base, stdio: "pipe" })).toThrow();
   });
 });

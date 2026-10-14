@@ -123,8 +123,8 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   shared agent box.
 - The release build, `pnpm --filter agent-harness build-artefacts` (`packages/cli/scripts/release/`, #356),
   assembles the three server artefacts (each with its own Node, `bin/agent-harness`, the CLI
-  and the packages it runs with their production dependencies for that platform), their
-  `.sha256` sidecars and `release.json`. It runs on a linux-x64 runner, where `node-pty`
+  and the packages it runs with their production dependencies for that platform),
+  `release.json` and `SHA256SUMS` (one `sha256sum` line per asset and the manifest; #2171). It runs on a linux-x64 runner, where `node-pty`
   compiles for the Linux artefact; the macOS and Windows artefacts take `node-pty`'s
   prebuilds and the SDK's Claude package for their platform. Its tests run it over a fixture
   workspace (`packages/cli/test/release-fixtures.ts`), downloading and installing nothing; a

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { RELEASE_MANIFEST_FILE, ReleaseImage, ReleaseManifest, type PreflightReport, type ReleaseAsset } from "@agent-harness/contracts";
-import { packTarGz, packZip, writeSidecar } from "./archive.js";
+import { CHECKSUMS_FILE, checksumsText, packTarGz, packZip, sha256OfFile } from "./archive.js";
 import { checkOtherAssets, writeOtherAsset, type OtherAsset } from "./assets.js";
 import { fetchDownload, fetchNodeArchive, NODE_RUNTIME, nodeArchive, type Download, type NodeRuntime } from "./node-runtime.js";
 import { pnpmInstall } from "./pnpm.js";
@@ -14,11 +14,12 @@ import { artefactTargets, BuildError, hostPlatform, versionOfTag, type ArtefactT
 
 /**
  * The release build (launcher-update spec, "The release"; #356): one run
- * assembles every platform's server artefact under #113's names, writes a
- * `.sha256` sidecar beside each, writes the release's other assets the
- * workflow names beside them (#358), and writes the release manifest,
- * `release.json`, from them all and from the image it is given. The version is
- * the tag's, stamped into every package. The artefact of the platform the
+ * assembles every platform's server artefact under #113's names, writes the
+ * release's other assets the workflow names beside them (#358), writes the
+ * release manifest, `release.json`, from them all and from the image it is
+ * given, and last `SHA256SUMS`, one `sha256sum` line for each of them and
+ * for `release.json` (#2171; 0.1.21 was the last with per-asset `.sha256` sidecars).
+ * The version is the tag's, stamped into every package. The artefact of the platform the
  * build runs on is unpacked and run there, with no Node on the path, and its
  * preflight report gives the manifest the release's identity.
  */
@@ -84,18 +85,18 @@ const assetOf = (target: ArtefactTarget, path: string, sha256: string): ReleaseA
 });
 
 /**
- * Writes `release.json` into `out`, with its sidecar: the release's identity
+ * Writes `release.json` into `out` and answers its SHA-256: the release's identity
  * from the host artefact's preflight `report`, its `assets` and its `image`,
  * read through the contracts' schema, so a manifest the schema refuses is
  * never written.
  */
-const writeManifest = async (out: string, report: PreflightReport, assets: readonly ReleaseAsset[], image: ReleaseImage): Promise<void> => {
+const writeManifest = async (out: string, report: PreflightReport, assets: readonly ReleaseAsset[], image: ReleaseImage): Promise<string> => {
   const { version, protocolVersion, launcherProtocol, databaseSchemaVersion, bundledClaudeCodeVersion } = report;
   const manifest = ReleaseManifest.safeParse({ version, protocolVersion, launcherProtocol, databaseSchemaVersion, bundledClaudeCodeVersion, assets, image });
   if (!manifest.success) throw new BuildError(`The release manifest does not match its schema: ${manifest.error.message}`);
   const path = join(out, RELEASE_MANIFEST_FILE);
   writeFileSync(path, `${JSON.stringify(manifest.data, null, 2)}\n`);
-  await writeSidecar(path);
+  return sha256OfFile(path);
 };
 
 /** Builds the release (see the module's comment), answering nothing; any failure is a `BuildError` or the error that stopped it. */
@@ -133,7 +134,7 @@ export const buildRelease = async (options: BuildOptions, seams: BuildSeams = {}
       if (target.format === "zip") packZip(root, asset);
       else await packTarGz(root, asset);
       rmSync(root, { recursive: true, force: true });
-      assets.push(assetOf(target, asset, await writeSidecar(asset)));
+      assets.push(assetOf(target, asset, await sha256OfFile(asset)));
       log(`${target.platform}: wrote ${target.name}`);
     }
     for (const asset of others) {
@@ -144,8 +145,10 @@ export const buildRelease = async (options: BuildOptions, seams: BuildSeams = {}
     log(`${host}: unpacking and running ${hostTarget.name}`);
     const report = await (seams.verify ?? verifyArtefact)(join(options.out, hostTarget.name), hostTarget, version);
     if (report.version !== version) throw new BuildError(`The ${host} artefact's preflight reports the version ${report.version}, not ${version}.`);
-    await writeManifest(options.out, report, assets, image.data);
+    const manifestDigest = await writeManifest(options.out, report, assets, image.data);
     log(`wrote ${RELEASE_MANIFEST_FILE}`);
+    writeFileSync(join(options.out, CHECKSUMS_FILE), checksumsText([...assets, { name: RELEASE_MANIFEST_FILE, sha256: manifestDigest }]));
+    log(`wrote ${CHECKSUMS_FILE}`);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
