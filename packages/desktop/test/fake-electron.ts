@@ -208,8 +208,8 @@ const fakeApp = (os: ShellPlatform, ready: boolean, version: string): FakeApp =>
       heard.emit("will-quit", { preventDefault: () => (refused = true) });
       if (!refused) quit();
     },
-    relaunch() {
-      calls.push(["relaunch"]);
+    relaunch(options?: { readonly execPath?: string; readonly args?: string[] }) {
+      calls.push(options === undefined ? ["relaunch"] : ["relaunch", options]);
     },
     setBadgeCount(count) {
       calls.push(["setBadgeCount", count]);

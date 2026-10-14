@@ -23,8 +23,8 @@ export interface ElectronApp {
   whenReady(): Promise<void>;
   /** Closes the windows, then emits `will-quit`, whose listener may refuse the quit to finish something first and ask again. */
   quit(): void;
-  /** Starts the app again once this instance has quit: its executable, at the same path. */
-  relaunch(): void;
+  /** Starts the app again once this instance has quit: its executable, at the same path, or `execPath` with `args`. */
+  relaunch(options?: { readonly execPath?: string; readonly args?: string[] }): void;
   /** The version the app was built as: its `package.json`'s. */
   getVersion(): string;
   /** Whether the app runs packaged, as an install does, rather than as `electron .` from a checkout. */

@@ -23,7 +23,7 @@ import type { MacCredentials } from "./mac-credentials.js";
 import { keychainSecrets } from "./secrets.js";
 import { bundledInstaller } from "./installer.js";
 import { bundledService, type ServiceWait } from "./service.js";
-import { desktopUpdate, NODE_UPDATE_SYSTEM, type UpdateSystem } from "./update.js";
+import { desktopUpdate, NODE_UPDATE_SYSTEM, updateLog, type UpdateSystem } from "./update.js";
 
 /** The client session tokens' folder in the desktop's data directory. */
 const SECRETS_DIRECTORY = "secrets";
@@ -191,7 +191,10 @@ export const startDesktop = async (
   const localGrant = grantFile(platform.paths.environment, reportError);
   const credentialAccess = credentialAccessFile(platform.paths.environment);
   const service = bundledService({ os: platform.os, environmentDir: platform.paths.environment, server: platform.paths.server, ...(serviceWait && { wait: serviceWait }) });
-  const update = desktopUpdate({ app, platform, system: updateSystem, report: reportError, onInstalling: () => { finishingUpdate = true; } });
+  const update = desktopUpdate({
+    app, platform, system: updateSystem, report: reportError, onInstalling: () => { finishingUpdate = true; },
+    log: updateLog(platform.paths.data, platform.os, reportError),
+  });
   const installer = bundledInstaller(platform.paths.server, platform.paths.environment);
   const gh = computerGh({ os: platform.os, process: ghProcess, environment });
   const notifications = desktopNotifications({ notification: electron.notification, window });
@@ -202,4 +205,6 @@ export const startDesktop = async (
   );
   await window.loadURL(afterUpdate ? `${APP_URL}?updated` : APP_URL).catch(reportError);
   if (afterUpdate) reportError(`Desktop update ${app.getVersion()}: app start ${Date.now() - startingAt}ms (main entry to renderer loaded).`);
+  // The click to this window, when an update restarted into it (#2194): `click to ready <ms>ms` in desktop-update.log.
+  await update.ready().catch(reportError);
 };
