@@ -59,8 +59,11 @@ export const nsisSchemeInclude = (scheme: string, launcher: string): string =>
   [
     "; The desktop build's NSIS include: the setup registers the app's scheme for this user.",
     "!macro customHeader",
-    '  Var desktopInstallMutex',
-    '  Var desktopInstallStarted',
+    // Only the setup declares what only customInit uses: the uninstaller is compiled from the same header, and a variable it never references turns NSIS warning 6001 into a build error.
+    "  !ifndef BUILD_UNINSTALLER",
+    '    Var desktopInstallMutex',
+    '    Var desktopInstallStarted',
+    "  !endif",
     '  Caption "Installing ${VERSION}..."',
     "!macroend",
     "",
