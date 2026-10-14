@@ -600,6 +600,7 @@ jobs:
             Copy-Item -LiteralPath (Resolve-Path 'scripts/stop-windows-process-tree.ps1').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/windows-smoke-diagnostics.ps1').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/windows-desktop-update-smoke.ps1').Path -Destination (Join-Path $work 'scripts')
+            Copy-Item -LiteralPath (Resolve-Path 'scripts/desktop-build-update-smoke.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/install.ps1').Path -Destination (Join-Path $work 'install.ps1')
             $smoke = @'
           param([Parameter(Mandatory)][string] $Version)
@@ -657,6 +658,9 @@ jobs:
           $code = $LASTEXITCODE
           Write-Output $status
           if ($code -ne 3 -or $status -notmatch 'No service is installed') { throw "Unexpected service status (exit $code)" }
+          # #2196: a release with no win32 environment asset; the setup's app-64.7z carved out and read by tar.exe, then the update.
+          & $node scripts/desktop-build-update-smoke.mjs $server (Resolve-Path "desktop/agent-harness-desktop-win32-x64-setup.exe").Path
+          if ($LASTEXITCODE -ne 0) { throw 'The update from the desktop build (#2196) failed: see the line above for whether tar.exe read the setup''s 7z' }
 
           $server = Join-Path $env:LOCALAPPDATA "Programs\agent-harness-desktop\resources\server"
           $node = Join-Path $server "node\node.exe"
@@ -1065,6 +1069,12 @@ jobs:
           set -euo pipefail
           server=unzipped/agent-harness.app/Contents/Resources/server
           "$server/node/bin/node" scripts/macos-tarball-update-smoke.mjs unzipped/agent-harness.app artefact/agent-harness-darwin-arm64.tar.gz
+
+      - name: Update an environment from the desktop zip when the release has no macOS environment asset
+        run: |
+          set -euo pipefail
+          server=unzipped/agent-harness.app/Contents/Resources/server
+          "$server/node/bin/node" scripts/desktop-build-update-smoke.mjs "$server" desktop/agent-harness-desktop-darwin-arm64.zip
 
       - name: Replace the packaged desktop with an existing client credential
         env:

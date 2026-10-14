@@ -1,0 +1,8 @@
+{
+  "source": "agent-harness-desktop-win32-x64-setup.exe of v0.1.21: the embedded app-64.7z start header and next header, read at their offsets",
+  "setupSize": 215055541,
+  "startHeaderOffset": 149689,
+  "startHeader": "377abcaf271c000474469b60debbc90c0000000028000000000000005d266955",
+  "nextHeaderOffset": 214697143,
+  "nextHeader": "1706ecab2dc70109c2338e00070b01000123030101055d000010000ce0163b2d0a010e26977e0000"
+}

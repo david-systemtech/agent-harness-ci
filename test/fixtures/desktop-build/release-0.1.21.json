@@ -1,0 +1,61 @@
+{
+  "version": "0.1.21",
+  "protocolVersion": 2,
+  "launcherProtocol": 1,
+  "databaseSchemaVersion": 9,
+  "bundledClaudeCodeVersion": "2.1.289",
+  "assets": [
+    {
+      "name": "agent-harness-linux-x64.tar.gz",
+      "kind": "environment",
+      "platform": "linux-x64",
+      "format": "tar.gz",
+      "size": 193247694,
+      "sha256": "82cc71ab71d0767533ce4233a0026f6ef0aef4635d04e0b0fa4c65fd741b55d2"
+    },
+    {
+      "name": "agent-harness-darwin-arm64.tar.gz",
+      "kind": "environment",
+      "platform": "darwin-arm64",
+      "format": "tar.gz",
+      "size": 176291405,
+      "sha256": "66182846e18963e27e6ce83e0c182d31c79f6c364853726e55bd87e806a0bac7"
+    },
+    {
+      "name": "agent-harness-win32-x64.zip",
+      "kind": "environment",
+      "platform": "win32-x64",
+      "format": "zip",
+      "size": 196677123,
+      "sha256": "ad0542abd0366ac62dbb6ce7074344ae99f6933af5f7f487747f2be4e09f022b"
+    },
+    {
+      "name": "agent-harness-desktop-darwin-arm64.zip",
+      "kind": "desktop",
+      "platform": "darwin-arm64",
+      "format": "zip",
+      "size": 315779953,
+      "sha256": "d0b280994cda1237dd6693b34d81c1511fba9561d4f5b14c9b25dd641c71df3f"
+    },
+    {
+      "name": "agent-harness-desktop-win32-x64-setup.exe",
+      "kind": "desktop",
+      "platform": "win32-x64",
+      "format": "nsis",
+      "size": 215055541,
+      "sha256": "c0ca13d766fa961c73925f21e8abd8e68a2b6d94aac32fb031f155d5d159b93c"
+    },
+    {
+      "name": "agent-harness-desktop-linux-x64.pacman",
+      "kind": "desktop",
+      "platform": "linux-x64",
+      "format": "pacman",
+      "size": 227175352,
+      "sha256": "535b0fb4a796afbc2f138f1ebba42ec1dfaf9fe3d5aa0c4be4c6b033bad98511"
+    }
+  ],
+  "image": {
+    "reference": "ghcr.io/david-systemtech/agent-harness:0.1.21",
+    "digest": "sha256:b5a0846e3fa97bc4f78d3e3acc8cdc4a8b7fc1db9127c7e61fec93c518f1e331"
+  }
+}

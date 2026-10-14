@@ -31,6 +31,8 @@ const execute = async (exitCode: number, blockedSource = "", grantFails = false)
     join(scratch, "scripts/windows-smoke-diagnostics.ps1"));
   copyFileSync(join(import.meta.dirname, "../scripts/windows-desktop-update-smoke.ps1"),
     join(scratch, "scripts/windows-desktop-update-smoke.ps1"));
+  copyFileSync(join(import.meta.dirname, "../scripts/desktop-build-update-smoke.mjs"),
+    join(scratch, "scripts/desktop-build-update-smoke.mjs"));
   copyFileSync(join(import.meta.dirname, "../scripts/check-packaged-update-disk.mjs"),
     join(scratch, "scripts/check-packaged-update-disk.mjs"));
   copyFileSync(join(import.meta.dirname, "../scripts/check-packaged-provider-sign-in.mjs"),
@@ -99,6 +101,7 @@ function Start-Process {
   if (!(Test-Path (Join-Path $WorkingDirectory 'scripts/check-packaged-terminal-drain.mjs'))) { throw 'The terminal drain smoke was not staged for the ordinary user' }
   if (!(Test-Path (Join-Path $WorkingDirectory 'scripts/check-packaged-bank-describe.mjs'))) { throw 'The bank smoke was not staged for the ordinary user' }
   if (!(Test-Path (Join-Path $WorkingDirectory 'scripts/windows-desktop-update-smoke.ps1'))) { throw 'The desktop update launch check was not staged for the ordinary user' }
+  if (!(Test-Path (Join-Path $WorkingDirectory 'scripts/desktop-build-update-smoke.mjs'))) { throw 'The desktop-build update smoke was not staged for the ordinary user' }
   $child = Join-Path $WorkingDirectory 'smoke.ps1'
   Copy-Item $child $env:CHILD_COPY
   Set-Content $RedirectStandardOutput ('ordinary-user child output password=' + $Credential.GetNetworkCredential().Password)

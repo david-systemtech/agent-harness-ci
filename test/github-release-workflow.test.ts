@@ -92,6 +92,23 @@ describe("the public GitHub release workflow", () => {
     expect(smoke.indexOf(update)).toBeLessThan(smoke.indexOf("Replace the packaged desktop with an existing client credential"));
   });
 
+  it("updates an environment from this run's desktop build, against a release with no environment asset for the platform, on macOS and Windows (#2196)", () => {
+    const macos = job("smoke-macos").join("\n");
+    const update = step("smoke-macos", "Update an environment from the desktop zip when the release has no macOS environment asset");
+    expect(update).toContain('"$server/node/bin/node" scripts/desktop-build-update-smoke.mjs "$server" desktop/agent-harness-desktop-darwin-arm64.zip');
+    // After the tarball update, which uninstalls its service first; before the replacement smoke.
+    expect(macos.indexOf(update)).toBeGreaterThan(macos.indexOf("scripts/macos-tarball-update-smoke.mjs"));
+    expect(macos.indexOf(update)).toBeLessThan(macos.indexOf("Replace the packaged desktop with an existing client credential"));
+    const windows = job("smoke-windows").join("\n");
+    expect(windows).toContain("Copy-Item -LiteralPath (Resolve-Path 'scripts/desktop-build-update-smoke.mjs').Path -Destination (Join-Path $work 'scripts')");
+    const run = '& $node scripts/desktop-build-update-smoke.mjs $server (Resolve-Path "desktop/agent-harness-desktop-win32-x64-setup.exe").Path';
+    expect(windows).toContain(run);
+    expect(windows).toContain("if ($LASTEXITCODE -ne 0) { throw 'The update from the desktop build (#2196) failed");
+    // As the ordinary user, from the installed desktop's server, while no service is installed: the smoke installs and uninstalls its own.
+    expect(windows.indexOf(run)).toBeGreaterThan(windows.indexOf("'No service is installed'"));
+    expect(windows.indexOf(run)).toBeLessThan(windows.indexOf("service install --data-dir"));
+  });
+
   it("checks the actual native screenshot collectors before the packaged macOS smoke", () => {
     const native = step("smoke-macos", "Verify native screenshot diagnostics");
     expect(native).toContain('"$server/node/bin/node" --test scripts/macos-smoke-diagnostics-native.test.mjs');
