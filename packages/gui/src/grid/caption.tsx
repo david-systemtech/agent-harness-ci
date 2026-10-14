@@ -76,7 +76,7 @@ export const SessionCaption = ({ session, ...bar }: CaptionProps & { readonly se
   const { environmentId, sessionId } = session;
   const runtime = useRuntime();
   const environment = useObservable(runtime.projections.environments).find((view) => view.environmentId === environmentId);
-  const list = useObservable(runtime.projections.sessionList);
+  const list = useObservable(runtime.projections.sessionListWithoutWaitingDrafts);
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const summary = list.rows.find((row) => row.environmentId === environmentId && row.summary.id === sessionId.toLowerCase())?.summary ?? projection.summary;
   const name = summary?.title ?? "";

@@ -30,7 +30,7 @@ export const useGoneWorkspace = (environmentId: string, sessionId: string): stri
   return useObservable(
     useMemo(
       () =>
-        derived([runtime.projections.sessionList] as const, (list) => {
+        derived([runtime.projections.sessionListWithoutWaitingDrafts] as const, (list) => {
           const summary = list.rows.find((row) => row.environmentId === environmentId && row.summary.id === sessionId.toLowerCase())?.summary;
           return summary === undefined || summary.workspaceMissingSince === null ? undefined : summary.workspace.path;
         }),
@@ -64,7 +64,7 @@ export const MissingWorkspace = ({ environmentId, sessionId, path, line }: Missi
     const answer = await runtime.commands.dispatch(environmentId, "sessions.setWorkspace", { sessionId, workspace: request });
     if (answer.ok) return undefined;
     const where = environment === undefined ? "the environment" : nameOf(environment);
-    return notChangedLine(answer.error, request, { where, environmentId, rows: runtime.projections.sessionList.read().rows });
+    return notChangedLine(answer.error, request, { where, environmentId, rows: runtime.projections.sessionListWithoutWaitingDrafts.read().rows });
   };
 
   return (

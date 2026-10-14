@@ -22,7 +22,7 @@ import { ThemeToggle } from "./theme-toggle.js";
 const SessionBreadcrumb = ({ session }: { readonly session: PaneSession }) => {
   const runtime = useRuntime();
   const environments = useObservable(runtime.projections.environments);
-  const list = useObservable(runtime.projections.sessionList);
+  const list = useObservable(runtime.projections.sessionListWithoutWaitingDrafts);
   const projection = useObservable(useMemo(() => runtime.projections.session(session.environmentId, session.sessionId), [runtime, session.environmentId, session.sessionId]));
   const summary = list.rows.find((row) => row.environmentId === session.environmentId && row.summary.id === session.sessionId.toLowerCase())?.summary ?? projection.summary;
   const environment = environments.find((view) => view.environmentId === session.environmentId);

@@ -230,7 +230,7 @@ const NewGroupDialog = ({ row, close }: { readonly row: SessionRow; close(): voi
 const MoveToGroupDialog = ({ row, close }: { readonly row: SessionRow; close(): void }) => {
   const runtime = useRuntime();
   const organise = useOrganise();
-  const list = useObservable(runtime.projections.sessionList);
+  const list = useObservable(runtime.projections.sessionListWithoutWaitingDrafts);
   const choices = groupChoices(list.groups, row, "");
   const move = (name: string | null) => () => {
     organise.move(row.environmentId, row.summary.id, name);
@@ -380,7 +380,7 @@ const RestoreDialog = ({ query, close }: { readonly query: string; close(): void
 export const SidebarDialogs = () => {
   const runtime = useRuntime();
   const { dialog, open } = useOrganise();
-  const list = useObservable(runtime.projections.sessionList);
+  const list = useObservable(runtime.projections.sessionListWithoutWaitingDrafts);
   const close = () => open(null);
   if (dialog === null) return null;
   if (dialog.kind === "restore") return <RestoreDialog query={dialog.query ?? ""} close={close} />;

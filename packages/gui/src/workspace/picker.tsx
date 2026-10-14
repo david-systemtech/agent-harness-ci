@@ -149,7 +149,7 @@ const WorkspacePicker = ({ environment, sessionId, known, take, close }: Workspa
   if (view.kind === "branch") {
     return (
       <Branches
-        place={{ where, environmentId, rows: runtime.projections.sessionList.read().rows }}
+        place={{ where, environmentId, rows: runtime.projections.sessionListWithoutWaitingDrafts.read().rows }}
         repository={view.repository}
         sessionId={sessionId}
         choose={choose}

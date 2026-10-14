@@ -208,7 +208,7 @@ const ModelChip = (props: ChipProps) => {
  */
 const WorkspaceChip = ({ view, sessionId, choose }: ChipProps) => {
   const runtime = useRuntime();
-  const rows = useObservable(runtime.projections.sessionList).rows;
+  const rows = useObservable(runtime.projections.sessionListWithoutWaitingDrafts).rows;
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const phone = usePhoneOverlay();
@@ -218,7 +218,7 @@ const WorkspaceChip = ({ view, sessionId, choose }: ChipProps) => {
   const words = value === null || environmentId === null ? { label: "none", path: undefined } : requestWords(value, environmentId, sessionId, rows);
 
   const take = async (request: WorkspaceRequest, on: EnvironmentView): Promise<string | undefined> => {
-    const refused = await checkRequest(runtime, sessionId, request, { where: nameOf(on), environmentId: on.environmentId, rows: runtime.projections.sessionList.read().rows });
+    const refused = await checkRequest(runtime, sessionId, request, { where: nameOf(on), environmentId: on.environmentId, rows: runtime.projections.sessionListWithoutWaitingDrafts.read().rows });
     if (refused === undefined) choose({ workspace: { environmentId: on.environmentId, request } });
     return refused;
   };

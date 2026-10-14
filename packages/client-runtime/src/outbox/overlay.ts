@@ -41,6 +41,10 @@ export type OutboxView = ReadonlyMap<string, EnvironmentOutbox>;
 /** The drafts typed and not yet dispatched (their second's debounce under way), by environment, then session. */
 export type WaitingDrafts = ReadonlyMap<string, ReadonlyMap<string, string | null>>;
 
+/** No outbox and no waiting drafts: `overlaidLists` laying one of the two alone. */
+export const NO_OVERLAYS: OutboxView = new Map();
+export const NO_DRAFTS: WaitingDrafts = new Map();
+
 /** The sessions and groups queued or in-flight commands are about, by environment. */
 export type CommandTargets = ReadonlyMap<string, { readonly sessions: ReadonlySet<string>; readonly groups: ReadonlySet<string> }>;
 

@@ -59,7 +59,7 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
   useKeyAction("app.sidebar.toggle", () => phone.showDrawer(!phone.drawerShown));
   const runtime = useRuntime();
   const environments = useObservable(runtime.projections.environments);
-  const sessions = useObservable(runtime.projections.sessionList);
+  const sessions = useObservable(runtime.projections.sessionListWithoutWaitingDrafts);
   const persistence = useObservable(platform.persistence);
   const [layout, setLayout] = usePresentation("paneLayout");
   const pane = focusedPane(layout);

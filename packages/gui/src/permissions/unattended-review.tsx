@@ -73,7 +73,7 @@ export const UnattendedReview = ({ view }: { readonly view: EnvironmentView }) =
 const RunItem = ({ environmentId, run }: { readonly environmentId: string; readonly run: ReviewRun }) => {
   const runtime = useRuntime();
   const clock = useClock();
-  const list = useObservable(runtime.projections.sessionList);
+  const list = useObservable(runtime.projections.sessionListWithoutWaitingDrafts);
   const title = list.rows.find((row) => row.environmentId === environmentId && row.summary.id === run.sessionId)?.summary.title ?? run.sessionId;
   return (
     <li className="flex flex-col gap-0.5 rounded-lg border border-hairline p-3 text-xs">
