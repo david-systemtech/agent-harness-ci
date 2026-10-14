@@ -3,7 +3,7 @@
 .phone-frame-header { min-height: 52px; }
 [data-phone-frame] [data-window-body] { gap: 0; padding: 4px; }
 [data-phone-frame] [data-window-header] button,
-.phone-frame-drawer button { min-width: 44px; min-height: 44px; }
+:is(.phone-frame-drawer, .phone-sessions-page) button { min-width: 44px; min-height: 44px; }
 .phone-frame-drawer {
   width: min(360px, calc(100vw - 16px));
   height: 100dvh;
@@ -13,17 +13,17 @@
 [data-web-client] .phone-frame-drawer,
 [data-web-client] .phone-frame-scrim { position: absolute; }
 [data-web-client] .phone-frame-drawer { height: 100%; box-sizing: border-box; }
-.phone-frame-drawer [data-sidebar-scroll] { overscroll-behavior: contain; }
-.phone-frame-drawer [data-sidebar-caption],
-.phone-frame-drawer h2 { height: auto; min-height: 44px; }
-.phone-frame-drawer input { min-height: 44px; font-size: max(16px, var(--phone-text-body, 1rem)); }
+:is(.phone-frame-drawer, .phone-sessions-page) [data-sidebar-scroll] { overscroll-behavior: contain; }
+:is(.phone-frame-drawer, .phone-sessions-page) [data-sidebar-caption],
+:is(.phone-frame-drawer, .phone-sessions-page) h2 { height: auto; min-height: 44px; }
+:is(.phone-frame-drawer, .phone-sessions-page) input { min-height: 44px; font-size: max(16px, var(--phone-text-body, 1rem)); }
 /* Rows grow with text size so secondary details retain their line box. */
-.phone-frame-drawer [data-sidebar-item] { height: auto; min-height: 54px; }
-.phone-frame-drawer [data-sidebar-row] { height: auto; min-width: 0; }
-.phone-frame-drawer [data-sidebar-row] > span:first-child { line-height: 1.5; }
-.phone-frame-drawer [data-sidebar-details] { flex-shrink: 0; }
-.phone-frame-drawer .phone-frame-filter > svg { top: 50%; transform: translateY(-50%); }
-.phone-frame-drawer .phone-frame-filter input { padding-left: calc(1.25rem + 12px); }
+:is(.phone-frame-drawer, .phone-sessions-page) [data-sidebar-item] { height: auto; min-height: 54px; }
+:is(.phone-frame-drawer, .phone-sessions-page) [data-sidebar-row] { height: auto; min-width: 0; }
+:is(.phone-frame-drawer, .phone-sessions-page) [data-sidebar-row] > span:first-child { line-height: 1.5; }
+:is(.phone-frame-drawer, .phone-sessions-page) [data-sidebar-details] { flex-shrink: 0; }
+:is(.phone-frame-drawer, .phone-sessions-page) .phone-frame-filter > svg { top: 50%; transform: translateY(-50%); }
+:is(.phone-frame-drawer, .phone-sessions-page) .phone-frame-filter input { padding-left: calc(1.25rem + 12px); }
 .phone-frame-menu { max-width: calc(100vw - 16px); }
 .phone-frame-menu :is([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]) {
   min-height: 44px; overflow-wrap: anywhere; white-space: normal;
@@ -41,8 +41,11 @@
 
 /* A short landscape drawer keeps a session hit area even when its footer grows. */
 @media (pointer: coarse) and (hover: none) and (640px <= width <= 960px) and (height <= 500px) {
-  .phone-frame-drawer [data-sidebar-scroll] { min-height: max(54px, 3.5rem); }
-  .phone-frame-drawer [data-sidebar-caption] + div,
-  .phone-frame-drawer div:has(> .phone-frame-filter) { padding-block: 4px; }
-  .phone-frame-drawer [data-sidebar-footer] { min-height: 48px; flex-shrink: 1; overflow-y: auto; overscroll-behavior: contain; }
+  :is(.phone-frame-drawer, .phone-sessions-page) [data-sidebar-scroll] { min-height: max(54px, 3.5rem); }
+  :is(.phone-frame-drawer, .phone-sessions-page) [data-sidebar-caption] + div,
+  :is(.phone-frame-drawer, .phone-sessions-page) div:has(> .phone-frame-filter) { padding-block: 4px; }
+  :is(.phone-frame-drawer, .phone-sessions-page) [data-sidebar-footer] { min-height: 48px; flex-shrink: 1; overflow-y: auto; overscroll-behavior: contain; }
 }
+
+/* The Sessions page (the stack's root) mounts the drawer's list full width under the bar. */
+.phone-sessions-page { display: flex; min-height: 0; min-width: 0; flex: 1 1 auto; flex-direction: column; overflow: hidden; }

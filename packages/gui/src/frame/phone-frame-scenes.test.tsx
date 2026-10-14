@@ -8,7 +8,7 @@ import { mountGallery } from "../../gallery/mount.js";
 import { discoverScenes, type SceneModule } from "../../gallery/scene-registry.js";
 
 let close: (() => Promise<void>) | undefined;
-afterEach(async () => { await close?.(); close = undefined; vi.restoreAllMocks(); document.body.replaceChildren(); });
+afterEach(async () => { await close?.(); close = undefined; vi.restoreAllMocks(); document.body.replaceChildren(); history.replaceState(null, "", "/"); });
 
 /** Mounts a phone-frame scene with the phone layout's media test matching. */
 const mountPhoneScene = async (name: string) => {
