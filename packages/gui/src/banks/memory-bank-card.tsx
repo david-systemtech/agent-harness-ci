@@ -83,7 +83,7 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
   const forges = useObservable(useMemo(() => runtime.requests.cached(environmentId, "forge.accounts.list", {}), [runtime, environmentId]));
   const names = useObservable(useMemo(() => runtime.projections.accountNames(environmentId), [runtime, environmentId]));
   const named = (accountIds: readonly string[]) => accountIds.map((accountId) => accountName(names, accountId)).join(", ");
-  const sessions = useObservable(runtime.projections.sessionList);
+  const sessions = useObservable(runtime.projections.sessionListWithoutWaitingDrafts);
   const repository = sessions.rows.find((row) => row.environmentId === environmentId && row.summary.repositoryIdentity !== null)?.summary.repositoryIdentity;
   const [mode, setMode] = useState<BankMode>("personal");
   const [refused, say] = useState<{ readonly refusal: PlainRefusal; readonly at: "card" | "form" }>();

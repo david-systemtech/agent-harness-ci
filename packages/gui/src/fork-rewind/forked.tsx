@@ -19,7 +19,7 @@ export const ForkedRow = ({ entry, children }: { readonly entry: ForkedEntry; re
   const { environmentId } = useSessionForkRewind();
   const openInPane = useOpenInPane();
   const source = useFollowed(useMemo(() => entry.history === undefined ? runtime.projections.session(environmentId, entry.fromSessionId) : undefined, [runtime, environmentId, entry.fromSessionId, entry.history]));
-  const list = useObservable(runtime.projections.sessionList);
+  const list = useObservable(runtime.projections.sessionListWithoutWaitingDrafts);
   const from = forkedFrom(entry, source);
   const listed = list.rows.find((row) => row.environmentId === environmentId && row.summary.id === entry.fromSessionId.toLowerCase())?.summary.title;
   const title = from.title ?? listed ?? "another session";

@@ -49,7 +49,7 @@ export const useDropTarget = (target: DropTarget) => {
   const planned = () => {
     const dragged = draggedNow();
     if (dragged === null) return null;
-    const row = runtime.projections.sessionList.read().rows.find((held) => rowKey(held) === rowKey(dragged)) ?? dragged;
+    const row = runtime.projections.sessionListWithoutWaitingDrafts.read().rows.find((held) => rowKey(held) === rowKey(dragged)) ?? dragged;
     return { row, plan: dropOnto(row, target) };
   };
   const refusal = (row: SessionRow, plan: ReturnType<typeof dropOnto>) => {

@@ -238,7 +238,7 @@ export const usePaneGrid = (): PaneGrid => {
             const message = pending?.read();
             const environmentId = runtime.projections.newSession(surface).read().environment.value;
             const used = environmentId !== null && (
-              message?.collisionEnvironmentId === environmentId || runtime.projections.sessionList.read().rows.some(row =>
+              message?.collisionEnvironmentId === environmentId || runtime.projections.sessionListWithoutWaitingDrafts.read().rows.some(row =>
                 row.environmentId === environmentId && row.summary.id.toLowerCase() === surface.id.toLowerCase(),
               )
             );

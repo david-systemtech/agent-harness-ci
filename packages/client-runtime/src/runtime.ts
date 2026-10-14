@@ -70,6 +70,12 @@ export interface Runtime {
     readonly notices: Observable<readonly Notice[]>;
     /** Every session across the enabled environments with the sidebar's views: shelves, merged groups, repositories; and each list's freshness. */
     readonly sessionList: Observable<SessionListView>;
+    /**
+     * `sessionList` without the drafts still waiting their second laid over (the outbox's overlay is there, a draft dispatched
+     * included): the same view, which a keystroke in a composer leaves as it was. For a renderer that shows no draft, so typing
+     * does not draw every row again (#2215).
+     */
+    readonly sessionListWithoutWaitingDrafts: Observable<SessionListView>;
     /** A case-insensitive substring match over titles, tags, group names and repository identity, in the sidebar's order. */
     search(query: string): Observable<readonly SessionRow[]>;
     /**

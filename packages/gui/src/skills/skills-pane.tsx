@@ -23,7 +23,7 @@ export const SkillsPane = () => {
 const SkillsOn = ({ view }: { readonly view: EnvironmentView }) => {
   const runtime = useRuntime();
   const { environmentId } = view;
-  const sessions = useObservable(runtime.projections.sessionList).rows.filter((row) => row.environmentId === environmentId);
+  const sessions = useObservable(runtime.projections.sessionListWithoutWaitingDrafts).rows.filter((row) => row.environmentId === environmentId);
   const [layout] = usePresentation("paneLayout");
   const focused = focusedPane(layout).session;
   const [pickedSession, pickSession] = useState<string>(focused?.environmentId === environmentId ? focused.sessionId : "");

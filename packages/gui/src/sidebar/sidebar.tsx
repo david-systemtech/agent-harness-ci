@@ -53,7 +53,7 @@ const Headings = ({ onOpenSession }: SidebarProps) => {
   const phone = usePhoneFrame();
   const runtime = useRuntime();
   const environments = useObservable(runtime.projections.environments);
-  const list = useObservable(runtime.projections.sessionList);
+  const list = useObservable(runtime.projections.sessionListWithoutWaitingDrafts);
   const [folded, setFolded] = usePresentation("collapsedHeadings");
   const [by, setBy] = usePresentation("sidebarView");
   const [layout] = usePresentation("paneLayout");
@@ -78,7 +78,7 @@ const Headings = ({ onOpenSession }: SidebarProps) => {
   /** Folds or opens a heading; the folds of groups no longer listed are dropped as the choice is kept. */
   const fold = (key: string, shut: boolean) =>
     setFolded((held) => {
-      const keep = keepsFold(runtime.projections.sessionList.read());
+      const keep = keepsFold(runtime.projections.sessionListWithoutWaitingDrafts.read());
       return { ...Object.fromEntries(Object.entries(held).filter(([heading]) => heading === key || keep(heading))), [key]: shut };
     });
 
@@ -182,7 +182,7 @@ const ONTO_THE_EMPTY_BLOCK: DropTarget = { kind: "pinned" };
 const Matches = ({ query, rows }: { readonly query: string; rows(lines: readonly HeadingRow[]): ReactNode }) => {
   const runtime = useRuntime();
   const environments = useObservable(runtime.projections.environments);
-  const list = useObservable(runtime.projections.sessionList);
+  const list = useObservable(runtime.projections.sessionListWithoutWaitingDrafts);
   const found = useObservable(useMemo(() => runtime.projections.search(query), [runtime, query]));
   // Each row as the headings draw it, every heading open: its activity, its marker, a snoozed one's wake time, dim or not.
   const lineOf = useMemo(() => {

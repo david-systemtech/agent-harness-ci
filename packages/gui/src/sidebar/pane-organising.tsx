@@ -74,7 +74,7 @@ const OrganiseCommands = ({ environmentId, sessionId }: { readonly environmentId
   const runtime = useRuntime();
   const organise = useOrganise();
   const search = useSidebarSearch();
-  const list = useObservable(runtime.projections.sessionList);
+  const list = useObservable(runtime.projections.sessionListWithoutWaitingDrafts);
   // The connections' phases and scopes: whether a command can be sent is asked again whenever one moves.
   useObservable(runtime.projections.environments);
   const row = list.rows.find((held) => held.environmentId === environmentId && held.summary.id === sessionId);

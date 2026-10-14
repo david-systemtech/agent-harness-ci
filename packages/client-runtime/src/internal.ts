@@ -10,7 +10,7 @@ import { createNotices } from "./notices.js";
 import { derived, writable, type Observable } from "./observable.js";
 import { createDrafts } from "./outbox/drafts.js";
 import { createOutbox, type Outbox } from "./outbox/outbox.js";
-import { awaitedTargets, keepingSameTargets, overlaidLists, pendingTargets } from "./outbox/overlay.js";
+import { awaitedTargets, keepingSameTargets, NO_DRAFTS, NO_OVERLAYS, overlaidLists, pendingTargets } from "./outbox/overlay.js";
 import type { Platform } from "./platform.js";
 import { answerOf, usageProjection, type AccountsAnswer, type ModelsAnswer } from "./projections/accounts.js";
 import { createAccountNames } from "./projections/account-names.js";
@@ -178,17 +178,22 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   });
   registry.seams.onForget((environmentId) => drafts.forget(environmentId));
   // The overlay sits between the streams' lists and the projections: what a renderer reads is the confirmed list with every
-  // command still on its way laid over it.
-  const lists = derived([made.lists, outbox.view, drafts.waiting] as const, overlaidLists);
+  // command still on its way laid over it. The drafts still waiting their second go on top in a step of their own, so what
+  // reads the list without them (the runs, the sidebar's view) keeps its identity while a composer is typed into (#2215).
+  const quietLists = derived([made.lists, outbox.view] as const, (confirmed, view) => overlaidLists(confirmed, view, NO_DRAFTS));
+  const lists = derived([quietLists, drafts.waiting] as const, (quiet, waiting) => overlaidLists(quiet, NO_OVERLAYS, waiting));
   const environments = environmentsProjection(registry.list, outbox.view);
-  const sessionList = sessionListProjection({
+  const listOptions: Omit<Parameters<typeof sessionListProjection>[0], "lists"> = {
     records: registry.list,
-    lists,
     now: (environmentId) => made.now(environmentId),
     clock: platform.clock,
     pending: derived([registry.list, outbox.view] as const, keepingSameTargets(pendingTargets)),
     awaiting: derived([outbox.view] as const, keepingSameTargets(awaitedTargets)),
-  });
+  };
+  // The list as the runtime promises it, a waiting draft in its summary at once; and the same view without the waiting
+  // drafts, for whatever does not show a draft, which a keystroke leaves as it was.
+  const sessionList = sessionListProjection({ ...listOptions, lists });
+  const quietSessionList = sessionListProjection({ ...listOptions, lists: quietLists });
   let closing: Promise<void> | undefined;
   let started: Promise<void> | undefined;
   const capability: Runtime["capability"] = (environmentId, name) => answerCapability(name, registry.record(environmentId), platform.shell);
@@ -263,7 +268,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   const runs = createRuns({
     clock: platform.clock,
     records: registry.list,
-    lists,
+    lists: quietLists,
     outbox: outbox.view,
     prompts: (environmentId) => requestCache.cached(environmentId, "permissions.prompts.list", {}),
     promptsAskedAt: (environmentId) => requestCache.askedAt(environmentId, "permissions.prompts.list", {}),
@@ -306,7 +311,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     const host = {
       runs: runs.sessions,
       session: sessionProjections(key),
-      list: sessionList.view,
+      list: quietSessionList.view,
       records: registry.list,
       providers: requestCache.cached(environmentId, "providers.list", {}),
       accounts: requestCache.cached(environmentId, "accounts.list", {}),
@@ -325,7 +330,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   const modesProjections = memo((environmentId): Observable<ModePicker> => modesProjection(registry.list, environmentId));
   const copyTargets = memo((environmentId): Observable<readonly CopyTarget[]> => derived([registry.list] as const, (records) => copyTargetsOf(records, environmentId)));
   const directoriesHost: KnownDirectoriesHost = {
-    lists,
+    lists: quietLists,
     preferences: registry.preferences,
     hide: (environmentId, path, lastUsedAt) => registry.hideDirectory(environmentId, path, lastUsedAt),
   };
@@ -368,7 +373,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   });
   const browsersHost: BrowsersHost = {
     records: registry.list,
-    sessionList: sessionList.view,
+    sessionList: quietSessionList.view,
     chromes: (environmentId) => requestCache.cached(environmentId, "browser.chromes.list", {}),
     status: (environmentId) => requestCache.cached(environmentId, "browser.status", {}),
     webView: answerCapability("shell.webView", undefined, platform.shell),
@@ -425,7 +430,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       environments,
       notices: notices.list,
       sessionList: sessionList.view,
-      search: (query) => searchProjection(sessionList.view, query),
+      sessionListWithoutWaitingDrafts: quietSessionList.view,
+      search: (query) => searchProjection(quietSessionList.view, query),
       session: (environmentId, sessionId): Observable<SessionProjection> => sessionProjections(`${environmentId} ${sessionId.toLowerCase()}`),
       documents: (environmentId, sessionId) => documentsOf(`${environmentId} ${sessionId.toLowerCase()}`),
       runs: runsProjection,
@@ -493,6 +499,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
         drafts.close();
         await outbox.close();
         sessionList.stop();
+        quietSessionList.stop();
         runs.close();
         clientCalls.close();
         stopReporting();

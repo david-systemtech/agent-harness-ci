@@ -25,7 +25,7 @@ export const MemoryAssignment = ({
 }) => {
   const runtime = useRuntime();
   const clock = useClock();
-  const rows = useObservable(runtime.projections.sessionList).rows;
+  const rows = useObservable(runtime.projections.sessionListWithoutWaitingDrafts).rows;
   const repositories = [
     ...new Set(
       rows.flatMap((row) =>

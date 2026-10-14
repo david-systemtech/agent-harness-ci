@@ -157,7 +157,7 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
         if (answer.error.code === "conflict" && answer.error.data?.reason === "exists") pending.update(held => ({ ...held, collisionEnvironmentId: environmentId }));
         setStarting(false);
         const where = environment === undefined ? "the environment" : nameOf(environment);
-        return say(refusalLine(answer.error, workspace, { where, environmentId, rows: runtime.projections.sessionList.read().rows }));
+        return say(refusalLine(answer.error, workspace, { where, environmentId, rows: runtime.projections.sessionListWithoutWaitingDrafts.read().rows }));
       }
       pending.update(held => ({ ...held, environmentId }));
     }

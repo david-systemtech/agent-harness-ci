@@ -47,7 +47,7 @@ export const RowMenu = ({ line, rename }: RowMenuProps) => {
   const { environmentId, summary } = row;
   const sessionId = summary.id;
   const session = { environmentId, sessionId };
-  const list = useObservable(runtime.projections.sessionList);
+  const list = useObservable(runtime.projections.sessionListWithoutWaitingDrafts);
   const verbs = useObservable(useMemo(() => runtime.projections.runs.session(environmentId, sessionId), [runtime, environmentId, sessionId])).verbs;
   const admits = (method: CommandMethodName) => runtime.commands.admits(environmentId, method);
   const now = runtime.environmentNow(environmentId);

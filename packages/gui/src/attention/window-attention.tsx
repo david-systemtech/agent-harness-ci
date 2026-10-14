@@ -67,7 +67,7 @@ const useWindowFocused = (): { readonly current: boolean } => {
 
 /** The session's title as the window's list holds it; undefined for one it does not. */
 const titleOf = (runtime: Runtime, { environmentId, sessionId }: PaneSession): string | undefined =>
-  runtime.projections.sessionList.read().rows.find((row) => row.environmentId === environmentId && row.summary.id === sessionId.toLowerCase())?.summary.title;
+  runtime.projections.sessionListWithoutWaitingDrafts.read().rows.find((row) => row.environmentId === environmentId && row.summary.id === sessionId.toLowerCase())?.summary.title;
 
 /** The notification an attention event raises, with the grid as it is; none for an event that raises none. */
 const notificationOf = (runtime: Runtime, layout: PaneLayout, event: AttentionEvent): ShellNotification | undefined => {
