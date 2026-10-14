@@ -76,7 +76,56 @@ if ($Setup) {
   if (!$shell.CreateShortcut($shortcut).Arguments.Contains($helper)) { throw 'The staging mode changed the Start menu shortcut' }
   if (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'agent-harness\desktop\current')) { throw 'The staging mode wrote the current version pointer' }
   Write-Output "Verified the setup's staging mode beside the installed app in $($stageTimer.ElapsedMilliseconds)ms"
-  Remove-Item -LiteralPath (Join-Path $install 'versions') -Recurse -Force
+
+  # Restart to update's pointer switch (#2194), as the desktop makes it at the click: the staged version's
+  # launch helper put in place, the switch under the install mutex, the click's time recorded, the rollback
+  # watch started and the staged executable started as Electron's relaunch does. The new window logs
+  # click to ready, asserted under 10000ms below.
+  $dataDir = Join-Path $env:LOCALAPPDATA 'agent-harness\desktop'
+  $stagedExe = Join-Path $staging $installed.Name
+  $stagedVersion = ([string](Get-Item -LiteralPath $stagedExe).VersionInfo.ProductVersion).Trim()
+  if ($stagedVersion -notmatch '^[0-9A-Za-z][0-9A-Za-z.+-]*$') { throw "The staged app names no version: '$stagedVersion'" }
+  $versionDir = Join-Path $install ('versions\' + $stagedVersion)
+  Remove-Item -LiteralPath $versionDir -Recurse -Force -ErrorAction SilentlyContinue
+  Rename-Item -LiteralPath $staging -NewName $stagedVersion
+  $broughtHelper = Join-Path $versionDir 'desktop-launch.ps1'
+  if (!(Test-Path -LiteralPath $broughtHelper -PathType Leaf)) { throw 'The staging mode extracted no launch helper beside the app' }
+  $helperBefore = $helper + '.smoke-before'
+  Copy-Item -LiteralPath $helper -Destination $helperBefore -Force
+  $switchPointer = Join-Path $dataDir 'current'
+  $clickFile = Join-Path $dataDir 'update-click.json'
+  $switched = $null
+  try {
+    Copy-Item -LiteralPath $broughtHelper -Destination $helper -Force
+    $clickAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    Set-Content -LiteralPath $clickFile -Encoding Ascii -NoNewline -Value ('{"version":"' + $stagedVersion + '","at":' + $clickAt + '}')
+    $switch = Start-Process -FilePath powershell.exe -ArgumentList @(
+      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ('"' + $helper + '"'),
+      '-App', ('"' + $installed.FullName + '"'), '-Switch', $stagedVersion
+    ) -Wait -PassThru
+    if ($switch.ExitCode -ne 0) { throw "The launch helper's pointer switch exited with $($switch.ExitCode)" }
+    if ((Get-Content -LiteralPath $switchPointer -Raw).Trim() -ne $stagedVersion) { throw 'The pointer switch did not point the launch at the staged version' }
+    Start-Process -FilePath powershell.exe -ArgumentList @(
+      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ('"' + $helper + '"'),
+      '-App', ('"' + $installed.FullName + '"'), '-Watch', $stagedVersion, '-Bound', '60'
+    ) | Out-Null
+    $switched = Start-Process -FilePath (Join-Path $versionDir $installed.Name) -ArgumentList '--updated' -PassThru
+    $readyDeadline = [datetime]::UtcNow.AddSeconds(75)
+    $readyLine = $null
+    while ($null -eq $readyLine -and [datetime]::UtcNow -lt $readyDeadline) {
+      Start-Sleep -Milliseconds 250
+      if (Test-Path -LiteralPath $log) { $readyLine = Select-String -LiteralPath $log -Pattern ([regex]::Escape($stagedVersion) + ':? (click to ready|rolled back)') | Select-Object -Last 1 }
+    }
+    if ($null -eq $readyLine) { Write-Output 'Restart to update: the switched version logged neither click to ready nor a rollback here' }
+    elseif ($readyLine.Line -match 'rolled back') { throw "The switched version did not report ready: $($readyLine.Line)" }
+    else { Write-Output "Verified the pointer switch path: $($readyLine.Line)" }
+  } finally {
+    Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($install, [StringComparison]::OrdinalIgnoreCase) -and $_.Name -notmatch '^Uninstall' } | Stop-Process -Force -ErrorAction SilentlyContinue
+    Move-Item -LiteralPath $helperBefore -Destination $helper -Force
+    Remove-Item -LiteralPath $switchPointer, ($switchPointer + '.previous'), $clickFile -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+    Remove-Item -LiteralPath (Join-Path $install 'versions') -Recurse -Force
+  }
 
   # The launch helper follows the pointer the desktop renames into place at the click.
   $pointerWork = Join-Path $env:TEMP ('desktop-pointer-check-' + [Guid]::NewGuid())

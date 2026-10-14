@@ -1,8 +1,8 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
-import { access, appendFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { access, appendFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, statfs, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve, win32 } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { compareReleaseVersions, ReleaseVersion } from "@agent-harness/contracts";
 import type { ShellApplyOutcome, ShellApplyWhen, ShellStagedBuild, ShellUpdate } from "@agent-harness/client-runtime";
@@ -37,6 +37,8 @@ export interface UpdateFiles {
   readonly readdir: typeof readdir;
   readonly rename: typeof rename;
   readonly rm: typeof rm;
+  /** The free space of the file system a build installs on, checked before it is (#2194). */
+  readonly statfs: (path: string) => Promise<{ readonly bavail: number; readonly bsize: number }>;
   readonly writeFile: typeof writeFile;
 }
 
@@ -77,7 +79,7 @@ export const NODE_UPDATE_SYSTEM: UpdateSystem = {
         settle();
       });
     }),
-  files: { access, lstat, mkdtemp, readFile, readdir, rename, rm, writeFile },
+  files: { access, lstat, mkdtemp, readFile, readdir, rename, rm, statfs, writeFile },
 };
 
 export interface UpdateParts {
@@ -101,9 +103,9 @@ export const stagedBuild = (value: unknown): ShellStagedBuild => {
   return { path: text(path, "A staged build's path"), version: text(version, "A staged build's version"), sha256: digest };
 };
 
-/** When a staged build is applied: `now`, or as the desktop next quits. */
+/** When a staged build is applied: `now`, or as the desktop next quits; or only prepared (`prepare`), at the person's word. */
 export const applyWhen = (value: unknown): ShellApplyWhen => {
-  if (value !== "now" && value !== "quit") throw new TypeError(`A build is applied now or at the quit, not ${JSON.stringify(value)}.`);
+  if (value !== "now" && value !== "quit" && value !== "prepare") throw new TypeError(`A build is applied now or at the quit, or prepared, not ${JSON.stringify(value)}.`);
   return value;
 };
 
@@ -199,6 +201,33 @@ export const CLICK_FILE = "update-click.json";
 /** The pointer `desktop-launch.ps1` follows to the Windows version installed ahead of the click: `<data>/current`, the version's name. */
 export const CURRENT_POINTER = "current";
 
+/** What the pointer named before the click's switch, empty for the install's own folder: the version a rollback goes back to. */
+export const PREVIOUS_POINTER = "current.previous";
+
+/** The launch helper the shortcuts run, copied into the data directory by the setup. */
+export const LAUNCH_HELPER = "desktop-launch.ps1";
+
+/** How long the version switched to at the click has to report ready before the launch helper goes back to the one before it (#2194). */
+export const ROLLBACK_BOUND_SECONDS = 60;
+
+/** Windows PowerShell, which runs the launch helper as the shortcuts do. */
+export const windowsPowerShell = (): string => win32.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+
+/**
+ * How many times its download a build takes once installed (#2194): a zip
+ * unpacked, a setup's 7z extracted, a zstd package installed each come to
+ * two or three times their download; four is the safe side of all of them.
+ */
+export const INSTALLED_FACTOR = 4;
+
+/** What stays free beyond the installed build, for the app, its logs and the OS to go on writing. */
+export const SPACE_MARGIN_BYTES = 256 * 1024 * 1024;
+
+/** What the update card says when a build is not installed for want of space. */
+export const NO_SPACE = "Not enough space to prepare the update";
+
+const megabytes = (bytes: number): string => `${Math.ceil(bytes / (1024 * 1024))} MB`;
+
 /** A version that is safe as one path segment: `versions/<version>`. */
 const SAFE_VERSION = /^[0-9A-Za-z][0-9A-Za-z.+-]*$/;
 
@@ -242,7 +271,11 @@ type Installation =
   | {
       readonly format: "zip" | "nsis" | "pacman";
       readonly afterQuit: boolean;
+      /** The folder the build installs into, whose file system must hold it. */
+      readonly room: string;
       install(staged: ShellStagedBuild, restart: boolean): Promise<ShellApplyOutcome>;
+      /** The preparation asks the person for an administrator: it runs only at their word (`prepare`), never at the hand-over (#2194). */
+      readonly asks?: true;
       /** Installs `staged` beside the running app, ahead of the click; rejects saying why, the running version untouched. */
       prepare?(staged: ShellStagedBuild): Promise<Prepared>;
       /** Removes what a preparation made that will not be switched to. */
@@ -453,23 +486,56 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
   };
 
   /**
-   * Switches Windows to the version installed ahead of the click: the
-   * pointer `desktop-launch.ps1` follows is written beside it and renamed
-   * into place, so a launch reads the old version or the new one, never half
-   * of one; at the click Electron starts the new executable once this one has
-   * gone, its single-instance lock released.
+   * Switches Windows to the version installed ahead of the click: the launch
+   * helper (`-Switch`) takes the install mutex (#2146), so no setup runs
+   * meanwhile, records the version pointed at before (`current.previous`,
+   * what a rollback goes back to), and replaces the pointer it follows in one
+   * step, so a launch reads the old version or the new one, never half of
+   * one; at the click Electron starts the new executable once this one has
+   * gone, its single-instance lock released, and the helper (`-Watch`) goes
+   * back to the version before it if it never reports ready.
    */
   const switchVersion = async (staged: ShellStagedBuild, prepared: Prepared, restart: boolean): Promise<ShellApplyOutcome> => {
-    const pointer = join(platform.paths.data, CURRENT_POINTER);
-    try {
-      await files.writeFile(`${pointer}.tmp`, staged.version, "utf8");
-      await files.rename(`${pointer}.tmp`, pointer);
-    } catch (error) {
-      return failed("install", `Could not point the desktop at ${staged.version} (${messageOf(error)}), so ${stays()}.`);
+    await refreshHelper(dirname(prepared.target));
+    const switched = await system.run(windowsPowerShell(), helperArguments("-Switch", staged.version)).catch((error: unknown) => ({ code: -1, stderr: messageOf(error) }));
+    if (switched.code !== 0) {
+      return failed("install", `Could not point the desktop at ${staged.version} (${lastLine(switched.stderr) ?? `the launch helper exited with ${switched.code}`}), so ${stays()}.`);
     }
-    if (restart) app.relaunch({ execPath: prepared.target, args: ["--updated"] });
+    if (restart) {
+      // The rollback (#2194): the helper waits for the new process's ready, else points back and starts the version before it.
+      await system.start(windowsPowerShell(), helperArguments("-Watch", staged.version, "-Bound", String(ROLLBACK_BOUND_SECONDS))).catch(report);
+      app.relaunch({ execPath: prepared.target, args: ["--updated"] });
+    }
     return APPLIED;
   };
+
+  /**
+   * Puts the launch helper of the version switched to in place of the one in
+   * the data directory, which only a full setup wrote: a version installed
+   * ahead of the click brings its own (`--stage` extracts it beside the app),
+   * so the helper that switches and watches knows what this version asks of
+   * it. Written beside it and renamed into place; one that cannot be is said,
+   * and the one there is used.
+   */
+  const refreshHelper = async (folder: string): Promise<void> => {
+    const helper = join(platform.paths.data, LAUNCH_HELPER);
+    const brought = await files.readFile(join(folder, LAUNCH_HELPER)).catch(() => undefined);
+    if (brought === undefined) return;
+    try {
+      await files.writeFile(`${helper}.tmp`, brought);
+      await files.rename(`${helper}.tmp`, helper);
+    } catch (error) {
+      report(new Error(`The desktop could not put the launch helper of ${basename(folder)} in place: ${messageOf(error)}`));
+    }
+  };
+
+  /** The launch helper run as the shortcuts run it, for the install's own executable, in `mode`. */
+  const helperArguments = (...mode: string[]): string[] => [
+    "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
+    "-File", join(platform.paths.data, LAUNCH_HELPER),
+    "-App", join(windowsInstallRoot(platform.executable), basename(platform.executable)),
+    ...mode,
+  ];
 
   /** Hands the NSIS setup over, with visible progress on a restart once the desktop has quit, and to start it again after when `restart`. */
   const runSetup = async (staged: ShellStagedBuild, restart: boolean): Promise<ShellApplyOutcome> => {
@@ -515,6 +581,7 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
         return {
           format: "zip",
           afterQuit: false,
+          room: dirname(bundle),
           install: (staged) => swapBundle(bundle, staged),
           prepare: (staged) => prepareBundle(bundle, staged),
           discard: async ({ temporary }) => {
@@ -533,6 +600,7 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
         return {
           format: "nsis",
           afterQuit: true,
+          room: windowsInstallRoot(platform.executable),
           install: runSetup,
           prepare: prepareVersion,
           discard: ({ target }) => files.rm(dirname(target), { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }),
@@ -541,7 +609,23 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
       case "linux": {
         const owned = await system.run("pacman", ["-Qqo", platform.executable]).catch(() => undefined);
         if (owned?.code !== 0) return { format: null, why: "no pacman package installed it, as for an AppImage or a .deb" };
-        return { format: "pacman", afterQuit: false, install: pacmanInstall };
+        return {
+          format: "pacman",
+          afterQuit: false,
+          room: dirname(platform.executable),
+          install: pacmanInstall,
+          // At "Prepare now" (#2194): pacman installs the package in place, asking for an administrator then, so the click only starts it again.
+          asks: true,
+          prepare: async (staged) => {
+            const outcome = await pacmanInstall(staged);
+            if (outcome.outcome === "failed") throw new Error(outcome.message);
+            return { target: platform.executable };
+          },
+          switchTo: (_staged, _prepared, restart) => {
+            if (restart) app.relaunch();
+            return Promise.resolve(APPLIED);
+          },
+        };
       }
     }
   };
@@ -567,6 +651,29 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
   };
 
   /**
+   * Whether the file system `found` installs on holds `staged` once
+   * installed (its download times `INSTALLED_FACTOR`) and the margin, checked
+   * before anything is installed (#2194): a shortfall logs
+   * `<version> stage skipped: free space` and says "Not enough space to
+   * prepare the update", the running version untouched. Space that cannot be
+   * read is no reason to refuse.
+   */
+  const spaceShort = async (found: Exclude<Installation, { format: null }>, staged: ShellStagedBuild): Promise<ShellApplyOutcome | undefined> => {
+    let needed: number;
+    let free: number;
+    try {
+      needed = (await files.lstat(staged.path)).size * INSTALLED_FACTOR + SPACE_MARGIN_BYTES;
+      const { bavail, bsize } = await files.statfs(found.room);
+      free = bavail * bsize;
+    } catch {
+      return undefined;
+    }
+    if (free >= needed) return undefined;
+    log(`${staged.version} stage skipped: free space`);
+    return failed("install", `${NO_SPACE}: ${staged.version} needs about ${megabytes(needed)} free on the disk of ${found.room}, and ${megabytes(free)} is, so ${stays()}.`);
+  };
+
+  /**
    * Installs `staged` ahead of the click, once (#2194): downloaded, then
    * installing, then installed; a newer build replaces an older one, whose
    * files are removed. A failure logs `<version> stage failed: <reason>`
@@ -575,6 +682,8 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
   const prepareAhead = async (found: Exclude<Installation, { format: null }>, staged: ShellStagedBuild): Promise<Prepared | ShellApplyOutcome> => {
     const ready = prepared.switchable(staged);
     if (ready !== undefined || found.prepare === undefined) return ready ?? APPLIED;
+    const short = await spaceShort(found, staged);
+    if (short !== undefined) return short;
     const replaced = prepared.downloaded(staged);
     if (replaced !== undefined) await found.discard?.(replaced).catch(report);
     prepared.installing(staged);
@@ -658,10 +767,16 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
       await cleanupReady;
       const found = await installable(staged);
       if (!("install" in found)) return found;
-      if (found.prepare !== undefined && found.switchTo !== undefined) {
+      // A preparation that asks for an administrator runs only at the person's word, or is switched to once it has.
+      const ahead = found.prepare !== undefined && found.switchTo !== undefined && (found.asks !== true || when === "prepare" || prepared.switchable(staged) !== undefined);
+      if (when === "prepare" && !ahead) return APPLIED;
+      if (ahead && found.switchTo !== undefined) {
         // Installed ahead: the hand-over for the quit, right after the download, installs it, and "Restart to update" is offered once it has.
-        const ready = await prepareAhead(found, staged);
+        // A quit while pacman installs at "Prepare now" waits for it, as one while a build installs now does.
+        if (found.asks === true) installingNow = true;
+        const ready = await prepareAhead(found, staged).finally(() => (installingNow = false));
         if ("outcome" in ready) return ready;
+        if (when === "prepare") return APPLIED;
         if (when === "quit") {
           handedOver = { staged, restart: false };
           return APPLIED;
@@ -677,6 +792,8 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
         }
         return outcome;
       }
+      const short = await spaceShort(found, staged);
+      if (short !== undefined) return short;
       if (when === "now") await recordClick(staged);
       if (when === "quit" || found.afterQuit) {
         handedOver = { staged, restart: when === "now" };

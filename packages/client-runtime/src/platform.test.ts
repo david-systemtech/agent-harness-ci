@@ -232,7 +232,7 @@ describe("the shell interface", () => {
 
   it("has the desktop's updater answer what it runs and apply a staged build, and its installer the server it carries: no check or install of its own (#354)", () => {
     expectTypeOf<keyof ShellUpdate>().toEqualTypeOf<"current" | "apply">();
-    expectTypeOf<Parameters<ShellUpdate["apply"]>>().toEqualTypeOf<[staged: ShellStagedBuild, when: "now" | "quit"]>();
+    expectTypeOf<Parameters<ShellUpdate["apply"]>>().toEqualTypeOf<[staged: ShellStagedBuild, when: "now" | "quit" | "prepare"]>();
     expectTypeOf<Awaited<ReturnType<ShellUpdate["current"]>>["format"]>().toEqualTypeOf<string | null>();
     expectTypeOf<keyof ShellInstaller>().toEqualTypeOf<"bundledServer" | "reserveSpace">();
     expectTypeOf<Awaited<ReturnType<ShellInstaller["bundledServer"]>>>().toEqualTypeOf<{ readonly version: string; readonly path: string; readonly refusal?: { readonly reason: "disk"; readonly message: string } } | null>();

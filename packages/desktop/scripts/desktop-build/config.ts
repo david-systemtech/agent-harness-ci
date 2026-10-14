@@ -128,6 +128,8 @@ export const nsisSchemeInclude = (scheme: string, launcher: string): string =>
     '      SetCompress "${COMPRESS}"',
     '    !endif',
     '    Nsis7z::Extract "$PLUGINSDIR\\app-64.${COMPRESSION_METHOD}"',
+    // The version's own launch helper goes with it: the desktop puts it in place at the switch, as no full setup does any more.
+    `    File "${launcher}"`,
     '    System::Call "kernel32::GetTickCount() i.s"',
     '    Pop $0',
     '    IntOp $0 $0 - $desktopInstallStarted',

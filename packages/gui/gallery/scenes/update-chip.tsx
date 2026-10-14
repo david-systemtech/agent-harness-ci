@@ -12,6 +12,8 @@ const newer = { path: "/data/test-update.pkg", version: "0.1.10", sha256: "a".re
 /** Every state the header's update chip draws, at a two-digit patch version (#1806). */
 const STATES: readonly (readonly [string, DesktopBuildView])[] = [
   ["ready", { state: "ready", version: "0.1.9", staged: newer }],
+  ["ready-prepare-offered", { state: "ready", version: "0.1.9", staged: newer, prepare: "offered" }],
+  ["ready-preparing", { state: "ready", version: "0.1.9", staged: newer, prepare: "preparing" }],
   ["ready-after-failed-check", { state: "failed", version: "0.1.9", failure: "check", message: "The release channel could not be read.", staged: newer }],
   ["checking", { state: "checking", version: "0.1.9" }],
   ["staging", { state: "staging", version: "0.1.9", toVersion: "0.1.10" }],
@@ -25,6 +27,7 @@ const STATES: readonly (readonly [string, DesktopBuildView])[] = [
 const held = (build: DesktopBuildView): DesktopUpdate => ({
   view: writable({ build, bundledServer: { state: "none" } }),
   restart: () => Promise.resolve(build),
+  prepare: () => Promise.resolve(build),
   checkAgain: () => Promise.resolve(build),
   applyBundledServer: () => Promise.resolve({ state: "none" }),
 });

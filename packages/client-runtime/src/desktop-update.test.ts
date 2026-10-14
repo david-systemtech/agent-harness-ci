@@ -90,7 +90,7 @@ describe("the desktop's own update", () => {
 
     await until(() => build().state === "ready", "reported the build ready");
 
-    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED, prepare: "offered" });
     expect(params(desk, "updates.desktop.stage")).toEqual([{ platform: "linux-x64", format: "pacman" }]);
     expect(shellCalls("update.apply")).toEqual([[STAGED, "quit"]]);
   });
@@ -133,7 +133,7 @@ describe("the desktop's own update", () => {
     await until(() => runtime.connections.list.read()[0]?.phase === "ready", "reconnected");
 
     await until(() => build().state === "ready", "staged the environment's new version");
-    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED, prepare: "offered" });
     expect(params(desk, "updates.desktop.stage")).toEqual([{ platform: "linux-x64", format: "pacman" }]);
     expect(said).not.toContain("This client's build is the newest.");
   });
@@ -152,7 +152,7 @@ describe("the desktop's own update", () => {
     });
 
     await until(() => build().state === "ready", "staged the newest the environment found");
-    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED, prepare: "offered" });
   });
 
   it("is checked again when the local environment's check of its channel finds a newer release it takes no update for, auto-update off, not an hour later (#1795)", async () => {
@@ -168,7 +168,7 @@ describe("the desktop's own update", () => {
     desk.notice("environment.channel-checked", { newest: "0.6.0", lastCheck });
 
     await until(() => build().state === "ready", "staged the newest the environment's check found");
-    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED, prepare: "offered" });
     expect(params(desk, "updates.desktop.stage")).toEqual([{ platform: "linux-x64", format: "pacman" }]);
   });
 
@@ -193,7 +193,7 @@ describe("the desktop's own update", () => {
     clock.advance(10 * MINUTE);
     stages[1]?.();
     for (let i = 0; i < 10; i++) await flush();
-    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED, prepare: "offered" });
 
     // One hourly check is left, an hour after the last check ended: none before it, and none after it but the next hour's.
     clock.advance(HOUR - MINUTE);
@@ -227,7 +227,7 @@ describe("the desktop's own update", () => {
     expect(params(desk, "updates.desktop.stage")).toEqual([]);
     clock.advance(1);
     await until(() => build().state === "ready", "staged the build the first read found");
-    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED, prepare: "offered" });
   });
 
   it("does not show checking again while it waits for the local environment's first read", async () => {
@@ -324,7 +324,50 @@ describe("the desktop's own update", () => {
 
     installed?.();
     await until(() => build().state === "ready", "reported the build ready once installed");
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED, prepare: "offered" });
+  });
+
+  it("offers Prepare now on an Arch package, whose install asks for an administrator; at the person's word the shell prepares it, and the click only switches (#2194)", async () => {
+    let finish: (() => void) | undefined;
+    const { runtime, until, build, shellCalls } = await launch({
+      updates: { status: { newest: "0.6.0" }, desktopBuild: STAGED },
+      shell: (shell) => shell.answer("update.apply", (_staged, when) => (when === "prepare" ? new Promise((settle) => { finish = () => settle({ outcome: "applied" }); }) : Promise.resolve({ outcome: "applied" }))),
+    });
+    await until(() => build().state === "ready", "reported the build ready");
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED, prepare: "offered" });
+    expect(shellCalls("update.apply")).toEqual([[STAGED, "quit"]]);
+
+    const preparing = runtime.desktopUpdate.prepare();
+    await flush();
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED, prepare: "preparing" });
+    expect(await runtime.desktopUpdate.prepare()).toMatchObject({ prepare: "preparing" });
+    finish?.();
+    expect(await preparing).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+    expect(shellCalls("update.apply")).toEqual([[STAGED, "quit"], [STAGED, "prepare"]]);
+
+    await runtime.desktopUpdate.restart();
+    expect(shellCalls("update.apply")).toEqual([[STAGED, "quit"], [STAGED, "prepare"], [STAGED, "now"]]);
+  });
+
+  it("says why Prepare now failed, keeping the build to restart to, which then asks at the click", async () => {
+    const message = "Update failed to prepare, retry. Installing 0.6.0 needs an administrator, and the authentication was refused, so 0.5.0 stays installed.";
+    const { runtime, until, build } = await launch({
+      updates: { status: { newest: "0.6.0" }, desktopBuild: STAGED },
+      shell: (shell) => shell.answer("update.apply", async (_staged, when) => (when === "prepare" ? { outcome: "failed", failure: "install", message } : { outcome: "applied" })),
+    });
+    await until(() => build().state === "ready", "reported the build ready");
+    expect(await runtime.desktopUpdate.prepare()).toMatchObject({ state: "failed", failure: "install", message, staged: STAGED });
+  });
+
+  it("offers no Prepare now where the install prepares by itself, as a Windows or macOS one", async () => {
+    const { runtime, until, build, shellCalls } = await launch({
+      updates: { status: { newest: "0.6.0" }, desktopBuild: STAGED },
+      shell: (shell) => shell.answer("update.current", async () => ({ version: RUNNING, platform: "win32", arch: "x64", format: "nsis" })),
+    });
+    await until(() => build().state === "ready", "reported the build ready");
     expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+    await runtime.desktopUpdate.prepare();
+    expect(shellCalls("update.apply")).toEqual([[STAGED, "quit"]]);
   });
 
   it("hands the shell a build for the next quit once, and a newer one staged later in its place", async () => {
@@ -353,13 +396,13 @@ describe("the desktop's own update", () => {
     clock.advance(HOUR);
     await until(() => desk.requests("updates.desktop.stage").length === 2, "checked again");
     await flush();
-    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED, prepare: "offered" });
 
     desk.setUpdates({ status: { newest: RUNNING } });
     clock.advance(HOUR);
     await until(() => desk.requests("updates.status").length === 3, "checked a third time");
     await flush();
-    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED, prepare: "offered" });
     expect(shellCalls("update.apply")).toEqual([[STAGED, "quit"]]);
   });
 
@@ -431,7 +474,7 @@ describe("the desktop's own update", () => {
     desk.setUpdates({ status: { newest: "0.7.0" }, desktopBuild: NEWER });
     clock.advance(HOUR);
     await until(() => build().state === "ready", "staged the newer build");
-    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: NEWER });
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: NEWER, prepare: "offered" });
   });
 
   it("reports the build ready once a later check hands the same build over for the quit after an earlier hand-over failed", async () => {
@@ -448,7 +491,7 @@ describe("the desktop's own update", () => {
     clock.advance(HOUR);
     await until(() => build().state === "ready", "reported the build handed over");
 
-    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED, prepare: "offered" });
     expect(shellCalls("update.apply")).toEqual([
       [STAGED, "quit"],
       [STAGED, "quit"],
@@ -517,7 +560,7 @@ describe("the desktop's own update", () => {
       clock.advance(10_000);
       await until(() => runtime.connections.list.read()[0]?.phase === "ready", "reconnected");
       await until(() => build().state === "ready", "reported the build ready");
-      expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+      expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED, prepare: "offered" });
       expect(params(desk, "updates.desktop.stage")).toEqual([{ platform: "linux-x64", format: "pacman" }]);
       expect(shellCalls("update.apply")).toEqual([[STAGED, "quit"]]);
     },
@@ -538,7 +581,7 @@ describe("the desktop's own update", () => {
 
     clock.advance(10_000);
     await until(() => build().state === "ready", "staged the build once the environment was ready again");
-    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED, prepare: "offered" });
   });
 
   it("checks again at once on a person's Check again after a failed stage, not an hour later", async () => {
@@ -546,7 +589,7 @@ describe("the desktop's own update", () => {
     await until(() => build().state === "failed", "failed the stage");
 
     desk.setUpdates({ desktopBuild: STAGED });
-    expect(await runtime.desktopUpdate.checkAgain()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+    expect(await runtime.desktopUpdate.checkAgain()).toEqual({ state: "ready", version: RUNNING, staged: STAGED, prepare: "offered" });
     expect(desk.requests("updates.desktop.stage")).toHaveLength(2);
   });
 

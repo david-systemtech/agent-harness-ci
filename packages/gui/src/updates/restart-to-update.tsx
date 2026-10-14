@@ -1,5 +1,5 @@
 import type { DesktopBuildView, ShellStagedBuild } from "@agent-harness/client-runtime";
-import { ArrowDown, CircleAlert, ExternalLink, LoaderCircle, RotateCw } from "lucide-react";
+import { ArrowDown, CircleAlert, ExternalLink, LoaderCircle, RotateCw, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { CopyLine } from "../settings/copy-line.js";
 import { classes } from "../ui/classes.js";
@@ -48,6 +48,31 @@ export const RestartButton = ({ onFailed }: { readonly onFailed?: () => void }) 
  * run the command that installs it by hand, where the install has one,
  * download it from the release page, or try again.
  */
+/**
+ * "Prepare now" (#2194): where installing the build asks the person for an
+ * administrator (an Arch package), the card asks at their word, ahead of the
+ * click, so "Restart to update" then only starts the new build. Never asked
+ * unprompted: left alone, the click asks.
+ */
+export const PrepareButton = ({ onFailed }: { readonly onFailed?: () => void }) => {
+  const runtime = useRuntime();
+  const { build } = useObservable(runtime.desktopUpdate.view);
+  if (build.state !== "ready" || build.prepare === undefined) return null;
+  if (build.prepare === "preparing") {
+    return <span role="status" className={classes(CHIP, "flex items-center rounded-md border-beam/30 text-beam-text opacity-60")}>
+      <LoaderCircle aria-hidden="true" className="size-3 shrink-0 animate-spin motion-reduce:animate-none" /><span className="truncate">Preparing update…</span>
+    </span>;
+  }
+  const prepare = () => void runtime.desktopUpdate.prepare().then((after) => { if (applyFailed(after)) onFailed?.(); });
+  return (
+    <Tooltip content="Prepare now · installs the update now, asking for your password once, so Restart to update only restarts">
+      <Button aria-label="Prepare now" size="xs" className={classes(CHIP, "border-beam/30 text-beam-text")} onClick={prepare}>
+        <ShieldCheck aria-hidden="true" /><span className="truncate">Prepare now</span>
+      </Button>
+    </Tooltip>
+  );
+};
+
 export const ApplyFailureActions = ({ build }: { readonly build: ApplyFailed }) => {
   const runtime = useRuntime();
   const shell = useShell();
@@ -96,7 +121,12 @@ export const RestartToUpdate = () => {
   }
   const pending = build.state === "checking" || build.state === "staging" || build.state === "applying";
   const failed = build.state === "failed" && build.staged === null;
-  if (!pending && !failed) return <RestartButton onFailed={() => setDetails(true)} />;
+  if (!pending && !failed) {
+    if (build.state === "ready" && build.prepare !== undefined) {
+      return <span className="flex items-center gap-1.5"><PrepareButton onFailed={() => setDetails(true)} />{build.prepare === "offered" && <RestartButton onFailed={() => setDetails(true)} />}</span>;
+    }
+    return <RestartButton onFailed={() => setDetails(true)} />;
+  }
   const label = build.state === "applying" ? "Restarting to update…" : build.state === "staging" ? "Downloading update…" : failed ? "Update failed" : "Checking for an update…";
   const Icon = failed ? CircleAlert : LoaderCircle;
   return <Tooltip content={build.state === "failed" ? build.message : label}>

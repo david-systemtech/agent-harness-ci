@@ -4,7 +4,7 @@ import { uuidv4 } from "./ids.js";
 import { writable, type Observable } from "./observable.js";
 import type { Clock, Timer } from "./platform.js";
 import { CACHE_REFRESH_NOTICES, QUERY_REFRESH_NOTICES, type RequestFailure, type Requests } from "./requests.js";
-import type { Shell, ShellApplyOutcome, ShellBundledServer, ShellStagedBuild } from "./shell.js";
+import type { Shell, ShellApplyOutcome, ShellApplyWhen, ShellBundledServer, ShellStagedBuild } from "./shell.js";
 
 /**
  * The desktop's update flow (launcher-update spec, "The desktop moves with
@@ -77,8 +77,14 @@ export type DesktopBuildView =
   | { readonly state: "unsupported"; readonly version: string; readonly releasePage: string }
   /** The local environment is staging the build of `toVersion`. */
   | { readonly state: "staging"; readonly version: string; readonly toVersion: string }
-  /** A restart will update: `staged` applies on "Restart to update", or at the next quit. */
-  | { readonly state: "ready"; readonly version: string; readonly staged: ShellStagedBuild }
+  /**
+   * A restart will update: `staged` applies on "Restart to update", or at the
+   * next quit. `prepare` is there for an install whose preparation asks the
+   * person for an administrator (an Arch package): "Prepare now" asks then
+   * (`offered`, then `preparing`), so the click only starts the new build;
+   * left alone, the click asks (#2194).
+   */
+  | { readonly state: "ready"; readonly version: string; readonly staged: ShellStagedBuild; readonly prepare?: "offered" | "preparing" }
   | { readonly state: "applying"; readonly version: string; readonly staged: ShellStagedBuild }
   /**
    * A step failed, saying why; the build staged before, if any, stays to
@@ -120,6 +126,8 @@ export interface DesktopUpdate {
   readonly view: Observable<DesktopUpdateView>;
   /** "Restart to update": the staged build applied now through the shell. Answers where the update is after; nothing happens unless a build is staged. */
   restart(): Promise<DesktopBuildView>;
+  /** "Prepare now": the staged build installed ahead of the click where that asks for an administrator, at the person's word (#2194). Answers where the update is after; nothing happens unless it is offered. */
+  prepare(): Promise<DesktopBuildView>;
   /**
    * A person's Check again: the build checked now, once the local
    * environment is ready, rather than at the next hourly check. Answers
@@ -226,6 +234,17 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
   let bundledLooked = false;
   /** The build last handed to the shell for the next quit. */
   let handedForQuit: ShellStagedBuild | undefined;
+  /** The build "Prepare now" installed ahead of the click. */
+  let preparedBuild: ShellStagedBuild | undefined;
+  /** Whether this install's preparation asks for an administrator, so it waits for "Prepare now": an Arch package's. */
+  let asksToPrepare = false;
+  /** The ready view of `staged`, offering "Prepare now" where it asks and has not been. */
+  const readyView = (version: string, staged: ShellStagedBuild): DesktopBuildView => ({
+    state: "ready",
+    version,
+    staged,
+    ...(asksToPrepare && !(preparedBuild?.path === staged.path && preparedBuild.sha256 === staged.sha256) && { prepare: "offered" as const }),
+  });
   /** The view the last failed hand-over for the next quit left, told apart from a failed restart of the same build. */
   let quitFailure: DesktopBuildView | undefined;
   /** The release page of the local environment's release source, as the last check read it. */
@@ -274,6 +293,7 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     if (!status.ok) return failed(version, "check", `Could not ask the local environment for updates: ${status.error.message}`, stagedNow());
     releasePage = releasePageOf(status.result.releaseSource);
     if (running.format === null) return { state: "unsupported", version, releasePage };
+    asksToPrepare = running.format === "pacman";
     const settings = await host.call(environmentId, "settings.get", { keys: ["updates.pinnedVersion"] });
     if (!settings.ok && wentAway(settings.error)) return INTERRUPTED;
     if (!settings.ok) return failed(version, "check", `Could not read the local environment's update settings: ${settings.error.message}`, stagedNow());
@@ -296,21 +316,22 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     const staged: ShellStagedBuild = { path: stage.result.path, version: stage.result.version, sha256: stage.result.sha256 };
     if (!newerVersion(staged.version, version)) return { state: "current", version };
     if (handedForQuit?.path === staged.path && handedForQuit.sha256 === staged.sha256) {
-      showCheck({ state: "ready", version, staged });
-      return { state: "ready", version, staged };
+      const again = readyView(version, staged);
+      showCheck(again);
+      return again;
     }
     // The hand-over for the quit installs the build ahead of the click (#2194): Restart to update is offered once it has.
     const outcome = await apply(staged, "quit");
     if (outcome !== null) return (quitFailure = applyFailed(version, outcome, staged));
     handedForQuit = staged;
-    const ready: DesktopBuildView = { state: "ready", version, staged };
+    const ready = readyView(version, staged);
     // The hand-over that failed is now done, so its failure no longer holds the build; a restart that failed still does (#1707).
     if (view.read().build === quitFailure) setBuild(ready);
     return ready;
   };
 
   /** Applies `staged` through the shell: null once applied (or handed over for the quit), else what failed. */
-  const apply = async (staged: ShellStagedBuild, when: "now" | "quit"): Promise<ApplyFailure | null> => {
+  const apply = async (staged: ShellStagedBuild, when: ShellApplyWhen): Promise<ApplyFailure | null> => {
     if (update === undefined) return { failure: "install", message: "This desktop's shell cannot update itself." };
     try {
       const outcome = await update.apply(staged, when);
@@ -478,6 +499,20 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
       await overlapLocalUpdate(staged.version).catch(host.report);
       const outcome = await apply(staged, "now");
       if (outcome !== null) setBuild(applyFailed(version, outcome, staged));
+      return view.read().build;
+    },
+
+    async prepare() {
+      const build = view.read().build;
+      if (build.state !== "ready" || build.prepare !== "offered") return build;
+      const { version, staged } = build;
+      setBuild({ ...build, prepare: "preparing" });
+      const outcome = await apply(staged, "prepare");
+      if (outcome !== null) setBuild(applyFailed(version, outcome, staged));
+      else {
+        preparedBuild = staged;
+        setBuild(readyView(version, staged));
+      }
       return view.read().build;
     },
 

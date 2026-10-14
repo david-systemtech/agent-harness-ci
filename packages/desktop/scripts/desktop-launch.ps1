@@ -4,6 +4,11 @@ param(
   [switch]$Updated,
   [switch]$Prepare,
   [switch]$NoWindow,
+  # At Restart to update (#2194): watch the version just switched to, and go back if it never gets ready.
+  [string]$Watch,
+  # At Restart to update (#2194): point the launch at this version, holding the install mutex.
+  [string]$Switch,
+  [int]$Bound = 60,
   [Parameter(ValueFromRemainingArguments=$true)][string[]]$LaunchArguments
 )
 
@@ -25,6 +30,82 @@ if ($Prepare) {
       }
     }
   }
+  exit 0
+}
+$versionPattern = '^[0-9A-Za-z][0-9A-Za-z.+-]*$'
+$pointer = Join-Path $PSScriptRoot 'current'
+$previousPointer = Join-Path $PSScriptRoot 'current.previous'
+$installRoot = Split-Path -Parent $App
+$exeName = Split-Path -Leaf $App
+function Get-VersionApp([string]$name) {
+  if ($name -notmatch $versionPattern) { return $null }
+  $candidate = Join-Path (Join-Path (Join-Path $installRoot 'versions') $name) $exeName
+  if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+  return $null
+}
+function Write-UpdateLog([string]$line) {
+  $logs = Join-Path $PSScriptRoot 'logs'
+  New-Item -ItemType Directory -Force -Path $logs | Out-Null
+  [IO.File]::AppendAllText((Join-Path $logs 'desktop-update.log'), $line + [char]13 + [char]10)
+}
+if ($Switch) {
+  # The pointer switch holds the install mutex (#2146), as a setup does, so a
+  # setup that deletes the pointer and a switch that writes it never interleave.
+  if ($null -eq (Get-VersionApp $Switch)) { throw 'No installed desktop version to switch to' }
+  $mutex = [Threading.Mutex]::new($false, 'Local\agent-harness-desktop-install')
+  $entered = $false
+  try {
+    try { $entered = $mutex.WaitOne() } catch [Threading.AbandonedMutexException] { $entered = $true }
+    $before = ''
+    if (Test-Path -LiteralPath $pointer -PathType Leaf) { $before = [IO.File]::ReadAllText($pointer).Trim() }
+    [IO.File]::WriteAllText($previousPointer, $before)
+    $written = $pointer + '.tmp'
+    [IO.File]::WriteAllText($written, $Switch)
+    # Replaced in one step, so a launch reads the old version or the new one.
+    if (Test-Path -LiteralPath $pointer) { [IO.File]::Replace($written, $pointer, [NullString]::Value) }
+    else { [IO.File]::Move($written, $pointer) }
+  } finally {
+    if ($entered) { $mutex.ReleaseMutex() }
+    $mutex.Dispose()
+  }
+  exit 0
+}
+if ($Watch) {
+  # The old process started this as it quit for the switch to $Watch. The new
+  # process removes the click file once its window is ready (the moment it logs
+  # click to ready); a click file still there after the bound means the new
+  # version did not start, so the pointer goes back to the version before it
+  # (current.previous, written at the switch) and that version is started.
+  if ($Watch -notmatch $versionPattern) { throw 'Invalid desktop version' }
+  $click = Join-Path $PSScriptRoot 'update-click.json'
+  $deadline = [datetime]::UtcNow.AddSeconds($Bound)
+  while ([datetime]::UtcNow -lt $deadline) {
+    if (!(Test-Path -LiteralPath $click)) { exit 0 }
+    Start-Sleep -Milliseconds 250
+  }
+  $incoming = Get-VersionApp $Watch
+  $previous = ''
+  if (Test-Path -LiteralPath $previousPointer -PathType Leaf) { $previous = [IO.File]::ReadAllText($previousPointer).Trim() }
+  $mutex = [Threading.Mutex]::new($false, 'Local\agent-harness-desktop-install')
+  $entered = $false
+  try {
+    try { $entered = $mutex.WaitOne() } catch [Threading.AbandonedMutexException] { $entered = $true }
+    $now = ''
+    if (Test-Path -LiteralPath $pointer -PathType Leaf) { $now = [IO.File]::ReadAllText($pointer).Trim() }
+    # A setup or another switch since then decided what launches: leave it.
+    if ($now -ne $Watch) { exit 0 }
+    if ($previous -and (Get-VersionApp $previous)) { [IO.File]::WriteAllText($pointer, $previous) }
+    else { Remove-Item -LiteralPath $pointer -Force }
+  } finally {
+    if ($entered) { $mutex.ReleaseMutex() }
+    $mutex.Dispose()
+  }
+  if ($null -ne $incoming) { Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $incoming } | Stop-Process -Force -ErrorAction SilentlyContinue }
+  Remove-Item -LiteralPath $click -Force -ErrorAction SilentlyContinue
+  Write-UpdateLog ($Watch + ' rolled back: it did not report ready within ' + $Bound + 's')
+  $back = $App
+  if ($previous) { $found = Get-VersionApp $previous; if ($null -ne $found) { $back = $found } }
+  Start-Process -FilePath $back
   exit 0
 }
 foreach ($argument in $LaunchArguments) {
@@ -74,14 +155,10 @@ try {
 }
 # A version installed beside the app ahead of Restart to update (#2194):
 # the desktop renames the pointer into place at the click, naming it.
-$pointer = Join-Path $PSScriptRoot 'current'
 if (Test-Path -LiteralPath $pointer -PathType Leaf) {
-  # An empty pointer reads as $null; the cast keeps Trim from throwing.
-  $version = ([string](Get-Content -LiteralPath $pointer -Raw)).Trim()
-  if ($version -match '^[0-9A-Za-z][0-9A-Za-z.+-]*$') {
-    $candidate = Join-Path (Join-Path (Join-Path (Split-Path -Parent $App) 'versions') $version) (Split-Path -Leaf $App)
-    if (Test-Path -LiteralPath $candidate -PathType Leaf) { $App = $candidate }
-  }
+  # Read as text, so an empty pointer is an empty string (Get-Content gives $null).
+  $candidate = Get-VersionApp ([IO.File]::ReadAllText($pointer).Trim())
+  if ($null -ne $candidate) { $App = $candidate }
 }
 $arguments = @()
 if ($Updated) { $arguments += '--updated' }

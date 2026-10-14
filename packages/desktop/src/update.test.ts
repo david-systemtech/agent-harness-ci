@@ -8,7 +8,7 @@ import { fakeElectron, type FakeElectron } from "../test/fake-electron.js";
 import { fakeSystem, succeeded, type FakeSystem } from "../test/fake-system.js";
 import { cleanUp, platformOn, scratch, start } from "../test/harness.js";
 import type { DesktopPlatform } from "./platform.js";
-import { desktopUpdate, preparation, type CommandResult } from "./update.js";
+import { desktopUpdate, INSTALLED_FACTOR, preparation, ROLLBACK_BOUND_SECONDS, SPACE_MARGIN_BYTES, windowsPowerShell, type CommandResult } from "./update.js";
 
 afterEach(cleanUp);
 
@@ -337,8 +337,25 @@ describe("apply on Windows", () => {
       }
       return { code, stderr: code === 0 ? "" : "the setup failed" };
     });
-    return { root, executable, version: join(root, "versions", staged.version, "agent-harness.exe") };
+    // The launch helper's switch, as desktop-launch.ps1 makes it: under the install mutex, the version before recorded, then the pointer replaced.
+    const mutex = { held: Promise.resolve() };
+    system.answer(windowsPowerShell(), async (args) => {
+      const at = args.indexOf("-Switch");
+      if (at === -1) return succeeded;
+      await mutex.held;
+      const data = dirname(args[args.indexOf("-File") + 1] ?? "");
+      const pointer = join(data, "current");
+      writeFileSync(join(data, "current.previous"), existsSync(pointer) ? readFileSync(pointer, "utf8").trim() : "");
+      writeFileSync(pointer, args[at + 1] ?? "");
+      return succeeded;
+    });
+    return { mutex, root, executable, version: join(root, "versions", staged.version, "agent-harness.exe") };
   };
+
+  /** The launch helper's arguments, as the shortcuts run it, for `install`, in `mode`. */
+  const helper = (install: { executable: string }, ...mode: string[]) => [
+    "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", expect.stringMatching(/desktop-launch\.ps1$/), "-App", install.executable, ...mode,
+  ];
 
   it("installs the build into versions/<version> beside the app as soon as it is handed over, the running install untouched", async () => {
     const system = fakeSystem();
@@ -366,9 +383,108 @@ describe("apply on Windows", () => {
     expect(await shell().update.apply(staged, "now")).toEqual({ outcome: "applied" });
     await electron.app.quitted;
 
-    expect(system.ran).toHaveLength(1);
-    expect(system.started).toEqual([]);
+    expect(system.ran).toHaveLength(2);
+    expect(system.ran[1]).toEqual([windowsPowerShell(), ...helper(install, "-Switch", "0.6.0")]);
+    expect(system.started).toEqual([[windowsPowerShell(), ...helper(install, "-Watch", "0.6.0", "-Bound", String(ROLLBACK_BOUND_SECONDS))]]);
     expect(electron.app.calls.filter(([method]) => method === "relaunch")).toEqual([["relaunch", { execPath: install.version, args: ["--updated"] }]]);
+  });
+
+  it("at the click, records the version it switches from for the rollback, and starts the watch that rolls back before the new version", async () => {
+    const system = fakeSystem();
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
+    const install = windowsInstall(system, staged);
+    const { shell, electron, platform } = await installed("win32", install.executable, system);
+    writeFileSync(join(platform.paths.data, "current"), "0.5.0\r\n");
+    const order: string[] = [];
+    const start = system.start.bind(system);
+    system.start = async (command, args) => {
+      order.push(`start ${args.slice(args.indexOf("-App") + 2).join(" ")}`);
+      return start(command, args);
+    };
+    electron.app.on("will-quit", () => order.push("quit"));
+    await shell().update.apply(staged, "quit");
+    await shell().update.apply(staged, "now");
+    await electron.app.quitted;
+
+    expect(readFileSync(join(platform.paths.data, "current.previous"), "utf8")).toBe("0.5.0");
+    expect(readFileSync(join(platform.paths.data, "current"), "utf8")).toBe("0.6.0");
+    expect(order).toEqual([`start -Watch 0.6.0 -Bound ${ROLLBACK_BOUND_SECONDS}`, "quit"]);
+  });
+
+  it("switches the pointer through the launch helper, which holds the install mutex: a setup holding it delays the switch and the restart until it lets go", async () => {
+    const system = fakeSystem();
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
+    const install = windowsInstall(system, staged);
+    const { shell, electron, platform } = await installed("win32", install.executable, system);
+    await shell().update.apply(staged, "quit");
+    let release = () => {};
+    install.mutex.held = new Promise<void>((resolve) => (release = resolve));
+
+    const applying = shell().update.apply(staged, "now");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(system.ran.at(-1)).toEqual([windowsPowerShell(), ...helper(install, "-Switch", "0.6.0")]);
+    expect(existsSync(join(platform.paths.data, "current"))).toBe(false);
+    expect(system.started).toEqual([]);
+    expect(electron.app.calls.map(([method]) => method)).not.toContain("relaunch");
+
+    release();
+    expect(await applying).toEqual({ outcome: "applied" });
+    expect(readFileSync(join(platform.paths.data, "current"), "utf8")).toBe("0.6.0");
+    expect(electron.app.calls.map(([method]) => method)).toContain("relaunch");
+  });
+
+  it("puts the launch helper the installed version brought in place before it switches, so the helper that switches knows the switch", async () => {
+    const system = fakeSystem();
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
+    const install = windowsInstall(system, staged);
+    const { shell, electron, platform } = await installed("win32", install.executable, system);
+    writeFileSync(join(platform.paths.data, "desktop-launch.ps1"), "# the helper of 0.4.0");
+    await shell().update.apply(staged, "quit");
+    writeFileSync(join(dirname(install.version), "desktop-launch.ps1"), "# the helper of 0.6.0");
+    const helpers: string[] = [];
+    const answered = system.run.bind(system);
+    system.run = (command, args) => {
+      if (args.includes("-Switch")) helpers.push(readFileSync(join(platform.paths.data, "desktop-launch.ps1"), "utf8"));
+      return answered(command, args);
+    };
+
+    expect(await shell().update.apply(staged, "now")).toEqual({ outcome: "applied" });
+    await electron.app.quitted;
+    expect(helpers).toEqual(["# the helper of 0.6.0"]);
+    expect(existsSync(join(platform.paths.data, "desktop-launch.ps1.tmp"))).toBe(false);
+  });
+
+  it("keeps the running version and restarts nothing when the launch helper cannot switch the pointer", async () => {
+    const system = fakeSystem();
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
+    const install = windowsInstall(system, staged);
+    const { shell, electron } = await installed("win32", install.executable, system);
+    await shell().update.apply(staged, "quit");
+    system.answer(windowsPowerShell(), () => ({ code: 1, stderr: "No installed desktop version to switch to" }));
+
+    expect(await shell().update.apply(staged, "now")).toEqual({
+      outcome: "failed",
+      failure: "install",
+      message: "Could not point the desktop at 0.6.0 (No installed desktop version to switch to), so 0.5.0 stays installed.",
+    });
+    expect(system.started).toEqual([]);
+    expect(electron.app.calls.map(([method]) => method)).not.toContain("relaunch");
+    expect(electron.app.calls.map(([method]) => method)).not.toContain("quit");
+  });
+
+  it("still switches and starts the new version when the rollback watch cannot be started, and says so", async () => {
+    const system = fakeSystem();
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
+    const install = windowsInstall(system, staged);
+    const { shell, electron, reported } = await installed("win32", install.executable, system);
+    system.start = () => Promise.reject(new Error("spawn powershell.exe ENOENT"));
+    await shell().update.apply(staged, "quit");
+
+    expect(await shell().update.apply(staged, "now")).toEqual({ outcome: "applied" });
+    await electron.app.quitted;
+
+    expect(reported.map(String)).toContain("Error: spawn powershell.exe ENOENT");
+    expect(electron.app.calls.filter(([method]) => method === "relaunch")).toHaveLength(1);
   });
 
   it("at `quit`, points the next launch at the installed version and starts nothing", async () => {
@@ -434,6 +550,47 @@ describe("apply on Arch", () => {
     await Promise.resolve();
     return gone;
   };
+
+  it("asks for nothing at the hand-over after the download; at Prepare now asks pkexec once to run pacman -U, so the click only starts the new build", async () => {
+    const { system, shell, electron } = await onArch(succeeded);
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst");
+    const pkexec = () => system.ran.filter(([command]) => command === "pkexec");
+
+    expect(await shell().update.apply(staged, "quit")).toEqual({ outcome: "applied" });
+    expect(pkexec()).toEqual([]);
+
+    expect(await shell().update.apply(staged, "prepare")).toEqual({ outcome: "applied" });
+    expect(pkexec()).toEqual([["pkexec", "pacman", "-U", "--noconfirm", staged.path]]);
+    expect(electron.app.calls.map(([method]) => method)).not.toContain("quit");
+
+    expect(await shell().update.apply(staged, "now")).toEqual({ outcome: "applied" });
+    await electron.app.quitted;
+    expect(pkexec()).toHaveLength(1);
+    expect(electron.app.calls.map(([method]) => method).filter((method) => method === "relaunch" || method === "quit")).toEqual(["relaunch", "quit"]);
+  });
+
+  it("installs nothing more at the quit once Prepare now installed the package", async () => {
+    const { system, shell, electron } = await onArch(succeeded);
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst");
+    await shell().update.apply(staged, "quit");
+    await shell().update.apply(staged, "prepare");
+    electron.app.quit();
+    await electron.app.quitted;
+    expect(system.ran.filter(([command]) => command === "pkexec")).toHaveLength(1);
+    expect(electron.app.calls.map(([method]) => method)).not.toContain("relaunch");
+  });
+
+  it("says the update failed to prepare when the authentication at Prepare now is refused, and the click asks again", async () => {
+    const { system, shell, electron } = await onArch({ code: 126, stderr: "Error executing command as another user: Request dismissed" });
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst");
+    await shell().update.apply(staged, "quit");
+
+    expect(await shell().update.apply(staged, "prepare")).toMatchObject({ outcome: "failed", failure: "install", message: expect.stringMatching(/^Update failed to prepare, retry\. Installing 0\.6\.0 needs an administrator, and the authentication was refused/) });
+    system.answer("pkexec", () => succeeded);
+    expect(await shell().update.apply(staged, "now")).toEqual({ outcome: "applied" });
+    await electron.app.quitted;
+    expect(system.ran.filter(([command]) => command === "pkexec")).toHaveLength(2);
+  });
 
   it("at `now`, runs pacman -U on the staged package through pkexec, then starts the new build", async () => {
     const { system, shell, electron } = await onArch(succeeded);
@@ -616,7 +773,7 @@ describe("apply, on every platform", () => {
     expect(mac.build()).toBe("0.5.0");
   });
 
-  it("makes and removes its temporary folders through Node's file calls, and runs no command but the install's own", async () => {
+  it("makes and removes its temporary folders through Node's file calls, and runs no command but the install's own and the launch helper's", async () => {
     const mac = macBundle();
     const macSystem = fakeSystem();
     unzipping(macSystem, "0.6.0");
@@ -640,12 +797,92 @@ describe("apply, on every platform", () => {
       writeFileSync(join(into, "agent-harness.exe"), "0.6.0");
       return succeeded;
     });
+    windowsSystem.answer(windowsPowerShell(), () => succeeded);
     const windows = await installed("win32", join(windowsRoot, "agent-harness.exe"), windowsSystem);
     await windows.shell().update.apply(windowsBuild, "now");
     await windows.electron.app.quitted;
 
     const commands = [...macSystem.ran, ...archSystem.ran, ...archSystem.started, ...windowsSystem.ran, ...windowsSystem.started].map(([command]) => basename(command ?? ""));
-    expect(new Set(commands)).toEqual(new Set(["ditto", "pacman", "pkexec", "agent-harness-desktop-win32-x64-setup.exe"]));
+    expect(new Set(commands)).toEqual(new Set(["ditto", "pacman", "pkexec", "agent-harness-desktop-win32-x64-setup.exe", basename(windowsPowerShell())]));
+  });
+});
+
+describe("free space before a build is installed, issue 2194", () => {
+  /** The space `staged` needs once installed, with the margin. */
+  const needs = (staged: ShellStagedBuild) => readFileSync(staged.path).length * INSTALLED_FACTOR + SPACE_MARGIN_BYTES;
+
+  it("on Windows, installs nothing beside the app without the space for it, logs the skip and says there is not enough space", async () => {
+    const system = fakeSystem();
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
+    const root = join(scratch(), "Programs", "agent-harness");
+    mkdirSync(root, { recursive: true });
+    system.answer(staged.path, () => succeeded);
+    system.freeSpace(needs(staged) - 4096);
+    const lines: string[] = [];
+    const electron = fakeElectron({ os: "win32" });
+    electron.app.isPackaged = true;
+    const update = desktopUpdate({ app: electron.app, platform: platformOn("win32", { executable: join(root, "agent-harness.exe") }), system, report: () => {}, log: (line) => lines.push(line) });
+
+    const outcome = await update.apply(staged, "quit");
+    expect(outcome).toMatchObject({ outcome: "failed", failure: "install" });
+    expect(outcome.outcome === "failed" && outcome.message).toMatch(/^Not enough space to prepare the update: 0\.6\.0 needs about \d+ MB free on the disk of .+, and \d+ MB is, so 0\.5\.0 stays installed\.$/);
+    expect(lines).toEqual(["0.6.0 stage skipped: free space"]);
+    expect(system.ran).toEqual([]);
+    expect(existsSync(join(root, "versions"))).toBe(false);
+
+    // Once there is room, the same build installs.
+    system.freeSpace(needs(staged));
+    system.answer(staged.path, (args) => {
+      const into = (args.at(-1) ?? "").slice("--stage=".length);
+      mkdirSync(into, { recursive: true });
+      writeFileSync(join(into, "agent-harness.exe"), "0.6.0");
+      return succeeded;
+    });
+    expect(await update.apply(staged, "quit")).toEqual({ outcome: "applied" });
+  });
+
+  it("on macOS, unpacks nothing beside the bundle without the space for it", async () => {
+    const mac = macBundle();
+    const system = fakeSystem();
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-darwin-arm64.zip");
+    system.freeSpace(0);
+    const { shell } = await installed("darwin", mac.executable, system);
+
+    expect(await shell().update.apply(staged, "quit")).toMatchObject({ outcome: "failed", message: expect.stringMatching(/^Not enough space to prepare the update: /) });
+    expect(system.made).toEqual([]);
+    expect(system.ran).toEqual([]);
+  });
+
+  it("on Arch, runs no pacman without the space for the package", async () => {
+    const system = fakeSystem();
+    pacmanOwns(system, "/opt/agent-harness/agent-harness");
+    system.answer("pkexec", () => succeeded);
+    system.freeSpace(1024);
+    const { shell, electron } = await installed("linux", "/opt/agent-harness/agent-harness", system);
+
+    expect(await shell().update.apply(stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst"), "now")).toMatchObject({ outcome: "failed", message: expect.stringMatching(/^Not enough space to prepare the update: /) });
+    expect(system.ran.map(([command]) => command)).not.toContain("pkexec");
+    expect(electron.app.calls.map(([method]) => method)).not.toContain("quit");
+  });
+});
+
+describe("prepare, issue 2194", () => {
+  it("only installs ahead on Windows and macOS, switching nothing and starting nothing", async () => {
+    const system = fakeSystem();
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
+    const root = join(scratch(), "Programs", "agent-harness");
+    mkdirSync(root, { recursive: true });
+    system.answer(staged.path, (args) => {
+      const into = (args.at(-1) ?? "").slice("--stage=".length);
+      mkdirSync(into, { recursive: true });
+      writeFileSync(join(into, "agent-harness.exe"), "0.6.0");
+      return succeeded;
+    });
+    const { shell, electron, platform } = await installed("win32", join(root, "agent-harness.exe"), system);
+    expect(await shell().update.apply(staged, "prepare")).toEqual({ outcome: "applied" });
+    expect(existsSync(join(root, "versions", "0.6.0", "agent-harness.exe"))).toBe(true);
+    expect(existsSync(join(platform.paths.data, "current"))).toBe(false);
+    expect(electron.app.calls.map(([method]) => method)).not.toContain("quit");
   });
 });
 
