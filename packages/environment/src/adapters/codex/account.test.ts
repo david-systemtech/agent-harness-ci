@@ -9,6 +9,7 @@ import { startTestEnvironment, type TestEnvironment } from "../../../test/helper
 import { fakeSignInSpawner } from "../../../test/signin.js";
 import {
   CODEX_LOGIN_ARGV,
+  CODEX_MODELS,
   ambientCodexHome,
   codexFallback,
   codexSignInEnvironment,
@@ -70,6 +71,15 @@ describe("a Codex home's status, read from auth.json", () => {
 
 const DEVICE_OUTPUT =
   "\nWelcome to Codex [v0.46.0]\n\u001b[90mOpenAI's command-line coding agent\u001b[0m\n\nFollow these steps to sign in with ChatGPT using device code authorization:\n\n1. Open this link in your browser and sign in to your account\n   \u001b[94mhttps://auth.openai.com/codex/device\u001b[0m\n\n2. Enter this one-time code \u001b[90m(expires in 15 minutes)\u001b[0m\n   \u001b[94mABCD-EFGHJ\u001b[0m\n\n";
+
+describe("the Codex models (#2224)", () => {
+  it("are the fixed list, marked not live, since the codex CLI has no listing command; the provider answers it without running anything", async () => {
+    expect(CODEX_MODELS.live).toBe(false);
+    expect(CODEX_MODELS.models.map((model) => model.id)).toEqual(["gpt-5-codex", "gpt-5"]);
+    const provider = createCodexAccountProvider({ hostEnv: { CODEX_HOME: "/nowhere" } });
+    expect(await provider.models({ id: "codex-1", directory: { path: "/nowhere" } } as never)).toBe(CODEX_MODELS);
+  });
+});
 
 describe("the Codex sign-in program", () => {
   it("reads the device page and its one-time code through the colour sequences", () => {
