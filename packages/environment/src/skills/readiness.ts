@@ -99,6 +99,8 @@ export interface SkillReadinessOptions {
    * completions request's client tools, which are that request's own. Preset: none.
    */
   readonly toolServers?: ToolServerFactory;
+  /** The accounts the environment holds, which an `account` check looks for a signed-in one of its provider among (#2169); preset: none. */
+  readonly accounts?: () => readonly { readonly provider: string; readonly signedIn: boolean }[];
   /** Preset: the overlay the contracts ship. */
   readonly overlay?: ReadinessOverlay;
   /** Preset: the hardened runner. */
@@ -420,6 +422,13 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
       return failed(`${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`);
     };
 
+    const account = async (check: ReadinessCheckOf<"account">): Promise<Outcome> => {
+      const held = (options.accounts?.() ?? []).filter((one) => one.provider === check.provider);
+      if (held.some((one) => one.signedIn)) return null;
+      const name = check.provider === "codex" ? "Codex" : check.provider;
+      return failed(held.length === 0 ? `This environment holds no ${name} account.` : `No ${name} account on this environment is signed in.`);
+    };
+
     const run = (check: ReadinessCheck): Promise<Outcome> => {
       switch (check.kind) {
         case "file":
@@ -436,6 +445,8 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
           return secret(check);
         case "mcp":
           return mcp(check);
+        case "account":
+          return account(check);
       }
     };
 

@@ -136,7 +136,19 @@ describe("the shipped overlay", () => {
     const holders = READINESS_OVERLAY.filter((entry) => entry.declaration.checks.some((check) => check.kind === "git" && check.condition === "forge-account"));
     expect(holders.map((entry) => entry.path)).toEqual(tracker);
     const kinds = new Set(READINESS_OVERLAY.flatMap((entry) => entry.declaration.checks.map((check) => (check.kind === "git" ? `git:${check.condition}` : check.kind))));
-    expect([...kinds].sort()).toEqual(["file", "git:changes-since", "git:forge-account", "git:merge-in-progress", "skill"]);
+    expect([...kinds].sort()).toEqual(["account", "file", "git:changes-since", "git:forge-account", "git:merge-in-progress", "provider", "skill", "tool"]);
+  });
+
+  it("holds codex-workers' needs from David's catalogue: a Claude session, the codex and python3 tools, a signed-in Codex account fixed on the Account step (#2169)", () => {
+    const entry = READINESS_OVERLAY.find((one) => one.path === "skills/codex-workers");
+    expect(entry?.repository).toBe("https://git.systemtech.dev/david/agent-skills");
+    expect(entry?.declaration.checks).toEqual([
+      expect.objectContaining({ kind: "provider", providers: ["claude"] }),
+      expect.objectContaining({ kind: "tool", command: "codex" }),
+      expect.objectContaining({ kind: "tool", command: "python3" }),
+      expect.objectContaining({ kind: "account", provider: "codex", fix: "account" }),
+    ]);
+    expect(ReadinessCheck.safeParse({ kind: "account", provider: "Codex" }).success).toBe(false);
   });
 
   it("matches a member by its source's origin or by what its provenance manifest names, and nothing else", () => {

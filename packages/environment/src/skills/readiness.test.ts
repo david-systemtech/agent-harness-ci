@@ -13,6 +13,7 @@ import { create, refusal } from "../../test/sessions.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 import { git } from "../../test/workspaces.js";
 import type { ToolServerFactory, ToolServerScope } from "../adapter/seams.js";
+import { createCodexAccountProvider } from "../adapters/codex/account.js";
 
 /**
  * Readiness through the primary seam (skills spec, "Readiness"; ADR 0009):
@@ -324,6 +325,27 @@ describe("skills.readiness", () => {
       ["failed", "This account's provider, fake, is not claude."],
     ]);
     expect(failures(await one(client, workspace, "forks"))).toEqual([["failed", "This account's provider, fake, is not codex, and its adapter does not declare fork."]]);
+  });
+
+  it("passes an account check once the environment holds a signed-in account of its provider, and says which is missing before (#2169)", async () => {
+    const home = join(tempDir(), ".codex");
+    mkdirSync(home, { recursive: true });
+    const { t, client } = await start({ accountProviders: [createCodexAccountProvider({ hostEnv: { CODEX_HOME: home } })] });
+    declaring(t, "codex-workers", [{ kind: "account", provider: "codex", why: "The workers run on a signed-in Codex account.", fix: "account" }]);
+    const workspace = tempDir();
+    const before = await one(client, workspace, "codex-workers");
+    expect(before).toMatchObject({ state: "setup-needed", why: "The workers run on a signed-in Codex account.", fix: "account" });
+    expect(failures(before)).toEqual([["failed", "This environment holds no Codex account."]]);
+
+    const claims = Buffer.from(JSON.stringify({ email: "david@example.com" })).toString("base64url");
+    writeFileSync(join(home, "auth.json"), JSON.stringify({ tokens: { id_token: `e30.${claims}.sig`, access_token: "at", refresh_token: "rt" } }));
+    await client.request("accounts.probe", { provider: "codex" });
+    await client.request("accounts.adopt", { commandId: randomUUID(), provider: "codex", label: "Codex" });
+    expect(await one(client, workspace, "codex-workers")).toMatchObject({ state: "ready" });
+
+    rmSync(join(home, "auth.json"));
+    await client.request("accounts.refresh", {});
+    await expect.poll(async () => failures(await one(client, workspace, "codex-workers"))).toEqual([["failed", "No Codex account on this environment is signed in."]]);
   });
 
   it("passes a secret check whose reference resolves, letting the value go at once and showing it nowhere, and fails one that does not, naming the refusal", async () => {

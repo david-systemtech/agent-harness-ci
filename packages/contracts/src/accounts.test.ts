@@ -149,9 +149,12 @@ describe("the sign-in (#135)", () => {
   });
 
   it("carries the account, the state, the URL, when it started and expires, the fallback command in both shells, and why it ended", () => {
-    expect(Object.keys(SignIn.shape)).toEqual(["accountId", "state", "url", "startedAt", "expiresAt", "fallback", "error", "cause"]);
+    expect(Object.keys(SignIn.shape)).toEqual(["accountId", "state", "url", "userCode", "startedAt", "expiresAt", "fallback", "error", "cause"]);
     expect(SignIn.parse(signIn)).toEqual(signIn);
     expect(SignIn.safeParse({ ...signIn, fallback: { posix: signIn.fallback.posix } }).success).toBe(false);
+    // A device flow's one-time code (Codex's, #2169), absent from Claude's.
+    expect(SignIn.parse({ ...signIn, userCode: "ABCD-EFGHJ" }).userCode).toBe("ABCD-EFGHJ");
+    expect(SignIn.safeParse({ ...signIn, userCode: "" }).success).toBe(false);
   });
 
   it("goes out as signin.updated on environment.subscribe, carrying the sign-in, and never lists", () => {
