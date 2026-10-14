@@ -10,6 +10,9 @@ const [desk] = composerScript.environments;
 export const { platform, route, activate, readySelector, geometry } = composerDetailsScene("Run settings", false, [
   { selector: '.phone-composer-sheet [aria-label="Plan usage"]', visibleWithin: ".phone-composer-sheet", contentFits: true },
   { selector: '.phone-composer-sheet button[aria-label="Context usage"]', visibleWithin: ".phone-composer-sheet", contentFits: true },
+  // look.md: the phone root rem stays 16px, so a 1.5rem ring is 24px at every text size, text size 20 included (#2184).
+  { selector: '.phone-composer-sheet [aria-label="Plan usage"] svg[role="img"]', width: 24, height: 24 },
+  { selector: '.phone-composer-sheet button[aria-label="Context usage"] svg[role="img"]', width: 24, height: 24 },
 ]);
 export const script: Script = { environments: [{
   ...desk!, accounts: [account], provider: { contextReadings: true },
