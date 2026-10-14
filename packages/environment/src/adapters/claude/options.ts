@@ -13,8 +13,8 @@ import type {
   SessionStore,
   Settings,
 } from "@anthropic-ai/claude-agent-sdk";
-import { isInProcess, type RunInput } from "../../adapter/contract.js";
-import { computerToolAliases } from "./computer-aliases.js";
+import { inProcessToolName, isInProcess, type RunInput } from "../../adapter/contract.js";
+import { CLAUDE_BUILT_IN_TOOL_NAMES, computerToolAliases } from "./computer-aliases.js";
 import { GIT_PROGRAM_DENY_WRITE } from "../../permissions/git-program-paths.js";
 import { composeRunEnvironment, type HostEnvironment } from "./credentials.js";
 import { CLAUDE_FILE_TOOLS } from "./gate-access.js";
@@ -165,6 +165,42 @@ const mcpServers = (run: RunInput): Record<string, McpServerConfig> | null => {
  * would deny it on every unattended run.
  */
 const allowedTools = (run: RunInput): string[] => run.toolServers.filter((server) => isInProcess(server) && server.external).map((server) => serverRule(server.name));
+
+/** The in-process server whose tools take the browser toolset's member names (browser/tool-server.ts). */
+const BROWSER_SERVER = "browser";
+
+/**
+ * The bare browser toolset member names, each mapped to its tool on the
+ * `browser` server (#2155): a model trained on the toolset that emits
+ * `navigate` reaches `mcp__browser__navigate`. Only the run's own browser
+ * tools are aliased, and never over a built-in. The alias is name lookup
+ * only: the call is still `mcp__browser__<tool>` to the gate and the
+ * run's mode, so each member asks or goes ahead as it did before.
+ */
+export const browserToolAliases = (run: RunInput): Record<string, string> => {
+  const builtIn = new Set(CLAUDE_BUILT_IN_TOOL_NAMES.map((name) => name.toLowerCase()));
+  const server = run.toolServers.find((candidate) => candidate.name === BROWSER_SERVER);
+  if (server === undefined || !isInProcess(server)) return {};
+  return Object.fromEntries(server.tools.filter((tool) => !builtIn.has(tool.name.toLowerCase())).map((tool) => [tool.name, inProcessToolName(BROWSER_SERVER, tool.name)]));
+};
+
+/**
+ * Every bare toolset member name the run aliases, in one deterministic order
+ * and precedence (#2155, #2161): a built-in is never aliased (both lists
+ * leave out CLAUDE_BUILT_IN_TOOL_NAMES); then each browser member, in the
+ * browser server's tool order; then each computer member the browser does not
+ * also have, in the computer server's tool order. So the browser keeps every
+ * member both serve (screenshot, scroll, type and key among them, and with the
+ * full page surface its clicks, mouse moves, hold_key and wait too), the
+ * computer gets the rest, and a shared member reaches the computer by its
+ * full mcp__computer__ name alone. The server order in the run never matters.
+ */
+export const runToolAliases = (run: RunInput): Record<string, string> => {
+  const browser = browserToolAliases(run);
+  const taken = new Set(Object.keys(browser).map((name) => name.toLowerCase()));
+  const computer = Object.entries(computerToolAliases(run)).filter(([bare]) => !taken.has(bare.toLowerCase()));
+  return { ...browser, ...Object.fromEntries(computer) };
+};
 
 /** The recognised file tools as a hook matcher: the pinned CLI reads a list of plain names joined by `|` as those exact tools. */
 const FILE_TOOL_MATCHER = CLAUDE_FILE_TOOLS.join("|");
@@ -333,7 +369,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
   const effort = claudeEffort(run.effort);
   const servers = mcpServers(run);
   const allowed = allowedTools(run);
-  const toolAliases = computerToolAliases(run);
+  const toolAliases = runToolAliases(run);
   const sandbox = sandboxOf(run, input.suppliedWritable);
   const disallowedTools = disallowedShell(run.denylist);
   const plugins = skillPlugins(run.skillSet);

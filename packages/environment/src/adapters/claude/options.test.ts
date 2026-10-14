@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest";
 import type { RunInput, RunTarget } from "../../adapter/contract.js";
 import { EMPTY_PROCESS_ENVIRONMENT } from "../../adapter/process-environment.js";
 import { createComputerToolServers } from "../../desktop/tool-server.js";
+import { CLAUDE_BUILT_IN_TOOL_NAMES } from "./computer-aliases.js";
 import { CLAUDE_STRIPPED_VARIABLES } from "./credentials.js";
 import { CLAUDE_MODES, GATE_HOOK_TIMEOUT_SECONDS, buildRunOptions, type FileToolHooks, type RunOptionsInput } from "./options.js";
+import { PAGE_TOOL_NAMES } from "../../browser/page-tools.js";
 
 /**
  * The options table (claude-adapter spec, "The Claude adapter, ported after
@@ -263,9 +265,41 @@ describe("the options a run is handed", () => {
     const shadowing = { ...computer, tools: [...computer.tools, tool("Read")] };
     const browser = { name: "browser", external: false, tools: ["screenshot", "scroll", "type", "key", "navigate"].map(tool) };
     const shared = buildRunOptions(input({ toolServers: [shadowing, browser] })).toolAliases ?? {};
-    expect(Object.keys(shared)).toEqual(COMPUTER_MEMBERS.filter((member) => !["screenshot", "scroll", "type", "key"].includes(member)));
+    expect(Object.keys(shared).filter((bare) => shared[bare]?.startsWith("mcp__computer__"))).toEqual(COMPUTER_MEMBERS.filter((member) => !["screenshot", "scroll", "type", "key"].includes(member)));
     expect(shared).not.toHaveProperty("Read");
     expect(buildRunOptions(input())).not.toHaveProperty("toolAliases");
+  });
+
+  it("orders and ranks the aliases built-ins first, then the browser's members, then the computer's members the browser does not have, so the browser keeps every member both serve (#2155, #2161)", () => {
+    const serverFor = createComputerToolServers({ live: () => null, drivers: {} });
+    const computer = serverFor({ sessionId: "session-1", desktop: { kind: "contained" } });
+    if (computer === null) throw new Error("no computer server");
+    const tool = (name: string) => ({ name, description: name, inputSchema: { type: "object" }, call: async () => ({ text: "", isError: false }) });
+    const browser = { name: "browser", external: false, tools: [...PAGE_TOOL_NAMES, "web_read", "Read"].map(tool) };
+    const shared = ["screenshot", "scroll", "type", "key"];
+    const rest = COMPUTER_MEMBERS.filter((member) => !(PAGE_TOOL_NAMES as readonly string[]).includes(member));
+    expect(rest).toEqual(["cursor_position"]);
+    for (const order of [[computer, browser], [browser, computer]]) {
+      const aliases = buildRunOptions(input({ toolServers: order })).toolAliases ?? {};
+      expect(Object.entries(aliases)).toEqual([
+        ...[...PAGE_TOOL_NAMES, "web_read"].map((bare) => [bare, `mcp__browser__${bare}`]),
+        ...rest.map((bare) => [bare, `mcp__computer__${bare}`]),
+      ]);
+      for (const member of shared) expect(aliases[member]).toBe(`mcp__browser__${member}`);
+      expect(aliases).not.toHaveProperty("Read");
+    }
+  });
+
+  it("aliases each bare browser toolset member to its tool on the browser server, never over a built-in, and only where the run has the server (#2155)", () => {
+    const tool = (name: string) => ({ name, description: name, inputSchema: { type: "object" }, call: async () => ({ text: "", isError: false }) });
+    const options = buildRunOptions(input({ toolServers: [{ name: "browser", tools: [...PAGE_TOOL_NAMES, "web_read", "Read"].map(tool), external: false }] }));
+    const aliases = options.toolAliases ?? {};
+    expect(Object.keys(aliases)).toEqual([...PAGE_TOOL_NAMES, "web_read"]);
+    for (const [bare, target] of Object.entries(aliases)) expect(target).toBe(`mcp__browser__${bare}`);
+    const builtIn = new Set(CLAUDE_BUILT_IN_TOOL_NAMES.map((name) => name.toLowerCase()));
+    expect(Object.keys(aliases).filter((bare) => builtIn.has(bare.toLowerCase()))).toEqual([]);
+    expect(buildRunOptions(input())).not.toHaveProperty("toolAliases");
+    expect(buildRunOptions(input({ toolServers: [{ name: "memory", tools: [tool("navigate")], external: false }] }))).not.toHaveProperty("toolAliases");
   });
 
   it("hands the run's generation over as its one local plugin, and no plugin when it has none", () => {
