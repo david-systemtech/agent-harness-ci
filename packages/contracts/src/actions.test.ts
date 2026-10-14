@@ -94,6 +94,7 @@ const ADDED_KEYS: Record<string, readonly string[]> = {
 /** The slash commands the harness adds (the tui spec's "The composer"), and the one rename. */
 const ADDED_COMMANDS = [
   "browser",
+  "desktop",
   "account",
   "environment",
   "pair",
@@ -398,7 +399,7 @@ const GUI_ONLY_KEYS: Record<string, { readonly keys: readonly string[]; readonly
 };
 
 /** The slash commands the GUI leaves absent: neither a session verb nor a GUI surface, or deferred as in the terminal. */
-const GUI_ABSENT_COMMANDS = ["command.timeline", "command.snip", "command.quit", "command.reload", "command.trust"];
+const GUI_ABSENT_COMMANDS = ["command.timeline", "command.snip", "command.quit", "command.reload", "command.trust", "command.desktop"];
 
 describe("the GUI column", () => {
   const wired = (id: string) => {

@@ -49,6 +49,8 @@ describe("parseCommand", () => {
   it("reads the cards' commands, which take nothing after them", () => {
     expect(parseCommand("/browser")).toEqual({ kind: "browser" });
     expect(parseCommand("/browser pair")).toEqual({ kind: "usage", line: "Usage: /browser" });
+    expect(parseCommand("/desktop")).toEqual({ kind: "desktop" });
+    expect(parseCommand("/desktop local")).toEqual({ kind: "usage", line: "Usage: /desktop" });
     expect(parseCommand("/asks")).toEqual({ kind: "asks" });
     expect(parseCommand("/notices")).toEqual({ kind: "notices" });
     expect(parseCommand("/asks all")).toEqual({ kind: "usage", line: "Usage: /asks" });
