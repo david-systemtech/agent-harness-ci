@@ -312,6 +312,21 @@ describe("the desktop's own update", () => {
     expect(shellCalls("update.apply")).toContainEqual([STAGED, "now"]);
   });
 
+  it("offers Restart to update only once the shell's hand-over for the quit has installed the build ahead of the click (#2194)", async () => {
+    let installed: (() => void) | undefined;
+    const { until, build, shellCalls } = await launch({
+      updates: { status: { newest: "0.6.0" }, desktopBuild: STAGED },
+      shell: (shell) => shell.answer("update.apply", () => new Promise((settle) => { installed = () => settle({ outcome: "applied" }); })),
+    });
+    await until(() => shellCalls("update.apply").length === 1, "handed the build over");
+    await flush();
+    expect(build()).toMatchObject({ state: "staging", toVersion: "0.6.0" });
+
+    installed?.();
+    await until(() => build().state === "ready", "reported the build ready once installed");
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+  });
+
   it("hands the shell a build for the next quit once, and a newer one staged later in its place", async () => {
     const { clock, desk, until, build, shellCalls } = await launch({ updates: { status: { newest: "0.6.0" }, desktopBuild: STAGED } });
     await until(() => build().state === "ready", "reported the build ready");

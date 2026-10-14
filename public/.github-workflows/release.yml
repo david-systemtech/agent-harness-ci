@@ -635,7 +635,7 @@ jobs:
           if ($planText -match 'AGENT_HARNESS_TOKEN|Authorization|/api/v1/repos/') { throw 'The installer still requires private access' }
           $setup = Start-Process -FilePath (Resolve-Path "desktop/agent-harness-desktop-win32-x64-setup.exe").Path -ArgumentList '/S' -Wait -PassThru
           if ($setup.ExitCode -ne 0) { throw "Setup exited with $($setup.ExitCode)" }
-          & (Join-Path $PSScriptRoot 'scripts/windows-desktop-update-smoke.ps1')
+          & (Join-Path $PSScriptRoot 'scripts/windows-desktop-update-smoke.ps1') -Setup (Resolve-Path "desktop/agent-harness-desktop-win32-x64-setup.exe").Path
           if ($LASTEXITCODE -ne 0) { throw 'Desktop update launch check failed' }
           $server = Join-Path $env:LOCALAPPDATA "Programs\agent-harness-desktop\resources\server"
           if (!(Test-Path (Join-Path $server "node_modules\@agent-harness\contracts\package.json"))) { throw 'The installed server lacks contracts' }

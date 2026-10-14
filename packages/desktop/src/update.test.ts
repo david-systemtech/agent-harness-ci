@@ -8,7 +8,7 @@ import { fakeElectron, type FakeElectron } from "../test/fake-electron.js";
 import { fakeSystem, succeeded, type FakeSystem } from "../test/fake-system.js";
 import { cleanUp, platformOn, scratch, start } from "../test/harness.js";
 import type { DesktopPlatform } from "./platform.js";
-import type { CommandResult } from "./update.js";
+import { desktopUpdate, preparation, type CommandResult } from "./update.js";
 
 afterEach(cleanUp);
 
@@ -178,7 +178,7 @@ describe("apply on macOS", () => {
     expect(await shell().update.apply(stagedBuild("0.6.0", "agent-harness-desktop-darwin-arm64.zip"), "now")).toEqual({
       outcome: "failed",
       failure: "install",
-      message: "0.6.0 did not unpack (ditto: Couldn't read PKZip signature), so 0.5.0 stays installed.",
+      message: "Update failed to prepare, retry. 0.6.0 did not unpack (ditto: Couldn't read PKZip signature), so 0.5.0 stays installed.",
     });
     expect(mac.build()).toBe("0.5.0");
     expect(readdirSync(mac.applications)).toEqual(["agent-harness.app"]);
@@ -207,17 +207,20 @@ describe("apply on macOS", () => {
     const first = stagedBuild("0.6.0", "agent-harness-desktop-darwin-arm64.zip");
     const second = stagedBuild("0.7.0", "agent-harness-desktop-darwin-arm64.zip");
 
+    // Each hand-over, right after the download, unpacks its build ahead of the click; the newer one replaces the older.
+    unzipping(system, "0.6.0");
     expect(await shell().update.apply(first, "quit")).toEqual({ outcome: "applied" });
+    unzipping(system, "0.7.0");
     expect(await shell().update.apply(second, "quit")).toEqual({ outcome: "applied" });
-    expect(system.ran).toEqual([]);
+    expect(system.ran).toEqual([["ditto", "-x", "-k", first.path, system.made[0]], ["ditto", "-x", "-k", second.path, system.made[1]]]);
+    expect(existsSync(system.made[0]!)).toBe(false);
     expect(mac.build()).toBe("0.5.0");
 
-    unzipping(system, "0.7.0");
     electron.app.quit();
     await electron.app.quitted;
 
     expect(mac.build()).toBe("0.7.0");
-    expect(system.ran).toEqual([["ditto", "-x", "-k", second.path, system.made[0]]]);
+    expect(system.ran).toHaveLength(2);
     expect(electron.app.calls.map(([method]) => method)).not.toContain("relaunch");
     await (await installed("darwin", mac.executable, system)).shell().update.current();
     expect(readdirSync(mac.applications)).toEqual(["agent-harness.app"]);
@@ -319,40 +322,83 @@ describe("apply on macOS", () => {
 });
 
 describe("apply on Windows", () => {
-  const EXECUTABLE = "C:\\Users\\milo\\AppData\\Local\\Programs\\agent-harness\\agent-harness.exe";
 
-  it("at `now`, shows the staged NSIS setup progress after quitting, then starts the app again", async () => {
+  /** A Windows install in the test's own Programs folder, and its setup's staging mode, which extracts `version`'s app into the folder it is given. */
+  const windowsInstall = (system: FakeSystem, staged: ShellStagedBuild, code = 0) => {
+    const root = join(scratch(), "Programs", "agent-harness");
+    mkdirSync(root, { recursive: true });
+    const executable = join(root, "agent-harness.exe");
+    writeFileSync(executable, "0.5.0");
+    system.answer(staged.path, (args) => {
+      const into = (args.find((arg) => arg.startsWith("--stage=")) ?? "").slice("--stage=".length);
+      if (code === 0) {
+        mkdirSync(into, { recursive: true });
+        writeFileSync(join(into, "agent-harness.exe"), staged.version);
+      }
+      return { code, stderr: code === 0 ? "" : "the setup failed" };
+    });
+    return { root, executable, version: join(root, "versions", staged.version, "agent-harness.exe") };
+  };
+
+  it("installs the build into versions/<version> beside the app as soon as it is handed over, the running install untouched", async () => {
     const system = fakeSystem();
-    const { shell, electron } = await installed("win32", EXECUTABLE, system);
     const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
-    // The setup is handed over at the quit; until then nothing is started.
-    let startedBeforeQuit: unknown[] | undefined;
-    const quit = electron.app.quit.bind(electron.app);
-    electron.app.quit = () => {
-      startedBeforeQuit ??= [...system.started];
-      quit();
-    };
+    const install = windowsInstall(system, staged);
+    const { shell, electron } = await installed("win32", install.executable, system);
+
+    expect(await shell().update.apply(staged, "quit")).toEqual({ outcome: "applied" });
+
+    expect(system.ran).toEqual([[staged.path, "/S", `--stage=${join(install.root, "versions", ".0.6.0-staging")}`]]);
+    expect(readFileSync(install.version, "utf8")).toBe("0.6.0");
+    expect(readFileSync(install.executable, "utf8")).toBe("0.5.0");
+    expect(existsSync(join(install.root, "versions", ".0.6.0-staging"))).toBe(false);
+    expect(system.started).toEqual([]);
+    expect(electron.app.calls.map(([method]) => method)).not.toContain("quit");
+  });
+
+  it("at the click, only points the launch at the installed version and starts it once the desktop has quit", async () => {
+    const system = fakeSystem();
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
+    const install = windowsInstall(system, staged);
+    const { shell, electron } = await installed("win32", install.executable, system);
+    await shell().update.apply(staged, "quit");
 
     expect(await shell().update.apply(staged, "now")).toEqual({ outcome: "applied" });
     await electron.app.quitted;
 
-    expect(startedBeforeQuit).toEqual([]);
-    expect(system.started).toEqual([[staged.path, "--updated", "--force-run"]]);
-    expect(system.ran).toEqual([]);
-    expect(electron.app.calls.map(([method]) => method)).not.toContain("relaunch");
+    expect(system.ran).toHaveLength(1);
+    expect(system.started).toEqual([]);
+    expect(electron.app.calls.filter(([method]) => method === "relaunch")).toEqual([["relaunch", { execPath: install.version, args: ["--updated"] }]]);
   });
 
-  it("at `quit`, runs the setup silently as the desktop next quits, and does not start it again", async () => {
+  it("at `quit`, points the next launch at the installed version and starts nothing", async () => {
     const system = fakeSystem();
-    const { shell, electron } = await installed("win32", EXECUTABLE, system);
     const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
+    const install = windowsInstall(system, staged);
+    const { shell, electron } = await installed("win32", install.executable, system);
 
     expect(await shell().update.apply(staged, "quit")).toEqual({ outcome: "applied" });
-    expect(system.started).toEqual([]);
     electron.app.quit();
     await electron.app.quitted;
 
-    expect(system.started).toEqual([[staged.path, "/S", "--updated"]]);
+    expect(system.started).toEqual([]);
+    expect(electron.app.calls.map(([method]) => method)).not.toContain("relaunch");
+  });
+
+  it("says the update failed to prepare when the setup cannot stage it, keeps the running version and offers no restart", async () => {
+    const system = fakeSystem();
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
+    const install = windowsInstall(system, staged, 2);
+    const { shell, electron } = await installed("win32", install.executable, system);
+
+    expect(await shell().update.apply(staged, "quit")).toEqual({
+      outcome: "failed",
+      failure: "install",
+      message: "Update failed to prepare, retry. The setup of 0.6.0 could not install it beside the app (the setup failed), so 0.5.0 stays installed.",
+    });
+    expect(existsSync(join(install.root, "versions", ".0.6.0-staging"))).toBe(false);
+    expect(existsSync(install.version)).toBe(false);
+    expect(electron.app.calls.map(([method]) => method)).not.toContain("quit");
   });
 });
 
@@ -585,11 +631,120 @@ describe("apply, on every platform", () => {
     await (await installed("linux", "/opt/agent-harness/agent-harness", archSystem)).shell().update.apply(stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst"), "now");
 
     const windowsSystem = fakeSystem();
-    const windows = await installed("win32", "C:\\Program Files\\agent-harness\\agent-harness.exe", windowsSystem);
-    await windows.shell().update.apply(stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe"), "now");
+    const windowsBuild = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
+    const windowsRoot = join(scratch(), "agent-harness");
+    mkdirSync(windowsRoot, { recursive: true });
+    windowsSystem.answer(windowsBuild.path, (args) => {
+      const into = (args.at(-1) ?? "").slice("--stage=".length);
+      mkdirSync(into, { recursive: true });
+      writeFileSync(join(into, "agent-harness.exe"), "0.6.0");
+      return succeeded;
+    });
+    const windows = await installed("win32", join(windowsRoot, "agent-harness.exe"), windowsSystem);
+    await windows.shell().update.apply(windowsBuild, "now");
     await windows.electron.app.quitted;
 
     const commands = [...macSystem.ran, ...archSystem.ran, ...archSystem.started, ...windowsSystem.ran, ...windowsSystem.started].map(([command]) => basename(command ?? ""));
     expect(new Set(commands)).toEqual(new Set(["ditto", "pacman", "pkexec", "agent-harness-desktop-win32-x64-setup.exe"]));
+  });
+});
+
+describe("preparation, issue 2194", () => {
+  const build = (version: string): ShellStagedBuild => ({ path: `/builds/${version}`, version, sha256: "0".repeat(64) });
+
+  it("goes downloaded, installing, installed, and is switchable only once installed", () => {
+    const steps = preparation();
+    expect(steps.downloaded(build("0.6.0"))).toBeUndefined();
+    expect(steps.switchable(build("0.6.0"))).toBeUndefined();
+    steps.installing(build("0.6.0"));
+    expect(steps.current?.state).toBe("installing");
+    expect(steps.switchable(build("0.6.0"))).toBeUndefined();
+    expect(steps.installed(build("0.6.0"), { target: "/v/0.6.0" })).toBe(true);
+    expect(steps.switchable(build("0.6.0"))).toEqual({ target: "/v/0.6.0" });
+    steps.switched();
+    expect(steps.current).toBeUndefined();
+  });
+
+  it("installs nothing that was not downloaded, and keeps a build already installed when it is handed over again", () => {
+    const steps = preparation();
+    expect(() => steps.installing(build("0.6.0"))).toThrow();
+    steps.downloaded(build("0.6.0"));
+    steps.installing(build("0.6.0"));
+    steps.installed(build("0.6.0"), { target: "/v/0.6.0" });
+    expect(steps.downloaded(build("0.6.0"))).toBeUndefined();
+    expect(steps.current?.state).toBe("installed");
+  });
+
+  it("fails a stage and is retried from downloaded", () => {
+    const steps = preparation();
+    steps.downloaded(build("0.6.0"));
+    steps.installing(build("0.6.0"));
+    expect(steps.failed(build("0.6.0"), "no space")).toBe(true);
+    expect(steps.current).toEqual({ state: "failed", build: build("0.6.0"), reason: "no space" });
+    expect(steps.switchable(build("0.6.0"))).toBeUndefined();
+    steps.downloaded(build("0.6.0"));
+    expect(steps.current?.state).toBe("downloaded");
+  });
+
+  it("lets a newer build win: the older installed one is answered for removal, a stale install is refused", () => {
+    const steps = preparation();
+    steps.downloaded(build("0.6.0"));
+    steps.installing(build("0.6.0"));
+    steps.installed(build("0.6.0"), { target: "/v/0.6.0" });
+    expect(steps.downloaded(build("0.7.0"))).toEqual({ target: "/v/0.6.0" });
+    expect(steps.installed(build("0.6.0"), { target: "/v/0.6.0" })).toBe(false);
+    expect(steps.failed(build("0.6.0"), "late")).toBe(false);
+    expect(steps.current?.state).toBe("downloaded");
+  });
+});
+
+describe("click to ready, issue 2194", () => {
+  it("logs the click's time to the new version's window, logs a stage failure, and logs nothing without a click", async () => {
+    const mac = macBundle();
+    const system = fakeSystem();
+    system.answer("ditto", () => ({ code: 1, stderr: "ditto: no space" }));
+    const lines: string[] = [];
+    let now = 1_000;
+    const electron = fakeElectron({ os: "darwin" });
+    electron.app.isPackaged = true;
+    const update = desktopUpdate({ app: electron.app, platform: platformOn("darwin", { executable: mac.executable }), system, report: () => {}, log: (line) => lines.push(line), clock: () => now });
+    await update.ready();
+    expect(lines).toEqual([]);
+    await update.apply(stagedBuild("0.6.0", "desktop.zip"), "quit");
+    expect(lines).toEqual(["0.6.0 stage failed: 0.6.0 did not unpack (ditto: no space), so 0.5.0 stays installed."]);
+
+    lines.length = 0;
+    unzipping(system, electron.app.getVersion());
+    await update.apply(stagedBuild(electron.app.getVersion(), "desktop.zip"), "now");
+    now = 4_500;
+    await update.ready();
+    expect(lines.at(-1)).toBe(`Desktop update ${electron.app.getVersion()}: click to ready 3500ms`);
+  });
+});
+
+describe("ahead of the click, issue 2194", () => {
+  it("removes a macOS build unpacked ahead of a click that never came at the next start", async () => {
+    const mac = macBundle();
+    const system = fakeSystem();
+    unzipping(system, "0.6.0");
+    const { shell } = await installed("darwin", mac.executable, system);
+    expect(await shell().update.apply(stagedBuild("0.6.0", "desktop.zip"), "quit")).toEqual({ outcome: "applied" });
+    expect(readdirSync(mac.applications)).toHaveLength(3);
+
+    // The app is killed before its quit: nothing was swapped, and the next start removes the preparation.
+    await (await installed("darwin", mac.executable, system)).shell().update.current();
+    expect(mac.build()).toBe("0.5.0");
+    expect(readdirSync(mac.applications)).toEqual(["agent-harness.app"]);
+  });
+
+  it("removes the Windows versions older than the one running but the newest of them once its window is ready", async () => {
+    const versions = join(scratch(), "Programs", "agent-harness", "versions");
+    for (const version of ["0.4.0", "0.5.0", "0.6.0", "0.7.0", ".0.8.0-staging"]) mkdirSync(join(versions, version), { recursive: true });
+    const system = fakeSystem();
+    const electron = fakeElectron({ os: "win32" });
+    electron.app.isPackaged = true;
+    const update = desktopUpdate({ app: electron.app, platform: platformOn("win32", { executable: join(versions, "0.6.0", "agent-harness.exe") }), system, report: () => {} });
+    await update.ready();
+    expect(readdirSync(versions).sort()).toEqual([".0.8.0-staging", "0.5.0", "0.6.0", "0.7.0"]);
   });
 });

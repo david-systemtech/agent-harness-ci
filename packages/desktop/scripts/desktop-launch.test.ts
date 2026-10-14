@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { cleanUp, scratch } from "../test/harness.js";
@@ -58,3 +58,30 @@ try {
   });
   expect(readFileSync(receipt, "utf8").trim()).toBe("opened");
 }, 160_000);
+
+it.skipIf(!hasPowerShell)("follows the current version pointer beside it to the version installed ahead of the click, and ignores one that names no installed version", () => {
+  const work = scratch();
+  const helper = join(work, "desktop-launch.ps1");
+  writeFileSync(helper, readFileSync(join(import.meta.dirname, "desktop-launch.ps1")));
+  const receipt = join(work, "opened.txt");
+  const name = process.platform === "win32" ? "app.cmd" : "app.sh";
+  const body = (what: string) => (process.platform === "win32" ? `@echo ${what} > "${receipt}"` : `#!/bin/sh\nprintf ${what} > '${receipt}'\n`);
+  const programs = join(work, "Programs");
+  mkdirSync(join(programs, "versions", "0.6.0"), { recursive: true });
+  writeFileSync(join(programs, name), body("installed"), { mode: 0o755 });
+  writeFileSync(join(programs, "versions", "0.6.0", name), body("staged"), { mode: 0o755 });
+  const launch = () => {
+    rmSync(receipt, { force: true });
+    execFileSync("pwsh", ["-NoProfile", "-File", helper, "-App", join(programs, name), "-NoWindow"], { env: environment, timeout: 60_000, stdio: "pipe" });
+    const deadline = Date.now() + 30_000;
+    while (!existsSync(receipt) && Date.now() < deadline) execFileSync("sleep", ["0.05"]);
+    return readFileSync(receipt, "utf8").trim();
+  };
+
+  writeFileSync(join(work, "current"), "0.6.0");
+  expect(launch()).toBe("staged");
+  writeFileSync(join(work, "current"), "0.7.0");
+  expect(launch()).toBe("installed");
+  writeFileSync(join(work, "current"), "..\\..\\evil");
+  expect(launch()).toBe("installed");
+}, 120_000);

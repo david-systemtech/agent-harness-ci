@@ -72,6 +72,17 @@ try {
   if ($null -ne $mutex) { $mutex.Dispose() }
   if ($null -ne $form) { $form.Dispose() }
 }
+# A version installed beside the app ahead of Restart to update (#2194):
+# the desktop renames the pointer into place at the click, naming it.
+$pointer = Join-Path $PSScriptRoot 'current'
+if (Test-Path -LiteralPath $pointer -PathType Leaf) {
+  # An empty pointer reads as $null; the cast keeps Trim from throwing.
+  $version = ([string](Get-Content -LiteralPath $pointer -Raw)).Trim()
+  if ($version -match '^[0-9A-Za-z][0-9A-Za-z.+-]*$') {
+    $candidate = Join-Path (Join-Path (Join-Path (Split-Path -Parent $App) 'versions') $version) (Split-Path -Leaf $App)
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) { $App = $candidate }
+  }
+}
 $arguments = @()
 if ($Updated) { $arguments += '--updated' }
 if ($Link) {

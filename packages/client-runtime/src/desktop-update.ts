@@ -295,8 +295,11 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     if (!stage.ok) return failed(version, "stage", `The local environment could not stage the desktop's ${followed} build: ${stage.error.message}`, stagedNow());
     const staged: ShellStagedBuild = { path: stage.result.path, version: stage.result.version, sha256: stage.result.sha256 };
     if (!newerVersion(staged.version, version)) return { state: "current", version };
-    showCheck({ state: "ready", version, staged });
-    if (handedForQuit?.path === staged.path && handedForQuit.sha256 === staged.sha256) return { state: "ready", version, staged };
+    if (handedForQuit?.path === staged.path && handedForQuit.sha256 === staged.sha256) {
+      showCheck({ state: "ready", version, staged });
+      return { state: "ready", version, staged };
+    }
+    // The hand-over for the quit installs the build ahead of the click (#2194): Restart to update is offered once it has.
     const outcome = await apply(staged, "quit");
     if (outcome !== null) return (quitFailure = applyFailed(version, outcome, staged));
     handedForQuit = staged;
