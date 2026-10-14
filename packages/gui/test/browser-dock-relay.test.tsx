@@ -75,22 +75,22 @@ describe("the dock over the relay seam", () => {
       answers.push(
         yield* callHostTool(controls, {
           server: "browser",
-          name: "browser_open",
-          input: { address: "https://example.org/", snapshot: false },
+          name: "navigate",
+          input: { url: "https://example.org/", snapshot: false },
         }),
       );
       answers.push(
         yield* callHostTool(controls, {
           server: "browser",
-          name: "browser_snapshot",
+          name: "read_page",
           input: {},
         }),
       );
       answers.push(
         yield* callHostTool(controls, {
           server: "browser",
-          name: "browser_click",
-          input: { ref: "e1", snapshot: false },
+          name: "left_click",
+          input: { target: { type: "ref", ref: "e1" }, snapshot: false },
         }),
       );
       yield end();

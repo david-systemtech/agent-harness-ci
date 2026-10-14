@@ -100,7 +100,7 @@ describe("a verb on a Chrome paired with another environment", () => {
     const calls = await hearing(t, starter);
     const id = await sessionWith(starter);
 
-    const { runId, answers } = await startRun(t, starter, id, ["browser_navigate", { address: "https://example.com/next", snapshot: false }]);
+    const { runId, answers } = await startRun(t, starter, id, ["navigate", { url: "https://example.com/next", snapshot: false }]);
     const call = await calls.next();
     expect(await answerWith(starter, { callId: call.callId, ok: true, result: NAVIGATED })).toEqual({ taken: true });
     await untilEnded(t, id, runId);
@@ -113,7 +113,7 @@ describe("a verb on a Chrome paired with another environment", () => {
         environmentId: DESK,
         chromeId: CHROME,
         pageKey: `${t.env.id}/${id}`,
-        command: { verb: "navigate", args: { url: "https://example.com/next" } },
+        command: { verb: "open", args: { url: "https://example.com/next" } },
         deadline: new Date(t.clock.now().getTime() + 20_000).toISOString(),
       },
     });
@@ -130,7 +130,7 @@ describe("the call", () => {
     const id = await sessionWith(starter);
     const before = t.env.log.head();
 
-    const { runId } = await startRun(t, starter, id, ["browser_navigate", { address: "https://example.com/next", snapshot: false }]);
+    const { runId } = await startRun(t, starter, id, ["navigate", { url: "https://example.com/next", snapshot: false }]);
     const call = await calls.next();
     await answerWith(starter, { callId: call.callId, ok: true, result: NAVIGATED });
     await untilEnded(t, id, runId);
@@ -147,7 +147,7 @@ describe("the call", () => {
     const starter = await clientNamed(t, "David's desktop");
     const calls = await hearing(t, starter);
     const id = await sessionWith(starter);
-    const { runId } = await startRun(t, starter, id, ["browser_screenshot"], ["browser_wait_for", { text: "Loaded", timeoutMs: 2_000 }], ["browser_close"]);
+    const { runId } = await startRun(t, starter, id, ["screenshot"], ["wait", { text: "Loaded", duration: 2 }], ["close_tab"]);
     const deadlines: string[] = [];
     for (let index = 0; index < 3; index++) {
       const call = await calls.next();
@@ -183,7 +183,7 @@ describe("the call", () => {
       yield end();
     });
     const answers: HostToolResult[] = [];
-    adapterOf(t).nextScripts.push(calling([["browser_snapshot"]], answers));
+    adapterOf(t).nextScripts.push(calling([["read_page"]], answers));
     await starter.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Wait for more" });
     // Sent once the provider has the run, the order in which a provider queue would take the message.
     await adapterOf(t).reached(2);
@@ -211,7 +211,7 @@ describe("the call", () => {
     const held = gate();
     adapterOf(t).nextScripts.push(async function* (controls) {
       await held.opened;
-      answers.push(yield* callHostTool(controls, { server: "browser", name: "browser_snapshot", input: {} }));
+      answers.push(yield* callHostTool(controls, { server: "browser", name: "read_page", input: {} }));
       yield end();
     });
     const { runId } = registry["runs.start"].response.parse(await starter.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Look" })).result ?? {};
@@ -236,7 +236,7 @@ describe("the call", () => {
     t.scrub.register(secret, { owner: "test:key-manager" });
     const before = t.env.log.head();
 
-    const { runId, answers } = await startRun(t, starter, id, ["browser_type", { ref: "e1", text: `Signed in with ${secret}`, snapshot: false }]);
+    const { runId, answers } = await startRun(t, starter, id, ["type", { ref: "e1", text: `Signed in with ${secret}`, snapshot: false }]);
     await untilEnded(t, id, runId);
 
     expect(answers).toEqual([
@@ -258,7 +258,7 @@ describe("client.answer", () => {
     const other = await clientNamed(t, "The laptop");
     const calls = await hearing(t, starter);
     const id = await sessionWith(starter);
-    const { runId, answers } = await startRun(t, starter, id, ["browser_navigate", { address: "https://example.com/next", snapshot: false }]);
+    const { runId, answers } = await startRun(t, starter, id, ["navigate", { url: "https://example.com/next", snapshot: false }]);
     const call = await calls.next();
 
     await expect(answerWith(other, { callId: call.callId, ok: true, result: NAVIGATED })).rejects.toMatchObject({ code: "forbidden", data: { scope: "runs:drive", reason: "addressed" } });
@@ -272,7 +272,7 @@ describe("client.answer", () => {
     const starter = await clientNamed(t, "David's desktop");
     const calls = await hearing(t, starter);
     const id = await sessionWith(starter);
-    const { runId } = await startRun(t, starter, id, ["browser_navigate", { address: "https://example.com/next", snapshot: false }]);
+    const { runId } = await startRun(t, starter, id, ["navigate", { url: "https://example.com/next", snapshot: false }]);
     const call = await calls.next();
     await answerWith(starter, { callId: call.callId, ok: true, result: NAVIGATED });
 
@@ -286,7 +286,7 @@ describe("client.answer", () => {
     const starter = await clientNamed(t, "David's desktop");
     const calls = await hearing(t, starter);
     const id = await sessionWith(starter);
-    const { runId, answers } = await startRun(t, starter, id, ["browser_screenshot"]);
+    const { runId, answers } = await startRun(t, starter, id, ["screenshot"]);
     const call = await calls.next();
     const huge = { ok: true, value: { mediaType: "image/png", data: "A".repeat(8 * 1024 * 1024), width: 1, height: 1 } };
 
@@ -301,7 +301,7 @@ describe("client.answer", () => {
     const starter = await clientNamed(t, "David's desktop");
     const calls = await hearing(t, starter);
     const id = await sessionWith(starter);
-    const { runId, answers } = await startRun(t, starter, id, ["browser_snapshot"], ["browser_snapshot"]);
+    const { runId, answers } = await startRun(t, starter, id, ["read_page"], ["read_page"]);
     await answerWith(starter, { callId: (await calls.next()).callId, ok: false, error: { code: "unsupported", message: "This client has no handler for browser.chrome." } });
     const reason = "This client holds no local connection to the environment the Chrome is paired with.";
     await answerWith(starter, { callId: (await calls.next()).callId, ok: false, error: { code: "handler_failed", message: reason } });
@@ -323,7 +323,7 @@ describe("the deadline", () => {
     const starter = await clientNamed(t, "David's desktop");
     const calls = await hearing(t, starter);
     const id = await sessionWith(starter);
-    const { runId, answers } = await startRun(t, starter, id, ["browser_navigate", { address: "https://example.com/next", snapshot: false }]);
+    const { runId, answers } = await startRun(t, starter, id, ["navigate", { url: "https://example.com/next", snapshot: false }]);
     const call = await calls.next();
 
     t.clock.advance(19_999);
@@ -347,14 +347,14 @@ describe("the dock relay", () => {
     const calls = await hearing(t, starter);
     const id = await sessionWith(starter, { kind: "dock" });
     const { runId, answers } = await startRun(t, starter, id, [
-      "browser_navigate",
-      { address: "https://example.com/next", snapshot: false },
+      "navigate",
+      { url: "https://example.com/next", snapshot: false },
     ]);
     const call = await calls.next();
     expect(call).toMatchObject({
       clientSessionId: starter.hello.clientSessionId,
       kind: "browser.dock",
-      payload: { pageKey: `${t.env.id}/${id}`, command: { verb: "navigate" } },
+      payload: { pageKey: `${t.env.id}/${id}`, command: { verb: "open" } },
     });
     expect(call.payload).not.toHaveProperty("chromeId");
     await answerWith(starter, {
@@ -374,7 +374,7 @@ describe("the dock relay", () => {
     t.scrub.register(secret, { owner: "test:key-manager" });
     const before = t.env.log.head();
 
-    const { runId, answers } = await startRun(t, starter, id, ["browser_type", { ref: "e1", text: `Signed in with ${secret}`, snapshot: false }]);
+    const { runId, answers } = await startRun(t, starter, id, ["type", { ref: "e1", text: `Signed in with ${secret}`, snapshot: false }]);
     await untilEnded(t, id, runId);
 
     expect(answers).toEqual([
@@ -397,7 +397,7 @@ describe("the two denylists of a relayed Chrome", () => {
     const id = await sessionWith(starter);
     const address = "https://payments.example/pay";
     const match = { section: "browserDomains" as const, entry: { id: "payments-for-tests", pattern: "payments.example", note: "Payments", preset: false, enabled: true }, matched: address };
-    const { runId, answers } = await startRun(t, starter, id, ["browser_open", { address, snapshot: false }]);
+    const { runId, answers } = await startRun(t, starter, id, ["navigate", { url: address, snapshot: false }]);
     const initial = await calls.next();
     expect(initial.payload).not.toHaveProperty("allowance");
     await answerWith(starter, { callId: initial.callId, ok: true, result: { ok: false, reason: `The page went to ${address}, which the denylist lists (payments.example), so it was stopped at about:blank.`, denylist: { frame: "top-level", match } } });
@@ -422,7 +422,7 @@ describe("a Chrome name answered through the relay", () => {
     const starter = await clientNamed(t, "David's desktop");
     const calls = await hearing(t, starter);
     const id = await sessionWith(starter, { kind: "chrome", environmentId: DESK, chromeId: null });
-    const { runId, answers } = await startRun(t, starter, id, ["browser_open", { browser: "Work" }]);
+    const { runId, answers } = await startRun(t, starter, id, ["select_browser", { browser: "Work" }]);
     const list = await calls.next();
     expect(list.payload).toEqual({ operation: "list", environmentId: DESK, deadline: new Date(t.clock.now().getTime() + 12_000).toISOString() });
     await starter.apply("sessions.setBrowser", { commandId: randomUUID(), sessionId: id, browser: { kind: "none" } });

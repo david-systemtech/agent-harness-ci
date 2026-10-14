@@ -102,7 +102,7 @@ describe("the worker's pages", () => {
     expect(chrome.attachedTabs()).toEqual([second?.id]);
     expect(chrome.tabsOpen().map((tab) => tab.id)).toEqual([first?.id, second?.id]);
     // The tab is the person's now: the page key reaches it no more, and open makes another.
-    expect(await perform({ verb: "screenshot", args: {} })).toEqual({ ok: false, reason: "No page is open for this session. Open one with browser_open first." });
+    expect(await perform({ verb: "screenshot", args: {} })).toEqual({ ok: false, reason: "No page is open for this session. Open one with navigate first." });
     expect(await perform({ verb: "open", args: {} })).toEqual({ ok: true, value: { url: "about:blank", title: "" } });
     expect(chrome.tabsOpen()).toHaveLength(3);
   });
@@ -115,7 +115,7 @@ describe("the worker's pages", () => {
 
     expect(await perform({ verb: "screenshot", args: {} })).toEqual({
       ok: false,
-      reason: "The page this session had is gone (the person took its tab out of the agent-harness tab group). Open it again with browser_open.",
+      reason: "The page this session had is gone (the person took its tab out of the agent-harness tab group). Open it again with navigate.",
     });
     expect(chrome.attachedTabs()).toEqual([]);
     expect(await perform({ verb: "open", args: {} })).toEqual({ ok: true, value: { url: "about:blank", title: "" } });
@@ -124,7 +124,7 @@ describe("the worker's pages", () => {
     expect(chrome.groupTitle(made?.groupId ?? -1)).toBe("agent-harness");
 
     await chrome.tabs.remove(made?.id ?? -1);
-    expect(await perform({ verb: "screenshot", args: {} })).toEqual({ ok: false, reason: "The page this session had is gone (its tab was closed). Open it again with browser_open." });
+    expect(await perform({ verb: "screenshot", args: {} })).toEqual({ ok: false, reason: "The page this session had is gone (its tab was closed). Open it again with navigate." });
   });
 });
 
@@ -136,14 +136,14 @@ describe("the debugger", () => {
     chrome.cancelDebugging(held?.id ?? -1);
     expect(await perform({ verb: "screenshot", args: {} })).toEqual({
       ok: false,
-      reason: "The page this session had is gone (the person cancelled the debugging on Chrome's banner). Open it again with browser_open.",
+      reason: "The page this session had is gone (the person cancelled the debugging on Chrome's banner). Open it again with navigate.",
     });
 
     chrome.refuseDebugger(held?.id ?? -1);
     expect(await perform({ verb: "open", args: {} })).toEqual({
       ok: false,
       reason:
-        "Chrome would not let the extension's debugger attach to this session's tab (Cannot attach to this target.), so the tab is left to the person. Open the page again with browser_open.",
+        "Chrome would not let the extension's debugger attach to this session's tab (Cannot attach to this target.), so the tab is left to the person. Open the page again with navigate.",
     });
     expect(await perform({ verb: "open", args: { url: "https://example.com/" } })).toEqual({ ok: true, value: { url: "https://example.com/", title: "" } });
     expect(chrome.tabsOpen()).toHaveLength(2);

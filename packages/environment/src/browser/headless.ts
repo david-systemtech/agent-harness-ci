@@ -21,10 +21,10 @@ import type { HeadlessAvailability } from "./run-browser.js";
  * data directory, over a pipe. With neither it is absent, with the reason,
  * which a run's resolution and `browser.status` both read.
  *
- * Nothing starts until a run first needs it: the first `browser_open`
+ * Nothing starts until a run first needs it: the first `navigate`
  * connects or launches. Each session gets a browser context of its own, so
  * no two sessions share a cookie, made at its first open and disposed at its
- * `browser_close`. The page driver is the browser package's, with `Network`
+ * `close_tab`. The page driver is the browser package's, with `Network`
  * at attach, since the navigation policy reads where each document was
  * served from; it is signed in to nothing, so every verb works on every
  * site. The frame judge reads the environment's page policy (the denylist's
@@ -188,7 +188,7 @@ export const createHeadlessBrowser = (options: HeadlessBrowserOptions): Headless
         if (browser.contexts.get(pageKey) !== context) return;
         const limit = options.settings().limits.idleMinutes;
         if (options.clock.now().getTime() - context.lastUsed < limit * 60_000) return armIdle(browser, pageKey, context);
-        notices.set(pageKey, `The session's browser context closed after ${limit} idle minutes. Open it again with browser_open.`);
+        notices.set(pageKey, `The session's browser context closed after ${limit} idle minutes. Open it again with navigate.`);
         await rawDriver.perform({ pageKey, command: { verb: "close", args: {} } });
       })();
     }, Math.max(0, left));
@@ -355,7 +355,7 @@ export const createHeadlessBrowser = (options: HeadlessBrowserOptions): Headless
       }
       if (!make) return null;
       if (context === undefined && browser.contexts.size >= options.settings().limits.maxContexts) {
-        throw new Error(`Other sessions hold the browser. Wait until their contexts close after ${options.settings().limits.idleMinutes} idle minutes or at their browser_close, or tell the person.`);
+        throw new Error(`Other sessions hold the browser. Wait until their contexts close after ${options.settings().limits.idleMinutes} idle minutes or at their close_tab, or tell the person.`);
       }
       // The session's own context, disposed with the connection too, so a browser beside the environment keeps none of it.
       const contextId = context?.contextId ?? ((await browser.connection.send("Target.createBrowserContext", { disposeOnDetach: true })).browserContextId as string);
@@ -406,7 +406,7 @@ export const createHeadlessBrowser = (options: HeadlessBrowserOptions): Headless
           const heap = await within(session.send("Runtime.getHeapUsage"), ANSWER_MS, "the tab heap");
           const limit = options.settings().limits.tabHeapMb;
           if (typeof heap.usedSize !== "number" || heap.usedSize <= limit * 1024 * 1024) continue;
-          notices.set(pageKey, `The session's browser tab closed because its heap exceeded ${limit} MB. Open it again with browser_open.`);
+          notices.set(pageKey, `The session's browser tab closed because its heap exceeded ${limit} MB. Open it again with navigate.`);
           await rawDriver.perform({ pageKey, command: { verb: "close", args: {} } });
         } catch {
           // A tab or connection may have gone while its heap was being read.

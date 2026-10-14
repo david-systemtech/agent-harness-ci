@@ -260,6 +260,7 @@ describe("an image in a tool's result (#540)", () => {
     expect(events.filter((event) => event.type === "tool.started" || event.type === "tool.ended")).toEqual([
       {
         type: "tool.started",
+        // A recorded transcript from before #2155: the old tool name still maps as it was.
         payload: { toolCallId: "toolu_shot", name: "mcp__browser__browser_screenshot", input: {}, title: null, agentId: null, parentToolCallId: null },
       },
       {
@@ -278,7 +279,7 @@ describe("an image in a tool's result (#540)", () => {
 
   it("is recorded the same way in a result's own content, when one message carries several results, and a result of text alone is unchanged", () => {
     const { state } = setup();
-    for (const id of ["toolu_a", "toolu_b"]) mapSdkMessage({ type: "assistant", message: { id: `msg_${id}`, role: "assistant", content: [{ type: "tool_use", id, name: "mcp__browser__browser_screenshot", input: {} }] }, parent_tool_use_id: null, session_id: "s", uuid: `u_${id}` }, state);
+    for (const id of ["toolu_a", "toolu_b"]) mapSdkMessage({ type: "assistant", message: { id: `msg_${id}`, role: "assistant", content: [{ type: "tool_use", id, name: "mcp__browser__screenshot", input: {} }] }, parent_tool_use_id: null, session_id: "s", uuid: `u_${id}` }, state);
     const image = { type: "image", source: { type: "base64", media_type: "image/png", data: PNG_BASE64 } };
     const events = mapSdkMessage(
       {

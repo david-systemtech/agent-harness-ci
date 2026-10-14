@@ -11,7 +11,7 @@ import type { DrivenChrome } from "./extension-driver.js";
  * The agent's answer to the several-Chromes question (browser spec, "The
  * browser as a session field"; #552): with several of the person's Chromes
  * connected, the plain My Chrome refuses a verb naming them and telling the
- * model to ask the person, whose answer comes back as `browser_open`'s
+ * model to ask the person, whose answer comes back as `select_browser`'s
  * `browser`, the name of one of the target environment's paired Chromes. The
  * environment records it on the session as `session.browser.set` chosen by
  * the agent, so the session's next run resolves that Chrome. A session that

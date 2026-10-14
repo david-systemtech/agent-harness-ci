@@ -439,7 +439,7 @@ describe("what web_read reads", () => {
   );
 
   it(
-    "answers a shell, a challenge's markers, a 202 challenge, a 403 and a 429 with a sentence pointing at browser_open, never an empty page",
+    "answers a shell, a challenge's markers, a 202 challenge, a 403 and a 429 with a sentence pointing at navigate, never an empty page",
     async () => {
       const t = await start();
       const shell = htmlPage("An app", `<div id="root"></div><noscript>You need to enable JavaScript to run this app.</noscript><script src="/app.js"></script>`);
@@ -462,13 +462,13 @@ describe("what web_read reads", () => {
         { address: server.url("/busy") },
         { address: server.url("/gone") },
       );
-      const inBrowser = "Open it with browser_open to read it in a browser.";
+      const inBrowser = "Open it with navigate to read it in a browser.";
       expect(app).toEqual({ text: `${server.url("/app")} is an app's shell: its content is drawn by script, which web_read does not run, so it holds next to no text. ${inBrowser}`, isError: true });
       expect(guarded).toEqual({
-        text: `${server.url("/guarded")} answered with Cloudflare's bot check, which only a person may pass. Open it with browser_open; if the check shows there too, stop, ask the person to complete it in a browser they can see, and wait. Never retry it.`,
+        text: `${server.url("/guarded")} answered with Cloudflare's bot check, which only a person may pass. Open it with navigate; if the check shows there too, stop, ask the person to complete it in a browser they can see, and wait. Never retry it.`,
         isError: true,
       });
-      expect(search?.text).toMatch(new RegExp(`^${server.url("/search").replace(/[.]/g, "\\.")} answered with a JavaScript challenge, which only a person may pass\\. Open it with browser_open`));
+      expect(search?.text).toMatch(new RegExp(`^${server.url("/search").replace(/[.]/g, "\\.")} answered with a JavaScript challenge, which only a person may pass\\. Open it with navigate`));
       expect(forbidden).toEqual({
         text: `${server.url("/forbidden")} refused web_read (403 Forbidden): the site may turn away a reader without a browser, or want the person signed in. ${inBrowser}`,
         isError: true,
