@@ -1,10 +1,11 @@
 import { elapsedClock, liveRun, liveRunIdOf, liveTasks, oneLine, sessionTasks, statusOf, type SessionProjection } from "@agent-harness/client-runtime";
-import { useEffect, useMemo, useReducer } from "react";
+import { useEffect, useMemo, useReducer, useRef } from "react";
 import { ListTodo } from "lucide-react";
 import { useProviderProcess } from "../status/use-process.js";
 import { showPane, useSideColumn } from "../side-column/column.js";
 import { Button, Tooltip } from "../ui/index.js";
 import { classes } from "../ui/classes.js";
+import { followSweep } from "./sweep.js";
 import { useClock, useObservable, useObservableSelector, useRuntime } from "../window-context.js";
 
 const activityFields = (projection: SessionProjection) => ({ items: projection.items, runs: projection.runs, containment: projection.containment, summary: null });
@@ -28,10 +29,13 @@ export const Activity = ({ environmentId, sessionId, stopping }: { readonly envi
     const timer = clock.setTimeout(tick, 1000);
     return () => timer.cancel();
   }, [clock, active, second]);
+  const sweeping = state === "stopping" || state === "starting" || state === "working";
+  const seam = useRef<HTMLDivElement>(null);
+  useEffect(() => (sweeping && seam.current !== null ? followSweep(seam.current) : undefined), [sweeping]);
   const words = state === "stopping" ? "Stopping…" : state === "failed" ? `Run failed${latest?.error === null || latest?.error === undefined ? "" : `: ${latest.error.message}`}` : facts.activity.words;
   const elapsed = facts.elapsedMs ?? (state === "failed" ? latest?.durationMs : undefined);
   return <>
-    <div data-activity-seam data-activity={state} aria-hidden="true" className={classes("shrink-0 transition-[height] duration-200 motion-reduce:transition-none", state === "settled" ? "h-px bg-hairline" : "h-[3px]", (state === "waiting" || state === "background") && "bg-amber", state === "failed" && "bg-signal", (state === "stopping" || state === "starting" || state === "working") && "shuttle bg-wash")} />
+    <div ref={seam} data-activity-seam data-activity={state} aria-hidden="true" className={classes("shrink-0 transition-[height] duration-200 motion-reduce:transition-none", state === "settled" ? "h-px bg-hairline" : "h-[3px]", (state === "waiting" || state === "background") && "bg-amber", state === "failed" && "bg-signal", sweeping && "shuttle bg-wash")} />
     {state !== "settled" && <p className={classes("flex shrink-0 items-baseline gap-2 px-3 py-1 text-xs", state === "waiting" || state === "background" ? "text-amber" : state === "failed" || state === "stopping" ? "text-signal" : "text-cyan")}>
       <span role="status" aria-label="Run activity" className="min-w-0 truncate" title={words}>{words}</span>
       {active || elapsed != null ? <span className="ml-auto shrink-0 font-mono text-2xs text-ink-muted">{elapsedClock(Math.max(1000, elapsed ?? 1000))}</span> : null}

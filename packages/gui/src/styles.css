@@ -283,6 +283,8 @@
     content: ""; position: absolute; inset: 0; background: var(--beam);
     transform-origin: left center; will-change: transform; animation: shuttle 1.9s infinite;
   }
+  /* #2201: a seam off screen, or every seam while the window is hidden, holds its beam still (composer/sweep.ts marks them). */
+  .shuttle[data-sweep-offscreen]::after, :root[data-sweep-hidden] .shuttle::after { animation-play-state: paused; }
   .xterm-viewport { background: transparent !important; }
   .xterm .xterm-helper-textarea:focus-visible { outline: none; }
 }
