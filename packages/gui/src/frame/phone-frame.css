@@ -49,3 +49,13 @@
 
 /* The Sessions page (the stack's root) mounts the drawer's list full width under the bar. */
 .phone-sessions-page { display: flex; min-height: 0; min-width: 0; flex: 1 1 auto; flex-direction: column; overflow: hidden; }
+
+/* The list's controls are painted at 44px, so no control needs touch-target's pointer box, and
+ * no two controls share an edge: at a fractional edge the later control's box takes the earlier
+ * one's last pixel. The row's actions sit apart from the row, the footer's lines apart from each
+ * other, and a repository heading grows around its 44px New session control instead of hanging
+ * it over the first row (#2149). */
+:is(.phone-frame-drawer, .phone-sessions-page) button[data-variant][data-size]::before { content: none; }
+:is(.phone-frame-drawer, .phone-sessions-page) [data-sidebar-item] { gap: 4px; }
+:is(.phone-frame-drawer, .phone-sessions-page) [data-sidebar-footer] { gap: 2px; }
+:is(.phone-frame-drawer, .phone-sessions-page) [data-sidebar-scroll] section > div:has(> h2) { height: auto; min-height: 44px; }

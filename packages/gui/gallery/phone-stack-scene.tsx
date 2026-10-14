@@ -1,4 +1,4 @@
-import type { SceneGeometry } from "./scene-registry.js";
+import type { SceneGeometry, SceneViewport } from "./scene-registry.js";
 import { safeAreas } from "./phone-frame-scene.js";
 
 /** The phone bar on every stack page (audit §3.7): 52 high under the safe area, the sessions drawer
@@ -23,3 +23,17 @@ export const stackSafeAreas = ({ drawer = false } = {}) => () => {
   if (drawer) { observer.observe(document.body, { subtree: true, childList: true }); tryOpen(); }
   return () => { observer.disconnect(); reset(); };
 };
+
+/** The Sessions list under `scope` (the page or the drawer): every control is painted at 44px. Where the
+ * whole list fits (a tall phone) every control also keeps an uncovered 44px hit area. On a shorter phone
+ * or with the keyboard up the list scrolls between its pinned controls, so rows past the fold are off
+ * screen by design: the pinned controls and the first section, which are on screen, are hit-tested. */
+export const sessionListHitAreas = (scope: string, { height }: SceneViewport): SceneGeometry[] => [
+  { selector: `${scope} button`, renderedOnly: true, minimumWidth: 44, minimumHeight: 44 },
+  ...height >= 800
+    ? [{ selector: `${scope} button`, renderedOnly: true, hitArea: 44 }]
+    : [
+      { selector: `${scope} nav > :not([data-sidebar-scroll]) button`, renderedOnly: true, hitArea: 44 },
+      { selector: `${scope} [data-sidebar-scroll] > section:first-of-type button`, renderedOnly: true, hitArea: 44 },
+    ],
+];
