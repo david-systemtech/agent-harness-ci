@@ -69,6 +69,7 @@ export type SessionCommand =
   | "sessions.untag"
   | "sessions.setDraft"
   | "sessions.setBrowser"
+  | "sessions.setDesktop"
   | "sessions.setGroup"
   | "sessions.restore";
 
