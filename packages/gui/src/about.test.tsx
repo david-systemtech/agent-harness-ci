@@ -207,7 +207,7 @@ describe("Restart to update", () => {
     await waitFor(() => expect(app.shell.calls.filter(([member]) => member === "update.apply").map(([, ...args]) => args)).toEqual([[STAGED, "quit"], [STAGED, "now"]]));
   });
 
-  it("offers Prepare now in the header where installing asks for an administrator, which asks the shell to prepare it, then only Restart to update (#2194)", async () => {
+  it("offers Prepare now in the header where installing asks for an administrator, which asks the shell to prepare it, then only Restart to update, issue 2194", async () => {
     const app = await opened({ updates: { status: { newest: "0.6.0" }, desktopBuild: STAGED } });
     await app.user.click(await within(header()).findByRole("button", { name: "Prepare now" }));
     await waitFor(() => expect(app.shell.calls.filter(([member]) => member === "update.apply").map(([, ...args]) => args)).toEqual([[STAGED, "quit"], [STAGED, "prepare"]]));

@@ -4,7 +4,7 @@ import { uuidv4 } from "./ids.js";
 import { writable, type Observable } from "./observable.js";
 import type { Clock, Timer } from "./platform.js";
 import { CACHE_REFRESH_NOTICES, QUERY_REFRESH_NOTICES, type RequestFailure, type Requests } from "./requests.js";
-import type { Shell, ShellApplyOutcome, ShellBundledServer, ShellStagedBuild } from "./shell.js";
+import type { Shell, ShellApplyOutcome, ShellApplyWhen, ShellBundledServer, ShellStagedBuild } from "./shell.js";
 
 /**
  * The desktop's update flow (launcher-update spec, "The desktop moves with
@@ -331,7 +331,7 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
   };
 
   /** Applies `staged` through the shell: null once applied (or handed over for the quit), else what failed. */
-  const apply = async (staged: ShellStagedBuild, when: "now" | "quit"): Promise<ApplyFailure | null> => {
+  const apply = async (staged: ShellStagedBuild, when: ShellApplyWhen): Promise<ApplyFailure | null> => {
     if (update === undefined) return { failure: "install", message: "This desktop's shell cannot update itself." };
     try {
       const outcome = await update.apply(staged, when);
