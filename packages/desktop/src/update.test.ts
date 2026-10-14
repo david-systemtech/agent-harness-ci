@@ -337,8 +337,19 @@ describe("apply on Windows", () => {
       }
       return { code, stderr: code === 0 ? "" : "the setup failed" };
     });
-    system.answer(windowsPowerShell(), () => succeeded);
-    return { root, executable, version: join(root, "versions", staged.version, "agent-harness.exe") };
+    // The launch helper's switch, as desktop-launch.ps1 makes it: under the install mutex, the version before recorded, then the pointer replaced.
+    const mutex = { held: Promise.resolve() };
+    system.answer(windowsPowerShell(), async (args) => {
+      const at = args.indexOf("-Switch");
+      if (at === -1) return succeeded;
+      await mutex.held;
+      const data = dirname(args[args.indexOf("-File") + 1] ?? "");
+      const pointer = join(data, "current");
+      writeFileSync(join(data, "current.previous"), existsSync(pointer) ? readFileSync(pointer, "utf8").trim() : "");
+      writeFileSync(pointer, args[at + 1] ?? "");
+      return succeeded;
+    });
+    return { mutex, root, executable, version: join(root, "versions", staged.version, "agent-harness.exe") };
   };
 
   /** The launch helper's arguments, as the shortcuts run it, for `install`, in `mode`. */
@@ -372,7 +383,8 @@ describe("apply on Windows", () => {
     expect(await shell().update.apply(staged, "now")).toEqual({ outcome: "applied" });
     await electron.app.quitted;
 
-    expect(system.ran).toHaveLength(1);
+    expect(system.ran).toHaveLength(2);
+    expect(system.ran[1]).toEqual([windowsPowerShell(), ...helper(install, "-Switch", "0.6.0")]);
     expect(system.started).toEqual([[windowsPowerShell(), ...helper(install, "-Watch", "0.6.0", "-Bound", String(ROLLBACK_BOUND_SECONDS))]]);
     expect(electron.app.calls.filter(([method]) => method === "relaunch")).toEqual([["relaunch", { execPath: install.version, args: ["--updated"] }]]);
   });
@@ -397,6 +409,46 @@ describe("apply on Windows", () => {
     expect(readFileSync(join(platform.paths.data, "current.previous"), "utf8")).toBe("0.5.0");
     expect(readFileSync(join(platform.paths.data, "current"), "utf8")).toBe("0.6.0");
     expect(order).toEqual([`start -Watch 0.6.0 -Bound ${ROLLBACK_BOUND_SECONDS}`, "quit"]);
+  });
+
+  it("switches the pointer through the launch helper, which holds the install mutex: a setup holding it delays the switch and the restart until it lets go", async () => {
+    const system = fakeSystem();
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
+    const install = windowsInstall(system, staged);
+    const { shell, electron, platform } = await installed("win32", install.executable, system);
+    await shell().update.apply(staged, "quit");
+    let release = () => {};
+    install.mutex.held = new Promise<void>((resolve) => (release = resolve));
+
+    const applying = shell().update.apply(staged, "now");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(system.ran.at(-1)).toEqual([windowsPowerShell(), ...helper(install, "-Switch", "0.6.0")]);
+    expect(existsSync(join(platform.paths.data, "current"))).toBe(false);
+    expect(system.started).toEqual([]);
+    expect(electron.app.calls.map(([method]) => method)).not.toContain("relaunch");
+
+    release();
+    expect(await applying).toEqual({ outcome: "applied" });
+    expect(readFileSync(join(platform.paths.data, "current"), "utf8")).toBe("0.6.0");
+    expect(electron.app.calls.map(([method]) => method)).toContain("relaunch");
+  });
+
+  it("keeps the running version and restarts nothing when the launch helper cannot switch the pointer", async () => {
+    const system = fakeSystem();
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
+    const install = windowsInstall(system, staged);
+    const { shell, electron } = await installed("win32", install.executable, system);
+    await shell().update.apply(staged, "quit");
+    system.answer(windowsPowerShell(), () => ({ code: 1, stderr: "No installed desktop version to switch to" }));
+
+    expect(await shell().update.apply(staged, "now")).toEqual({
+      outcome: "failed",
+      failure: "install",
+      message: "Could not point the desktop at 0.6.0 (No installed desktop version to switch to), so 0.5.0 stays installed.",
+    });
+    expect(system.started).toEqual([]);
+    expect(electron.app.calls.map(([method]) => method)).not.toContain("relaunch");
+    expect(electron.app.calls.map(([method]) => method)).not.toContain("quit");
   });
 
   it("still switches and starts the new version when the rollback watch cannot be started, and says so", async () => {
@@ -659,7 +711,7 @@ describe("apply, on every platform", () => {
     expect(mac.build()).toBe("0.5.0");
   });
 
-  it("makes and removes its temporary folders through Node's file calls, and runs no command but the install's own", async () => {
+  it("makes and removes its temporary folders through Node's file calls, and runs no command but the install's own and the launch helper's", async () => {
     const mac = macBundle();
     const macSystem = fakeSystem();
     unzipping(macSystem, "0.6.0");
@@ -683,12 +735,13 @@ describe("apply, on every platform", () => {
       writeFileSync(join(into, "agent-harness.exe"), "0.6.0");
       return succeeded;
     });
+    windowsSystem.answer(windowsPowerShell(), () => succeeded);
     const windows = await installed("win32", join(windowsRoot, "agent-harness.exe"), windowsSystem);
     await windows.shell().update.apply(windowsBuild, "now");
     await windows.electron.app.quitted;
 
     const commands = [...macSystem.ran, ...archSystem.ran, ...archSystem.started, ...windowsSystem.ran, ...windowsSystem.started].map(([command]) => basename(command ?? ""));
-    expect(new Set(commands)).toEqual(new Set(["ditto", "pacman", "pkexec", "agent-harness-desktop-win32-x64-setup.exe"]));
+    expect(new Set(commands)).toEqual(new Set(["ditto", "pacman", "pkexec", "agent-harness-desktop-win32-x64-setup.exe", basename(windowsPowerShell())]));
   });
 });
 

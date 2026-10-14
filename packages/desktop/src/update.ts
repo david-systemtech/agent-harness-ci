@@ -465,21 +465,19 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
   };
 
   /**
-   * Switches Windows to the version installed ahead of the click: the
-   * pointer `desktop-launch.ps1` follows is written beside it and renamed
-   * into place, so a launch reads the old version or the new one, never half
-   * of one; at the click Electron starts the new executable once this one has
-   * gone, its single-instance lock released.
+   * Switches Windows to the version installed ahead of the click: the launch
+   * helper (`-Switch`) takes the install mutex (#2146), so no setup runs
+   * meanwhile, records the version pointed at before (`current.previous`,
+   * what a rollback goes back to), and replaces the pointer it follows in one
+   * step, so a launch reads the old version or the new one, never half of
+   * one; at the click Electron starts the new executable once this one has
+   * gone, its single-instance lock released, and the helper (`-Watch`) goes
+   * back to the version before it if it never reports ready.
    */
   const switchVersion = async (staged: ShellStagedBuild, prepared: Prepared, restart: boolean): Promise<ShellApplyOutcome> => {
-    const pointer = join(platform.paths.data, CURRENT_POINTER);
-    try {
-      const before = await files.readFile(pointer, "utf8").catch(() => "");
-      await files.writeFile(join(platform.paths.data, PREVIOUS_POINTER), before.trim(), "utf8");
-      await files.writeFile(`${pointer}.tmp`, staged.version, "utf8");
-      await files.rename(`${pointer}.tmp`, pointer);
-    } catch (error) {
-      return failed("install", `Could not point the desktop at ${staged.version} (${messageOf(error)}), so ${stays()}.`);
+    const switched = await system.run(windowsPowerShell(), helperArguments("-Switch", staged.version)).catch((error: unknown) => ({ code: -1, stderr: messageOf(error) }));
+    if (switched.code !== 0) {
+      return failed("install", `Could not point the desktop at ${staged.version} (${lastLine(switched.stderr) ?? `the launch helper exited with ${switched.code}`}), so ${stays()}.`);
     }
     if (restart) {
       // The rollback (#2194): the helper waits for the new process's ready, else points back and starts the version before it.

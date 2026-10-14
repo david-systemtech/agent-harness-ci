@@ -6,6 +6,8 @@ param(
   [switch]$NoWindow,
   # At Restart to update (#2194): watch the version just switched to, and go back if it never gets ready.
   [string]$Watch,
+  # At Restart to update (#2194): point the launch at this version, holding the install mutex.
+  [string]$Switch,
   [int]$Bound = 60,
   [Parameter(ValueFromRemainingArguments=$true)][string[]]$LaunchArguments
 )
@@ -107,6 +109,28 @@ function Write-UpdateLog([string]$line) {
   $logs = Join-Path $PSScriptRoot 'logs'
   New-Item -ItemType Directory -Force -Path $logs | Out-Null
   [IO.File]::AppendAllText((Join-Path $logs 'desktop-update.log'), $line + [char]13 + [char]10)
+}
+if ($Switch) {
+  # The pointer switch holds the install mutex (#2146), as a setup does, so a
+  # setup that deletes the pointer and a switch that writes it never interleave.
+  if ($null -eq (Get-VersionApp $Switch)) { throw 'No installed desktop version to switch to' }
+  $mutex = [Threading.Mutex]::new($false, 'Local\agent-harness-desktop-install')
+  $entered = $false
+  try {
+    try { $entered = $mutex.WaitOne() } catch [Threading.AbandonedMutexException] { $entered = $true }
+    $before = ''
+    if (Test-Path -LiteralPath $pointer -PathType Leaf) { $before = ([string](Get-Content -LiteralPath $pointer -Raw)).Trim() }
+    [IO.File]::WriteAllText($previousPointer, $before)
+    $written = $pointer + '.tmp'
+    [IO.File]::WriteAllText($written, $Switch)
+    # Replaced in one step, so a launch reads the old version or the new one.
+    if (Test-Path -LiteralPath $pointer) { [IO.File]::Replace($written, $pointer, $null) }
+    else { [IO.File]::Move($written, $pointer) }
+  } finally {
+    if ($entered) { $mutex.ReleaseMutex() }
+    $mutex.Dispose()
+  }
+  exit 0
 }
 if ($Watch) {
   # The old process started this as it quit for the switch to $Watch. The new

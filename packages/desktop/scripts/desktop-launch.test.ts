@@ -146,3 +146,35 @@ it.skipIf(!hasPowerShell)("rolls back to the install's own folder when no versio
   watch();
   expect(existsSync(install.receipt)).toBe(false);
 }, 120_000);
+
+it.skipIf(!hasPowerShell)("switches the pointer only while it holds the install mutex: a setup holding it delays the switch until it lets go", () => {
+  const install = versionedInstall("0.6.0", "0.7.0");
+  writeFileSync(join(install.work, "current"), "0.6.0");
+  const owner = join(install.work, "owner.ps1");
+  writeFileSync(owner, `
+$ErrorActionPreference = 'Stop'
+$mutex = [Threading.Mutex]::new($true, 'Local\\agent-harness-desktop-install')
+$held = $true
+$child = $null
+try {
+  $child = Start-Process -FilePath (Join-Path $PSHOME 'pwsh') -ArgumentList @(
+    '-NoProfile', '-File', ('"' + $env:DESKTOP_TEST_HELPER + '"'), '-App', ('"' + $env:DESKTOP_TEST_APP + '"'), '-Switch', '0.7.0'
+  ) -PassThru
+  Start-Sleep -Seconds 2
+  if ($child.HasExited) { throw 'The switch did not wait for the install mutex' }
+  if ((Get-Content (Join-Path $env:DESKTOP_TEST_WORK 'current') -Raw).Trim() -ne '0.6.0') { throw 'The pointer changed while a setup held the mutex' }
+  $mutex.ReleaseMutex()
+  $held = $false
+  if (!$child.WaitForExit(60000) -or $child.ExitCode -ne 0) { throw 'The switch failed' }
+} finally {
+  if ($held) { $mutex.ReleaseMutex() }
+  $mutex.Dispose()
+  if ($null -ne $child -and !$child.HasExited) { $child.Kill() }
+}
+`);
+  execFileSync("pwsh", ["-NoProfile", "-File", owner], { env: { ...environment, DESKTOP_TEST_WORK: install.work, DESKTOP_TEST_HELPER: install.helper, DESKTOP_TEST_APP: install.app }, timeout: 90_000, stdio: "pipe" });
+  expect(readFileSync(join(install.work, "current"), "utf8")).toBe("0.7.0");
+  expect(readFileSync(join(install.work, "current.previous"), "utf8")).toBe("0.6.0");
+  expect(() => execFileSync("pwsh", ["-NoProfile", "-File", install.helper, "-App", install.app, "-Switch", "0.8.0"], { env: environment, timeout: 60_000, stdio: "pipe" })).toThrow();
+  expect(readFileSync(join(install.work, "current"), "utf8")).toBe("0.7.0");
+}, 120_000);
