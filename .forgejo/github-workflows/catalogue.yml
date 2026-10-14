@@ -18,7 +18,11 @@ permissions:
 jobs:
   catalogue:
     runs-on: ubuntu-24.04
-    container: public.ecr.aws/docker/library/node:24-bookworm
+    # Microsoft's registry, not ECR Public, whose anonymous data-transfer
+    # quota refuses this pull with "Data limit exceeded" (#2141, #2186).
+    container:
+      image: mcr.microsoft.com/devcontainers/javascript-node:24-bookworm
+      options: --user root
     timeout-minutes: 15
     defaults:
       run:

@@ -157,7 +157,15 @@ jobs:
   # user branches now run in the full suite shards above.
   root-user:
     runs-on: ubuntu-24.04
-    container: public.ecr.aws/docker/library/node:24-bookworm
+    # Microsoft's registry, not ECR Public: since 2026-10-13 ECR Public refuses
+    # this pull with "toomanyrequests: Data limit exceeded", its anonymous
+    # data-transfer quota for the runners' shared egress, which no retry
+    # clears (#2141, #2186). MCR has no anonymous pull quota. The devcontainer
+    # image is Docker's Node 24 Bookworm image underneath; run as root so the
+    # root-only branches stay covered.
+    container:
+      image: mcr.microsoft.com/devcontainers/javascript-node:24-bookworm
+      options: --user root
     timeout-minutes: 15
     defaults:
       run:

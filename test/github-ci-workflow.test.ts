@@ -10,9 +10,10 @@ const job = (name: string): string => {
 };
 
 describe("the hosted CI workflow", () => {
-  it("initializes the root-only job without Docker Hub's anonymous pull quota", () => {
-    // The official mirror retains Node and Debian for the root-only tests.
-    expect(job("root-user")).toMatch(/^ {4}container: public\.ecr\.aws\/docker\/library\/node:24-bookworm$/m);
+  it("initializes the root-only job without an anonymous registry quota", () => {
+    // MCR's Node 24 Bookworm devcontainer image, as root, for the root-only tests.
+    expect(job("root-user")).toMatch(/^ {6}image: mcr\.microsoft\.com\/devcontainers\/javascript-node:24-bookworm$/m);
+    expect(job("root-user")).toMatch(/^ {6}options: --user root$/m);
     expect(job("root-user")).not.toContain("continue-on-error");
   });
 
