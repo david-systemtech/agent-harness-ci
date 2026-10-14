@@ -6,6 +6,7 @@ import type { Configuration } from "electron-builder";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanUp, scratch } from "../../test/harness.js";
 import { buildDesktop, type DesktopBuildOptions, type DesktopBuildSeams, type PackRequest } from "./build.js";
+import { nsisSchemeInclude } from "./config.js";
 
 /**
  * The desktop build (#423) over a fake server artefact, with its compile and
@@ -363,5 +364,92 @@ describe("the desktop build", () => {
     const build = fixture("linux-x64");
     await buildDesktop(build.options(), build.seams);
     expect(build.packed[0]?.request.config.pacman?.depends).toContain("polkit");
+  });
+});
+
+/**
+ * Runs the include's `--stage=` parsing (the lines after `${GetParameters} $R0`) on `parameters` as
+ * NSIS would: StrCpy, StrLen, IntOp and LogicLib's If/OrIf/Else and Do/Loop/LoopUntil/Break, the only
+ * instructions it uses. Any other instruction fails the test rather than being skipped.
+ */
+const stageFolder = (include: string, parameters: string): string => {
+  const lines = include.split("\n").map((line) => line.trim());
+  const start = lines.indexOf("${GetParameters} $R0") + 1;
+  const end = lines.indexOf('${if} $desktopStageDir != ""');
+  expect(start).toBeGreaterThan(0);
+  expect(end).toBeGreaterThan(start);
+  const body = lines.slice(start, end).map((line) => (line.match(/"(?:\$\\"|[^"])*"|\S+/g) ?? []).map((token) => token.replace(/^"(.*)"$/, "$1")));
+  const vars = new Map<string, string>([["$R0", parameters]]);
+  const value = (token = ""): string => (/^\$(R\d|desktopStageDir)$/.test(token) ? (vars.get(token) ?? "") : token.replaceAll('$\\"', '"'));
+  const holds = (a?: string, op?: string, b?: string): boolean => {
+    if (op === "==") return value(a).toLowerCase() === value(b).toLowerCase();
+    if (op === ">=") return Number(value(a)) >= Number(value(b));
+    throw new Error(`unknown comparison ${op}`);
+  };
+  const skip = (from: number, targets: readonly string[]): number => {
+    let depth = 0;
+    for (let at = from; at < body.length; at++) {
+      const name = body[at]?.[0] ?? "";
+      if (name === "${If}" || name === "${Do}") depth++;
+      else if (depth === 0 && targets.includes(name)) return at;
+      else if (name === "${EndIf}" || name === "${Loop}" || name === "${LoopUntil}") depth = Math.max(0, depth - 1);
+    }
+    throw new Error(`no ${targets.join(" or ")} after line ${from}`);
+  };
+  const loops: number[] = [];
+  for (let pc = 0, steps = 0; pc < body.length; steps++) {
+    if (steps > 100_000) throw new Error("the parsing does not terminate");
+    const [name, a, b, c, d] = body[pc] ?? [];
+    const count = c === undefined || c === "" ? undefined : Number(value(c));
+    if (name === "StrCpy") {
+      const source = value(b);
+      let offset = d === undefined ? 0 : Number(value(d));
+      if (offset < 0) offset = Math.max(0, source.length + offset);
+      let result = source.slice(offset);
+      if (count !== undefined) result = count < 0 ? result.slice(0, Math.max(0, result.length + count)) : result.slice(0, count);
+      vars.set(a ?? "", result);
+    } else if (name === "StrLen") vars.set(a ?? "", String(value(b).length));
+    else if (name === "IntOp" && c === "+") vars.set(a ?? "", String(Number(value(b)) + Number(value(d))));
+    else if (name === "${If}") {
+      let met = holds(a, b, c);
+      while (body[pc + 1]?.[0] === "${OrIf}") {
+        pc++;
+        const [, x, op, y] = body[pc] ?? [];
+        met = met || holds(x, op, y);
+      }
+      if (!met) pc = skip(pc + 1, ["${Else}", "${EndIf}"]);
+    } else if (name === "${Else}") pc = skip(pc + 1, ["${EndIf}"]);
+    else if (name === "${Do}") loops.push(pc);
+    else if (name === "${Loop}" || (name === "${LoopUntil}" && !holds(a, b, c))) pc = loops.at(-1) ?? pc;
+    else if (name === "${LoopUntil}") loops.pop();
+    else if (name === "${Break}") {
+      pc = skip(pc + 1, ["${Loop}", "${LoopUntil}"]);
+      loops.pop();
+    } else if (name !== "${EndIf}") throw new Error(`the test cannot run ${body[pc]?.join(" ")}`);
+    pc++;
+  }
+  return vars.get("$desktopStageDir") ?? "";
+};
+
+describe("the Windows setup's staging mode, Restart to update's install ahead of the click", () => {
+  const include = nsisSchemeInclude("agent-harness", "desktop-launch.ps1");
+  const folder = "C:\\Users\\runneradmin\\AppData\\Local\\Programs\\agent-harness-desktop\\versions\\.0.1.21-staging";
+
+  it("reads the whole --stage= folder, its hyphens included, where GetOptions cut it at the first one (...\\Programs\\agent)", () => {
+    expect(include).not.toContain("GetOptions");
+    expect(stageFolder(include, `/S --stage=${folder}`)).toBe(folder);
+    expect(stageFolder(include, `/S --stage=${folder}  `)).toBe(folder);
+  });
+
+  it("drops the quotes Node's spawn puts around an argument with a space, or a caller puts around the folder", () => {
+    const spaced = folder.replace("runneradmin", "Ada Lovelace");
+    expect(stageFolder(include, `/S "--stage=${spaced}"`)).toBe(spaced);
+    expect(stageFolder(include, `/S --stage="${spaced}"`)).toBe(spaced);
+  });
+
+  it("is not staging without --stage=, so an ordinary or updating install runs as before", () => {
+    expect(stageFolder(include, "")).toBe("");
+    expect(stageFolder(include, "/S")).toBe("");
+    expect(stageFolder(include, "/S --updated --force-run")).toBe("");
   });
 });

@@ -64,7 +64,14 @@ if ($Setup) {
   $stageTimer = [Diagnostics.Stopwatch]::StartNew()
   $stage = Start-Process -FilePath $Setup -ArgumentList @('/S', ('--stage=' + $staging)) -Wait -PassThru
   if ($stage.ExitCode -ne 0) { throw "The setup's staging mode exited with $($stage.ExitCode)" }
-  if (!(Test-Path -LiteralPath (Join-Path $staging $installed.Name) -PathType Leaf)) { throw 'The staging mode extracted no app' }
+  if (!(Test-Path -LiteralPath (Join-Path $staging $installed.Name) -PathType Leaf)) {
+    # Say what the setup made: the stage folder's files, and the folder cut short at its first "-", where the
+    # setup's earlier --stage= parsing extracted the app instead.
+    $found = if (Test-Path -LiteralPath $staging) { (Get-ChildItem -LiteralPath $staging -Name | Select-Object -First 20) -join ', ' } else { 'no such folder' }
+    $cut = Join-Path $env:LOCALAPPDATA 'Programs\agent'
+    $cutNote = if (Test-Path -LiteralPath (Join-Path $cut $installed.Name)) { "; the app was extracted into $cut instead" } else { '' }
+    throw "The staging mode extracted no $($installed.Name) into $staging (it holds: $found)$cutNote"
+  }
   if ((Get-Item -LiteralPath $installed.FullName).LastWriteTimeUtc -ne $before) { throw 'The staging mode touched the installed app' }
   if (!$shell.CreateShortcut($shortcut).Arguments.Contains($helper)) { throw 'The staging mode changed the Start menu shortcut' }
   if (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'agent-harness\desktop\current')) { throw 'The staging mode wrote the current version pointer' }
