@@ -117,6 +117,22 @@ describe("sessions.create's desktop", () => {
   });
 });
 
+describe("sessions.fork's desktop", () => {
+  it("carries the source's latest desktop as the fork's own session.desktop.set, also onto a fork of the fork", async () => {
+    const t = await start();
+    const client = await t.client();
+    const source = await create(client, { desktop: LOCAL });
+    await command(client, "sessions.setDesktop", { sessionId: source.id, desktop: CONTAINED });
+    const forkId = randomUUID();
+    const forked = registry["sessions.fork"].response.parse(await client.request("sessions.fork", { commandId: randomUUID(), sessionId: source.id, id: forkId }));
+    expect(forked.result?.summary.desktop).toEqual(CONTAINED);
+    expect(payloadsOf<SessionDesktopSetPayload>(t, forkId, "session.desktop.set")).toEqual([{ desktop: CONTAINED }]);
+    const nextId = randomUUID();
+    await client.request("sessions.fork", { commandId: randomUUID(), sessionId: forkId, id: nextId });
+    expect(await get(client, nextId)).toMatchObject({ desktop: CONTAINED });
+  });
+});
+
 describe("run.desktop.resolved", () => {
   it("is recorded for every run right after run.browser.resolved: none for a session that chose none, and no computer server", async () => {
     const t = await start(withDesktops());
