@@ -1523,12 +1523,21 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   // Plan usage (#136): one reading per account, read through the host and kept six minutes, a run's plan.limit folded in
   // from the log, usage.updated on a change; heard from here on, before the wire opens.
+  // Codex accounts' plan usage (#2169) is read from their homes by the Codex provider; every other account's through its adapter.
+  const codexUsage = createCodexAccountProvider(options.signInProcess?.hostEnv !== undefined ? { hostEnv: options.signInProcess.hostEnv } : {});
+  const isCodex = (id: string) => accounts.list().find((one) => one.id === id && one.provider === CODEX_PROVIDER);
   const usagePool = createUsagePool({
     log,
     clock,
     environmentId: record.id,
     accounts,
-    host,
+    host: {
+      account: (id) => (isCodex(id) !== undefined ? { descriptor: { planUsage: true, displayName: "Codex" } } : host.account(id)),
+      usage: (id) => {
+        const codex = isCodex(id);
+        return codex === undefined ? host.usage(id) : codexUsage.usage({ id, directory: codex.directory.path, label: codex.label });
+      },
+    },
     ...(options.usageReadTimeoutMs !== undefined && { readTimeoutMs: options.usageReadTimeoutMs }),
   });
   closers.push(() => usagePool.close());

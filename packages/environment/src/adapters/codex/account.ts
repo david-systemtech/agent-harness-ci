@@ -3,9 +3,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AccountIdentity, AuthStatus, SignInFallback } from "@agent-harness/contracts";
 import type { ProbeResult, SignInProgram } from "../../accounts/signin-seam.js";
-import type { AccountRef, ModelCatalogue } from "../../adapter/contract.js";
+import type { AccountRef, ModelCatalogue, UsageReading } from "../../adapter/contract.js";
 import { isScrubbed, type HostEnvironment } from "../claude/credentials.js";
 import { CODEX_HOME, CODEX_PROVIDER, CODEX_TOOL, CODEX_WORKER_HOME } from "./constants.js";
+import { readCodexUsage } from "./usage.js";
 
 /**
  * Codex accounts (#2169; ADR 0018): an account of the provider `codex` is
@@ -38,6 +39,8 @@ export interface CodexAccountProvider {
   observeIdentity(directory: string): Promise<AccountIdentity | null>;
   ambientDirectory(): string;
   models(account: AccountRef, signal?: AbortSignal): Promise<ModelCatalogue>;
+  /** The plan usage the CLI's newest rate-limit reading in the home says (`usage.ts`). */
+  usage(account: AccountRef): Promise<UsageReading>;
 }
 
 /** The machine's own Codex home: `CODEX_HOME` when set and not empty, else `.codex` in the home directory, on every platform. */
@@ -140,6 +143,12 @@ export const createCodexAccountProvider = (options: CodexAccountOptions = {}): C
     },
     ambientDirectory: () => ambient,
     models: async () => CODEX_MODELS,
+    async usage(account) {
+      const directory = directoryOf(account);
+      const status = await readCodexStatus(directory, now);
+      const identity = { provider: CODEX_PROVIDER, email: status.email ?? account.label ?? account.id, organisation: null };
+      return readCodexUsage(directory, identity, now);
+    },
   };
 };
 
