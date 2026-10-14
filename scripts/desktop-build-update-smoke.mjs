@@ -254,6 +254,13 @@ async function updateTo({ server, staged, version, work }) {
       } catch {
         // Already gone.
       }
+      // Whatever of the smoke's still runs from its folder (a launcher or environment whose parent exited) is ended too.
+      const sweep = `Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like '${work.replaceAll("'", "''")}\\*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
+      try {
+        execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", sweep], { stdio: "inherit", timeout: 60_000 });
+      } catch (error) {
+        console.error("Ending the smoke's leftover processes failed:", error instanceof Error ? error.message : String(error));
+      }
     }
     try {
       if (installed) cli("service", "uninstall");
@@ -271,7 +278,12 @@ export async function runSmoke(server, build, version) {
     const staged = await stageFromDesktopBuild({ server, build, version, work });
     await updateTo({ server, staged, version, work });
   } finally {
-    rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 1000 });
+    try {
+      rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 1000 });
+    } catch (error) {
+      // A file still held open is the runner's to clean up; it never fails the update the smoke proved.
+      console.error(`Removing ${work} failed:`, error instanceof Error ? error.message : String(error));
+    }
   }
 }
 

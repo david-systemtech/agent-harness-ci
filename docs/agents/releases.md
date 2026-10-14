@@ -108,10 +108,28 @@ top level the environment asset has (`node/`, `packages/cli/`, `bin/`). On
 macOS, bsdtar reads the zip. On Windows the setup is never run (it would kill
 or replace a running desktop): the environment finds the stored 7z by its
 signature and both header CRCs, copies it out, and Windows' bsdtar `tar.exe`
-reads it. That route still needs the Windows release smoke to prove it on the
-runner's `tar.exe`; a pinned `7zr.exe` is the fallback. A target passed over
+reads it; the release smoke below proves that on the runner's `tar.exe`, and a pinned `7zr.exe` is the fallback should it fail. A target passed over
 for having no artefact for the platform also goes to the stepping-stone
 search, so a later change of the release's shape cannot strand a machine.
+
+The macOS and Windows release smokes prove the route on the hosted runners
+with this run's desktop build (`scripts/desktop-build-update-smoke.mjs`, run
+with the bundled server's Node: on macOS from the unzipped app, on Windows as
+the ordinary user from the installed desktop). The smoke writes a manifest for
+the run's version with no environment asset for the platform and the desktop
+build carrying its `environment` field, serves it from a forge double (the
+release source is compiled into the build), and has the server's own release
+channel, shared desktop download and staging take and unpack it; the staged
+tree must have the bundled server's top level. The bundled server, stamped
+`0.0.0-0`, is then installed as a service and updated to that tree, and must
+answer as the run's version. On Windows the log names the `tar` it ran and,
+when staging fails, says which part did: `WINDOWS TAR.EXE CANNOT READ THE
+SETUP'S 7Z` (the carve found the 7z and `tar.exe` could not unpack it: ship
+the pinned `7zr.exe`) or `CARVE FAILED` (no stored 7z was found). The unit
+tests read fixtures recorded from the v0.1.21 release
+(`test/fixtures/desktop-build`): its manifest, the setup's 7z start and next
+headers at their offsets, and the macOS zip's central directory under the
+bundled server.
 
 ## The smoke of every merge
 
