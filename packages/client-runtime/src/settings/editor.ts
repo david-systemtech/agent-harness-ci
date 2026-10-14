@@ -35,9 +35,12 @@ export const noKeysLine = (row: SettingsRowId): string => `${settingsRow(row).la
 /** A unit's name for `amount` of it: `1 day`, `14 days`. */
 const unitWords = (amount: number, unit: string): string => `${amount} ${amount === 1 && unit.endsWith("s") ? unit.slice(0, -1) : unit}`;
 
-/** A value in words: `on` or `off`, `none` for null, an amount of a unit as words, a number or a word as it is, anything else as JSON. */
-export const valueWords = (value: unknown): string => {
-  if (value === null || value === undefined) return "none";
+/** The words a key says for null where null is not none: `accounts.codexForClaudeRuns`' Automatic, the only signed-in Codex account (#2224). */
+const NULL_WORDS: Partial<Record<SettingsKey, string>> = { "accounts.codexForClaudeRuns": "Automatic" };
+
+/** A value in words: `on` or `off`, `none` for null (or the key's own words for it), an amount of a unit as words, a number or a word as it is, anything else as JSON. */
+export const valueWords = (value: unknown, key?: SettingsKey): string => {
+  if (value === null || value === undefined) return (key === undefined ? undefined : NULL_WORDS[key]) ?? "none";
   if (typeof value === "boolean") return value ? "on" : "off";
   if (typeof value === "string" || typeof value === "number") return String(value);
   if (typeof value === "object" && !Array.isArray(value)) {
@@ -90,7 +93,7 @@ export const parseTyped = (key: SettingsKey, typed: string): Parsed => {
   } catch {
     readings.push(text);
   }
-  if (text.toLowerCase() === "none" && form.kind === "text" && form.nullable) readings.unshift(null);
+  if ((text.toLowerCase() === "none" || text.toLowerCase() === NULL_WORDS[key]?.toLowerCase()) && form.kind === "text" && form.nullable) readings.unshift(null);
   const span = /^(\d+)\s+([a-z]+)$/i.exec(text);
   if (span) {
     const unit = (span[2] as string).toLowerCase();

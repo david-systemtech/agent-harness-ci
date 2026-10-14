@@ -337,7 +337,7 @@ export const usePickers = (host: PickersHost): Pickers => {
     void saveSetting(runtime, environmentId, key, value, { commandId: host.newCommandId(), acknowledgeBypass: acknowledged }).then((saved) => {
       if (!saved.ok) return host.say(`Not saved: ${saved.line}`);
       host.change((card) => (card.kind === "settings" && card.environmentId === environmentId ? { ...card, values: { ...card.values, ...saved.values } } : card));
-      host.say(`${settingLabel(key)} is ${valueWords(value)}.`);
+      host.say(`${settingLabel(key)} is ${valueWords(value, key)}.`);
     });
   };
 
@@ -404,7 +404,7 @@ export const usePickers = (host: PickersHost): Pickers => {
       const form = key === undefined ? undefined : settingForm(key);
       const current = key === undefined ? undefined : card.values?.[key];
       return form?.kind === "choice"
-        ? form.options.map((option) => ({ key: String(option), cells: [{ text: valueWords(option) }], dim: false, ...(option === current && { note: { text: "now", dim: true } }) }))
+        ? form.options.map((option) => ({ key: String(option), cells: [{ text: valueWords(option, key) }], dim: false, ...(option === current && { note: { text: "now", dim: true } }) }))
         : [];
     }
     if (card.values === null) return [];
@@ -414,7 +414,7 @@ export const usePickers = (host: PickersHost): Pickers => {
     return listed.flatMap((row) =>
       row.keys.map((k, at) => ({
         key: k,
-        cells: [{ text: settingLabel(k).padEnd(width) }, { text: valueWords(card.values?.[k]) }],
+        cells: [{ text: settingLabel(k).padEnd(width) }, { text: valueWords(card.values?.[k], k) }],
         dim: false,
         ...(at === 0 && { heading: { text: row.label, bold: true } }),
         ...(writerOf(k) === null && { note: { text: "read-only", dim: true } }),
@@ -911,7 +911,7 @@ export const usePickers = (host: PickersHost): Pickers => {
         case "settings": {
           const key = settingsKey(card);
           const absent = lacking(card.environmentId, "settings.update");
-          const typedPrompt = key === undefined ? "" : `New value for ${settingLabel(key)} (now ${valueWords(card.values?.[key])}), as JSON or a bare word:`;
+          const typedPrompt = key === undefined ? "" : `New value for ${settingLabel(key)} (now ${valueWords(card.values?.[key], key)}), as JSON or a bare word:`;
           const footer: (readonly Span[])[] =
             card.edit?.kind === "text"
               ? [...(card.edit.error !== null ? [[{ text: card.edit.error, color: TERMINAL_ROLES.danger }]] : [])]

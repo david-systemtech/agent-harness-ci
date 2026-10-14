@@ -1,3 +1,4 @@
+import { spawn as nodeSpawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { OUTPUT_LIMIT, createSpawnSignInProcess, runToExit, type SignInChild } from "./signin-process.js";
@@ -71,6 +72,25 @@ describe("the real sign-in process", () => {
     const ended = await ending(spawn("/nonexistent/agent-harness/claude", ["auth", "login"], { env, cwd }));
     expect(ended.code).toBeNull();
     expect(ended.error).toMatch(/ENOENT/);
+  });
+});
+
+describe("the sign-in spawn on Windows (#2224)", () => {
+  it("starts npm's codex.cmd shim through cmd.exe, its arguments verbatim, as the managed tools' commands are; an .exe as itself", async () => {
+    const started: { file: string; args: readonly string[]; verbatim: boolean | undefined }[] = [];
+    // Records what would be started on Windows, then runs Node in its place so the seam has a real child to read.
+    const recording = ((file: string, args: readonly string[], options: { windowsVerbatimArguments?: boolean; env: NodeJS.ProcessEnv; cwd: string }) => {
+      started.push({ file, args, verbatim: options.windowsVerbatimArguments });
+      return nodeSpawn(process.execPath, ["-e", "process.exit(0)"], { env: options.env, cwd: options.cwd, stdio: ["pipe", "pipe", "pipe"] });
+    }) as unknown as typeof nodeSpawn;
+    const spawn = createSpawnSignInProcess({ platform: "win32", spawn: recording });
+    const shim = "C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd";
+    await ending(spawn(shim, ["login", "--device-auth"], { env: { ...env, ComSpec: "C:\\Windows\\system32\\cmd.exe" }, cwd }));
+    await ending(spawn("C:\\tools\\codex.exe", ["login", "--device-auth"], { env, cwd }));
+    expect(started).toEqual([
+      { file: "C:\\Windows\\system32\\cmd.exe", args: ["/d", "/s", "/c", `""${shim}" login --device-auth"`], verbatim: true },
+      { file: "C:\\tools\\codex.exe", args: ["login", "--device-auth"], verbatim: false },
+    ]);
   });
 });
 

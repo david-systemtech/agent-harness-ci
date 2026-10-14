@@ -111,7 +111,12 @@ export const readCodexStatus = async (directory: string, now: () => number = Dat
 
 /**
  * The models a Codex login offers, as the CLI's picker lists them; not read
- * live (the CLI has no listing command), so the catalogue says so.
+ * live, so the catalogue says so. Checked again for #2224 (2026-10-14): the
+ * `codex` CLI has no listing command and no `codex models`; its models are
+ * listed only inside the interactive TUI (`/model`) and over `codex
+ * app-server`'s JSON-RPC `model/list`, which needs a running app-server
+ * session the account provider does not hold. Read it live when the Codex
+ * adapter (#2170), which drives the app-server, serves sessions.
  */
 export const CODEX_MODELS: ModelCatalogue = {
   live: false,

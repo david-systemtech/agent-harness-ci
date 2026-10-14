@@ -598,7 +598,7 @@ describe("/settings", () => {
     await command(app, "/settings");
     await app.waitFor("Settings on desk");
     const frame = app.frame();
-    expect(frame).toMatch(/Codex account for Claude runs\s+none/);
+    expect(frame).toMatch(/Codex account for Claude runs\s+Automatic/);
     expect(frame).toMatch(/Default account\s+none/);
     expect(frame).toMatch(/Stop idle agent processes after minutes\s+30/);
     expect(frame).toMatch(/How much agents may do without asking\s+acceptEdits/);
@@ -746,7 +746,7 @@ describe("/settings by row (#389)", () => {
     await command(app, "/settings");
     await app.waitFor("Settings on desk");
     // The first row with keys heads the list, the key under the cursor described: Accounts' Codex account for Claude runs (ticket 2169).
-    expect(app.frame()).toMatch(/Accounts\n.*Codex account for Claude runs\s+none\n\s*Default account and model\n.*Default account\s+none/);
+    expect(app.frame()).toMatch(/Accounts\n.*Codex account for Claude runs\s+Automatic\n\s*Default account and model\n.*Default account\s+none/);
     expect(app.frame()).toContain("The Codex account Claude runs can call codex with.");
     // Down the list, each row's label over its keys: Instructions, then Permissions, then Browser, then Key managers, then Your machines, then Service.
     await app.press(...Array.from({ length: 33 }, () => KEY.down));

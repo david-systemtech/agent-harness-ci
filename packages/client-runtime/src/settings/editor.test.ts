@@ -26,6 +26,11 @@ describe("a setting's value in words", () => {
     expect([valueWords("acceptEdits"), valueWords(30), valueWords("never")]).toEqual(["acceptEdits", "30", "never"]);
     expect(valueWords({ amount: 1, unit: "days", extra: true })).toBe('{"amount":1,"unit":"days","extra":true}');
   });
+
+  it("says Automatic for accounts.codexForClaudeRuns' null, off for its false, and reads automatic typed back as null (#2224)", () => {
+    expect([valueWords(null, "accounts.codexForClaudeRuns"), valueWords(false, "accounts.codexForClaudeRuns"), valueWords(null, "accounts.defaultAccount")]).toEqual(["Automatic", "off", "none"]);
+    expect(parseTyped("accounts.codexForClaudeRuns", "automatic")).toEqual({ ok: true, value: null });
+  });
 });
 
 describe("the method that writes a key", () => {

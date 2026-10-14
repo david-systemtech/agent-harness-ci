@@ -15,6 +15,7 @@ import { runsProjector } from "../runs/runs-projector.js";
 import { sessionListProjector } from "../sessions/session-list.js";
 import { PromptClosed, type AdapterEvent, type ProviderTurn, type RunContext, type TranscriptEvent } from "./contract.js";
 import { createAdapterHost, type AdapterHost, type AdapterHostOptions, type StagedAttachments } from "./host.js";
+import { createProcessEnvironments } from "./process-environment.js";
 import { capability } from "./capabilities.js";
 import { createScopedAppend } from "./scoped-append.js";
 import { composeInstructions } from "../instructions/composer.js";
@@ -1557,5 +1558,11 @@ describe("the Codex account chosen for Claude runs (#2169)", () => {
       await untilEnded(t, startRun(t));
       expect(startedOf(t)).not.toHaveProperty("codexAccountId");
     }
+  });
+
+  it("leaves run.started without it when the run's credential injection is denied, since the run is not given it (#2224)", async () => {
+    const t = await setup(fakeAdapter(), { codexAccount: () => "codex-1", processEnvironments: createProcessEnvironments(() => ({ answer: "deny", level: { kind: "environment" } })) });
+    await untilEnded(t, startRun(t));
+    expect(startedOf(t)).not.toHaveProperty("codexAccountId");
   });
 });
