@@ -55,6 +55,21 @@ not replace its page policy, reader, challenge hand-off or frame checks.
   ownership on run end, Stop, lock or driver loss; a disconnecting client
   alone does not end an environment-owned run.
 
+As built (#2161): the summary's `desktop` is `{ kind }` or null for a
+session that never set one, which resolves as none; `session.desktop.set`
+carries `{ desktop }` and a choice the session already has appends nothing.
+`desktop.contained.allowRuns` sits on the browser's settings row
+(`access.browser`), preset off. `run.desktop.resolved` follows
+`run.browser.resolved` in the run's first append, and a provider-opened turn
+resolves it afresh as it does its browser. `serve/start.ts` resolves through
+`resolveRunDesktop` with the switch as it is at the run's start and each
+kind's availability (neither is available until #2162 configures a contained
+desktop and #2164 a live helper), and offers the `computer` server only to
+a run whose resolved desktop is not none. Calls go through the run's mode and
+tool gate as any in-process tool's; #2163 adds the `desktopApps` gate checks,
+ownership and the deferred decision at that point, where the browser's
+`gate` and `allowance` hooks sit for its tools.
+
 ## Driver and tool surface
 
 `packages/contracts/src/desktop-driver.ts` defines transport-neutral inputs,
