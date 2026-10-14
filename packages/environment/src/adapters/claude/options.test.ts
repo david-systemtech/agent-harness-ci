@@ -1,8 +1,9 @@
-import { EMPTY_RUN_SKILL_SET, type RunSkillSet } from "@agent-harness/contracts";
+import { COMPUTER_MEMBERS, EMPTY_RUN_SKILL_SET, type RunSkillSet } from "@agent-harness/contracts";
 import type { CanUseTool, HookCallback, HookInput, HookJSONOutput, Options, PreToolUseHookInput, SessionStore } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it } from "vitest";
 import type { RunInput, RunTarget } from "../../adapter/contract.js";
 import { EMPTY_PROCESS_ENVIRONMENT } from "../../adapter/process-environment.js";
+import { createComputerToolServers } from "../../desktop/tool-server.js";
 import { CLAUDE_STRIPPED_VARIABLES } from "./credentials.js";
 import { CLAUDE_MODES, GATE_HOOK_TIMEOUT_SECONDS, buildRunOptions, type FileToolHooks, type RunOptionsInput } from "./options.js";
 
@@ -249,6 +250,22 @@ describe("the options a run is handed", () => {
     // The caller runs its own tools: a call touches nothing here, so no prompt stands between the model and the caller.
     expect(options.allowedTools).toEqual(["mcp__client"]);
     expect(buildRunOptions(input())).not.toHaveProperty("allowedTools");
+  });
+
+  it("aliases each bare computer member to its tool on the computer server, never over a built-in or another server's tool, and only where the run has the server (#2161)", () => {
+    const serverFor = createComputerToolServers({ live: () => null, drivers: {} });
+    const computer = serverFor({ sessionId: "session-1", desktop: { kind: "contained" } });
+    if (computer === null) throw new Error("no computer server");
+    const aliases = buildRunOptions(input({ toolServers: [computer] })).toolAliases ?? {};
+    expect(Object.keys(aliases)).toEqual([...COMPUTER_MEMBERS]);
+    expect(aliases["left_click"]).toBe("mcp__computer__left_click");
+    const tool = (name: string) => ({ name, description: name, inputSchema: { type: "object" }, call: async () => ({ text: "", isError: false }) });
+    const shadowing = { ...computer, tools: [...computer.tools, tool("Read")] };
+    const browser = { name: "browser", external: false, tools: ["screenshot", "scroll", "type", "key", "navigate"].map(tool) };
+    const shared = buildRunOptions(input({ toolServers: [shadowing, browser] })).toolAliases ?? {};
+    expect(Object.keys(shared)).toEqual(COMPUTER_MEMBERS.filter((member) => !["screenshot", "scroll", "type", "key"].includes(member)));
+    expect(shared).not.toHaveProperty("Read");
+    expect(buildRunOptions(input())).not.toHaveProperty("toolAliases");
   });
 
   it("hands the run's generation over as its one local plugin, and no plugin when it has none", () => {

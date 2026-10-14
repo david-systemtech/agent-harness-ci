@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ComputerMember",
+  "type": "string",
+  "enum": [
+    "screenshot",
+    "zoom",
+    "cursor_position",
+    "left_click",
+    "right_click",
+    "middle_click",
+    "double_click",
+    "triple_click",
+    "left_click_drag",
+    "mouse_move",
+    "scroll",
+    "type",
+    "key",
+    "hold_key",
+    "wait",
+    "left_mouse_down",
+    "left_mouse_up"
+  ],
+  "description": "A member of the computer toolset."
+}

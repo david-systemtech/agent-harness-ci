@@ -14,6 +14,7 @@ import type {
   Settings,
 } from "@anthropic-ai/claude-agent-sdk";
 import { isInProcess, type RunInput } from "../../adapter/contract.js";
+import { computerToolAliases } from "./computer-aliases.js";
 import { GIT_PROGRAM_DENY_WRITE } from "../../permissions/git-program-paths.js";
 import { composeRunEnvironment, type HostEnvironment } from "./credentials.js";
 import { CLAUDE_FILE_TOOLS } from "./gate-access.js";
@@ -332,6 +333,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
   const effort = claudeEffort(run.effort);
   const servers = mcpServers(run);
   const allowed = allowedTools(run);
+  const toolAliases = computerToolAliases(run);
   const sandbox = sandboxOf(run, input.suppliedWritable);
   const disallowedTools = disallowedShell(run.denylist);
   const plugins = skillPlugins(run.skillSet);
@@ -367,6 +369,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
     strictMcpConfig: true,
     ...(servers !== null && { mcpServers: servers }),
     ...(allowed.length > 0 && { allowedTools: allowed }),
+    ...(Object.keys(toolAliases).length > 0 && { toolAliases }),
     ...(plugins.length > 0 && { plugins }),
     ...(settings !== null && { settings }),
     // The store mirrors successful local writes; disabling persistence would disable resume from the store (#622).

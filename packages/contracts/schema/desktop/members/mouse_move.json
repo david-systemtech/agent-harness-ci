@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ComputerMouseMoveInput",
+  "type": "object",
+  "properties": {
+    "coordinate": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "[x, y] in full-display screenshot pixels, even after a zoom."
+    }
+  },
+  "required": [
+    "coordinate"
+  ],
+  "additionalProperties": false,
+  "description": "mouse_move: move the pointer, keeping held buttons."
+}

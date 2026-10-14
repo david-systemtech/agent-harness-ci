@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DesktopZoomArgs",
+  "type": "object",
+  "properties": {
+    "region": {
+      "type": "object",
+      "properties": {
+        "x0": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "y0": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "x1": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "y1": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "x0",
+        "y0",
+        "x1",
+        "y1"
+      ],
+      "description": "A physical region of the display, x1 > x0 and y1 > y0."
+    },
+    "longEdge": {
+      "type": "integer",
+      "minimum": 64,
+      "maximum": 8192,
+      "description": "The longest edge the image may have, in pixels; the aspect ratio is kept."
+    }
+  },
+  "required": [
+    "region",
+    "longEdge"
+  ]
+}

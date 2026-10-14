@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DesktopKeyArgs",
+  "type": "object",
+  "properties": {
+    "chords": {
+      "minItems": 1,
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "minItems": 1,
+        "maxItems": 8,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "description": "The keys of one combination, pressed in order and released in reverse."
+      },
+      "description": "Combinations pressed in turn."
+    },
+    "repeat": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    }
+  },
+  "required": [
+    "chords",
+    "repeat"
+  ]
+}

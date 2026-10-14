@@ -253,6 +253,12 @@ export interface HostTool {
    * key (`inProcessToolKey`).
    */
   readonly access?: (input: JsonObject) => HostToolAccess;
+  /**
+   * The tool only observes (a computer screenshot, zoom, cursor or wait): the
+   * adapter marks it read-only to its provider, whose mode then treats it as
+   * observation, as it treats its own read tools. Absent, it may change things.
+   */
+  readonly readOnly?: boolean;
   /** Runs a call, resolving with what the model reads; it may take as long as the tool needs (a caller's tool is parked until the caller answers). */
   call(input: JsonObject, call: HostToolCall): Promise<HostToolResult>;
 }

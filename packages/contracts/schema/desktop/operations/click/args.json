@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DesktopClickArgs",
+  "type": "object",
+  "properties": {
+    "button": {
+      "type": "string",
+      "enum": [
+        "left",
+        "right",
+        "middle"
+      ],
+      "description": "Which mouse button: left, right or middle."
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3
+    },
+    "at": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "description": "A point on the display, in physical pixels from its top-left."
+    },
+    "modifiers": {
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "description": "Modifier keys held during the action."
+    }
+  },
+  "required": [
+    "button",
+    "count",
+    "modifiers"
+  ]
+}

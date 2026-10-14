@@ -17,6 +17,7 @@ import { accountMethodFixtures, accountSchemaFixtures } from "./account-fixtures
 import { bankSchemaFixtures } from "./bank-fixtures.js";
 import { bankRegistryMethodFixtures, bankRegistrySchemaFixtures } from "./bank-registry-fixtures.js";
 import { browserMethodFixtures, browserSchemaFixtures } from "./browser-fixtures.js";
+import { desktopSchemaFixtures } from "./desktop-fixtures.js";
 import { clientCallMethodFixtures, clientCallSchemaFixtures } from "./client-call-fixtures.js";
 import { catalogueSchemaFixtures } from "./catalogue-fixtures.js";
 import { completionsSchemaFixtures } from "./completions-fixtures.js";
@@ -1092,6 +1093,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...completionsSchemaFixtures,
   ...updateSchemaFixtures,
   ...browserSchemaFixtures,
+  ...desktopSchemaFixtures,
   ...clientCallSchemaFixtures,
   ...routineSchemaFixtures,
   ...methodSchemaFixtures,

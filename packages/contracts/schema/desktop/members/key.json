@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ComputerKeyInput",
+  "type": "object",
+  "properties": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "A key or a +-joined combination (Return, ctrl+s); for key, several separated by spaces are pressed in turn (ctrl+a Delete)."
+    },
+    "repeat": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    }
+  },
+  "required": [
+    "text"
+  ],
+  "additionalProperties": false,
+  "description": "key: press a key or combination, repeat times (default 1)."
+}

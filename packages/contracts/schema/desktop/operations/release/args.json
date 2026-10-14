@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DesktopReleaseArgs",
+  "type": "object",
+  "properties": {},
+  "description": "Release every held button and key."
+}

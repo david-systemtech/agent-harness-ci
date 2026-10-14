@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DesktopGeometryValue",
+  "type": "object",
+  "properties": {
+    "displayId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "The display the driver captures and drives."
+    },
+    "width": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "height": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "originX": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991,
+      "description": "The display's left edge on the virtual desktop."
+    },
+    "originY": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991,
+      "description": "The display's top edge on the virtual desktop."
+    }
+  },
+  "required": [
+    "displayId",
+    "width",
+    "height",
+    "originX",
+    "originY"
+  ],
+  "description": "The captured display's physical size and its place on the virtual desktop; a change invalidates the screenshot mapping."
+}

@@ -66,6 +66,14 @@ describe("an in-process tool server as Claude's in-process MCP server", () => {
     await client.close();
   });
 
+  it("marks a tool that declares it only observes read-only on a server that is not external (#2161)", async () => {
+    const { server } = serverWith(false);
+    const observing: InProcessToolServer = { ...server, tools: server.tools.map((tool) => (tool.name === "ping" ? { ...tool, readOnly: true } : tool)) };
+    const { client } = await connected(observing);
+    expect((await client.listTools()).tools.map((tool) => tool.annotations?.readOnlyHint)).toEqual([undefined, true]);
+    await client.close();
+  });
+
   it("hands a call its arguments and the tool_use id the CLI names in _meta, and answers what the tool said", async () => {
     const { server, calls } = serverWith(true);
     const { client } = await connected(server);

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ComputerLeftClickDragInput",
+  "type": "object",
+  "properties": {
+    "start_coordinate": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "[x, y] in full-display screenshot pixels, even after a zoom."
+    },
+    "coordinate": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "[x, y] in full-display screenshot pixels, even after a zoom."
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Modifier keys held during the action, +-joined (shift, ctrl+alt)."
+    }
+  },
+  "required": [
+    "start_coordinate",
+    "coordinate"
+  ],
+  "additionalProperties": false,
+  "description": "left_click_drag: press at start_coordinate, move to coordinate, release."
+}

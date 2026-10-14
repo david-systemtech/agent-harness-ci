@@ -19,6 +19,7 @@ export * from "./browser-choice.js";
 export * from "./browser-chromes.js";
 export * from "./browser-driver.js";
 export * from "./browser-policy.js";
+export * from "./desktop-driver.js";
 export * from "./browser-settings.js";
 export * from "./browser-status.js";
 export * from "./checks.js";

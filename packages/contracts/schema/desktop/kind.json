@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DesktopKind",
+  "type": "string",
+  "enum": [
+    "none",
+    "contained",
+    "local"
+  ],
+  "description": "Which desktop a session's runs may drive: none, contained (the run environment's configured contained desktop) or local (this person's live desktop)."
+}

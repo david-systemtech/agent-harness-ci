@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunDesktopResolution",
+  "type": "object",
+  "properties": {
+    "requested": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "none",
+            "contained",
+            "local"
+          ],
+          "description": "Which desktop a session's runs may drive: none, contained (the run environment's configured contained desktop) or local (this person's live desktop)."
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "description": "The desktop a session's next run may drive; omitted, none."
+    },
+    "desktop": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "none",
+            "contained",
+            "local"
+          ],
+          "description": "Which desktop a session's runs may drive: none, contained (the run environment's configured contained desktop) or local (this person's live desktop)."
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "description": "The desktop the run drives, fixed for the run; never another than requested, only none in its place."
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "selected",
+        "none",
+        "operator-disabled",
+        "unavailable",
+        "unattended",
+        "containment",
+        "relay-unavailable"
+      ],
+      "description": "Why the run's desktop is what it is: selected (as requested), none (none requested), operator-disabled (desktop.contained.allowRuns is off), unavailable, unattended (a live desktop on an unattended run), containment (a live desktop under workspace containment), relay-unavailable."
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The sentence the model and the person read about the resolution."
+    }
+  },
+  "required": [
+    "requested",
+    "desktop",
+    "reason",
+    "message"
+  ],
+  "description": "A run's desktop, resolved once at its start beside its policy."
+}

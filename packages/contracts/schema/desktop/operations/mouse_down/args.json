@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DesktopMouseDownArgs",
+  "type": "object",
+  "properties": {
+    "button": {
+      "type": "string",
+      "const": "left"
+    }
+  },
+  "required": [
+    "button"
+  ]
+}
