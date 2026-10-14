@@ -8,7 +8,7 @@ import { fakeElectron, type FakeElectron } from "../test/fake-electron.js";
 import { fakeSystem, succeeded, type FakeSystem } from "../test/fake-system.js";
 import { cleanUp, platformOn, scratch, start } from "../test/harness.js";
 import type { DesktopPlatform } from "./platform.js";
-import { desktopUpdate, preparation, type CommandResult } from "./update.js";
+import { desktopUpdate, preparation, ROLLBACK_BOUND_SECONDS, windowsPowerShell, type CommandResult } from "./update.js";
 
 afterEach(cleanUp);
 
@@ -337,8 +337,14 @@ describe("apply on Windows", () => {
       }
       return { code, stderr: code === 0 ? "" : "the setup failed" };
     });
+    system.answer(windowsPowerShell(), () => succeeded);
     return { root, executable, version: join(root, "versions", staged.version, "agent-harness.exe") };
   };
+
+  /** The launch helper's arguments, as the shortcuts run it, for `install`, in `mode`. */
+  const helper = (install: { executable: string }, ...mode: string[]) => [
+    "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", expect.stringMatching(/desktop-launch\.ps1$/), "-App", install.executable, ...mode,
+  ];
 
   it("installs the build into versions/<version> beside the app as soon as it is handed over, the running install untouched", async () => {
     const system = fakeSystem();
@@ -367,8 +373,45 @@ describe("apply on Windows", () => {
     await electron.app.quitted;
 
     expect(system.ran).toHaveLength(1);
-    expect(system.started).toEqual([]);
+    expect(system.started).toEqual([[windowsPowerShell(), ...helper(install, "-Watch", "0.6.0", "-Bound", String(ROLLBACK_BOUND_SECONDS))]]);
     expect(electron.app.calls.filter(([method]) => method === "relaunch")).toEqual([["relaunch", { execPath: install.version, args: ["--updated"] }]]);
+  });
+
+  it("at the click, records the version it switches from for the rollback, and starts the watch that rolls back before the new version", async () => {
+    const system = fakeSystem();
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
+    const install = windowsInstall(system, staged);
+    const { shell, electron, platform } = await installed("win32", install.executable, system);
+    writeFileSync(join(platform.paths.data, "current"), "0.5.0\r\n");
+    const order: string[] = [];
+    const start = system.start.bind(system);
+    system.start = async (command, args) => {
+      order.push(`start ${args.slice(args.indexOf("-App") + 2).join(" ")}`);
+      return start(command, args);
+    };
+    electron.app.on("will-quit", () => order.push("quit"));
+    await shell().update.apply(staged, "quit");
+    await shell().update.apply(staged, "now");
+    await electron.app.quitted;
+
+    expect(readFileSync(join(platform.paths.data, "current.previous"), "utf8")).toBe("0.5.0");
+    expect(readFileSync(join(platform.paths.data, "current"), "utf8")).toBe("0.6.0");
+    expect(order).toEqual([`start -Watch 0.6.0 -Bound ${ROLLBACK_BOUND_SECONDS}`, "quit"]);
+  });
+
+  it("still switches and starts the new version when the rollback watch cannot be started, and says so", async () => {
+    const system = fakeSystem();
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-win32-x64-setup.exe");
+    const install = windowsInstall(system, staged);
+    const { shell, electron, reported } = await installed("win32", install.executable, system);
+    system.start = () => Promise.reject(new Error("spawn powershell.exe ENOENT"));
+    await shell().update.apply(staged, "quit");
+
+    expect(await shell().update.apply(staged, "now")).toEqual({ outcome: "applied" });
+    await electron.app.quitted;
+
+    expect(reported.map(String)).toContain("Error: spawn powershell.exe ENOENT");
+    expect(electron.app.calls.filter(([method]) => method === "relaunch")).toHaveLength(1);
   });
 
   it("at `quit`, points the next launch at the installed version and starts nothing", async () => {

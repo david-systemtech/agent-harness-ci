@@ -2,7 +2,7 @@ import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
 import { access, appendFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, win32 } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { compareReleaseVersions, ReleaseVersion } from "@agent-harness/contracts";
 import type { ShellApplyOutcome, ShellApplyWhen, ShellStagedBuild, ShellUpdate } from "@agent-harness/client-runtime";
@@ -198,6 +198,18 @@ export const CLICK_FILE = "update-click.json";
 
 /** The pointer `desktop-launch.ps1` follows to the Windows version installed ahead of the click: `<data>/current`, the version's name. */
 export const CURRENT_POINTER = "current";
+
+/** What the pointer named before the click's switch, empty for the install's own folder: the version a rollback goes back to. */
+export const PREVIOUS_POINTER = "current.previous";
+
+/** The launch helper the shortcuts run, copied into the data directory by the setup. */
+export const LAUNCH_HELPER = "desktop-launch.ps1";
+
+/** How long the version switched to at the click has to report ready before the launch helper goes back to the one before it (#2194). */
+export const ROLLBACK_BOUND_SECONDS = 60;
+
+/** Windows PowerShell, which runs the launch helper as the shortcuts do. */
+export const windowsPowerShell = (): string => win32.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
 
 /** A version that is safe as one path segment: `versions/<version>`. */
 const SAFE_VERSION = /^[0-9A-Za-z][0-9A-Za-z.+-]*$/;
@@ -462,14 +474,28 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
   const switchVersion = async (staged: ShellStagedBuild, prepared: Prepared, restart: boolean): Promise<ShellApplyOutcome> => {
     const pointer = join(platform.paths.data, CURRENT_POINTER);
     try {
+      const before = await files.readFile(pointer, "utf8").catch(() => "");
+      await files.writeFile(join(platform.paths.data, PREVIOUS_POINTER), before.trim(), "utf8");
       await files.writeFile(`${pointer}.tmp`, staged.version, "utf8");
       await files.rename(`${pointer}.tmp`, pointer);
     } catch (error) {
       return failed("install", `Could not point the desktop at ${staged.version} (${messageOf(error)}), so ${stays()}.`);
     }
-    if (restart) app.relaunch({ execPath: prepared.target, args: ["--updated"] });
+    if (restart) {
+      // The rollback (#2194): the helper waits for the new process's ready, else points back and starts the version before it.
+      await system.start(windowsPowerShell(), helperArguments("-Watch", staged.version, "-Bound", String(ROLLBACK_BOUND_SECONDS))).catch(report);
+      app.relaunch({ execPath: prepared.target, args: ["--updated"] });
+    }
     return APPLIED;
   };
+
+  /** The launch helper run as the shortcuts run it, for the install's own executable, in `mode`. */
+  const helperArguments = (...mode: string[]): string[] => [
+    "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
+    "-File", join(platform.paths.data, LAUNCH_HELPER),
+    "-App", join(windowsInstallRoot(platform.executable), basename(platform.executable)),
+    ...mode,
+  ];
 
   /** Hands the NSIS setup over, with visible progress on a restart once the desktop has quit, and to start it again after when `restart`. */
   const runSetup = async (staged: ShellStagedBuild, restart: boolean): Promise<ShellApplyOutcome> => {
