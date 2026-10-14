@@ -156,7 +156,7 @@ export const RunStartedPayload = z
     forkedFrom: SessionId.nullable().meta({ description: "The session the run's session was forked from, on a fork's first run; else null." }),
     codexAccountId: z.string().min(1).optional().meta({
       description:
-        "The Codex account chosen for the run as it started (accounts.codexForClaudeRuns, #2169), whose directory its process is given as CODEX_HOME and CODEX_WORKER_HOME while credentials are injected; absent when none was chosen, and from environments that do not say.",
+        "The Codex account chosen for the run as it started (accounts.codexForClaudeRuns, #2169), whose directory its process is given as CODEX_HOME and CODEX_WORKER_HOME; absent when none was chosen, when the run's credential injection was denied (it was given none, #2224), and from environments that do not say.",
     }),
   })
   .meta({ description: "run.started: a run of the session started; its startedAt is the event's occurredAt." });

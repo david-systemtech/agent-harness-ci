@@ -288,7 +288,7 @@ export interface AdapterHostOptions {
    * headless browser (`presetBrowser`).
    */
   readonly resolveBrowser?: BrowserSeam;
-  /** The Codex account chosen for Claude runs (#2169, `accounts/codex-injection.ts`), read as each run starts and recorded on its run.started; preset: none. */
+  /** The Codex account chosen for Claude runs (#2169, `accounts/codex-injection.ts`), read as each run starts and recorded on its run.started while the run's injection answer is allow (#2224); preset: none. */
   readonly codexAccount?: () => string | null;
   /**
    * The process environments' registry (#307, `process-environment.ts`):
@@ -992,6 +992,14 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   /** The run the session counts as live (`AdapterHost.runActive`): a start is `run_active` while there is one. */
   const runActive = (sessionId: string): LiveRunFacts | null => liveFacts(live.get(sessionId)) ?? changingMode.get(sessionId) ?? null;
 
+  /** The Codex account a run starting now is given: the chosen one while the run's injection answer is allow, else none (#2169, #2224). */
+  const codexAccountFor = (sessionId: string, accountId: string | null, actor: RunActor): string | null => {
+    const chosen = options.codexAccount?.() ?? null;
+    if (chosen === null) return null;
+    const { answer } = processEnvironments.decide({ sessionId, accountId, origin: actor.kind, holder: "provider-process", override: runOverrideOf(actor) });
+    return answer === "allow" ? chosen : null;
+  };
+
   const startFacts = (sessionId: string, actor: RunActor): StartFacts => {
     const session = readSessionFacts(log, reader, sessionId);
     const accountId = session?.account ?? accounts.defaultId();
@@ -1009,7 +1017,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       actor,
       resolvePolicy,
       resolveBrowser,
-      codexAccountId: options.codexAccount?.() ?? null,
+      // Recorded only where the run is given it: an injection denied for the run (a routine's own deny, its account's, the environment's) gives none, so records none (#2224).
+      codexAccountId: codexAccountFor(sessionId, accountId, actor),
       defaults: { modelFamily, effort },
       runId: randomUUID(),
     };
