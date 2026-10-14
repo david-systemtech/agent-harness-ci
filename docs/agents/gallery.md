@@ -95,6 +95,30 @@ mounts; all 15 subsequent captures matched the first with zero different pixels.
 The stable light capture was reviewed and accepted once. The 0.05% pixel budget,
 geometry checks and capture readiness gate remain unchanged.
 
+The two captures that failed most gallery runs on 2026-10-13/14 (#2181, #2184)
+were not rendering nondeterministically. Every hosted capture of each was
+byte-identical for the same source; the reports differed because the compared
+baseline or the rendered rule differed by head:
+
+- `prompt-permission.light` and `.dark`: #2132 (combined process indicators)
+  adds a dot to the sidebar's running session row, which the base permission
+  scene shows. It re-accepted only the dark image, from a render whose
+  permission card sits a subpixel off main's (no later head rendered it); the
+  light baseline stayed #2144's. Main rendered a different pair of images
+  deterministically, so every head from #2132's merge
+  (2026-10-13 09:31 UTC) until #2128 re-accepted both (2026-10-14 06:15 UTC)
+  failed both ladders on every run, while the busy, error and settled variants
+  matched. The 20 sampled heads in that window rendered the same light bytes,
+  and 19 the same dark bytes. Before accepting a capture, rebase onto main when
+  a merged GUI change touches the same scene, and accept both ladders together.
+- `phone-new-session-usage-phone-390-text-20`: the usage ring's box is 1.5rem.
+  #2148 fixes the phone root rem at 16px (look.md: the text-size preference
+  scales type alone), so the ring is 24px at every phone text size. A head
+  branched before #2148 still scales the root to 16px × 20 / 14 and measures the
+  ring at 34.28px; all 17 such failures were on heads without #2148, and all
+  heads with it passed geometry and pixels. Rebase onto main. The composer
+  details usage scene measures its rings at 24px too.
+
 ## Retries, failures and retention
 
 Each completed report stores immutable capture bytes in the `window-gallery` generic package under version `<head>-<comment-id>`. Repeating a hosted run on the same head creates another report version, so a retry cannot replace bytes in an earlier review. The comment manifest records the version, exact package download URL and SHA-256 of each capture. Acceptance selects the latest reported shard group (or legacy single report) for the current head and verifies its hashes before writing any baseline. Existing head-only manifests remain downloadable for compatibility.
