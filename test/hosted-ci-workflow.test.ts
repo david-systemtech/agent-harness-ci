@@ -44,17 +44,18 @@ describe("hosted Node job containers", () => {
   it.each([
     ["ci.yml", "root-user"],
     ["catalogue.yml", "catalogue"],
-  ])("%s's %s obtains Node 24 and Bookworm without Docker Hub credentials or quota", (file, name) => {
+  ])("%s's %s obtains Node 24 and Bookworm, as root, without registry credentials or quota", (file, name) => {
     const job = jobs(file).get(name);
-    expect(job).toContain("    container: public.ecr.aws/docker/library/node:24-bookworm\n");
+    expect(job).toContain("    container:\n      image: mcr.microsoft.com/devcontainers/javascript-node:24-bookworm\n      options: --user root\n");
     expect(job).not.toMatch(/^ +credentials:/m);
   });
 
-  it("keeps every hosted job container off Docker Hub", () => {
+  it("keeps every hosted job container off Docker Hub and ECR Public's anonymous quotas", () => {
     for (const file of readdirSync(workflows).filter((name) => name.endsWith(".yml"))) {
       const workflow = readFileSync(join(workflows, file), "utf8");
-      for (const container of workflow.matchAll(/^ {4}container:(.*)$/gm)) {
-        expect(container[1]?.trim(), file).toMatch(/^public\.ecr\.aws\//);
+      expect(workflow, file).not.toMatch(/^ {4}container: /m);
+      for (const image of workflow.matchAll(/^ {4}container:\n {6}image:(.*)$/gm)) {
+        expect(image[1]?.trim(), file).toMatch(/^mcr\.microsoft\.com\//);
       }
     }
   });

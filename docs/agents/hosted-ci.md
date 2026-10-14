@@ -9,7 +9,7 @@ in the same way as `.github/workflows/catalogue.yml`.
 
 The `checks` job runs directly on hosted Ubuntu 24.04 with Node 24 from
 `actions/setup-node`, like the six ordinary-user suite shards. No job image
-is pulled before checkout: both Docker Hub and ECR Public have rate-limited
+is pulled before checkout: Docker Hub and ECR Public have both refused
 anonymous job-container pulls before any step could recover. Setup uses the
 [runner's Node cache first](https://github.com/actions/setup-node/blob/main/docs/advanced-usage.md#check-latest);
 if the initial setup fails, the job waits 30 seconds
@@ -19,16 +19,21 @@ checks share the runner user's ownership, so no `safe.directory` override is
 needed. Hosted Ubuntu supplies the native build tools used by the suite too.
 
 The `root-user` and `catalogue` jobs use
-`public.ecr.aws/docker/library/node:24-bookworm`: Docker's official Node image
-in [ECR Public](https://gallery.ecr.aws/docker/library/node), with Node 24
-and Debian Bookworm, including the native build tools. The tag follows Node
-24 updates, as the Docker Hub tag did. It is the full image, rather than
-`slim`, so native dependency installation retains its build tools.
-[AWS supports anonymous pulls](https://docs.aws.amazon.com/AmazonECR/latest/public/docker-pull-ecr-image.html).
-No Docker Hub login, AWS login or registry secret is required. ECR Public has
-its own service quotas; these pulls do not consume Docker Hub's anonymous quota.
-The root job must still run as root. These remaining container jobs can still
-fail at container initialization if ECR Public refuses the pull.
+`mcr.microsoft.com/devcontainers/javascript-node:24-bookworm` with
+`options: --user root`: Microsoft's Node devcontainer image in the
+[Microsoft Artifact Registry](https://mcr.microsoft.com/en-us/artifact/mar/devcontainers/javascript-node),
+built on Docker's official Node 24 Bookworm image, so it keeps Node 24,
+Debian Bookworm, corepack and the native build tools. The tag follows Node
+24 updates. The image runs as root by default, but its devcontainer user is
+`node`, so the jobs set the container user to root explicitly; the root job
+must still run as uid 0.
+MCR serves anonymous pulls without a pull or data quota, so no login or
+registry secret is required. These jobs used ECR Public's copy of the
+official image until 2026-10-13, when ECR Public began refusing the pull
+with `toomanyrequests: Data limit exceeded`, its anonymous data-transfer
+quota for the hosted runners' shared egress, which a retry within the job
+does not clear (#2141, #2186). A container job can still fail at container
+initialization if MCR itself is unavailable.
 
 When changing either workflow, read the current installed copy first, retain
 unrelated changes and update only its matching workflow on `workflows`.
