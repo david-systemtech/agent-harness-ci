@@ -721,3 +721,30 @@ describe("click to ready, issue 2194", () => {
     expect(lines.at(-1)).toBe(`Desktop update ${electron.app.getVersion()}: click to ready 3500ms`);
   });
 });
+
+describe("ahead of the click, issue 2194", () => {
+  it("removes a macOS build unpacked ahead of a click that never came at the next start", async () => {
+    const mac = macBundle();
+    const system = fakeSystem();
+    unzipping(system, "0.6.0");
+    const { shell } = await installed("darwin", mac.executable, system);
+    expect(await shell().update.apply(stagedBuild("0.6.0", "desktop.zip"), "quit")).toEqual({ outcome: "applied" });
+    expect(readdirSync(mac.applications)).toHaveLength(3);
+
+    // The app is killed before its quit: nothing was swapped, and the next start removes the preparation.
+    await (await installed("darwin", mac.executable, system)).shell().update.current();
+    expect(mac.build()).toBe("0.5.0");
+    expect(readdirSync(mac.applications)).toEqual(["agent-harness.app"]);
+  });
+
+  it("removes the Windows versions older than the one running but the newest of them once its window is ready", async () => {
+    const versions = join(scratch(), "Programs", "agent-harness", "versions");
+    for (const version of ["0.4.0", "0.5.0", "0.6.0", "0.7.0", ".0.8.0-staging"]) mkdirSync(join(versions, version), { recursive: true });
+    const system = fakeSystem();
+    const electron = fakeElectron({ os: "win32" });
+    electron.app.isPackaged = true;
+    const update = desktopUpdate({ app: electron.app, platform: platformOn("win32", { executable: join(versions, "0.6.0", "agent-harness.exe") }), system, report: () => {} });
+    await update.ready();
+    expect(readdirSync(versions).sort()).toEqual([".0.8.0-staging", "0.5.0", "0.6.0", "0.7.0"]);
+  });
+});

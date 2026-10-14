@@ -4,6 +4,7 @@ import { constants, createReadStream } from "node:fs";
 import { access, appendFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
+import { compareReleaseVersions, ReleaseVersion } from "@agent-harness/contracts";
 import type { ShellApplyOutcome, ShellApplyWhen, ShellStagedBuild, ShellUpdate } from "@agent-harness/client-runtime";
 import { options, text } from "./arguments.js";
 import { lastLine, oneAtATime } from "./commands.js";
@@ -265,6 +266,8 @@ interface HandedOver {
 /** Activated only after a successful swap; a stranded rollback has no cleanup authority. */
 const CLEANUP_MARKER = ".cleanup";
 const PENDING_CLEANUP_MARKER = ".cleanup-pending";
+/** A build unpacked ahead of the click (#2194), not swapped in yet: removed at the next start when the app quit before its click. Renamed to the pending marker at the swap. */
+const PREPARED_MARKER = ".prepared";
 const temporaryPrefix = (bundle: string): string => `.${basename(bundle)}-update-`;
 
 /** The shell's update, and what the new process says once its window is ready: the click's time to it, logged. */
@@ -282,12 +285,16 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
     const bundle = bundleOf(platform.executable);
     if (bundle === undefined) return;
     const parent = dirname(bundle);
-    for (const name of await files.readdir(parent)) {
+    const names = await files.readdir(parent);
+    for (const name of names) {
       const pending = name.endsWith(PENDING_CLEANUP_MARKER);
-      const suffix = pending ? PENDING_CLEANUP_MARKER : CLEANUP_MARKER;
+      const prepared = name.endsWith(PREPARED_MARKER);
+      const suffix = pending ? PENDING_CLEANUP_MARKER : prepared ? PREPARED_MARKER : CLEANUP_MARKER;
       if (!name.startsWith(temporaryPrefix(bundle)) || !name.endsWith(suffix)) continue;
       const marker = join(parent, name);
       const temporary = marker.slice(0, -suffix.length);
+      // A swap that began owns its folder through its own marker.
+      if (prepared && (names.includes(basename(temporary) + PENDING_CLEANUP_MARKER) || names.includes(basename(temporary) + CLEANUP_MARKER))) continue;
       try {
         // A filename alone never authorizes removal, nor does a symlink to an owned folder.
         if (!(await files.lstat(marker)).isFile()) continue;
@@ -332,7 +339,12 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
     } catch (error) {
       throw new Error(`Could not make a folder beside ${bundle} to unpack ${staged.version} into (${messageOf(error)}), so ${stays()}.`, { cause: error });
     }
+    const preparedMarker = temporary + PREPARED_MARKER;
     const unpack = async (): Promise<Prepared> => {
+      // Recorded first, so a quit while it unpacks leaves the folder to the next start to remove.
+      await files.writeFile(preparedMarker, bundle, { flag: "wx", mode: 0o600 }).catch((error: unknown) => {
+        throw new Error(`Could not record the folder ${staged.version} unpacks into (${messageOf(error)}), so ${stays()}.`, { cause: error });
+      });
       const unpacked = await system.run("ditto", ["-x", "-k", staged.path, temporary]).catch((error: unknown) => ({ code: -1, stderr: messageOf(error) }));
       if (unpacked.code !== 0) throw new Error(`${staged.version} did not unpack (${lastLine(unpacked.stderr) ?? `ditto exited with ${unpacked.code}`}), so ${stays()}.`);
       const bundles = (await files.readdir(temporary)).filter((name) => name.endsWith(".app"));
@@ -343,7 +355,9 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
     try {
       return await unpack();
     } catch (error) {
-      const removed = await files.rm(temporary, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).then(() => "", (cleanup: unknown) => ` And the temporary folder ${temporary} could not be removed: ${messageOf(cleanup)}.`);
+      const removed = await files.rm(temporary, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
+        .then(() => files.rm(preparedMarker, { force: true }))
+        .then(() => "", (cleanup: unknown) => ` And the temporary folder ${temporary} could not be removed: ${messageOf(cleanup)}.`);
       throw new Error(messageOf(error) + removed, { cause: error });
     }
   };
@@ -359,8 +373,8 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
     const pendingMarker = temporary + PENDING_CLEANUP_MARKER;
     /** Undefined once the new bundle is in place, else why it is not. A stranded app's temporary folder is kept. */
     const swap = async (): Promise<SwapFailure | undefined> => {
-      // Refuse the swap if ownership cannot be recorded; a partial write never strands an old bundle.
-      await files.writeFile(pendingMarker, bundle, { flag: "wx", mode: 0o600 });
+      // Refuse the swap if ownership cannot be recorded: the preparation's receipt becomes the swap's, atomically.
+      await files.rename(temporary + PREPARED_MARKER, pendingMarker);
       try {
         await files.rename(bundle, previous);
       } catch (error) {
@@ -504,7 +518,9 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
           install: (staged) => swapBundle(bundle, staged),
           prepare: (staged) => prepareBundle(bundle, staged),
           discard: async ({ temporary }) => {
-            if (temporary !== undefined) await files.rm(temporary, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+            if (temporary === undefined) return;
+            await files.rm(temporary, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+            await files.rm(temporary + PREPARED_MARKER, { force: true });
           },
           switchTo: async (staged, prepared, restart) => {
             const outcome = await swapPrepared(bundle, staged, prepared);
@@ -577,6 +593,23 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
       log(`${staged.version} stage failed: ${reason}`);
       return failed("install", `Update failed to prepare, retry. ${reason}`);
     }
+  };
+
+  /**
+   * Once a Windows version installed ahead of the click runs and its window
+   * is ready, the versions older than it are removed but the newest of them,
+   * kept to go back to; a staging folder is never touched here.
+   */
+  const pruneVersions = async (): Promise<void> => {
+    if (platform.os !== "win32" || !app.isPackaged) return;
+    const folder = dirname(platform.executable);
+    if (basename(dirname(folder)) !== "versions") return;
+    const versions = dirname(folder);
+    const running = basename(folder);
+    const valid = (name: string) => SAFE_VERSION.test(name) && ReleaseVersion.safeParse(name).success;
+    if (!valid(running)) return;
+    const older = (await files.readdir(versions)).filter((name) => valid(name) && compareReleaseVersions(name, running) < 0).sort(compareReleaseVersions);
+    for (const name of older.slice(0, -1)) await files.rm(join(versions, name), { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(report);
   };
 
   /** The click's time, for the new process to log `click to ready` against; a click that cannot be recorded still restarts. */
@@ -669,6 +702,7 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
     },
     apply,
     ready: async () => {
+      await pruneVersions().catch(report);
       const file = join(platform.paths.data, CLICK_FILE);
       const said = await files.readFile(file, "utf8").catch(() => undefined);
       if (said === undefined) return;
