@@ -202,7 +202,11 @@ try {
       await ownPage.goto(ownCode.link);
       await ownPage.locator('[data-web-grant][data-ceiling="bypassPermissions"]').waitFor();
       assert((await ownPage.locator("[data-web-grant]").getAttribute("data-scopes"))?.includes("terminal, admin"), "My own client keeps its full grant.");
-      await webSessionRouteSmoke(ownPage, `${name} full grant`, environment.env.id, ...linkedSessions);
+      // The phone page stays open holding its retained draft in the phone conversation, and drafts are
+      // last write wins across pages: this page proves its links and drafts on sessions of its own (#2187).
+      const ownRoute = async (title: string) => ({ id: (await create(admin, { workspace: { kind: "directory", path: workspace }, title, mode: "acceptEdits" })).id, title });
+      const ownSessions = [await ownRoute(`Full grant route fixture (${name})`), await ownRoute(`Full grant second route fixture (${name})`)] as const;
+      await webSessionRouteSmoke(ownPage, `${name} full grant`, environment.env.id, ...ownSessions);
       await ownPage.getByRole("button", { name: "Show sessions", exact: true }).click();
       const ownDrawer = ownPage.getByRole("dialog", { name: "Sessions", exact: true });
       await ownDrawer.locator("[data-sidebar-row]").filter({ hasText: `Hosted phone conversation (${name})` }).click();
