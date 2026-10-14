@@ -466,6 +466,12 @@ describe("the field table's behavioural half", () => {
       await command(client, "sessions.setBrowser", { sessionId: id, browser: { kind: "headless" } });
       return { id, list, type: "session.browser.set" };
     },
+    "sessions.setDesktop": async (client) => {
+      const { id } = await create(client);
+      const list = await watch(client);
+      await command(client, "sessions.setDesktop", { sessionId: id, desktop: { kind: "contained" } });
+      return { id, list, type: "session.desktop.set" };
+    },
     "sessions.setModel": async (client) => {
       const { id } = await create(client);
       const list = await watch(client);

@@ -8,6 +8,7 @@ import {
   type SessionActiveReorderedPayload,
   type SessionArchivedPayload,
   type SessionBrowserSetPayload,
+  type SessionDesktopSetPayload,
   type SessionCreatedPayload,
   type SessionDeletedPayload,
   type SessionDraftSetPayload,
@@ -140,6 +141,11 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
   "session.browser.set": (event, db) => {
     const { browser } = event.payload as SessionBrowserSetPayload;
     setColumns(event, db, { browser: browser === null ? null : JSON.stringify(browser) });
+  },
+  // The desktop the session's next run resolves (#2161): like the browser, what its runs may do, so `updatedAt` stays.
+  "session.desktop.set": (event, db) => {
+    const { desktop } = event.payload as SessionDesktopSetPayload;
+    setColumns(event, db, { desktop: JSON.stringify(desktop) });
   },
   // The model and effort the session's next run goes out on (#1961): like the browser, what its runs do, so `updatedAt` stays.
   "session.model-set": (event, db) => setColumns(event, db, { run_choice: runChoiceColumn(event.payload as SessionModelSetPayload) }),

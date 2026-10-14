@@ -5,6 +5,8 @@ import {
   type Mode,
   type SessionBrowser,
   type SessionBrowserSetPayload,
+  type SessionDesktop,
+  type SessionDesktopSetPayload,
   type SessionArchivedPayload,
   type SessionActiveReorderedPayload,
   type SessionCreatedPayload,
@@ -64,6 +66,8 @@ export interface SessionState {
   readonly settledOverride: "settled" | "active" | null;
   /** The browser the session chose, or null for none chosen (#550). */
   readonly browser: SessionBrowser | null;
+  /** The desktop the session chose, or null for never set, which resolves as none (#2161). */
+  readonly desktop: SessionDesktop | null;
 }
 
 /** A purged session: its id stays used, so it reads as deleted with nothing left of it. */
@@ -85,6 +89,7 @@ export const PURGED_STATE: SessionState = {
   draftRevision: 0,
   settledOverride: null,
   browser: null,
+  desktop: null,
 };
 
 /** Why a command is refused: its target is not there, or its state does not allow it. */
@@ -133,6 +138,8 @@ export interface CreateSession {
   readonly origin?: SessionOrigin;
   /** The session's first browser and who chose it, recorded after its creation; null for none chosen. */
   readonly browser: FirstBrowser | null;
+  /** The session's first desktop, recorded after its creation (and its browser); absent or null for never set (#2161). */
+  readonly desktop?: SessionDesktop | null;
 }
 
 /** A session's first browser and who chose it: a person or the reach default through `sessions.create`, or the completions surface for a session it makes. */
@@ -279,8 +286,10 @@ export const decideCreate = (state: SessionState | null, command: CreateSession,
     ...(command.origin !== undefined && { origin: command.origin }),
   };
   const created: EventInput = { type: "session.created", payload };
-  if (command.browser === null) return { events: [created] };
-  return { events: [created, browserSetEvent(command.browser.value, command.browser.chosenBy)] };
+  const events: EventInput[] = [created];
+  if (command.browser !== null) events.push(browserSetEvent(command.browser.value, command.browser.chosenBy));
+  if (command.desktop !== undefined && command.desktop !== null) events.push(desktopSetEvent(command.desktop));
+  return { events };
 };
 
 /**
@@ -544,4 +553,27 @@ export const decideSetGroup = (state: SessionState | null, command: SetGroup, co
   if (session.groupId === command.groupId) return unchanged;
   const payload: SessionGroupSetPayload = { groupId: command.groupId };
   return { events: [{ type: "session.group-set", payload }] };
+};
+
+/** `sessions.setDesktop`: the desktop the session's next run may drive (#2161). */
+export interface SetDesktop extends OnSession {
+  readonly desktop: SessionDesktop;
+}
+
+/** `session.desktop.set` for `desktop`, as the session keeps it: its kind alone. */
+const desktopSetEvent = (desktop: SessionDesktop): EventInput => {
+  const payload: SessionDesktopSetPayload = { desktop: { kind: desktop.kind } };
+  return { type: "session.desktop.set", payload };
+};
+
+/**
+ * Sets the session's desktop (#2161): the next run resolves it; a live run
+ * keeps what it resolved. The desktop the session has is unchanged; a session
+ * that never set one holds none, so choosing none for it is unchanged too.
+ */
+export const decideSetDesktop = (state: SessionState | null, command: SetDesktop): Decision => {
+  const session = present(state, command.sessionId);
+  if ("rejected" in session) return session;
+  if (command.desktop.kind === (session.desktop?.kind ?? "none")) return unchanged;
+  return { events: [desktopSetEvent(command.desktop)] };
 };

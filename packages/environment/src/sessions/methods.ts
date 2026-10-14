@@ -6,6 +6,7 @@ import {
   listEventTypes,
   type Mode,
   type ResultOf,
+  type SessionDesktop,
   type SessionOrigin,
   type SessionSummary,
   type Workspace,
@@ -26,6 +27,7 @@ import {
   decideReorderPinned,
   decideRestore,
   decideSetBrowser,
+  decideSetDesktop,
   decideSetDraft,
   decideSetGroup,
   decideTag,
@@ -58,7 +60,7 @@ import type { Resolution, WorkspaceResolver } from "../workspace/resolver.js";
  * `sessions.create`, `sessions.rename`, `sessions.archive`,
  * `sessions.unarchive`, `sessions.pin`, `sessions.unpin`,
  * `sessions.reorderPinned`, `sessions.reorderActive`, `sessions.tag`,
- * `sessions.untag`, `sessions.setDraft`, `sessions.setBrowser`, `sessions.setGroup`,
+ * `sessions.untag`, `sessions.setDraft`, `sessions.setBrowser`, `sessions.setDesktop`, `sessions.setGroup`,
  * `sessions.settle`, `sessions.unsettle`, `sessions.snooze`,
  * `sessions.unsnooze`, `sessions.delete`, `sessions.restore` and
  * `sessions.purge` (the purge carried out by `deletion.ts`). The queries
@@ -111,6 +113,8 @@ export interface SessionCreation {
   readonly origin?: SessionOrigin | undefined;
   /** The session's first browser and who chose it; none chosen when absent. */
   readonly browser?: FirstBrowser | null | undefined;
+  /** The session's first desktop (#2161); never set when absent. */
+  readonly desktop?: SessionDesktop | null | undefined;
 }
 
 /** A creation's refusal: the decider's, or an account that cannot run. */
@@ -156,6 +160,7 @@ const checkCreation = (log: EventLog, creation: Omit<SessionCreation, "workspace
     mode,
     ...(creation.origin !== undefined && { origin: creation.origin }),
     browser: creation.browser ?? null,
+    desktop: creation.desktop ?? null,
   };
   return { state, command, context: { groupExists: groupId !== null && groupExists(reader, groupId) } };
 };
@@ -348,6 +353,9 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers &
     // The browser the session's next run resolves (#550), chosen by the person at the client; at runs:drive, which the wire checks.
     "sessions.setBrowser": (params, context) =>
       onSession(params.sessionId, context, (state, sessionId) => decideSetBrowser(state, { sessionId, browser: params.browser, chosenBy: "person" })),
+
+    // The desktop the session's next run resolves (#2161); at runs:drive, which the wire checks.
+    "sessions.setDesktop": (params, context) => onSession(params.sessionId, context, (state, sessionId) => decideSetDesktop(state, { sessionId, desktop: params.desktop })),
 
     "sessions.setGroup": (params, context) =>
       onSession(params.sessionId, context, (state, sessionId) => {

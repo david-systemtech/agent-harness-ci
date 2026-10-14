@@ -141,6 +141,7 @@ export const freshSummary = (id: string, overrides: Partial<SessionSummary> = {}
   runChoice: null,
   mode: null,
   browser: null,
+  desktop: null,
   pullRequests: [],
   draft: null,
   draftRevision: 0,

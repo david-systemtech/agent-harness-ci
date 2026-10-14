@@ -1,4 +1,4 @@
-import { DEFAULT_TITLE, type Group, type SessionBrowser, type SessionRunChoice, type SessionSummary, type TitleSource } from "@agent-harness/contracts";
+import { DEFAULT_TITLE, type Group, type SessionBrowser, type SessionDesktop, type SessionRunChoice, type SessionSummary, type TitleSource } from "@agent-harness/contracts";
 import type { SqlValue } from "../event-log/event-log.js";
 
 /**
@@ -52,6 +52,8 @@ export interface SessionRow {
   mode: string | null;
   /** The session's browser as JSON; null for none chosen. */
   browser: string | null;
+  /** The session's desktop as JSON (#2161); null for never set. */
+  desktop: string | null;
   pull_requests: string;
   draft: string | null;
   /** How many times the draft has been set (#2207). */
@@ -106,6 +108,7 @@ export const SESSION_LIST_TABLES = {
     run_choice TEXT,
     mode TEXT,
     browser TEXT,
+    desktop TEXT,
     pull_requests TEXT NOT NULL DEFAULT '[]',
     draft TEXT,
     draft_revision INTEGER NOT NULL DEFAULT 0,
@@ -141,6 +144,9 @@ export const titleOf = (userTitle: string | null, generatedTitle: string | null)
 /** The session's tags, in the order the summary holds them: by their case-folded key. */
 export const tagsOf = (reader: Reader, id: string): string[] =>
   reader.all<{ tag: string }>("SELECT tag FROM session_tags WHERE session_id = ? ORDER BY tag_key", id).map((row) => row.tag);
+
+/** The desktop a `sessions` row holds as JSON; null for never set. */
+export const desktopOf = (column: string | null): SessionDesktop | null => (column === null ? null : (JSON.parse(column) as SessionDesktop));
 
 /** The browser a `sessions` row holds as JSON; null for none chosen. */
 export const browserOf = (column: string | null): SessionBrowser | null => (column === null ? null : (JSON.parse(column) as SessionBrowser));
@@ -181,6 +187,7 @@ export const toSummary = (reader: Reader, row: SessionRow): SessionSummary => ({
   runChoice: runChoiceOf(row.run_choice),
   mode: row.mode as SessionSummary["mode"],
   browser: browserOf(row.browser),
+  desktop: desktopOf(row.desktop),
   pullRequests: JSON.parse(row.pull_requests) as SessionSummary["pullRequests"],
   draft: row.draft,
   draftRevision: row.draft_revision,
