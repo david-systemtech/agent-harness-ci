@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { spawnable } from "../managed-tools/run.js";
 import type { ProbeResult } from "./signin-seam.js";
 
 /**
@@ -49,10 +50,14 @@ export interface SignInProcessOptions {
   readonly killAfterMs?: number;
   /** Preset `EXIT_GRACE_MS`. */
   readonly exitGraceMs?: number;
+  /** Preset: this process's. On Windows a batch file (npm's `codex.cmd` shim, #2224) is run through `cmd.exe`, as the managed tools' commands are (`spawnable`). */
+  readonly platform?: NodeJS.Platform;
+  /** Preset: `node:child_process`'s `spawn`; a test records what is started through it. */
+  readonly spawn?: typeof spawn;
 }
 
 /**
- * The real spawn: `node:child_process`, no shell, stdin, stdout and stderr
+ * The real spawn: `node:child_process`, no shell (a Windows `.cmd` or `.bat` excepted, run by `cmd.exe`), stdin, stdout and stderr
  * each a pipe. Off Windows the process leads a process group of its own, so
  * a stop reaches whatever it started; SIGTERM, then SIGKILL after
  * `killAfterMs`, a timer that keeps the service alive until it fires or the
@@ -65,12 +70,15 @@ export const createSpawnSignInProcess =
   (command, argv, spawnOptions) => {
     const killAfterMs = options.killAfterMs ?? KILL_AFTER_MS;
     const exitGraceMs = options.exitGraceMs ?? EXIT_GRACE_MS;
-    const group = process.platform !== "win32";
-    const child = spawn(command, [...argv], {
+    const platform = options.platform ?? process.platform;
+    const group = platform !== "win32";
+    const [file, args, verbatim] = spawnable(command, argv, spawnOptions.env, platform);
+    const child = (options.spawn ?? spawn)(file, args, {
       env: { ...spawnOptions.env },
       cwd: spawnOptions.cwd,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
+      windowsVerbatimArguments: verbatim,
       detached: group,
     });
     const exits: ((code: number | null, error: string | null) => void)[] = [];
