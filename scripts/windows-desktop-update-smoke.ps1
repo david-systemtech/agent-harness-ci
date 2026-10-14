@@ -94,6 +94,15 @@ if ($Setup) {
   Copy-Item -LiteralPath $helper -Destination $helperBefore -Force
   $switchPointer = Join-Path $dataDir 'current'
   $clickFile = Join-Path $dataDir 'update-click.json'
+  # The switched window is a first launch with "Run an environment on this machine" on, so it installs and
+  # starts this machine's environment service from the server it carries (local-service.tsx). The ordinary
+  # user's smoke expects no service after this check (smoke.ps1's `service status`), so what the window
+  # installed is uninstalled and what it wrote beside the desktop's folder is removed in the finally below.
+  $environmentDir = Join-Path $env:LOCALAPPDATA 'agent-harness'
+  $environmentBefore = @(Get-ChildItem -LiteralPath $environmentDir -Force -Name -ErrorAction SilentlyContinue)
+  $serverNode = Join-Path $install 'resources\server\node\node.exe'
+  $serverCli = Join-Path $install 'resources\server\packages\cli\dist\main.js'
+  $serviceBefore = (& $serverNode $serverCli service status 2>&1 | Out-String) -notmatch 'No service is installed'
   $switched = $null
   try {
     Copy-Item -LiteralPath $broughtHelper -Destination $helper -Force
@@ -125,6 +134,17 @@ if ($Setup) {
     Remove-Item -LiteralPath $switchPointer, ($switchPointer + '.previous'), $clickFile -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 1
     Remove-Item -LiteralPath (Join-Path $install 'versions') -Recurse -Force
+    if (!$serviceBefore) {
+      $serviceAfter = & $serverNode $serverCli service status 2>&1 | Out-String
+      if ($serviceAfter -notmatch 'No service is installed') {
+        & $serverNode $serverCli service uninstall
+        if ($LASTEXITCODE -ne 0) { throw "Uninstalling the service the switched window installed exited with $LASTEXITCODE" }
+      }
+      # The service's launcher and environment run from the versions the install copied beside the desktop's folder.
+      $environmentVersions = Join-Path $environmentDir 'versions'
+      Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($environmentVersions, [StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force -ErrorAction SilentlyContinue
+      Get-ChildItem -LiteralPath $environmentDir -Force -ErrorAction SilentlyContinue | Where-Object { $environmentBefore -notcontains $_.Name } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    }
   }
 
   # The launch helper follows the pointer the desktop renames into place at the click.

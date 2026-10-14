@@ -58,6 +58,19 @@ describe("the public GitHub release workflow", () => {
     expect(smoke).toContain("if ($LASTEXITCODE -ne 0) { throw 'Desktop update launch check failed' }");
   });
 
+  it("leaves no environment service behind the Restart to update window it starts, as the later status check expects none", () => {
+    const smoke = job("smoke-windows").join("\n");
+    expect(smoke.indexOf("scripts/windows-desktop-update-smoke.ps1') -Setup")).toBeLessThan(smoke.indexOf("$status -notmatch 'No service is installed'"));
+    const script = readFileSync(join(root, "scripts/windows-desktop-update-smoke.ps1"), "utf8");
+    const launch = script.indexOf("$switched = Start-Process");
+    const cleanup = script.slice(script.indexOf("} finally {", launch));
+    expect(script.indexOf("$serviceBefore = (& $serverNode $serverCli service status")).toBeLessThan(launch);
+    expect(script.indexOf("$environmentBefore = @(Get-ChildItem -LiteralPath $environmentDir")).toBeLessThan(launch);
+    expect(cleanup).toContain("& $serverNode $serverCli service uninstall");
+    expect(cleanup).toContain("Where-Object { $environmentBefore -notcontains $_.Name } | Remove-Item -Recurse -Force");
+    expect(cleanup.indexOf("Move-Item -LiteralPath $helperBefore -Destination $helper")).toBeLessThan(cleanup.indexOf("service uninstall"));
+  });
+
   it("checks the bao archive install in the built image and the Linux and macOS server artefacts", () => {
     expect(step("image", "Install bao without a package manager in the built image")).toContain('docker run --rm --entrypoint node "$IMAGE_REFERENCE" /opt/agent-harness/scripts/check-packaged-bao-install.mjs /opt/agent-harness');
     for (const name of ["smoke-macos", "smoke-linux"]) {
