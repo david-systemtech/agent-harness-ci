@@ -134,6 +134,15 @@ touch screens in the wide projection. Classify layout media, never the keyboard'
 reduced VisualViewport height or pinch-zoom dimensions. A non-touch desktop
 keeps its existing projection when its visual viewport shrinks.
 
+The phone projection navigates as a page stack (#2149): Sessions is the root,
+and a session, a new session and Settings stack on it. Every page is a history
+entry holding the whole stack (`/`, `#/session/<environment>/<session>`,
+`#/new`, `#/settings`), so the bar's back, the browser's back and Android back
+pop the same page, and a handed link seeds the Sessions entry beneath it.
+Switching conversations swaps the top page instead of deepening the stack. The
+sessions drawer stays at the top left of every page for quick switching; back
+with it open closes it first. The desktop frame has no stack.
+
 In the phone projection show a session drawer with shelves,
 search and actions, and a phone header with More, Settings and attention.
 Retain the desktop pane arrangement without overwriting it; restore it when

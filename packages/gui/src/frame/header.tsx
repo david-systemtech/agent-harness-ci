@@ -44,8 +44,8 @@ const SessionBreadcrumb = ({ session }: { readonly session: PaneSession }) => {
 
 /** The phone bar's title (17/600) and an optional one-line subtitle (audit §3.7). */
 const PageTitle = ({ title, subtitle, session = false }: { readonly title: string; readonly subtitle?: string; readonly session?: boolean }) => <span data-phone-title className="flex min-w-0 flex-1 flex-col justify-center">
-  <span data-header-session-title={session ? "" : undefined} title={title} className="truncate text-lg font-semibold leading-tight text-ink">{title}</span>
-  {subtitle !== undefined && <span data-phone-subtitle className="truncate text-xs text-ink-muted">{subtitle}</span>}
+  <span data-header-session-title={session ? "" : undefined} title={title} className="truncate text-phone-title font-semibold text-ink">{title}</span>
+  {subtitle !== undefined && <span data-phone-subtitle className="truncate text-phone-caption text-ink-muted">{subtitle}</span>}
 </span>;
 
 /** One 44px line of window context and actions (look §9.1); the title yields space first. */

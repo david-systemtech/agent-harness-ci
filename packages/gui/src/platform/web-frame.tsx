@@ -51,7 +51,7 @@ const BlockedLine = ({ view, onPair }: { readonly view: EnvironmentView; readonl
 };
 /** The first browser slice uses the same session components and environment-owned work. */
 export const WebFrame = (props: WebFrameProps) => (
-  <PhoneFrameProvider stack><BrowserPanesProvider><TerminalPanesProvider><PaneGridProvider><NewSessionSurfaces><PaneLines>
+  <PhoneFrameProvider stack initialPage={props.route.session ? { kind: "session", session: props.route.session } : undefined}><BrowserPanesProvider><TerminalPanesProvider><PaneGridProvider><NewSessionSurfaces><PaneLines>
     <WebConversation {...props} />
   </PaneLines></NewSessionSurfaces></PaneGridProvider></TerminalPanesProvider></BrowserPanesProvider></PhoneFrameProvider>
 );

@@ -38,8 +38,9 @@ const isPage = (value: unknown): value is PhonePage => {
 /** The stack a history entry holds, or the root plus the page its address names. */
 export const stackOfEntry = (state: unknown, hash: string): readonly PhonePage[] => {
   const held = typeof state === "object" && state !== null ? (state as Record<string, unknown>)[STATE_KEY] : undefined;
-  if (Array.isArray(held) && held.length > 0 && held.every(isPage) && held[0]?.kind === "sessions") return held;
   const page = pageOfHash(hash) ?? SESSIONS_PAGE;
+  // An entry's stack counts only while it still ends at the page its address names.
+  if (Array.isArray(held) && held.length > 0 && held.every(isPage) && held[0]?.kind === "sessions" && samePage(held.at(-1) as PhonePage, page)) return held;
   return page.kind === "sessions" ? [SESSIONS_PAGE] : [SESSIONS_PAGE, page];
 };
 
@@ -70,8 +71,9 @@ export type StackHistory = Pick<Window, "history" | "location" | "addEventListen
  * that stack. `interceptBack` lets an open sheet (the sessions drawer) take a back
  * first: the entry just left is put back and the stack stays where it was.
  */
-export const usePhonePageStack = (enabled: boolean, options: { readonly interceptBack?: () => boolean; readonly view?: StackHistory } = {}): PhonePageStack => {
+export const usePhonePageStack = (enabled: boolean, options: { readonly interceptBack?: () => boolean; readonly view?: StackHistory; readonly initial?: PhonePage | undefined } = {}): PhonePageStack => {
   const view = options.view ?? window;
+  const initialPage = useRef(options.initial);
   const [pages, setPages] = useState<readonly PhonePage[]>(() => enabled ? stackOfEntry(view.history.state, view.location.hash) : [SESSIONS_PAGE]);
   const held = useRef(pages);
   const intercept = useRef(options.interceptBack);
@@ -84,8 +86,12 @@ export const usePhonePageStack = (enabled: boolean, options: { readonly intercep
   useEffect(() => {
     if (!enabled) return;
     // Seed the entries a handed link skipped, so back from it reaches the sessions list.
-    const initial = stackOfEntry(view.history.state, view.location.hash);
-    const seeded = (view.history.state as Record<string, unknown> | null)?.[STATE_KEY] !== undefined;
+    // A startup route (the handed link, consumed before mount) names the first page outright.
+    const handed = initialPage.current;
+    initialPage.current = undefined;
+    const entry = stackOfEntry(view.history.state, view.location.hash);
+    const initial = handed && !samePage(entry.at(-1) ?? SESSIONS_PAGE, handed) ? [SESSIONS_PAGE, handed] : entry;
+    const seeded = initial === entry && (view.history.state as Record<string, unknown> | null)?.[STATE_KEY] === entry;
     if (!seeded) initial.forEach((_, index) => write(initial.slice(0, index + 1), index === 0 ? "replace" : "push"));
     held.current = initial;
     setPages(initial);

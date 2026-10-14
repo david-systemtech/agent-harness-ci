@@ -85,3 +85,12 @@ it("leaves history alone while off (the desktop frame)", () => {
   expect(history.length).toBe(length);
   expect(history.state).toBeNull();
 });
+
+it("lets the startup route name the first page over a stale entry", () => {
+  history.replaceState({ phonePages: [SESSIONS_PAGE, settings] }, "", pageLink(settings));
+  const { result } = renderHook(() => usePhonePageStack(true, { initial: b }));
+  expect(kinds(result.current.pages)).toEqual(["sessions", "b"]);
+  expect(location.hash).toBe(new URL(pageLink(b), location.origin).hash);
+  // An entry whose stack no longer ends at its address is read from the address.
+  expect(stackOfEntry({ phonePages: [SESSIONS_PAGE, settings] }, "")).toEqual([SESSIONS_PAGE]);
+});

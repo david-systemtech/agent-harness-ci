@@ -33,7 +33,7 @@ export const phoneLayoutMedia = () => [
 
 /** Layout changes only the projection; desktop sidebar preferences and pane sizes stay held.
  * `stack` turns on the phone page stack; the desktop frame leaves it off. */
-export const PhoneFrameProvider = ({ children, stack = false }: { readonly children: ReactNode; readonly stack?: boolean }) => {
+export const PhoneFrameProvider = ({ children, stack = false, initialPage }: { readonly children: ReactNode; readonly stack?: boolean; readonly initialPage?: PhonePage | undefined }) => {
   const [media] = useState(phoneLayoutMedia);
   const [narrow, setNarrow] = useState(() => media.some(query => query.matches));
   const [drawerShown, setDrawerShown] = useState(false);
@@ -50,7 +50,7 @@ export const PhoneFrameProvider = ({ children, stack = false }: { readonly child
   // Back closes the open drawer first, as it closes any sheet (audit §4.1).
   const interceptBack = useCallback(() => { if (!drawerHeld.current) return false; setDrawerShown(false); return true; }, []);
   const stacked = stack && narrow;
-  const { pages, open: openPage, back } = usePhonePageStack(stacked, { interceptBack });
+  const { pages, open: openPage, back } = usePhonePageStack(stacked, { interceptBack, initial: initialPage });
   useEffect(() => {
     const changed = () => { const phone = media.some(query => query.matches); setNarrow(phone); if (!phone) setDrawerShown(false); };
     media.forEach(query => query.addEventListener("change", changed));
