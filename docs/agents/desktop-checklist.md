@@ -404,6 +404,26 @@ installed app) connected to an environment:
    Electron says the OS offers no notifications, `show` rejects with "This
    desktop cannot show notifications: the OS offers none to it."
 
+## Restart to update in seconds (#2194)
+
+1. Let the local environment stage a newer desktop. Restart to update appears
+   only once the build is also installed ahead of the click: on macOS unpacked
+   beside the bundle (`.agent-harness.app-update-*`), on Windows extracted into
+   `<install>\versions\<version>` by the setup's staging mode
+   (`<setup> /S --stage=<folder>`, which leaves the installed app, its
+   shortcuts and the install mutex alone). `logs/desktop-update.log` in the
+   desktop data directory gains `<version> setup <ms>ms` (Windows) and
+   `<version> staged <ms>ms`; a failed stage logs `<version> stage failed:
+   <reason>` and the card says "Update failed to prepare, retry".
+2. Click it: the old window closes and the new one opens within 10 seconds
+   (5 the target). macOS only swaps by rename; Windows renames the
+   `current` pointer beside `desktop-launch.ps1` into place and starts
+   `versions\<version>` directly. The new process logs `Desktop update
+   <version>: click to ready <ms>ms`; record it.
+3. Launch from the Start menu or a pin afterwards: the helper follows
+   `current` to the new version. Arch's pacman install is unchanged: its
+   click still asks for an administrator through polkit.
+
 ## Windows restart progress and early launch (#2146)
 
 1. Let the local environment stage a newer desktop; confirm Restart to update
