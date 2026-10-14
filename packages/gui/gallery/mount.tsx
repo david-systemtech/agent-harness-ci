@@ -32,7 +32,7 @@ export const mountGallery = async (container: HTMLElement, scene: string, ladder
   const root = createRoot(container);
   const Component = definition.default;
   const geometry = typeof definition.geometry === "function"
-    ? definition.geometry({ width: window.innerWidth, height: window.innerHeight })
+    ? definition.geometry({ width: window.innerWidth, height: window.innerHeight, fontScale: web ? world.presentation.values.read().textSize / 14 : 1 })
     : definition.geometry ?? [];
   container.dataset["galleryGeometry"] = JSON.stringify(geometry);
   const Ready = () => {

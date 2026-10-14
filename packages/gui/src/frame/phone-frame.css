@@ -59,3 +59,11 @@
 :is(.phone-frame-drawer, .phone-sessions-page) [data-sidebar-item] { gap: 4px; }
 :is(.phone-frame-drawer, .phone-sessions-page) [data-sidebar-footer] { gap: 2px; }
 :is(.phone-frame-drawer, .phone-sessions-page) [data-sidebar-scroll] section > div:has(> h2) { height: auto; min-height: 44px; }
+
+/* The Sessions page scrolls as one: the footer follows the rows instead of holding the bottom of a short
+ * screen, so at text size 20 or with the keyboard up the first rows still fit above the fold. A row's
+ * actions never shrink; its title truncates instead (#2149). */
+.phone-sessions-page nav { overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+.phone-sessions-page [data-sidebar-scroll] { flex: none; min-height: auto; overflow: visible; }
+.phone-sessions-page [data-sidebar-footer] { flex-shrink: 0; margin-top: auto; overflow: visible; }
+:is(.phone-frame-drawer, .phone-sessions-page) [data-sidebar-item] > button:not([data-sidebar-row]) { flex-shrink: 0; }
