@@ -11,6 +11,7 @@ import {
   UpdateStartedPayload,
   compareReleaseVersions,
   invalidParams,
+  type DesktopEnvironment,
   type EnvironmentActivity,
   type InstallRefusal,
   type ParamsOf,
@@ -557,30 +558,29 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
    * stage finds it already there, and kept; only its server is unpacked.
    */
   const fetchAndInstall = async (release: StageableRelease): Promise<Unstaged | null> => {
-    const within = release.artefact.kind === "desktop" ? release.artefact.environment : undefined;
-    const archive = within === undefined ? downloadDestination(options.dataDir, release.version) : undefined;
-    try {
-      let artefact: string;
-      if (archive === undefined) {
-        const fetched = await fetchDesktopBuild(options.dataDir, release, (asset, destination) => options.channel.download(asset, destination));
-        if ("outcome" in fetched) return fetched;
-        artefact = fetched.path;
-      } else {
-        const fetched = await options.channel.download(release, archive);
-        if (fetched !== null) return fetched;
-        artefact = archive;
-      }
-      let staged: string;
+    /** Unpacks the artefact downloaded at `artefact` into the staging area: only the server, from a desktop build. */
+    const stageFrom = async (artefact: string, within?: DesktopEnvironment): Promise<string | Unstaged> => {
       try {
-        staged = await stageArtefact({ dataDir: options.dataDir, version: release.version, artefact, unpack, ...(within !== undefined && { within }) });
+        return await stageArtefact({ dataDir: options.dataDir, version: release.version, artefact, unpack, ...(within !== undefined && { within }) });
       } catch (error) {
         if (!(error instanceof StagingError)) throw error;
         return { reason: "artefact", message: error.message };
       }
-      return await installStaged(release.version, staged);
-    } finally {
-      if (archive !== undefined) rmSync(archive, { force: true });
+    };
+    const within = release.artefact.kind === "desktop" ? release.artefact.environment : undefined;
+    let staged: string | Unstaged;
+    if (within !== undefined) {
+      staged = await fetchDesktopBuild(options.dataDir, release, (asset, destination) => options.channel.download(asset, destination), (path) => stageFrom(path, within));
+    } else {
+      const archive = downloadDestination(options.dataDir, release.version);
+      try {
+        const fetched = await options.channel.download(release, archive);
+        staged = fetched ?? (await stageFrom(archive));
+      } finally {
+        rmSync(archive, { force: true });
+      }
     }
+    return typeof staged === "string" ? await installStaged(release.version, staged) : staged;
   };
 
   /** Stages the artefact at `artefactPath` for `update` and has the launcher install it; then the command makes it pending. */
