@@ -37,3 +37,8 @@ it("keeps the reduced-motion seam still, at the same three quarters, with no lay
   const reduced = block("@media (prefers-reduced-motion: reduce)");
   expect(reduced).toMatch(/\.shuttle::after \{ animation: none; will-change: auto; transform: none; right: 25%; \}/);
 });
+
+// #2201: composer/sweep.ts marks an off-screen seam and the hidden document; the beam is held still under either.
+it("pauses the beam of an off-screen seam and of every seam while the window is hidden", () => {
+  expect(stylesheet).toMatch(/\.shuttle\[data-sweep-offscreen\]::after, :root\[data-sweep-hidden\] \.shuttle::after \{ animation-play-state: paused; \}/);
+});
