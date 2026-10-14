@@ -135,7 +135,7 @@ it("opens the mode gallery through the compact phone Run settings sheet", async 
     close = gallery.close;
     const sheet = await screen.findByRole("dialog", { name: "Mode" });
     expect(await gallery.ready).toBe(true);
-    for (const name of ["plan", "accept edits", "auto", "BYPASS"]) expect(within(sheet).getByRole("button", { name })).toBeDefined();
+    for (const name of ["Plan", "Accept edits", "Auto", "Bypass permissions"]) expect(within(sheet).getByRole("button", { name })).toBeDefined();
     expect(within(sheet).getByRole("button", { name: "Close mode picker" })).toBeDefined();
   } finally {
     media.mockRestore();

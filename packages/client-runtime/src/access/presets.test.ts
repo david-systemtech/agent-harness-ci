@@ -69,10 +69,10 @@ describe("the presets offered", () => {
 describe("the words a code's access is chosen in", () => {
   it("offer the four plain mode choices of setup-copy.md §5.12, one per mode, in the modes' order", () => {
     expect(CEILING_CHOICES.map(({ mode, label }) => [mode, label])).toEqual([
-      ["plan", "Ask before any change"],
-      ["acceptEdits", "Edit files, ask for the rest"],
-      ["auto", "Let Claude decide"],
-      ["bypassPermissions", "Never ask"],
+      ["plan", "Plan"],
+      ["acceptEdits", "Accept edits"],
+      ["auto", "Auto"],
+      ["bypassPermissions", "Bypass permissions"],
     ]);
     expect(CEILING_CHOICES.map(({ note }) => note)).toEqual([
       "Agents can read and plan. They ask before changing anything.",

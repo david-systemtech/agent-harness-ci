@@ -24,10 +24,10 @@ export const DECIDED_BECAUSE: Readonly<Record<AutoDecider, string>> = {
 
 /** How much agents may do without asking, each mode as a choice says it (setup-copy.md §5.12): its label, and the sentence under it. The mode's id is for Details. */
 export const MODE_WORDS: { readonly [M in Mode]: { readonly label: string; readonly note: string } } = {
-  plan: { label: "Ask before any change", note: "Agents can read and plan. They ask before changing anything." },
-  acceptEdits: { label: "Edit files, ask for the rest", note: "Agents can edit files in your project. They ask before running commands." },
-  auto: { label: "Let Claude decide", note: "Claude reviews each action and asks you only when it is unsure." },
-  bypassPermissions: { label: "Never ask", note: "Agents act without asking. Use it only for trusted work in a sandbox." },
+  plan: { label: "Plan", note: "Agents can read and plan. They ask before changing anything." },
+  acceptEdits: { label: "Accept edits", note: "Agents can edit files in your project. They ask before running commands." },
+  auto: { label: "Auto", note: "Claude reviews each action and asks you only when it is unsure." },
+  bypassPermissions: { label: "Bypass permissions", note: "Agents act without asking. Use it only for trusted work in a sandbox." },
 };
 
 /** Each sandbox level as a choice names it (setup-copy.md §5.12). */

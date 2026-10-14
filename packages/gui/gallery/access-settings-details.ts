@@ -9,7 +9,7 @@ export interface AccessSettingsDetail {
   readonly controls?: readonly SceneGeometry[];
 }
 
-const unattended = '[role="group"]:has(input[aria-label="Edit files, ask for the rest"]):not(:has(input[aria-label="Ask before any change"]))';
+const unattended = '[role="group"]:has(input[aria-label="Accept edits"]):not(:has(input[aria-label="Plan"]))';
 const ttl = '[role="group"]:has(select[aria-label="Deny it after"])';
 const containment = '[role="radiogroup"]:has(input[title^="Off ("])';
 const sites = 'section[aria-label="Sites you are developing"]';
