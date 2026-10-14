@@ -40,9 +40,32 @@ export async function restartPackagedDesktop(evaluate, staged) {
   })()`, "restart the packaged desktop with its real archive", 30_000, { expectDisconnect: true });
 }
 
+/** A hosted runner still busy from the previous step can take seconds to list processes (#2229). */
+export const processListingTimeout = 10_000;
+const listProcessesOnce = (command, args) => execFileSync(command, args, { encoding: "utf8", timeout: processListingTimeout });
+const pauseSync = (milliseconds) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+
+/**
+ * Runs a process listing, retrying once after a short pause when it times out.
+ * A second timeout throws, naming the step; other failures (such as pgrep's "no match" exit 1) pass through untouched.
+ */
+export function listProcesses(step, command, args, run = listProcessesOnce, pause = pauseSync) {
+  for (let attempt = 1; ; attempt++) {
+    try { return run(command, args); }
+    catch (error) {
+      if (error?.code !== "ETIMEDOUT") throw error;
+      if (attempt === 2) throw new Error(`${step}: \`${command}\` timed out twice (${processListingTimeout} ms each, 1 s apart) on a busy runner`, { cause: error });
+      pause(1000);
+    }
+  }
+}
+
 /** Observe only the executable paths, never process arguments or environment. */
 const installedDesktopPid = (executable) => {
-  const listing = execFileSync("ps", ["-ww", "-A", "-o", "pid=,comm="], { encoding: "utf8", timeout: 2000 });
+  let listing;
+  // Polled by `until`: a listing that times out twice is "not found yet", and the poll asks again.
+  try { listing = listProcesses("find the relaunched desktop", "ps", ["-ww", "-A", "-o", "pid=,comm="]); }
+  catch (error) { if (error.cause?.code === "ETIMEDOUT") return undefined; throw error; }
   for (const line of listing.split("\n")) {
     const match = line.trim().match(/^(\d+)\s+(.+)$/);
     if (match?.[2] === executable) return Number(match[1]);
@@ -171,7 +194,9 @@ export async function quitWithPendingPackagedCredential(evaluate) {
 }
 
 /** Native hosted observation of this desktop's helpers; comm contains the executable, never its arguments. */
-export function credentialHelperPids(pid, executable, run = (command, args) => execFileSync(command, args, { encoding: 'utf8', timeout: 2000 })) {
+export function credentialHelperPids(pid, executable, runOnce = listProcessesOnce, pause = pauseSync) {
+  // A second timeout throws rather than reporting no helper: a helper left running, or never started, must not pass silently.
+  const run = (command, args) => listProcesses("capture the desktop's native credential helper during pending Keychain access", command, args, runOnce, pause);
   let children;
   try { children = run('pgrep', ['-P', String(pid)]).trim().split(/\s+/).map(Number).filter(child => Number.isSafeInteger(child) && child > 0); }
   catch (error) { if (error.status === 1) return []; throw error; }
