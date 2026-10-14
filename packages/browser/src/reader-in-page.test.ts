@@ -5,7 +5,7 @@ import type { InPageFunction } from "./driver/page.js";
 import { installReader, pageChallenge, readPage } from "./reader-in-page.js";
 
 /**
- * The reader's in-page half (browser spec, "`browser_read`"), run as the
+ * The reader's in-page half (browser spec, "`get_page_text`"), run as the
  * driver runs it: from its source text, inside the page's realm, so the
  * vendored Readability, the Markdown conversion and challenge detection
  * reach for nothing but the page's DOM and their arguments.

@@ -9539,6 +9539,7 @@
                                   "type": "object",
                                   "properties": {
                                     "target": {
+                                      "description": "The field whose contents the text replaces; absent, the text is typed at the focus.",
                                       "anyOf": [
                                         {
                                           "type": "object",
@@ -9571,13 +9572,12 @@
                                           "additionalProperties": false,
                                           "description": "The first element this CSS selector matches."
                                         }
-                                      ],
-                                      "description": "An element: by ref, or by CSS selector."
+                                      ]
                                     },
                                     "text": {
                                       "type": "string",
                                       "maxLength": 65536,
-                                      "description": "What the field holds afterwards: typing replaces its contents."
+                                      "description": "With a target, what the field holds afterwards; without one, the text typed at the focus."
                                     },
                                     "snapshot": {
                                       "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
@@ -9613,10 +9613,9 @@
                                     }
                                   },
                                   "required": [
-                                    "target",
                                     "text"
                                   ],
-                                  "description": "type: replace an input's, a textarea's or an editable element's contents."
+                                  "description": "type: type text at the focus, or replace an input's, a textarea's or an editable element's contents."
                                 }
                               },
                               "required": [
@@ -11652,6 +11651,7 @@
                               "type": "object",
                               "properties": {
                                 "target": {
+                                  "description": "The field whose contents the text replaces; absent, the text is typed at the focus.",
                                   "anyOf": [
                                     {
                                       "type": "object",
@@ -11684,13 +11684,12 @@
                                       "additionalProperties": false,
                                       "description": "The first element this CSS selector matches."
                                     }
-                                  ],
-                                  "description": "An element: by ref, or by CSS selector."
+                                  ]
                                 },
                                 "text": {
                                   "type": "string",
                                   "maxLength": 65536,
-                                  "description": "What the field holds afterwards: typing replaces its contents."
+                                  "description": "With a target, what the field holds afterwards; without one, the text typed at the focus."
                                 },
                                 "snapshot": {
                                   "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
@@ -11726,10 +11725,9 @@
                                 }
                               },
                               "required": [
-                                "target",
                                 "text"
                               ],
-                              "description": "type: replace an input's, a textarea's or an editable element's contents."
+                              "description": "type: type text at the focus, or replace an input's, a textarea's or an editable element's contents."
                             }
                           },
                           "required": [

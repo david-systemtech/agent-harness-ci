@@ -8,7 +8,7 @@ import { mozillaReaderable } from "./vendor/readability-readerable.js";
 import { mozillaReadability } from "./vendor/readability.js";
 
 /**
- * The reader's in-page functions (browser spec, "`browser_read`" and
+ * The reader's in-page functions (browser spec, "`get_page_text`" and
  * "Model-boundary hygiene"): what the driver runs in the top frame's
  * isolated world, where the page's own scripts can neither see nor change
  * them. Each declaration is composed from the source texts of the modules

@@ -49,7 +49,7 @@ const verbs: Record<string, { readonly args: Fixtures; readonly value: Fixtures 
     value: { valid: [location], invalid: [{ title: "x" }] },
   },
   type: {
-    args: { valid: [{ target: { ref: "e3" }, text: "hello" }, { target: { selector: "#q" }, text: "" }], invalid: [{ target: { ref: "e3" } }, { text: "hello" }] },
+    args: { valid: [{ target: { ref: "e3" }, text: "hello" }, { target: { selector: "#q" }, text: "" }, { text: "hello" }], invalid: [{ target: { ref: "e3" } }, {}] },
     value: { valid: [location], invalid: [{ url: 1, title: "x" }] },
   },
   read: {

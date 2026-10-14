@@ -4,7 +4,7 @@ import { pageBody, shownText } from "./page-text.js";
  * The shell rule `web_read` uses (browser spec, "`web_read`"; #292): a
  * fetched page that is an app's shell, whose content its script renders,
  * so reading it without a browser gives next to nothing. `web_read` answers
- * one with a sentence pointing at `browser_open`, never an empty page.
+ * one with a sentence pointing at `navigate`, never an empty page.
  */
 
 /** Under this many characters of text, a page is next to empty. */

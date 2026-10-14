@@ -1,7 +1,7 @@
 import type { PageRefusal } from "@agent-harness/contracts";
 
 /**
- * Paging (browser spec, "`browser_read`" and "`web_read`"): a long text read
+ * Paging (browser spec, "`get_page_text`" and "`web_read`"): a long text read
  * to its end a page at a time, by offset, in place of a cut that loses what
  * comes after it. Offsets count characters as the text's code units, the
  * way every transport and the model's next call count them.

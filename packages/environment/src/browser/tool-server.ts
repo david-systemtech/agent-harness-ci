@@ -16,7 +16,7 @@ import { webReadTool, type WebReader } from "./web-read.js";
  * run that built the server. A run whose browser is of another kind is
  * handed other tools, and its adapter starts a fresh process for it.
  *
- * A run whose browser is the plain My Chrome has `browser_open` take
+ * A run whose browser is the plain My Chrome is offered `select_browser`, taking
  * `browser`, the name of one of the person's Chromes, the agent's answer to
  * the several-Chromes question (#552): recorded on the session, it is the
  * Chrome the rest of the run drives, and its next run resolves it.
@@ -70,7 +70,7 @@ export interface BrowserToolServerOptions {
   readonly gate?: (sessionId: string) => ToolGate | null;
   /** Finds the person's allow on the live run's prompt by the call id. */
   readonly allowance?: (sessionId: string, call: HostToolCall) => OneTimeAllowance | undefined;
-  /** Chooses the Chrome `browser_open`'s `browser` names for the session, recording it as chosen by the agent. */
+  /** Chooses the Chrome `select_browser`'s `browser` names for the session, recording it as chosen by the agent. */
   readonly chooseChrome: (ask: ChromeChoiceAsk) => ChromeChoice | Promise<ChromeChoice>;
 }
 
@@ -145,7 +145,7 @@ export const createBrowserToolServers = (options: BrowserToolServerOptions): ((s
     const live = options.live(sessionId);
     if (live === null) return NO_RUN;
     const { browser } = live.browser;
-    if (browser.kind !== "chrome" || browser.chromeId !== null) return { kind: "refused", reason: "This run's browser is not My Chrome, so browser_open takes no browser." };
+    if (browser.kind !== "chrome" || browser.chromeId !== null) return { kind: "refused", reason: "This run's browser is not My Chrome, so select_browser has no choice to make." };
     const choice = await options.chooseChrome({ sessionId, runId: live.runId, environmentId: browser.environmentId, name });
     if (!choice.ok) return { kind: "refused", reason: choice.reason };
     if (options.live(sessionId)?.runId !== live.runId) return NO_RUN;

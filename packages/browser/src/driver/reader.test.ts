@@ -7,7 +7,7 @@ import type { InPageCall } from "../testing/index.js";
 import type { AriaNodeJSON } from "../snapshot/vendor/aria-types.js";
 
 /**
- * The reader through the page driver (browser spec, "`browser_read`"), over
+ * The reader through the page driver (browser spec, "`get_page_text`"), over
  * the scripted CDP peer answering recorded documents: each in-page function
  * the driver sends the reader is run from the declaration it sent, in a
  * jsdom window of the document the frame holds, so what is tested is the
@@ -79,7 +79,7 @@ const reading = (result: Awaited<ReturnType<Driven["perform"]>>): PageReading =>
   return result.value as PageReading;
 };
 
-describe("browser_read through the driver", () => {
+describe("get_page_text through the driver", () => {
   it("returns a Wikipedia-length article as Markdown to its last sentence over successive offsets, 24,000 characters a page with the total and the next offset", async () => {
     const page = await at(BLOG, LONG_ARTICLE);
 
