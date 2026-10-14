@@ -94,6 +94,63 @@ Calls on one desktop execute serially. Where actions are batched, stop at
 the first failure and mark later actions unexecuted. Do not apply an
 API-batch assumption to independent MCP calls from the provider's loop.
 
+### The contract and the server as built (#2161)
+
+`desktop-driver.ts` holds the session's `SessionDesktop` (`none`, `contained`,
+`local`), `RunDesktopResolution` with its reasons, each member's input
+schema (`COMPUTER_MEMBER_INPUTS`, the table above) and the driver's
+operations (`DESKTOP_OPERATION_SCHEMAS`), all exported under
+`schema/desktop/`. A `DesktopDriver` has a kind (`contained`, `local`,
+`scripted`), its abilities, and `perform(command)`, which never rejects:
+it answers the operation's value or a `DesktopRefusal` with a code and the
+sentence the model reads. Operations are in physical display pixels; only
+`release` may arrive during another operation, ending a `hold_key` early.
+
+| Member | Driver operations | Mode category |
+| --- | --- | --- |
+| `screenshot` | `capture { longEdge }` (keeps the frame) | observe |
+| `zoom` | `geometry`, `zoom { physical region, longEdge }` | observe |
+| `cursor_position` | `geometry`, `cursor` (answered in screenshot pixels) | observe |
+| `wait` | the server's clock, then `capture` | observe |
+| `left_click`, `right_click`, `middle_click`, `double_click`, `triple_click` | `geometry` when a coordinate is given, `click { button, count, at?, modifiers }` | pointer |
+| `left_click_drag` | `geometry`, `drag { from, to, modifiers }` | pointer |
+| `mouse_move` | `geometry`, `move { to }` | pointer |
+| `scroll` | `geometry` when a coordinate is given, `scroll { direction, amount, at?, modifiers }` | pointer |
+| `left_mouse_down`, `left_mouse_up` | `mouse_down` / `mouse_up { button: left }` | pointer |
+| `type` | `type { text }` | keyboard |
+| `key` | `key { chords, repeat }` (space-separated combinations in turn) | keyboard |
+| `hold_key` | `hold_key { keys, durationMs }`; `release` when the call is cancelled | keyboard |
+
+`createComputerToolServers` in `packages/environment/src/desktop/tool-server.ts`
+builds the `computer` server for a run whose resolved desktop is not none.
+Each call reads the session's live run, asks its kind's seam in
+`DesktopDrivers` for the driver, and answers why when there is no run, no
+desktop, no driver for the kind, or an ability the driver lacks. The last
+full screenshot's display and scale are kept per session and run; a point
+outside that frame is refused, a changed `geometry` refuses coordinate input
+until a fresh screenshot, and calls on one session run one at a time. Driver
+exceptions become bounded error results.
+
+The Claude adapter's `computerToolAliases` maps each bare member to
+`mcp__computer__<member>` unless the name is a built-in or another of the
+run's in-process tools (the browser server's `screenshot`, `scroll`,
+`type`, `key`), which keeps that name. Observe members declare `readOnly`,
+which the adapter passes as `readOnlyHint` so the provider's mode treats them
+as observation; pointer and keyboard members go through the run's mode and
+the tool gate as any tool that changes things. `computerModeRuling` in the
+contract is the mode table above, which #2163 enforces at the gate with the
+`desktopApps` checks, including the decision deferred until the target is
+rechecked after an allow.
+
+`resolveRunDesktop` in `desktop/run-desktop.ts` is the resolution above as a
+pure function. `unavailable.ts` holds `unavailableDesktop` and the
+contained stub `containedDesktopDriver`, which answers that the contained
+desktop is not available on this environment (none configured, or no driver
+to connect with until #2162). The scripted desktop for tests,
+`packages/environment/test/scripted-desktop.ts`, answers a scripted screen and
+display, keeps a pointer, logs every operation, and can change the display,
+refuse an operation once or hold a key until released.
+
 ### Capture and coordinates
 
 Capture one display at physical resolution, preserving aspect ratio when
