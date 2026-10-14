@@ -34,7 +34,7 @@ describe("a run's desktop", () => {
     expect(resolveRunDesktop({ field: LOCAL, attended: true }, ON)).toMatchObject({ desktop: LOCAL, reason: "selected" });
     expect(resolveRunDesktop({ field: LOCAL, attended: false }, ON)).toMatchObject({ requested: LOCAL, desktop: { kind: "none" }, reason: "unattended" });
     expect(resolveRunDesktop({ field: LOCAL, attended: true }, { ...ON, containment: "workspace" })).toMatchObject({ desktop: { kind: "none" }, reason: "containment" });
-    expect(resolveRunDesktop({ field: LOCAL, attended: true }, { ...ON, containment: "strict" }).reason).toBe("containment");
+    expect(resolveRunDesktop({ field: LOCAL, attended: true }, { ...ON, containment: "workspace-no-network" }).reason).toBe("containment");
     expect(resolveRunDesktop({ field: LOCAL, attended: true }, { ...ON, local: { available: false, reason: "Wayland is not supported yet" } })).toMatchObject({ desktop: { kind: "none" }, reason: "unavailable" });
   });
 });
