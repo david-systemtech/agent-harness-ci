@@ -5,6 +5,7 @@ import {
   SESSION_STREAM_KIND,
   SessionSummary,
   SessionBrowser,
+  SessionDesktop,
   normaliseGroupName,
   type EventEnvelope,
   type Group,
@@ -97,6 +98,7 @@ export const LIST_COMMANDS = [
   "sessions.restore",
   "sessions.setWorkspace",
   "sessions.setBrowser",
+  "sessions.setDesktop",
   "groups.create",
   "groups.rename",
   "groups.delete",
@@ -227,6 +229,7 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
           runChoice: null,
           mode: params["mode"] ?? null,
           browser: (params["browser"] as { value?: unknown } | undefined)?.value ?? null,
+          desktop: params["desktop"] ?? null,
           pullRequests: [],
           draft: null,
           draftRevision: 0,
@@ -300,6 +303,8 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
       }
       case "sessions.setBrowser":
         return set(id, { browser: SessionBrowser.nullable().parse(params["browser"]) }, commandId, "session.browser.set");
+      case "sessions.setDesktop":
+        return set(id, { desktop: SessionDesktop.parse(params["desktop"]) }, commandId, "session.desktop.set");
       case "sessions.setWorkspace": {
         // As the environment decides it (#328): only a missing session with no run live is given another workspace.
         if (!session) return noSession();

@@ -83,6 +83,7 @@ const summary = (id: string, title: string, at: string): SessionSummary => ({
   runChoice: null,
   mode: null,
   browser: null,
+  desktop: null,
   pullRequests: [],
   draft: null,
   draftRevision: 0,
