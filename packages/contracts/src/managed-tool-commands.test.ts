@@ -69,8 +69,8 @@ describe("the closed command table", () => {
     for (const platform of TOOL_COMMAND_PLATFORMS) expect(installChoice("vault", platform, () => true)).toBeNull();
   });
 
-  it("gives each tool, on each platform, one Install method: the first available of Homebrew, WinGet, the vendor's repository or the vendor's script", () => {
-    expect(TOOL_INSTALL_ORDER).toEqual(["homebrew", "winget", "apt", "dnf", "script"]);
+  it("gives each tool, on each platform, one Install method: the first available of Homebrew, WinGet, the vendor's repository, the vendor's script or npm", () => {
+    expect(TOOL_INSTALL_ORDER).toEqual(["homebrew", "winget", "apt", "dnf", "script", "npm"]);
     for (const tool of MANAGED_TOOL_NAMES.filter((name) => name !== "vault")) {
       for (const platform of TOOL_COMMAND_PLATFORMS) {
         const installs = MANAGED_TOOL_COMMANDS.filter((each) => each.tool === tool && each.install !== null && (each.platforms as readonly string[]).includes(platform)).map((each) => each.method);
@@ -87,6 +87,12 @@ describe("the closed command table", () => {
     expect(installChoice("gh", "linux", on(["sudo", "dnf"]))?.method).toBe("dnf");
     expect(installChoice("doppler", "linux", on(["curl", "sh", "gpg"]))?.method).toBe("script");
     expect(installChoice("doppler", "linux", on(["curl", "sh"]))).toBeNull();
+    // codex: Homebrew's cask when brew is there, else npm; claude's npm package only updates.
+    expect(installChoice("codex", "darwin", on(["brew", "npm"]))?.method).toBe("homebrew");
+    expect(installChoice("codex", "linux", on(["npm"]))?.method).toBe("npm");
+    expect(installChoice("codex", "win32", on(["npm"]))?.method).toBe("npm");
+    expect(installChoice("codex", "linux", on(["curl", "sh"]))).toBeNull();
+    expect(installChoice("claude", "linux", on(["npm"]))).toBeNull();
   });
 
   it("offers the checked bao archive as the last install fallback when either checksum program is available", () => {
@@ -101,13 +107,15 @@ describe("the closed command table", () => {
     }
   });
 
-  it("installs and updates through Homebrew: openbao (never bao, another program), doppler, the cask 1password-cli, gh and the cask claude-code", () => {
+  it("installs and updates through Homebrew: openbao (never bao, another program), doppler, the cask 1password-cli, gh, the cask claude-code and the cask codex", () => {
     const brew = (tool: Entry["tool"]) => [said(entry(tool, "homebrew", "darwin").install), said(entry(tool, "homebrew", "darwin").update)];
     expect(brew("bao")).toEqual(["brew install openbao", "brew upgrade openbao"]);
     expect(brew("doppler")).toEqual(["brew install doppler", "brew upgrade doppler"]);
     expect(brew("op")).toEqual(["brew install --cask 1password-cli", "brew upgrade --cask 1password-cli"]);
     expect(brew("gh")).toEqual(["brew install gh", "brew upgrade gh"]);
     expect(brew("claude")).toEqual(["brew install --cask claude-code", "brew upgrade --cask claude-code"]);
+    expect(brew("codex")).toEqual(["brew install --cask codex", "brew upgrade --cask codex"]);
+    expect(entry("codex", "homebrew", "linux")).toEqual(entry("codex", "homebrew", "darwin"));
     expect(entry("bao", "homebrew", "linux")).toEqual(entry("bao", "homebrew", "darwin"));
     expect(toolCommandEntry("bws", "homebrew", "darwin")).toBeNull();
   });
@@ -160,6 +168,17 @@ describe("the closed command table", () => {
       const npm = entry("claude", "npm", platform);
       expect([npm.install, said(npm.update)]).toEqual([null, "npm install -g @anthropic-ai/claude-code@latest"]);
     }
+  });
+
+  it("installs and updates codex as the global npm package @openai/codex, on every platform (#2169)", () => {
+    for (const platform of TOOL_COMMAND_PLATFORMS) {
+      const npm = entry("codex", "npm", platform);
+      expect([said(npm.install), said(npm.update), npm.needs]).toEqual(["npm install -g @openai/codex@latest", "npm install -g @openai/codex@latest", ["npm"]]);
+    }
+    expect(MANAGED_TOOL_COMMANDS.filter((each) => each.tool === "codex").map((each) => each.method)).toEqual(["homebrew", "npm"]);
+    // Installed but not by a method the table drives: its install for a person to start, never a self-update it does not have.
+    expect(said(documentedChoice("codex", true, "linux", (program) => program === "npm")?.command ?? null)).toBe("npm install -g @openai/codex@latest");
+    expect(documentedChoice("codex", false, "win32", () => false)).toBeNull();
   });
 
   it("gives Windows one step a command, since Windows PowerShell chains none", () => {
@@ -259,12 +278,13 @@ describe("tools.run", () => {
     const id = "0b8f4f7e-6d3c-4d8a-9f5e-2a1c3b4d5e6f";
     for (const params of [
       { commandId: "5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d", tool: "gh", action: "install", id },
+      { commandId: "5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d", tool: "codex", action: "install", id },
       { commandId: "5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d", tool: "vault", action: "install", id, cols: 120, rows: 40 },
     ])
       expect(run.params.safeParse(params).success, JSON.stringify(params)).toBe(true);
     for (const params of [
       { commandId: "5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d", tool: "gh", action: "copy", id },
-      { commandId: "5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d", tool: "codex", action: "install", id },
+      { commandId: "5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d", tool: "openai", action: "install", id },
       { commandId: "5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d", tool: "gh", action: "install" },
       { commandId: "5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d", tool: "gh", action: "install", id: "not-a-uuid" },
     ])

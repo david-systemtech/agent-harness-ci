@@ -10,11 +10,11 @@ import { KeyManagerProvider } from "./key-managers.js";
  * probes; clients never do, and read the rows.
  */
 
-/** The managed tools of milestone 1; Codex and the local-model tools arrive with their milestone-2 adapters. */
-export const MANAGED_TOOL_NAMES = ["claude", "bao", "vault", "doppler", "op", "bws", "gh"] as const;
+/** The managed tools: milestone 1's, and codex with its milestone-2 adapter (#2169); the local-model tools arrive with theirs. */
+export const MANAGED_TOOL_NAMES = ["claude", "codex", "bao", "vault", "doppler", "op", "bws", "gh"] as const;
 export const ManagedToolName = z.enum(MANAGED_TOOL_NAMES).meta({
   description:
-    "A managed tool, by the name it is found under on the PATH: claude (claude in your terminal, never the bundled binary), bao (OpenBao), vault (Vault), doppler, op (1Password), bws (Bitwarden Secrets Manager) or gh (GitHub).",
+    "A managed tool, by the name it is found under on the PATH: claude (claude in your terminal, never the bundled binary), codex (OpenAI's Codex CLI), bao (OpenBao), vault (Vault), doppler, op (1Password), bws (Bitwarden Secrets Manager) or gh (GitHub).",
 });
 export type ManagedToolName = z.infer<typeof ManagedToolName>;
 
@@ -84,6 +84,7 @@ export type ManagedTool = z.infer<typeof ManagedTool>;
  */
 export const MANAGED_TOOLS = [
   { name: "claude", label: "claude in your terminal", minimum: null, verify: null, requiredFor: { kind: "never" } },
+  { name: "codex", label: "codex", minimum: null, verify: null, requiredFor: { kind: "never" } },
   { name: "bao", label: "OpenBao CLI", minimum: "2.1.1", verify: ["token", "lookup"], requiredFor: { kind: "key-manager", provider: "openbao" } },
   { name: "vault", label: "Vault CLI", minimum: "1.14.0", verify: ["token", "lookup"], requiredFor: { kind: "key-manager", provider: "openbao" } },
   { name: "doppler", label: "Doppler CLI", minimum: "3.76.0", verify: ["secrets", "--only-names", "--json"], requiredFor: { kind: "key-manager", provider: "doppler" } },
@@ -182,7 +183,7 @@ export const ManagedToolRow = z
     version: ManagedToolVersion.nullable().meta({ description: "The version its --version reported within five seconds; null when it is not installed or none was read." }),
     latest: ManagedToolVersion.nullable().meta({
       description:
-        "The newest release known, from the source matching its install method (the Homebrew API for homebrew, WinGet's manifests for winget, the npm registry's configured update-channel dist-tag for claude on npm), else the vendor's release feed (GitHub releases for bao, doppler, bws and gh; Claude Code's configured update channel for claude; 1Password's update feed for op; HashiCorp's releases API for vault): fetched by the environment at most once a day, when a client asks tools.list to refresh, and cached on the environment. Null while none is known, and when it is not installed. A version behind it is update-available.",
+        "The newest release known, from the source matching its install method (the Homebrew API for homebrew, WinGet's manifests for winget, the npm registry's configured update-channel dist-tag for claude on npm), else the vendor's release feed (GitHub releases for bao, doppler, bws and gh; Claude Code's configured update channel for claude; the npm registry's latest dist-tag for codex; 1Password's update feed for op; HashiCorp's releases API for vault): fetched by the environment at most once a day, when a client asks tools.list to refresh, and cached on the environment. Null while none is known, and when it is not installed. A version behind it is update-available.",
     }),
     minimum: ManagedToolVersion.nullable().meta({ description: "The tool's declared minimum; null for one that is never required." }),
     method: ManagedToolInstallMethod.nullable().meta({ description: "How it was installed; null when it is not installed." }),
@@ -216,9 +217,9 @@ export const keyManagerCliRow = (provider: KeyManagerProvider, rows: readonly Ma
   return row;
 };
 
-/** The tools a verify command proves: every one with a verify command, which `claude` has not. */
-export const VerifiableToolName = ManagedToolName.exclude(["claude"]).meta({
-  description: "A managed tool with a verify command: bao, vault, doppler, op, bws or gh; claude has none.",
+/** The tools a verify command proves: every one with a verify command, which `claude` and `codex` have not. */
+export const VerifiableToolName = ManagedToolName.exclude(["claude", "codex"]).meta({
+  description: "A managed tool with a verify command: bao, vault, doppler, op, bws or gh; claude and codex have none.",
 });
 export type VerifiableToolName = z.infer<typeof VerifiableToolName>;
 
@@ -253,7 +254,7 @@ export const ManagedToolVerification = z
   .meta({ description: "A managed tool's verify command, as it came out: the tool, passed, failed or not installed, and one line saying why." });
 export type ManagedToolVerification = z.infer<typeof ManagedToolVerification>;
 
-/** The tools with a `doctor` command, which `tools.detail` runs (#374): claude's; Codex's arrives with its milestone-2 adapter. */
+/** The tools with a `doctor` command, which `tools.detail` runs (#374): claude's; codex has none. */
 export const DoctorToolName = ManagedToolName.extract(["claude"]).meta({
   description: "A managed tool with a doctor command, which tools.detail runs: claude.",
 });

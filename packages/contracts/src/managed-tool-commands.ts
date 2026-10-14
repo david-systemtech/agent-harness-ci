@@ -16,7 +16,8 @@ import { TerminalExitCause, TerminalId } from "./terminals.js";
  *
  * Install takes the first method available on the environment, in the
  * order Homebrew, WinGet, the vendor's apt or dnf repository, the vendor's
- * script (bao's checked archive among them): available when every program it
+ * script (bao's checked archive among them), npm (codex's global package,
+ * #2169): available when every program it
  * `needs` and one of its `needsAny`, if present, is on the login shell's
  * PATH. Update takes the method the tool was installed by: a package
  * manager's own upgrade (Homebrew, WinGet, Scoop, mise, asdf, npm, apt,
@@ -43,12 +44,12 @@ export type ToolCommandPlatform = z.infer<typeof ToolCommandPlatform>;
 export const TOOL_COMMAND_METHODS = ["homebrew", "winget", "apt", "dnf", "script", "npm", "scoop", "mise", "asdf", "manual"] as const;
 export const ToolCommandMethod = z.enum(TOOL_COMMAND_METHODS).meta({
   description:
-    "A way the harness installs or updates a tool: homebrew; winget; apt or dnf, the vendor's repository added with its signing key; script, the vendor's installer or checked release archive (claude's native installer and bao's archive among them); npm, a global package; scoop, mise or asdf, the package manager's own upgrade of the package the tool was installed as; manual, a binary placed by hand, updated by the vendor's self-update or, for bao, its release archive checked against the published checksums. Only the first five install; the others only update.",
+    "A way the harness installs or updates a tool: homebrew; winget; apt or dnf, the vendor's repository added with its signing key; script, the vendor's installer or checked release archive (claude's native installer and bao's archive among them); npm, a global package; scoop, mise or asdf, the package manager's own upgrade of the package the tool was installed as; manual, a binary placed by hand, updated by the vendor's self-update or, for bao, its release archive checked against the published checksums. Only the first five install, and npm, for a tool whose vendor ships it as a global package (codex); the others only update.",
 });
 export type ToolCommandMethod = z.infer<typeof ToolCommandMethod>;
 
 /** The order Install takes the methods in: the first available on the environment. */
-export const TOOL_INSTALL_ORDER = ["homebrew", "winget", "apt", "dnf", "script"] as const satisfies readonly ToolCommandMethod[];
+export const TOOL_INSTALL_ORDER = ["homebrew", "winget", "apt", "dnf", "script", "npm"] as const satisfies readonly ToolCommandMethod[];
 
 /** The tools the table installs or updates: every managed tool but `vault`. */
 export const InstallableToolName = ManagedToolName.exclude(["vault"]).meta({
@@ -107,7 +108,7 @@ export const ToolCommandEntry = z
       .max(4)
       .meta({ description: "The programs Install needs on the login shell's PATH: the package manager, sudo, the downloader. The method is available where every one is found." }),
     needsAny: z.array(ProgramName).min(1).max(4).optional().meta({ description: "Alternative programs: at least one must be on the login PATH, in addition to every program in needs." }),
-    install: ToolCommand.nullable().meta({ description: "The install command; null for a method that only updates (npm, claude's own apt and dnf repositories)." }),
+    install: ToolCommand.nullable().meta({ description: "The install command; null for a method that only updates (claude's npm package, its own apt and dnf repositories)." }),
     update: ToolCommand.meta({ description: "The update command, for the tool installed by this method." }),
     package: PackageName.optional().meta({
       description: `For scoop, mise and asdf, the package the update names where the argument ${TOOL_PACKAGE_ARGUMENT} stands: the one the tool's realpath is installed under (scoop/apps/<name>, mise/installs/<name>, .asdf/installs/<name>), else this, the registry's name for it, for a shim.`,
@@ -314,6 +315,10 @@ export const MANAGED_TOOL_COMMANDS: readonly ToolCommandEntry[] = [
   mise("claude", "claude"),
   asdf("claude", "claude"),
   selfUpdate("claude", ["darwin", "linux", "win32"]),
+
+  // OpenAI's Codex CLI (#2169): Homebrew's cask codex, else the npm package @openai/codex, which installs as well as updates.
+  homebrew("codex", "codex", true),
+  { tool: "codex", method: "npm", platforms: ["darwin", "linux", "win32"], needs: ["npm"], install: [[["npm", "install", "-g", "@openai/codex@latest"]]], update: [[["npm", "install", "-g", "@openai/codex@latest"]]] },
 
   // OpenBao: the formula openbao (bao is another program), WinGet, and pkgs.openbao.org's repositories; Scoop, mise, asdf, and a bare binary by the checksum-verified release archive, only update.
   homebrew("bao", "openbao"),
@@ -707,7 +712,7 @@ export const ToolRunFinishedPayload = z
       description: "Why it ended: exited on its own; closed (terminals.close, or the environment stopping); failed (it could not start).",
     }),
     verification: ManagedToolVerification.nullable().meta({
-      description: "How the tool's verify command came out once the PATH was read again and the tool probed; null for claude, which has none, and when the environment stopped first.",
+      description: "How the tool's verify command came out once the PATH was read again and the tool probed; null for claude and codex, which have none, and when the environment stopped first.",
     }),
   })
   .meta({

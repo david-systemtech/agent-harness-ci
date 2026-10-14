@@ -69,7 +69,7 @@ const runFinished = { tool: "gh", action: "install", method: "homebrew", termina
 const notRunnable = { code: "tool_not_runnable", message: "gh installed by mise is not updated by the harness.", data: { tool: "gh", action: "update", command: "brew install gh" } };
 
 export const managedToolSchemaFixtures: Record<string, Fixtures> = {
-  "managed-tools/name.json": { valid: ["claude", "bao", "vault", "doppler", "op", "bws", "gh"], invalid: ["codex", "openbao", ""] },
+  "managed-tools/name.json": { valid: ["claude", "codex", "bao", "vault", "doppler", "op", "bws", "gh"], invalid: ["openai", "openbao", ""] },
   "managed-tools/version.json": { valid: ["2.63.2", "2.40", "2.1.0-beta.1", "1.14.0+ent"], invalid: ["v2.63.2", "2", "2.63.2 (2024-12-05)", ""] },
   "managed-tools/tool.json": {
     valid: [
@@ -109,7 +109,7 @@ export const managedToolSchemaFixtures: Record<string, Fixtures> = {
   "managed-tools/events/tools.updated.json": { valid: [{ tools: [gh] }, { tools: [missing, claude] }], invalid: [{ tools: [] }, {}, { tools: [{ ...gh, action: "ignore" }] }] },
   "managed-tools/command-platform.json": { valid: ["darwin", "linux", "win32"], invalid: ["macos", "windows", ""] },
   "managed-tools/command-method.json": { valid: ["homebrew", "winget", "apt", "dnf", "script", "npm", "scoop", "mise", "asdf", "manual"], invalid: ["native", "unknown", "brew", ""] },
-  "managed-tools/installable-name.json": { valid: ["claude", "bao", "gh"], invalid: ["vault", "codex", ""] },
+  "managed-tools/installable-name.json": { valid: ["claude", "codex", "bao", "gh"], invalid: ["vault", "openai", ""] },
   "managed-tools/command.json": { valid: [brewInstall, aptInstall], invalid: [[], [[]], [[[]]], "brew install gh", [[["brew", "install", "gh\nrm -rf ~"]]]] },
   "managed-tools/command-entry.json": {
     valid: [

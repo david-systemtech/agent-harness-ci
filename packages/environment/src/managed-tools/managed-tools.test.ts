@@ -88,6 +88,7 @@ posix("tools.list", () => {
     const path = fakePath();
     const tools = {
       claude: path.install("claude", { output: "2.1.283 (Claude Code)" }),
+      codex: path.install("codex", { output: "codex-cli 0.46.0" }),
       bao: path.install("bao", { output: "OpenBao v2.1.1 (a1b2c3d4), built 2025-01-01T00:00:00Z" }),
       vault: path.install("vault", { output: "Vault v1.13.2 ('b9b773f1628260423e6cc9745531fd903cae853f'), built 2023-04-25T13:02:50Z" }),
       doppler: path.install("doppler", { output: "v3.76.0" }),
@@ -100,6 +101,7 @@ posix("tools.list", () => {
     const rows = (await list(client)).tools;
     expect(Object.fromEntries(rows.map((row) => [row.tool, [row.version, row.status]]))).toEqual({
       claude: ["2.1.283", "current"],
+      codex: ["0.46.0", "current"],
       bao: ["2.1.1", "current"],
       vault: ["1.13.2", "below-minimum"],
       doppler: ["3.76.0", "current"],
@@ -107,8 +109,8 @@ posix("tools.list", () => {
       bws: ["0.2.1", "below-minimum"],
       gh: ["2.63.2", "current"],
     });
-    // Placed by hand: self-updates and the archive remain driven; bws has its vendor script, while op and gh have no available install fallback.
-    const actions = { claude: "update", bao: "update", vault: "copy", doppler: "update", op: "copy", bws: "terminal", gh: "copy" } as const;
+    // Placed by hand: self-updates and the archive remain driven; bws has its vendor script, while codex, op and gh have no available install fallback.
+    const actions = { claude: "update", codex: "copy", bao: "update", vault: "copy", doppler: "update", op: "copy", bws: "terminal", gh: "copy" } as const;
     for (const [name, tool] of Object.entries(tools)) {
       expect(rowOf(rows, name), name).toMatchObject({ path: tool.onPath, realpath: tool.file, method: "manual", action: actions[name as keyof typeof actions] });
       expect(tool.calls(), name).toEqual([["--version"]]);
@@ -183,12 +185,14 @@ posix("the install method", () => {
     const bao = path.install("bao", { at: ".local/share/mise/installs/openbao/2.1.1/bin/bao", output: "OpenBao v2.1.1" });
     const vault = path.install("vault", { at: ".asdf/installs/vault/1.15.0/bin/vault", output: "Vault v1.15.0" });
     const claude = path.install("claude", { at: "lib/node_modules/@anthropic-ai/claude-code/cli.js", output: "2.1.283 (Claude Code)" });
+    const codex = path.install("codex", { at: "lib/node_modules/@openai/codex/bin/codex.js", output: "codex-cli 0.46.0" });
     const owners = scriptedPackageOwners();
     const { client } = await withTools(path, { managedTools: { packageOwner: owners } });
 
     const rows = (await list(client)).tools;
     expect(Object.fromEntries(rows.map((row) => [row.tool, [row.method, row.status, row.action]]))).toEqual({
       claude: ["npm", "current", "update"],
+      codex: ["npm", "current", "update"],
       bao: ["mise", "current", "update"],
       vault: ["asdf", "current", "copy"],
       doppler: ["homebrew", "current", "update"],
@@ -197,7 +201,7 @@ posix("the install method", () => {
       gh: ["winget", "current", "update"],
     });
     expect(rowOf(rows, "doppler").realpath).toBe(doppler.file);
-    for (const tool of [op, gh, bws, bao, vault, claude]) expect(rows.some((row) => row.realpath === tool.file)).toBe(true);
+    for (const tool of [op, gh, bws, bao, vault, claude, codex]) expect(rows.some((row) => row.realpath === tool.file)).toBe(true);
     // A shape answers without asking the package manager.
     expect(owners.asked).toEqual([]);
   });

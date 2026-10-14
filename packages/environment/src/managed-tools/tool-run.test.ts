@@ -206,6 +206,29 @@ posix("tools.run's Install", () => {
     expect(pty.spawned).toHaveLength(0);
   });
 
+  it("installs codex through Homebrew's cask where brew is there, else as the global npm package, and names both missing programs where neither is (#2169)", async () => {
+    const path = fakePath();
+    programs(path, "npm");
+    const { client, pty } = await withRunner(path);
+    const result = await ran(client, { tool: "codex", action: "install" });
+    expect([result.tool, result.method, result.command]).toEqual(["codex", "npm", "npm install -g @openai/codex@latest"]);
+    expect(spawnedAt(pty).args).toEqual(["-l", "-c", "npm install -g @openai/codex@latest"]);
+
+    const brewed = fakePath();
+    programs(brewed, "brew", "npm");
+    const withBrew = await withRunner(brewed);
+    expect((await ran(withBrew.client, { tool: "codex", action: "install" })).command).toBe("brew install --cask codex");
+
+    const bare = await withRunner(fakePath());
+    const answer = await run(bare.client, { tool: "codex", action: "install" });
+    expect(answer.receipt).toMatchObject({
+      status: "rejected",
+      reason: "tool_not_runnable",
+      error: { message: "None of the harness's install methods for codex is available here. Programs needed: homebrew: brew; npm: npm.", data: { tool: "codex", action: "install", command: null } },
+    });
+    expect(bare.pty.spawned).toHaveLength(0);
+  });
+
   it("is tool_not_runnable where no method is available, naming the missing programs without suggesting an unavailable command, and for a tool installed already, opening nothing", async () => {
     const path = fakePath();
     path.install("gh", { output: "gh version 2.63.2 (2024-12-05)" });
@@ -387,6 +410,7 @@ posix("tools.run's Update", () => {
     const commands = Object.fromEntries(rows.map((row) => [row.tool, [row.action, row.command]]));
     expect(commands).toEqual({
       claude: ["install", null],
+      codex: ["install", null],
       bao: ["install", null],
       vault: ["copy", null],
       doppler: ["update", null],
