@@ -31,7 +31,7 @@ import type { ListData } from "../streams/kinds.js";
 import type { StreamState } from "../streams/stream.js";
 import { decodeOutbox, encodeOutbox, outboxDocument, type OutboxEntry } from "./entries.js";
 import { reachable, type EnvironmentOutbox, type OutboxView, type OverlayRecord } from "./overlay.js";
-import { overlayOf, reasonOf, routineOf, targetOf, verbOf, type Target } from "./rules.js";
+import { draftsAfterAnswer, overlayOf, reasonOf, routineOf, targetOf, verbOf, type Target } from "./rules.js";
 import { createStopFirst } from "./stop-first.js";
 
 export { STOP_WAIT_MS } from "./stop-first.js";
@@ -722,8 +722,31 @@ export const createOutbox = (host: OutboxHost): Outbox => {
   const acknowledge = (entry: OutboxEntry, receipt: AcceptedReceipt, result: unknown) => {
     if (entry.method === "routines.create") host.routineCreated(entry.environmentId, entry.params as CommandParams<"routines.create">);
     remove(entry, (overlay) => ({ ...overlay, sequence: receipt.sequence }));
+    const answered: Answer = { ok: true, commandId: entry.commandId, receipt, ...(result !== undefined && { result: result as ResultOf<CommandMethodName> }) };
+    if (entry.method === "sessions.setDraft") followDraft(entry, result, answered);
     settleOverlays(entry.environmentId);
-    answer(entry.commandId, { ok: true, commandId: entry.commandId, receipt, ...(result !== undefined && { result: result as ResultOf<CommandMethodName> }) });
+    answer(entry.commandId, answered);
+  };
+
+  /**
+   * A revised draft answered (#2207): a draft of the session queued behind it
+   * takes its revision as its base when it was written, and is dropped with
+   * it when it was dropped as stale, its caller answered as its was.
+   */
+  const followDraft = (entry: OutboxEntry, result: unknown, answered: Answer) => {
+    const { drop, rebase } = draftsAfterAnswer(entry.params, result, outboxOf(entry.environmentId).entries);
+    if (drop.length === 0 && rebase.size === 0) return;
+    const dropped = new Set(drop);
+    change(entry.environmentId, (current) => ({
+      entries: current.entries.flatMap((e) => {
+        if (dropped.has(e.commandId)) return [];
+        const base = rebase.get(e.commandId);
+        return base === undefined ? [e] : [{ ...e, params: { ...e.params, baseRevision: base } }];
+      }),
+      overlays: current.overlays.filter((o) => !dropped.has(o.commandId)),
+    }));
+    for (const commandId of drop) answer(commandId, { ...answered, commandId });
+    void persist(entry.environmentId);
   };
 
   const load = (environmentId: string): Promise<void> => {

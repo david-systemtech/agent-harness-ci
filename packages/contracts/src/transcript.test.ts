@@ -204,6 +204,7 @@ describe("the per-session snapshot", () => {
     browser: null,
     pullRequests: [],
     draft: null,
+    draftRevision: 0,
   };
   const item = { kind: "assistant-text", sequence: 4, runId, itemId: "i-1", text: "Done.", aborted: false };
 

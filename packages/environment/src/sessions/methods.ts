@@ -343,7 +343,7 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers &
       onSession(params.sessionId, context, (state, sessionId) => decideUntag(state, { sessionId, tag: params.tag })),
 
     "sessions.setDraft": (params, context) =>
-      onSession(params.sessionId, context, (state, sessionId) => decideSetDraft(state, { sessionId, draft: params.draft })),
+      onSession(params.sessionId, context, (state, sessionId) => decideSetDraft(state, { sessionId, draft: params.draft, baseRevision: params.baseRevision })),
 
     // The browser the session's next run resolves (#550), chosen by the person at the client; at runs:drive, which the wire checks.
     "sessions.setBrowser": (params, context) =>

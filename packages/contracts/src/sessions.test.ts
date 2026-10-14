@@ -311,6 +311,7 @@ const fresh = {
   browser: null,
   pullRequests: [],
   draft: null,
+  draftRevision: 0,
 };
 
 describe("the workspace", () => {
@@ -410,6 +411,7 @@ describe("the session summary", () => {
       "browser",
       "pullRequests",
       "draft",
+      "draftRevision",
     ]);
     expect(SessionSummary.parse(fresh)).toEqual(fresh);
     expect(SessionSummary.safeParse({ ...fresh, title: "" }).success).toBe(false);

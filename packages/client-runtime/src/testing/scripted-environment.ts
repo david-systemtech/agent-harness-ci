@@ -486,6 +486,7 @@ const summaryOf = (clock: ManualClock, partial: Partial<SessionSummary>, index: 
     browser: null,
     pullRequests: [],
     draft: null,
+    draftRevision: 0,
     ...partial,
   });
 };
@@ -862,6 +863,9 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   // The run commands, as the environment answers them (claude-adapter spec, "Wire methods"; ADR 0022): a start or a send
   // with no run live starts one; a send during a live run is queued, held by whoever the script says holds the queue; an
   // interrupt ends the run. A receipt the script rejects is answered as it is, and nothing is appended.
+  /** A `session.draft-set`, which moves the draft's revision on (#2207). */
+  const setDraftOf = (sessionId: string, draft: string | null) =>
+    emit(sessionId, "session.draft-set", { draft }, { fields: { draft, draftRevision: summaryNow(sessionId).draftRevision + 1 } });
   const acceptedWith = (result: Record<string, unknown>): FakeAnswer => ({ result: { receipt: { status: "accepted", sequence, changed: true }, result } });
   /** A scripted rejection of `method`; its receipt carries a new head, or the head it found (`advance` false) as a terminal command's does. */
   const rejection = (method: string, advance = true): FakeAnswer | undefined => {
@@ -958,7 +962,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     emit(sessionId, "message.withdrawn", { runId: message.runId, messageId, heldBy });
     const before = summaryNow(sessionId).draft;
     const draft = before === null || before.length === 0 ? message.text : `${before}\n\n${message.text}`;
-    emit(sessionId, "session.draft-set", { draft }, { fields: { draft } });
+    setDraftOf(sessionId, draft);
     return acceptedWith({ messageId, sessionId, heldBy });
   });
   wire.answer("runs.stopTask", (params) => rejection("runs.stopTask") ?? acceptedWith({ runId: params["runId"], taskId: params["taskId"], ended: false }));
@@ -979,7 +983,12 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     if (refused) return refused;
     const sessionId = String(params["sessionId"]);
     const draft = (params["draft"] as string | null | undefined) || null;
-    emit(sessionId, "session.draft-set", { draft }, { fields: { draft } });
+    // A base older than the draft's revision is a stale write, dropped as the environment drops it (#2207).
+    const base = params["baseRevision"];
+    if (typeof base === "number" && base < summaryNow(sessionId).draftRevision) {
+      return { result: { receipt: { status: "accepted", sequence, changed: false }, result: { summary: summaryNow(sessionId) } } };
+    }
+    setDraftOf(sessionId, draft);
     return acceptedWith({ summary: summaryNow(sessionId) });
   });
   // Fork and rewind (ADR 0022), as the environment's `sessions/fork-rewind.ts` answers them: over the user messages a run
@@ -1133,7 +1142,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       { patch: { op: "add", summary } },
     );
     if (carriedTitle !== null) emit(id, "session.title-generated", { title: carriedTitle, source: "prompt" });
-    if (draft !== "") emit(id, "session.draft-set", { draft }, { fields: { draft } });
+    if (draft !== "") setDraftOf(id, draft);
     emit(id, "session.forked", { fromSessionId: source.id, atMessageId, fromProviderSessionId, history });
     return acceptedWith({ summary });
   });
@@ -1425,7 +1434,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const rewound = emit(sessionId, "session.rewound", { toMessageId: messageId });
     const draft = target.text.slice(0, MAX_DRAFT_LENGTH);
     rewoundDrafts.set(rewound.sequence, { wrote: draft === "" ? null : draft, before });
-    if (draft !== "") emit(sessionId, "session.draft-set", { draft }, { fields: { draft } });
+    if (draft !== "") setDraftOf(sessionId, draft);
     return acceptedWith({ sessionId, messageId });
   }));
   wire.answer("sessions.undoRewind", (params) => {

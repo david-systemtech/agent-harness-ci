@@ -83,6 +83,7 @@ const summary = {
   browser: null,
   pullRequests: [],
   draft: null,
+  draftRevision: 0,
 };
 
 describe("a prompt suggestion (#251)", () => {

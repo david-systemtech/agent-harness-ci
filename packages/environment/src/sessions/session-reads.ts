@@ -35,6 +35,7 @@ export const readSessionState = (reader: Reader, id: string): SessionState | nul
     snoozedUntil: row.snoozed_until,
     tags: tagsOf(reader, id),
     draft: row.draft,
+    draftRevision: row.draft_revision,
     settledOverride: row.settled_override as SessionState["settledOverride"],
     browser: browserOf(row.browser),
   };

@@ -325,6 +325,24 @@ describe("deciding sessions.setDraft", () => {
     expect(decideSetDraft(live(), { sessionId: id, draft: null })).toEqual({ events: [] });
     expect(decideSetDraft(live(), { sessionId: id, draft: "" })).toEqual({ events: [] });
   });
+  // The draft revision (#2207): a write typed over a draft another client has since replaced is dropped.
+  it("writes a draft whose base is the stored revision, or newer", () => {
+    const set = { events: [{ type: "session.draft-set", payload: { draft: "newer" } }] };
+    expect(decideSetDraft(live(null, { draft: "old", draftRevision: 3 }), { sessionId: id, draft: "newer", baseRevision: 3 })).toEqual(set);
+    expect(decideSetDraft(live(null, { draft: "old", draftRevision: 3 }), { sessionId: id, draft: "newer", baseRevision: 4 })).toEqual(set);
+  });
+
+  it("drops a draft whose base is older than the stored revision, appending nothing", () => {
+    expect(decideSetDraft(live(null, { draft: "B wrote this", draftRevision: 2 }), { sessionId: id, draft: "A queued this", baseRevision: 1 })).toEqual({ events: [] });
+    expect(decideSetDraft(live(null, { draft: "B wrote this", draftRevision: 2 }), { sessionId: id, draft: null, baseRevision: 0 })).toEqual({ events: [] });
+  });
+
+  it("writes the first draft on base 0, and a draft without a base unconditionally, as a client from before the revision sends it", () => {
+    expect(decideSetDraft(live(), { sessionId: id, draft: "first", baseRevision: 0 })).toEqual({ events: [{ type: "session.draft-set", payload: { draft: "first" } }] });
+    expect(decideSetDraft(live(null, { draft: "B wrote this", draftRevision: 5 }), { sessionId: id, draft: "old client" })).toEqual({
+      events: [{ type: "session.draft-set", payload: { draft: "old client" } }],
+    });
+  });
 });
 
 describe("deciding deletion", () => {

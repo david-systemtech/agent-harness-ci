@@ -215,3 +215,57 @@ export const overlayOf = (method: CommandMethodName, params: Readonly<Record<str
       return null;
   }
 };
+
+/** A queued command as `draftsAfterAnswer` reads it. */
+export interface QueuedCommand {
+  readonly commandId: string;
+  readonly method: string;
+  readonly target: Target | null;
+  readonly params: Readonly<Record<string, unknown>>;
+  readonly state: string;
+}
+
+/** What becomes of a session's queued drafts once one of its revised `sessions.setDraft` is answered: those dropped, and those given a new base. */
+export interface DraftFollowUp {
+  readonly drop: readonly string[];
+  readonly rebase: ReadonlyMap<string, number>;
+}
+
+const NO_FOLLOW_UP: DraftFollowUp = { drop: [], rebase: new Map() };
+
+/**
+ * The draft revision rule on the client's side (#2207). A `sessions.setDraft`
+ * names the draft revision its client last saw (`baseRevision`); the
+ * environment drops one whose base is older than the stored revision and
+ * answers with the summary holding the stored draft. Once one is answered,
+ * a draft of the same session still queued behind it, typed on the same
+ * base or an older one, follows it: when the answer's draft is the one sent
+ * (it was written), the queued draft was typed over it, so it takes the
+ * answer's revision as its base rather than be dropped as stale itself;
+ * when it is not (it was dropped), the queued draft was typed over the
+ * same stale draft, so it is dropped too and the session's stored draft is
+ * what the composer shows. A queued draft on a newer base, or one without a
+ * base (unconditional), is kept as it is.
+ */
+export const draftsAfterAnswer = (answered: Readonly<Record<string, unknown>>, result: unknown, queued: readonly QueuedCommand[]): DraftFollowUp => {
+  const base = answered["baseRevision"];
+  const sessionId = text(answered, "sessionId")?.toLowerCase();
+  const summary = typeof result === "object" && result !== null ? (result as { summary?: Partial<SessionSummary> }).summary : undefined;
+  if (typeof base !== "number" || sessionId === undefined || typeof summary?.draftRevision !== "number") return NO_FOLLOW_UP;
+  const sent = text(answered, "draft");
+  const written = (sent === undefined || sent === "" ? null : sent) === summary.draft;
+  const behind = queued.filter((entry) => {
+    const queuedBase = entry.params["baseRevision"];
+    return (
+      entry.state === "queued" &&
+      entry.method === "sessions.setDraft" &&
+      entry.target?.kind === "session" &&
+      entry.target.id === sessionId &&
+      typeof queuedBase === "number" &&
+      queuedBase <= base
+    );
+  });
+  if (behind.length === 0) return NO_FOLLOW_UP;
+  const revision = summary.draftRevision;
+  return written ? { drop: [], rebase: new Map(behind.map((entry) => [entry.commandId, revision])) } : { drop: behind.map((entry) => entry.commandId), rebase: new Map() };
+};

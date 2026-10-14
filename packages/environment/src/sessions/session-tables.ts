@@ -54,6 +54,8 @@ export interface SessionRow {
   browser: string | null;
   pull_requests: string;
   draft: string | null;
+  /** How many times the draft has been set (#2207). */
+  draft_revision: number;
   deleted_at: string | null;
   purge_at: string | null;
   delete_provider_transcript: number;
@@ -106,6 +108,7 @@ export const SESSION_LIST_TABLES = {
     browser TEXT,
     pull_requests TEXT NOT NULL DEFAULT '[]',
     draft TEXT,
+    draft_revision INTEGER NOT NULL DEFAULT 0,
     deleted_at TEXT,
     purge_at TEXT,
     delete_provider_transcript INTEGER NOT NULL DEFAULT 0,
@@ -180,6 +183,7 @@ export const toSummary = (reader: Reader, row: SessionRow): SessionSummary => ({
   browser: browserOf(row.browser),
   pullRequests: JSON.parse(row.pull_requests) as SessionSummary["pullRequests"],
   draft: row.draft,
+  draftRevision: row.draft_revision,
 });
 
 /** A `groups` row as the group. */

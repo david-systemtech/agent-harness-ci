@@ -85,6 +85,7 @@ const summary = (id: string, title: string, at: string): SessionSummary => ({
   browser: null,
   pullRequests: [],
   draft: null,
+  draftRevision: 0,
 });
 
 /** `store` with every key written remembered, so every document can be read back. */
