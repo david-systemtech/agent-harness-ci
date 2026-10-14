@@ -229,6 +229,20 @@ describe("a session dragged onto the grid", () => {
   });
 });
 
+describe("a closed session dragged from the sidebar into the main area", () => {
+  it("opens at the centre of the one pane, and beside it at its edge, while the grid shows another session", async () => {
+    await withTrain();
+    expect(grid()).toEqual([["*Train tidy"]]);
+
+    expect(dropOn("Fix the rail", () => paneOf("Train tidy"), "Open to the right")).toBe(true);
+    await waitFor(() => expect(grid()).toEqual([["Train tidy", "*Fix the rail"]]));
+
+    expect(dropOn("Brand copy", () => paneOf("Fix the rail"), "Open here")).toBe(true);
+    await waitFor(() => expect(grid()).toEqual([["Train tidy", "*Brand copy"]]));
+    expect(screen.queryByLabelText("Open here")).toBeNull();
+  });
+});
+
 describe("a pane dragged by its caption", () => {
   it("keeps unsent attachments and surviving pane mounts through splits, closes, swaps and moves between rows", async () => {
     const app = await withTrain();
