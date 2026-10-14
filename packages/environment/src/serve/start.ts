@@ -1950,7 +1950,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...accountMethods({ accounts, host }),
     ...instructionHandlers,
     ...sessionInstructionsMethods(log),
-    ...forgeMethods(forge),
+    ...forgeMethods(forge, { environmentId: record.id, version: harnessVersion, scrub }),
     ...bankMethods(bankService, bankCredentials, bankSyncer),
     ...splitMethods(bankService, record.id),
     ...migrationMethods(bankService, record.id, forge),

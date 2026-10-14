@@ -179,3 +179,5 @@ export * from "./web/attention.js";
 
 export * from "./attention.js";
 export * from "./methods/attention.js";
+
+export { REPORT_FILE_BYTES, REPORT_TOTAL_BYTES, REPORT_MEDIA_TYPES } from "./methods/reports.js";

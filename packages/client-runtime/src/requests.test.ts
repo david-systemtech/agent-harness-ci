@@ -5,7 +5,7 @@ import { noticeEvent } from "../test/events.js";
 import { forgeEventPayload, forgeRecord } from "../test/forges.js";
 import { keyManagerEventPayload, keyManagerRecord, toolRow, toolsUpdatedPayload } from "../test/key-managers.js";
 import { subscription } from "../test/scripted.js";
-import { createRequestCache, IMPORT_WAIT_MS, REQUEST_CACHE_TTL_MS, REQUEST_TIMEOUT_MS, UPDATE_APPLY_TIMEOUT_MS } from "./requests.js";
+import { createRequestCache, IMPORT_WAIT_MS, REPORT_SUBMIT_TIMEOUT_MS, REQUEST_CACHE_TTL_MS, REQUEST_TIMEOUT_MS, UPDATE_APPLY_TIMEOUT_MS } from "./requests.js";
 import { writable } from "./observable.js";
 import type { ConnectionRecord } from "./connections/records.js";
 import { fakeWire, flush } from "./testing/fake-wire.js";
@@ -172,6 +172,38 @@ describe("requests.call", () => {
       ...(status === "accepted" && { result: { updateId: "0199aa00-0000-4000-8000-000000000001", toVersion: "0.6.0" } }),
     } });
     expect(await answer).toMatchObject({ ok: true, result: { receipt } });
+  });
+
+  it("keeps a public report open while its media uploads exceed 30 seconds", async () => {
+    const { runtime, wire, clock, id } = await paired({ capabilities: ["forge"] });
+    wire.answer("reports.submit", () => undefined);
+    let settled: unknown;
+    const answer = runtime.requests.call(id, "reports.submit", { commandId: "0199aa00-0000-7000-8000-0000000000ab", report: { kind: "bug", level: "major", name: "Reporter", description: "The window freezes.", client: { version: "0.1.0", kind: "gui" }, attachments: [] } });
+    void answer.then((result) => (settled = result));
+    const request = await wire.server.request("reports.submit");
+    for (let i = 0; i < 3; i++) {
+      wire.server.ping();
+      await flush();
+      clock.advance(20_000);
+      await flush();
+    }
+    expect(settled).toBeUndefined();
+    wire.server.send({ type: "response", id: request.id, result: { receipt: { status: "accepted", sequence: 1, changed: false }, result: { number: 17, url: "https://github.com/example/project/issues/17" } } });
+    expect(await answer).toMatchObject({ ok: true, result: { result: { number: 17 } } });
+  });
+
+  it("bounds an unanswered public report at five minutes", async () => {
+    const { runtime, wire, clock, id } = await paired({ capabilities: ["forge"] });
+    wire.answer("reports.submit", () => undefined);
+    const answer = runtime.requests.call(id, "reports.submit", { commandId: "0199aa00-0000-7000-8000-0000000000ab", report: { kind: "feature", level: "high", name: "Reporter", description: "Add a shortcut.", client: { version: "0.1.0", kind: "gui" }, attachments: [] } });
+    await wire.server.request("reports.submit");
+    for (let elapsed = 0; elapsed < REPORT_SUBMIT_TIMEOUT_MS; elapsed += 20_000) {
+      wire.server.ping();
+      await flush();
+      clock.advance(20_000);
+      await flush();
+    }
+    expect(await answer).toMatchObject({ ok: false, error: { code: "timeout" } });
   });
 
   it("bounds an unanswered update stage at 20 minutes", async () => {

@@ -126,6 +126,7 @@ export interface ForgePullRequestReview {
 
 /** What an issue or a pull request is opened with. */
 export interface IssueContent {
+  readonly labels?: readonly string[];
   readonly title: string;
   readonly body: string;
 }
@@ -235,6 +236,8 @@ export interface ForgeProvider {
   /** Downloads a release asset of `fullName` into the file `destination`; with no token, anonymously. */
   downloadAsset(origin: ForgeOrigin, token: string | null, fullName: string, asset: ForgeReleaseAsset, destination: string, call?: CallOptions): Promise<ForgeReply<DownloadedAsset>>;
   /** Reads the file at `path` of `fullName` on the branch `ref`; with no token, anonymously. */
+  /** Creates a GitHub report attachment through the contents API. */
+  upload(origin: ForgeOrigin, token: string, fullName: string, path: string, content: string, call?: CallOptions): Promise<ForgeReply<null>>;
   file(origin: ForgeOrigin, token: string | null, fullName: string, path: string, ref: string, call?: CallOptions): Promise<ForgeReply<ForgeFile>>;
 }
 
@@ -577,8 +580,8 @@ export const forgeProvider = (kind: ForgeKind, options: ProviderOptions): ForgeP
 
     issue: async (origin, token, fullName, number, call) => replied(origin, await get(origin, `/repos/${repositoryPath(fullName)}/issues/${number}`, token, call), "issue", issueOf),
 
-    createIssue: async (origin, token, fullName, { title, body }, call) =>
-      replied(origin, await send(origin, "POST", `/repos/${repositoryPath(fullName)}/issues`, token, { title, body }, call), "issue", issueOf),
+    createIssue: async (origin, token, fullName, { title, body, labels }, call) =>
+      replied(origin, await send(origin, "POST", `/repos/${repositoryPath(fullName)}/issues`, token, { title, body, ...(labels !== undefined && { labels }) }, call), "issue", issueOf),
 
     pullRequest: async (origin, token, fullName, number, call) =>
       replied(origin, await get(origin, `/repos/${repositoryPath(fullName)}/pulls/${number}`, token, call), "pull request", pullRequestOfKind),
@@ -650,6 +653,9 @@ export const forgeProvider = (kind: ForgeKind, options: ProviderOptions): ForgeP
       if (downloaded.outcome === "failed") return { outcome: "failed", status: downloaded.status, message: `The forge at ${origin} answered HTTP ${downloaded.status}${forgeLine(downloaded.body)}.` };
       return { outcome: "done", status: downloaded.status, value: { size: downloaded.size, sha256: downloaded.sha256 } };
     },
+
+    upload: async (origin, token, fullName, path, content, call) =>
+      kind !== "github" ? { outcome: "failed", status: 400, message: "Public report attachments require a GitHub account." } : acknowledged(origin, await send(origin, "PUT", `/repos/${repositoryPath(fullName)}/contents/${repositoryPath(path)}`, token, { message: "Add report attachment", content }, call)),
 
     file: async (origin, token, fullName, path, ref, call) =>
       replied(origin, await get(origin, `/repos/${repositoryPath(fullName)}/contents/${repositoryPath(path)}?ref=${encodeURIComponent(ref)}`, token, call), "file", fileOf),

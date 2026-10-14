@@ -423,6 +423,10 @@ const invalidStatuses = [
 
 /** Params and result instances for every registered method. */
 const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
+  "reports.submit": {
+    params: { valid: [{ commandId: "0f8fad5b-d9cb-469f-a165-70867728950e", report: { kind: "bug", level: "major", name: "Reporter", description: "The window freezes.", client: { version: "0.1.0", kind: "gui" }, attachments: [] } }], invalid: [{}] },
+    result: { valid: [{ number: 1, url: "https://github.com/example/project/issues/1" }], invalid: [{}] },
+  },
   ...attentionMethodFixtures, ...pushMethodFixtures,
   "web.origins.get": { params: { valid: [{}], invalid: [[]] }, result: { valid: [{ clientOrigins: [], connectOrigins: [] }], invalid: [{}] } },
   "web.origins.set": {

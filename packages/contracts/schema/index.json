@@ -5643,6 +5643,22 @@
       "title": "instructions.import error"
     },
     {
+      "path": "methods/reports.submit/params.json",
+      "title": "reports.submit params"
+    },
+    {
+      "path": "methods/reports.submit/result.json",
+      "title": "reports.submit result"
+    },
+    {
+      "path": "methods/reports.submit/response.json",
+      "title": "reports.submit response"
+    },
+    {
+      "path": "methods/reports.submit/error.json",
+      "title": "reports.submit error"
+    },
+    {
       "path": "methods/forge.accounts.list/params.json",
       "title": "forge.accounts.list params"
     },
@@ -8702,6 +8718,16 @@
       "result": "methods/instructions.import/result.json",
       "response": "methods/instructions.import/response.json",
       "error": "methods/instructions.import/error.json"
+    },
+    {
+      "name": "reports.submit",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/reports.submit/params.json",
+      "result": "methods/reports.submit/result.json",
+      "response": "methods/reports.submit/response.json",
+      "error": "methods/reports.submit/error.json"
     },
     {
       "name": "forge.accounts.list",
