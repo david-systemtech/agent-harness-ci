@@ -188,6 +188,10 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm --entrypoint node "$IMAGE_REFERENCE" /opt/agent-harness/scripts/check-packaged-bank-describe.mjs /opt/agent-harness
+      - name: Install bao without a package manager in the built image
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint node "$IMAGE_REFERENCE" /opt/agent-harness/scripts/check-packaged-bao-install.mjs /opt/agent-harness
       - name: Inspect a container update without applying it
         run: |
           set -euo pipefail
@@ -589,11 +593,13 @@ jobs:
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-update-disk.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-provider-sign-in.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-account-recovery.mjs').Path -Destination (Join-Path $work 'scripts')
+            Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-resume.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-terminal-state.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-terminal-drain.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-bank-describe.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/stop-windows-process-tree.ps1').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/windows-smoke-diagnostics.ps1').Path -Destination (Join-Path $work 'scripts')
+            Copy-Item -LiteralPath (Resolve-Path 'scripts/windows-desktop-update-smoke.ps1').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/install.ps1').Path -Destination (Join-Path $work 'install.ps1')
             $smoke = @'
           param([Parameter(Mandatory)][string] $Version)
@@ -625,9 +631,12 @@ jobs:
           $planText = $plan -join "`n"
           Write-Output $planText
           if ($planText -notmatch 'https://github.com/david-systemtech/agent-harness/releases/download/') { throw 'The installer did not select public assets' }
+          if ($planText -notmatch '(?m)^Digest: .*release.json\r?$') { throw 'The installer did not use the manifest digest' }
           if ($planText -match 'AGENT_HARNESS_TOKEN|Authorization|/api/v1/repos/') { throw 'The installer still requires private access' }
           $setup = Start-Process -FilePath (Resolve-Path "desktop/agent-harness-desktop-win32-x64-setup.exe").Path -ArgumentList '/S' -Wait -PassThru
           if ($setup.ExitCode -ne 0) { throw "Setup exited with $($setup.ExitCode)" }
+          & (Join-Path $PSScriptRoot 'scripts/windows-desktop-update-smoke.ps1')
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop update launch check failed' }
           $server = Join-Path $env:LOCALAPPDATA "Programs\agent-harness-desktop\resources\server"
           if (!(Test-Path (Join-Path $server "node_modules\@agent-harness\contracts\package.json"))) { throw 'The installed server lacks contracts' }
           $node = Join-Path $server "node\node.exe"
@@ -638,6 +647,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged provider sign-in check failed' }
           & $node scripts/check-packaged-account-recovery.mjs $server
           if ($LASTEXITCODE -ne 0) { throw 'Packaged account recovery check failed' }
+          & $node scripts/check-packaged-resume.mjs $server
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged resume check failed' }
           & $node scripts/check-packaged-terminal-drain.mjs $server
           if ($LASTEXITCODE -ne 0) { throw 'Packaged terminal drain and update trial check failed' }
           $version = & $node $cli --version
@@ -936,6 +947,7 @@ jobs:
           plan=$(sh scripts/install.sh --dry-run --data-dir "$RUNNER_TEMP/headless-install")
           printf '%s\n' "$plan"
           grep -q 'https://github.com/david-systemtech/agent-harness/releases/download/' <<< "$plan"
+          grep -Eq '^Digest: .*release.json$' <<< "$plan"
           if grep -Eq 'AGENT_HARNESS_TOKEN|Authorization|/api/v1/repos/' <<< "$plan"; then exit 1; fi
       - name: Run the unpacked server with its own Node
         run: |
@@ -947,7 +959,9 @@ jobs:
           "$server/node/bin/node" scripts/check-packaged-update-disk.mjs "$server"
           "$server/node/bin/node" scripts/check-packaged-provider-sign-in.mjs "$server"
           "$server/node/bin/node" scripts/check-packaged-account-recovery.mjs "$server"
+          "$server/node/bin/node" scripts/check-packaged-resume.mjs "$server"
           "$server/node/bin/node" scripts/check-packaged-bank-describe.mjs "$server"
+          "$server/node/bin/node" scripts/check-packaged-bao-install.mjs "$server"
           test "$("$server/node/bin/node" "$server/packages/cli/dist/main.js" --version)" = "agent-harness $VERSION"
           code=0
           status=$("$server/node/bin/node" "$server/packages/cli/dist/main.js" service status 2>&1) || code=$?
@@ -1090,6 +1104,7 @@ jobs:
           plan=$(sh scripts/install.sh --dry-run --data-dir "$RUNNER_TEMP/headless-install")
           printf '%s\n' "$plan"
           grep -q 'https://github.com/david-systemtech/agent-harness/releases/download/' <<< "$plan"
+          grep -Eq '^Digest: .*release.json$' <<< "$plan"
           if grep -Eq 'AGENT_HARNESS_TOKEN|Authorization|/api/v1/repos/' <<< "$plan"; then exit 1; fi
       - name: Run the unpacked server with its own Node
         run: |
@@ -1102,7 +1117,9 @@ jobs:
           "$server/node/bin/node" scripts/check-packaged-update-disk.mjs "$server"
           "$server/node/bin/node" scripts/check-packaged-provider-sign-in.mjs "$server"
           "$server/node/bin/node" scripts/check-packaged-account-recovery.mjs "$server"
+          "$server/node/bin/node" scripts/check-packaged-resume.mjs "$server"
           "$server/node/bin/node" scripts/check-packaged-bank-describe.mjs "$server"
+          "$server/node/bin/node" scripts/check-packaged-bao-install.mjs "$server"
           test "$("$server/node/bin/node" "$server/packages/cli/dist/main.js" --version)" = "agent-harness $VERSION"
           code=0
           status=$("$server/node/bin/node" "$server/packages/cli/dist/main.js" service status 2>&1) || code=$?
@@ -1237,14 +1254,12 @@ jobs:
         run: |
           pnpm --filter agent-harness build-artefacts --tag "$TAG" --out release-assets --windows-pty-build windows-pty \
             --image-reference "$IMAGE_REFERENCE" --image-digest "$IMAGE_DIGEST" \
-            --asset schema=packages/contracts/schema \
-            --asset install-script=scripts/install.sh \
-            --asset install-script=scripts/install.ps1 \
-            --asset compose=scripts/compose.yaml \
-            --asset host-updater=scripts/host-updater.sh \
             --asset desktop:darwin-arm64:zip=desktop/agent-harness-desktop-darwin-arm64.zip \
             --asset desktop:win32-x64:nsis=desktop/agent-harness-desktop-win32-x64-setup.exe \
             --asset desktop:linux-x64:pacman=desktop/agent-harness-desktop-linux-x64.pacman
+
+      - name: Verify manifest digests and compatibility sidecars
+        run: node scripts/check-release-assets.mjs release-assets
 
       - name: Keep all artefacts, including for a dry run
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
