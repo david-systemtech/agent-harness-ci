@@ -83,11 +83,19 @@ if ($Setup) {
   # click to ready, asserted under 10000ms below.
   $dataDir = Join-Path $env:LOCALAPPDATA 'agent-harness\desktop'
   $stagedExe = Join-Path $staging $installed.Name
-  $stagedVersion = ([string](Get-Item -LiteralPath $stagedExe).VersionInfo.ProductVersion).Trim()
-  if ($stagedVersion -notmatch '^[0-9A-Za-z][0-9A-Za-z.+-]*$') { throw "The staged app names no version: '$stagedVersion'" }
+  # The staged version as the app names itself (app.getVersion(), what its click to ready line compares the click
+  # file with): the version of the server it carries, which is the same release's. Not the executable's
+  # ProductVersion, which electron-builder writes as four numbers (0.1.22-ci.176 as 0.1.22.0): with it the click
+  # file named a version the switched app is not, the app took the file at ready without logging click to ready,
+  # and the watch, seeing the file gone, rolled nothing back (#2227).
+  $stagedVersion = (& (Join-Path $staging 'resources\server\node\node.exe') (Join-Path $staging 'resources\server\packages\cli\dist\main.js') --version 2>$null | Out-String).Trim() -replace '^agent-harness ', ''
+  if ($LASTEXITCODE -ne 0 -or $stagedVersion -notmatch '^[0-9A-Za-z][0-9A-Za-z.+-]*$') { throw "The staged app names no version: '$stagedVersion'" }
   $versionDir = Join-Path $install ('versions\' + $stagedVersion)
   Remove-Item -LiteralPath $versionDir -Recurse -Force -ErrorAction SilentlyContinue
-  Rename-Item -LiteralPath $staging -NewName $stagedVersion
+  # A scan of the node.exe just run can hold the folder for a moment.
+  for ($attempt = 1; ; $attempt++) {
+    try { Rename-Item -LiteralPath $staging -NewName $stagedVersion; break } catch { if ($attempt -ge 20) { throw }; Start-Sleep -Milliseconds 500 }
+  }
   $broughtHelper = Join-Path $versionDir 'desktop-launch.ps1'
   if (!(Test-Path -LiteralPath $broughtHelper -PathType Leaf)) { throw 'The staging mode extracted no launch helper beside the app' }
   $helperBefore = $helper + '.smoke-before'
@@ -109,16 +117,28 @@ if ($Setup) {
       '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ('"' + $helper + '"'),
       '-App', ('"' + $installed.FullName + '"'), '-Watch', $stagedVersion, '-Bound', '60'
     ) | Out-Null
-    $switched = Start-Process -FilePath (Join-Path $versionDir $installed.Name) -ArgumentList '--updated' -PassThru
+    # What the switched app says on stderr (its app start line), for the failure below; left in the smoke user's TEMP.
+    $switchedErrors = Join-Path $env:TEMP ('desktop-switched-' + [Guid]::NewGuid() + '.txt')
+    $switched = Start-Process -FilePath (Join-Path $versionDir $installed.Name) -ArgumentList '--updated' -PassThru -RedirectStandardError $switchedErrors
     $readyDeadline = [datetime]::UtcNow.AddSeconds(75)
     $readyLine = $null
     while ($null -eq $readyLine -and [datetime]::UtcNow -lt $readyDeadline) {
       Start-Sleep -Milliseconds 250
       if (Test-Path -LiteralPath $log) { $readyLine = Select-String -LiteralPath $log -Pattern ([regex]::Escape($stagedVersion) + ':? (click to ready|rolled back)') | Select-Object -Last 1 }
     }
-    if ($null -eq $readyLine) { Write-Output 'Restart to update: the switched version logged neither click to ready nor a rollback here' }
-    elseif ($readyLine.Line -match 'rolled back') { throw "The switched version did not report ready: $($readyLine.Line)" }
-    else { Write-Output "Verified the pointer switch path: $($readyLine.Line)" }
+    if ($null -eq $readyLine) {
+      # The watch rolls back at 60s while the click file is there, so nothing by 75s means the app took the file
+      # without logging (a click file naming another version) or the watch never ran.
+      $clickState = if (Test-Path -LiteralPath $clickFile) { 'still there' } else { 'taken' }
+      $appState = if ($switched.HasExited) { "exited with $($switched.ExitCode)" } else { 'running' }
+      $said = (Get-Content -LiteralPath $switchedErrors -Tail 20 -ErrorAction SilentlyContinue) -join "`n"
+      throw "Restart to update: the switched version $stagedVersion logged neither click to ready nor a rollback within 75s (the app $appState, the click file $clickState). It said: $said"
+    }
+    if ($readyLine.Line -match 'rolled back') { throw "The switched version did not report ready: $($readyLine.Line)" }
+    $readyMs = [int]([regex]::Match($readyLine.Line, 'click to ready (\d+)ms').Groups[1].Value)
+    Write-Output "Restart to update: click to ready $($readyMs)ms"
+    if ($readyMs -ge 10000) { throw "Click to ready must be under 10000ms, was $($readyMs)ms" }
+    Write-Output "Verified the pointer switch path: $($readyLine.Line)"
   } finally {
     Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($install, [StringComparison]::OrdinalIgnoreCase) -and $_.Name -notmatch '^Uninstall' } | Stop-Process -Force -ErrorAction SilentlyContinue
     Move-Item -LiteralPath $helperBefore -Destination $helper -Force
@@ -148,10 +168,11 @@ if ($Setup) {
     Remove-Item -LiteralPath $pointerWork -Recurse -Force
   }
 }
-# Restart to update's click to the new window, when an update was driven here (#2194).
+# Restart to update's click to the new window, when an update was driven here without -Setup (#2194); with -Setup the
+# check above already asserted it.
 if (Test-Path -LiteralPath $log) {
   $click = Select-String -LiteralPath $log -Pattern 'click to ready (\d+)ms' | Select-Object -Last 1
-  if ($null -ne $click) {
+  if ($null -ne $click -and !$Setup) {
     $ms = [int]$click.Matches[0].Groups[1].Value
     Write-Output "Restart to update: click to ready $($ms)ms"
     if ($ms -ge 10000) { throw "Click to ready must be under 10000ms, was $($ms)ms" }
