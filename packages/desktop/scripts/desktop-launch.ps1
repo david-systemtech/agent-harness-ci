@@ -72,6 +72,25 @@ try {
   if ($null -ne $mutex) { $mutex.Dispose() }
   if ($null -ne $form) { $form.Dispose() }
 }
+# A version installed beside the app ahead of Restart to update (#2194):
+# the desktop renames the pointer into place at the click, naming it.
+$pointer = Join-Path $PSScriptRoot 'current'
+if (Test-Path -LiteralPath $pointer -PathType Leaf) {
+  $version = (Get-Content -LiteralPath $pointer -Raw).Trim()
+  if ($version -match '^[0-9A-Za-z][0-9A-Za-z.+-]* { $arguments += '--updated' }
+if ($Link) {
+  # Only the app's deep links are forwarded, as one quoted argument. Never
+  # allow quotes to turn a URL into another command-line option.
+  if ($Link -notmatch '^agent-harness://' -or $Link.Contains('"')) { throw 'Invalid desktop link' }
+  $arguments += '"' + $Link + '"'
+}
+if ($arguments.Count) { Start-Process -FilePath $App -ArgumentList $arguments }
+else { Start-Process -FilePath $App }
+) {
+    $candidate = Join-Path (Join-Path (Join-Path (Split-Path -Parent $App) 'versions') $version) (Split-Path -Leaf $App)
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) { $App = $candidate }
+  }
+}
 $arguments = @()
 if ($Updated) { $arguments += '--updated' }
 if ($Link) {

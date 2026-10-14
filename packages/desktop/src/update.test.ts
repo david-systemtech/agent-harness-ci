@@ -322,7 +322,6 @@ describe("apply on macOS", () => {
 });
 
 describe("apply on Windows", () => {
-  const EXECUTABLE = "C:\\Users\\milo\\AppData\\Local\\Programs\\agent-harness\\agent-harness.exe";
 
   /** A Windows install in the test's own Programs folder, and its setup's staging mode, which extracts `version`'s app into the folder it is given. */
   const windowsInstall = (system: FakeSystem, staged: ShellStagedBuild, code = 0) => {
@@ -650,7 +649,7 @@ describe("apply, on every platform", () => {
   });
 });
 
-describe("preparation (#2194)", () => {
+describe("preparation, issue 2194", () => {
   const build = (version: string): ShellStagedBuild => ({ path: `/builds/${version}`, version, sha256: "0".repeat(64) });
 
   it("goes downloaded, installing, installed, and is switchable only once installed", () => {
@@ -699,7 +698,7 @@ describe("preparation (#2194)", () => {
   });
 });
 
-describe("click to ready (#2194)", () => {
+describe("click to ready, issue 2194", () => {
   it("logs the click's time to the new version's window, logs a stage failure, and logs nothing without a click", async () => {
     const mac = macBundle();
     const system = fakeSystem();

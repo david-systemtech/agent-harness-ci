@@ -330,7 +330,7 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
     try {
       temporary = await files.mkdtemp(join(dirname(bundle), temporaryPrefix(bundle)));
     } catch (error) {
-      throw new Error(`Could not make a folder beside ${bundle} to unpack ${staged.version} into (${messageOf(error)}), so ${stays()}.`);
+      throw new Error(`Could not make a folder beside ${bundle} to unpack ${staged.version} into (${messageOf(error)}), so ${stays()}.`, { cause: error });
     }
     const unpack = async (): Promise<Prepared> => {
       const unpacked = await system.run("ditto", ["-x", "-k", staged.path, temporary]).catch((error: unknown) => ({ code: -1, stderr: messageOf(error) }));
@@ -344,7 +344,7 @@ export const desktopUpdate = ({ app, platform, system, report, onInstalling, log
       return await unpack();
     } catch (error) {
       const removed = await files.rm(temporary, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).then(() => "", (cleanup: unknown) => ` And the temporary folder ${temporary} could not be removed: ${messageOf(cleanup)}.`);
-      throw new Error(messageOf(error) + removed);
+      throw new Error(messageOf(error) + removed, { cause: error });
     }
   };
 
