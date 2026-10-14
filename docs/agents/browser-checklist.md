@@ -70,9 +70,9 @@ Every case passes:
     markers and neither value, and a click and a typing by ref land on the
     Buy button and the password field.
 
-13. Enter submits the fixture form after the Query field is filled.
-14. Hovering the Menu button reveals its menu without a click.
-15. Drag moves the slider from its low value to above 90.
+13. Enter submits the fixture form after the Query field is filled (`key`).
+14. Hovering the Menu button reveals its menu without a click (`hover`).
+15. Drag moves the slider from its low value to above 90 (`left_click_drag`).
 16. `form_input` selects an option by its visible label, emits its change
     event, checks a checkbox, and selects one radio while clearing the other.
 
@@ -91,8 +91,8 @@ With the Chrome paired with the desktop's environment and connected, and one
 fixed page open in it:
 
 1. **Direct**: a session on the desktop's environment whose browser is that
-   Chrome. In one run, ten of each of `browser_open`, `browser_snapshot`,
-   `browser_click`, `browser_read` and `browser_screenshot` on the page.
+   Chrome. In one run, ten of each of `navigate`, `read_page`,
+   `left_click`, `get_page_text` and `screenshot` on the page.
 2. **Relayed**: the same from a session on SAMPLE-SERVER started from the same
    desktop window, its browser that Chrome.
 3. For each verb on each path, read each call's time from its `tool.started`
@@ -151,28 +151,28 @@ for the extension's section above, pair the Chrome from its options page with
 a code from the Browser card (or `agent-harness browser pair`), and make a
 session whose browser is that Chrome.
 
-1. **The tab group and the banner.** `browser_open` on `https://example.com/`
+1. **The tab group and the banner.** `navigate` to `https://example.com/`
    opens a tab in the background, in a tab group titled `agent-harness`, with
    Chrome's debugging banner on it, and the answer names the page. A second
-   session's `browser_open` puts its tab in the same group. `browser_close`
+   session's `navigate` puts its tab in the same group. `close_tab`
    takes the banner away and leaves the tab open. Drag a session's tab out of
-   the group: its next verb answers that its page is gone, and `browser_open`
+   the group: its next verb answers that its page is gone, and `navigate`
    makes a new tab in the group.
 2. **Frames and isolated worlds** (item 2). Open a page with a cross-site
-   frame (a page embedding a video from another site) and `browser_wait_for`
-   text only the frame shows: it is found, which needs `chrome.debugger` to
+   frame (a page embedding a video from another site) and `wait` with
+   `text` only the frame shows: it is found, which needs `chrome.debugger` to
    attach to the out-of-process frame as a child target and to allow
    `Page.createIsolatedWorld` there. A refusal naming either is the answer.
 3. **Runtime enabled lazily** (item 4; #292, section 5.3, step 5), with David
    in his own Chrome: open a Cloudflare-fronted, a DataDome-fronted and a
    Reddit page twice each, once before any deep verb (Page alone enabled) and
-   once after `browser_console` turned `Runtime`, `Log` and `Network` on.
+   once after `read_console` turned `Runtime`, `Log` and `Network` on.
    Note what each served each time (the page, or a challenge), and check
    History afterwards for reCAPTCHA entries.
 4. **A managed profile.** In a throwaway profile whose policy turns the
    developer tools off (on Linux, `{"DeveloperToolsAvailability": 2}` in a file
    under `/etc/opt/chrome/policies/managed/`; `chrome://policy` shows it),
-   `browser_open` answers that this Chrome does not let extensions use its
+   `navigate` answers that this Chrome does not let extensions use its
    debugger, and so does every verb after. If it answers anything else, read
    the error Chrome itself gives: in the worker's DevTools (from
    `chrome://extensions`), run `const { id } = await chrome.tabs.create({});
