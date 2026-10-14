@@ -102,7 +102,9 @@ and gives the command that installs the build it downloaded,
 The install scripts live in the repository at each release's tag. Set `version`
 to your chosen release; the script follows the stable channel unless given a
 channel or an exact version. It verifies the server build against `release.json`,
-with a sidecar fallback for older releases.
+with a sidecar fallback for older releases. Each release publishes eight assets:
+three server builds, three desktop builds, `release.json` and `SHA256SUMS`
+(check a download with `sha256sum -c SHA256SUMS --ignore-missing`).
 
 ```sh
 version=0.1.20

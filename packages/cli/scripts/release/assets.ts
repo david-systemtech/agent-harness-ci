@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, readFileSync, statSync, writeFileSync } from 
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { AssetFormat, PRODUCT_NAME, RELEASE_MANIFEST_FILE, ReleaseAssetKind, ReleasePlatform, type ReleaseAsset, type ReleaseImage } from "@agent-harness/contracts";
-import { writeSidecar } from "./archive.js";
+import { CHECKSUMS_FILE, sha256OfFile } from "./archive.js";
 import { BuildError } from "./targets.js";
 
 /**
@@ -12,8 +12,8 @@ import { BuildError } from "./targets.js";
  * updater, the contracts' JSON Schema export and the desktop builds (#359),
  * each named by the workflow's asset list as its kind and the file or folder
  * it is made from, a desktop build with its platform and format too. The
- * build writes each into its output folder with a sidecar, as it does an
- * artefact, and lists it in `release.json`.
+ * build writes each into its output folder, as it does an artefact, lists it
+ * in `release.json` and gives it a line in `SHA256SUMS` (#2171).
  */
 
 /** The platform an asset is built for and how it is packed, as the manifest lists them. */
@@ -82,14 +82,13 @@ const checkTarget = (asset: OtherAsset, desktops: Set<string>): void => {
 /**
  * Checks the other `assets` before anything is built: each exists, is of a
  * kind the manifest can list that is not the artefacts' own, with a platform
- * and format as `checkTarget` asks, and neither its name nor its sidecar's is
- * one another asset or its sidecar has, the artefacts' (`artefactNames`) and
- * `release.json` among them; a compose file names the unreleased image
+ * and format as `checkTarget` asks, and its name is not one another asset
+ * has, the artefacts' (`artefactNames`), `release.json` and `SHA256SUMS`
+ * among them; a compose file names the unreleased image
  * exactly once. Any other is a `BuildError`.
  */
 export const checkOtherAssets = (assets: readonly OtherAsset[], artefactNames: readonly string[]): void => {
-  const filesOf = (name: string): string[] => [name, `${name}.sha256`];
-  const names = new Set([...artefactNames, RELEASE_MANIFEST_FILE].flatMap(filesOf));
+  const names = new Set([...artefactNames, RELEASE_MANIFEST_FILE, CHECKSUMS_FILE]);
   const desktops = new Set<string>();
   for (const asset of assets) {
     if (!existsSync(asset.path)) throw new BuildError(`The ${asset.kind} asset ${asset.path} does not exist.`);
@@ -97,9 +96,8 @@ export const checkOtherAssets = (assets: readonly OtherAsset[], artefactNames: r
     if (asset.kind === "environment") throw new BuildError(`${asset.path} cannot be an environment asset: those are the build's own artefacts.`);
     checkTarget(asset, desktops);
     const name = nameOf(asset);
-    const taken = filesOf(name).find((file) => names.has(file));
-    if (taken !== undefined) throw new BuildError(`The release would publish two assets named ${taken}.`);
-    for (const file of filesOf(name)) names.add(file);
+    if (names.has(name)) throw new BuildError(`The release would publish two assets named ${name}.`);
+    names.add(name);
     if (asset.kind === "compose") {
       const found = placeholdersIn(asset.path);
       if (found !== 1) throw new BuildError(`${name} names the image ${UNRELEASED_IMAGE} ${found} times, not once: the release writes its own image there.`);
@@ -108,7 +106,7 @@ export const checkOtherAssets = (assets: readonly OtherAsset[], artefactNames: r
 };
 
 /**
- * Writes `asset` into `out` with its sidecar, as the release publishes it
+ * Writes `asset` into `out`, as the release publishes it
  * (a compose file naming `image`'s reference), and answers its manifest
  * entry.
  */
@@ -118,6 +116,6 @@ export const writeOtherAsset = async (asset: OtherAsset, out: string, image: Rel
   if (isFolder(asset)) await run("tar", ["-czf", path, "-C", dirname(asset.path), basename(asset.path)]);
   else if (asset.kind === "compose") writeFileSync(path, readFileSync(asset.path, "utf8").replace(UNRELEASED_IMAGE, () => image.reference));
   else copyFileSync(asset.path, path);
-  const sha256 = await writeSidecar(path);
+  const sha256 = await sha256OfFile(path);
   return { name, kind: asset.kind, platform: asset.target?.platform ?? null, format: asset.target?.format ?? formatOf(name), size: statSync(path).size, sha256 };
 };

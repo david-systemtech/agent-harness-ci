@@ -1,4 +1,5 @@
-// Release N keeps sidecars for installed clients; support files come from its tag.
+// Release N+1 (#2171): six builds, release.json and one SHA256SUMS; no .sha256 sidecars.
+// Support files come from the tag's repository paths (#2147).
 import process from "node:process";
 import { log } from "node:console";
 import assert from "node:assert/strict";
@@ -16,7 +17,8 @@ const builds = [
 assert.deepEqual(manifest.assets.map(({ kind, platform, format }) => `${kind}:${platform}:${format}`).sort(), builds.sort());
 const names = [...manifest.assets.map(({ name }) => name), "release.json"];
 assert.equal(new Set(names).size, 7, "Each build needs a unique name");
-assert.deepEqual(readdirSync(folder).sort(), names.flatMap((name) => [name, `${name}.sha256`]).sort());
+assert.deepEqual(readdirSync(folder).sort(), [...names, "SHA256SUMS"].sort(), "Six builds, release.json and SHA256SUMS: eight assets");
+const lines = [];
 for (const name of names) {
   const bytes = readFileSync(join(folder, name));
   const digest = createHash("sha256").update(bytes).digest("hex");
@@ -25,6 +27,7 @@ for (const name of names) {
     assert.equal(bytes.length, asset.size, `${name}: manifest size`);
     assert.equal(digest, asset.sha256, `${name}: manifest digest`);
   }
-  assert.equal(readFileSync(join(folder, `${name}.sha256`), "utf8"), `${digest}  ${name}\n`, `${name}: compatibility sidecar`);
+  lines.push(`${digest}  ${name}\n`);
 }
-log("Verified six builds and their compatibility sidecars");
+assert.equal(readFileSync(join(folder, "SHA256SUMS"), "utf8"), lines.join(""), "SHA256SUMS: one sha256sum line per build and release.json");
+log("Verified six builds, release.json and SHA256SUMS");

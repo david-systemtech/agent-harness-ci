@@ -1,7 +1,7 @@
 import { openAsBlob, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { isPrerelease, RELEASE_MANIFEST_FILE, ReleaseManifest, releaseVersionOfTag } from "@agent-harness/contracts";
-import { sha256OfFile } from "./archive.js";
+import { CHECKSUMS_FILE, checksumsText, sha256OfFile } from "./archive.js";
 import { releaseNotes } from "./notes.js";
 
 /**
@@ -125,16 +125,14 @@ const releasesOf = (forge: ReleaseRepository) => {
   };
 };
 
-/** The sidecar line of the file `name` whose SHA-256 is `sha256`: `sha256sum`'s, as the build writes it. */
-const sidecarLine = (sha256: string, name: string): string => `${sha256}  ${name}\n`;
-
 /**
  * The release `folder` holds: its manifest, and the files it publishes in
- * upload order (each asset `release.json` lists then its sidecar,
- * `release.json` and its sidecar last), after checking that the manifest is
- * one the schema reads for the tag's version, that the folder holds those
- * files and nothing else, that each asset is the file listed, and that each
- * sidecar names its file's SHA-256. Any other is a `PublishError`.
+ * upload order (each asset `release.json` lists, then `release.json`, then
+ * `SHA256SUMS` last), after checking that the manifest is one the schema
+ * reads for the tag's version, that the folder holds those files and
+ * nothing else, that each asset is the file listed, and that `SHA256SUMS`
+ * holds `sha256sum`'s line for each asset and `release.json`, in that order
+ * (#2171). Any other is a `PublishError`.
  */
 const readFolder = async (folder: string, tag: string, version: string): Promise<{ manifest: ReleaseManifest; files: { name: string; size: number }[] }> => {
   let text: string;
@@ -153,10 +151,10 @@ const readFolder = async (folder: string, tag: string, version: string): Promise
   if (!manifest.success) throw new PublishError(`${RELEASE_MANIFEST_FILE} is not a release manifest: ${manifest.error.issues.map((issue) => `${issue.path.join(".")} ${issue.message}`).join("; ")}.`);
   if (manifest.data.version !== version) throw new PublishError(`${RELEASE_MANIFEST_FILE} names the version ${manifest.data.version}, not ${tag}'s ${version}.`);
   const listed = [...manifest.data.assets.map((asset) => asset.name), RELEASE_MANIFEST_FILE];
-  const names = listed.flatMap((name) => [name, `${name}.sha256`]);
+  const names = [...listed, CHECKSUMS_FILE];
   const present = new Set(readdirSync(folder));
   for (const name of listed) if (!present.has(name)) throw new PublishError(`${name}, which ${RELEASE_MANIFEST_FILE} lists, is not in ${folder}.`);
-  for (const name of names) if (!present.has(name)) throw new PublishError(`${name} is not in ${folder}: every asset is published with its .sha256 sidecar.`);
+  if (!present.has(CHECKSUMS_FILE)) throw new PublishError(`${CHECKSUMS_FILE} is not in ${folder}: the release publishes one checksums file for its assets and ${RELEASE_MANIFEST_FILE}.`);
   for (const name of present) if (!names.includes(name)) throw new PublishError(`${folder} holds ${name}, which ${RELEASE_MANIFEST_FILE} does not list: the release publishes every file it holds, and lists them all.`);
   for (const asset of manifest.data.assets) {
     const path = join(folder, asset.name);
@@ -164,10 +162,10 @@ const readFolder = async (folder: string, tag: string, version: string): Promise
       throw new PublishError(`${asset.name} is not the file ${RELEASE_MANIFEST_FILE} lists: its size or SHA-256 differs.`);
     }
   }
-  for (const name of listed) {
-    if (readFileSync(join(folder, `${name}.sha256`), "utf8") !== sidecarLine(await sha256OfFile(join(folder, name)), name)) {
-      throw new PublishError(`${name}.sha256 does not hold ${name}'s SHA-256 as sha256sum writes it.`);
-    }
+  const checksums: { name: string; sha256: string }[] = [];
+  for (const name of listed) checksums.push({ name, sha256: await sha256OfFile(join(folder, name)) });
+  if (readFileSync(join(folder, CHECKSUMS_FILE), "utf8") !== checksumsText(checksums)) {
+    throw new PublishError(`${CHECKSUMS_FILE} does not hold the SHA-256 of each asset and ${RELEASE_MANIFEST_FILE}, one line each as sha256sum writes it, in the manifest's order.`);
   }
   return { manifest: manifest.data, files: names.map((name) => ({ name, size: statSync(join(folder, name)).size })) };
 };

@@ -150,7 +150,7 @@ const install = async (f: Fixture, args: string[] = [], env: NodeJS.ProcessEnv =
   }
 };
 
-/** The same public manifest layout shipped beside the archives and checksum sidecars. */
+/** The public manifest beside the archives, as releases since 0.1.21 publish it (older ones had only sidecars). */
 const publishManifest = (f: Fixture, version = "0.1.0", asset = "agent-harness-linux-x64.tar.gz") => {
   const archive = readFileSync(join(f.root, "assets", `v${version}`, asset));
   const manifest = { version, assets: [{ name: asset, size: archive.byteLength, sha256: createHash("sha256").update(archive).digest("hex") }] };
@@ -245,6 +245,27 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
     expect(readFileSync(f.log, "utf8")).not.toContain(TOKEN);
     expect(f.calls()).not.toContain("agent-harness saw AGENT_HARNESS_TOKEN");
     expect(existsSync(join(f.state, "credential"))).toBe(false);
+  });
+
+  it("installs a release shaped as #2171 publishes it, release.json and SHA256SUMS but no sidecar, from the manifest digest", async () => {
+    const f = await fixture([{ tag: "v0.1.0", checksum: "none" }]);
+    publishManifest(f);
+    const archive = readFileSync(join(f.root, "assets", "v0.1.0", "agent-harness-linux-x64.tar.gz"));
+    const manifest = readFileSync(join(f.root, "assets", "v0.1.0", "release.json"));
+    const digest = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
+    const sums = `${digest(archive)}  agent-harness-linux-x64.tar.gz\n${digest(manifest)}  release.json\n`;
+    write(join(f.root, "assets", "v0.1.0", "SHA256SUMS"), sums);
+    for (const file of ["list.json", "v0.1.0.json"]) {
+      const path = join(f.root, "releases", file);
+      const value = JSON.parse(readFileSync(path, "utf8")) as ReturnType<typeof releaseJson> | ReturnType<typeof releaseJson>[];
+      for (const release of Array.isArray(value) ? value : [value]) release.assets.push({ id: 98, name: "SHA256SUMS", size: sums.length, browser_download_url: `${DOWNLOAD}/v0.1.0/SHA256SUMS` });
+      write(path, JSON.stringify(value));
+    }
+    const result = await install(f);
+    expect(result.code, result.stderr).toBe(0);
+    expect(f.calls()).toContain(`curl ${DOWNLOAD}/v0.1.0/release.json`);
+    expect(f.calls().some((call) => call.endsWith(".sha256"))).toBe(false);
+    expect(existsSync(join(f.dataDir, "versions", "0.1.0", ".complete"))).toBe(true);
   });
 
   it("installs from the manifest digest without a sidecar when the API is available", async () => {

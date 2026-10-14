@@ -57,15 +57,16 @@ const DESKTOP_BUILDS: readonly FolderAsset[] = [
 
 /**
  * A release folder as the build leaves it for `version`: each of `assets`
- * and `release.json` listing them, with a sidecar each; `manifest` replaces
- * fields of the manifest written.
+ * and `release.json` listing them, and `SHA256SUMS` with a line for each
+ * (#2171); `manifest` replaces fields of the manifest written.
  */
 const releaseFolder = (version: string, manifest: Partial<ReleaseManifest> = {}, assets: readonly FolderAsset[] = ASSETS): string => {
   const folder = mkdtempSync(join(tmpdir(), "release-publish-"));
   cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
+  const sums: string[] = [];
   const write = (name: string, content: string) => {
     writeFileSync(join(folder, name), content);
-    writeFileSync(join(folder, `${name}.sha256`), `${sha256(content)}  ${name}\n`);
+    sums.push(`${sha256(content)}  ${name}\n`);
   };
   for (const asset of assets) write(asset.name, asset.content);
   const listed: ReleaseManifest = {
@@ -79,19 +80,20 @@ const releaseFolder = (version: string, manifest: Partial<ReleaseManifest> = {},
     ...manifest,
   };
   write("release.json", `${JSON.stringify(listed, null, 2)}\n`);
+  writeFileSync(join(folder, "SHA256SUMS"), sums.join(""));
   return folder;
 };
 
 /** Every file of `folder` with its size, as the forge should hold them. */
 const filesOf = (folder: string) =>
   readdirSync(folder)
-    .sort()
+    .sort((a, b) => a.localeCompare(b))
     .map((name) => ({ name, size: statSync(join(folder, name)).size }));
 
 const quiet = { log: () => undefined };
 
 describe("publishing a tag's release", () => {
-  it("uploads every asset, its sidecar and release.json to a new draft, checks the draft holds them all, and publishes it last", async () => {
+  it("uploads every asset, release.json and SHA256SUMS last to a new draft, checks the draft holds them all, and publishes it last", async () => {
     const { fake, forge } = await forgejo();
     const folder = releaseFolder("0.5.0");
     await publishRelease({ tag: "v0.5.0", folder }, forge, quiet);
@@ -108,11 +110,9 @@ describe("publishing a tag's release", () => {
     ]);
     expect(uploads.map((call) => new URL(call.split(" ")[1] ?? "", "http://x").searchParams.get("name"))).toEqual([
       "agent-harness-linux-x64.tar.gz",
-      "agent-harness-linux-x64.tar.gz.sha256",
       "install.sh",
-      "install.sh.sha256",
       "release.json",
-      "release.json.sha256",
+      "SHA256SUMS",
     ]);
     expect(fake.bodies).toEqual([
       { tag_name: "v0.5.0", name: "v0.5.0", body: "", draft: true, prerelease: false },
@@ -125,7 +125,8 @@ describe("publishing a tag's release", () => {
     const { fake, forge } = await forgejo();
     await publishRelease({ tag: "v0.5.0-beta.1", folder: releaseFolder("0.5.0-beta.1", {}, [...ASSETS, ...DESKTOP_BUILDS]) }, forge, quiet);
     const release = fake.release("v0.5.0-beta.1");
-    expect(release?.assets.map((asset) => asset.name)).toEqual(expect.arrayContaining(DESKTOP_BUILDS.flatMap(({ name }) => [name, `${name}.sha256`])));
+    expect(release?.assets.map((asset) => asset.name)).toEqual(expect.arrayContaining(DESKTOP_BUILDS.map(({ name }) => name)));
+    expect(release?.assets.some((asset) => asset.name.endsWith(".sha256"))).toBe(false);
     const notes = String((fake.bodies[0] as { body?: unknown }).body).split("\n\n");
     expect(notes[0]).toBe("## The desktop builds are not signed");
     expect(notes[1]).toMatch(/^macOS and Windows warn the first time one downloaded by a browser is opened\. Once it is open, the desktop updates itself without a warning:/);
@@ -165,7 +166,7 @@ describe("publishing a tag's release", () => {
     expect(fake.calls.slice(0, 3)).toEqual(["GET /releases/tags/v0.5.0", "DELETE /releases/1", "POST /releases"]);
     const release = fake.release("v0.5.0");
     expect(release).toMatchObject({ id: 2, draft: false });
-    expect(release?.assets.map((asset) => asset.name).sort()).toEqual(filesOf(folder).map((file) => file.name));
+    expect(release?.assets.map((asset) => asset.name).sort((a, b) => a.localeCompare(b))).toEqual(filesOf(folder).map((file) => file.name));
   });
 
   it("refuses a tag whose release is published, and changes nothing", async () => {
@@ -204,13 +205,22 @@ describe("publishing a tag's release", () => {
         /install\.sh, which release\.json lists, is not in/,
       ],
       [
-        "a sidecar missing",
+        "no SHA256SUMS",
         () => {
           const folder = releaseFolder("0.5.0");
-          rmSync(join(folder, "install.sh.sha256"));
+          rmSync(join(folder, "SHA256SUMS"));
           return folder;
         },
-        /install\.sh\.sha256 is not in/,
+        /SHA256SUMS is not in/,
+      ],
+      [
+        "a leftover per-asset sidecar",
+        () => {
+          const folder = releaseFolder("0.5.0");
+          writeFileSync(join(folder, "install.sh.sha256"), `${sha256("#!/bin/sh\necho install\n")}  install.sh\n`);
+          return folder;
+        },
+        /install\.sh\.sha256, which release\.json does not list/,
       ],
       [
         "a file it does not list",
@@ -231,22 +241,24 @@ describe("publishing a tag's release", () => {
         /install\.sh is not the file release\.json lists/,
       ],
       [
-        "a sidecar that does not name its asset's digest",
+        "a SHA256SUMS line that does not name its asset's digest",
         () => {
           const folder = releaseFolder("0.5.0");
-          writeFileSync(join(folder, "install.sh.sha256"), `${"1".repeat(64)}  install.sh\n`);
+          const sums = readFileSync(join(folder, "SHA256SUMS"), "utf8");
+          writeFileSync(join(folder, "SHA256SUMS"), sums.replace(/^[0-9a-f]{64}(?= {2}install\.sh$)/m, "1".repeat(64)));
           return folder;
         },
-        /install\.sh\.sha256 does not hold/,
+        /SHA256SUMS does not hold/,
       ],
       [
-        "a manifest whose sidecar does not match it",
+        "a SHA256SUMS without release.json's line",
         () => {
           const folder = releaseFolder("0.5.0");
-          writeFileSync(join(folder, "release.json.sha256"), `${"1".repeat(64)}  release.json\n`);
+          const sums = readFileSync(join(folder, "SHA256SUMS"), "utf8");
+          writeFileSync(join(folder, "SHA256SUMS"), sums.replace(/^.* {2}release\.json\n/m, ""));
           return folder;
         },
-        /release\.json\.sha256 does not hold/,
+        /SHA256SUMS does not hold/,
       ],
     ];
     for (const [what, folder, message] of cases) {

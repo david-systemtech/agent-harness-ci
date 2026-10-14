@@ -94,7 +94,7 @@
         ],
         "description": "One asset of a release: its name, kind, platform, format, size and SHA-256."
       },
-      "description": "Every asset the release publishes but the manifest itself and the .sha256 sidecars."
+      "description": "Every asset the release publishes but the manifest itself and SHA256SUMS."
     },
     "image": {
       "type": "object",

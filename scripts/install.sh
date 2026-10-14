@@ -24,7 +24,8 @@
 #
 # A release publishes agent-harness-<os>-<arch>.tar.gz (Node's names), holding
 # the version's bin/agent-harness at its root, and beside it
-# release.json with size and SHA-256. Older releases use <asset>.sha256.
+# release.json with size and SHA-256, and SHA256SUMS for people (#2171).
+# Without a readable release.json, the older <asset>.sha256 sidecar is the fallback.
 
 set -eu
 

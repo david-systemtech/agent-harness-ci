@@ -30,7 +30,8 @@
 #
 # A release publishes agent-harness-win32-<arch>.zip (Node's names), holding the
 # version's node\node.exe and packages\cli\dist\main.js, and beside it
-# release.json with size and SHA-256. Older releases use <asset>.sha256.
+# release.json with size and SHA-256, and SHA256SUMS for people (#2171).
+# Without a readable release.json, the older <asset>.sha256 sidecar is the fallback.
 #
 # It runs under Windows PowerShell 5.1 and PowerShell 7, as a file
 # (powershell -File install.ps1 ...) or as a script block made from its text.

@@ -135,7 +135,7 @@ export const ReleaseManifest = z
       description: "The number of the release's last database migration: a release below the database's is never a target.",
     }),
     bundledClaudeCodeVersion: z.string().min(1).meta({ description: "The version of Claude Code the release bundles, which updates with the environment." }),
-    assets: z.array(ReleaseAsset).meta({ description: "Every asset the release publishes but the manifest itself and the .sha256 sidecars." }),
+    assets: z.array(ReleaseAsset).meta({ description: "Every asset the release publishes but the manifest itself and SHA256SUMS." }),
     image: ReleaseImage,
   })
   .meta({

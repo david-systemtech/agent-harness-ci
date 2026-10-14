@@ -1259,7 +1259,7 @@ jobs:
             --asset desktop:win32-x64:nsis=desktop/agent-harness-desktop-win32-x64-setup.exe \
             --asset desktop:linux-x64:pacman=desktop/agent-harness-desktop-linux-x64.pacman
 
-      - name: Verify manifest digests and compatibility sidecars
+      - name: Verify manifest digests and SHA256SUMS
         run: node scripts/check-release-assets.mjs release-assets
 
       - name: Keep all artefacts, including for a dry run
