@@ -37,6 +37,7 @@ it.each(["composer-idle", "composer-running", "composer-slash", "composer-bypass
     expect(await screen.findByRole("button", { name: "Stop" })).toBeDefined();
     expect(screen.getByRole("status", { name: "Run activity" }).textContent).toBe("writing");
     expect(screen.getByText("1s")).toBeDefined();
+    expect(document.querySelector("[data-activity-seam]")!.classList.contains("shuttle")).toBe(true);
   } else if (scene === "composer-slash") {
     const menu = await screen.findByRole("listbox", { name: "Commands" });
     expect(within(menu).getAllByRole("option").length).toBeGreaterThan(0);
@@ -45,7 +46,10 @@ it.each(["composer-idle", "composer-running", "composer-slash", "composer-bypass
     expect(within(screen.getByRole("region", { name: "Status line" })).getByRole("button", { name: "Mode: BYPASS" })).toBeDefined();
     expect(within(screen.getByRole("region", { name: /^Status feedback/ })).getByText(/^Mode: bypassPermissions\. The agent will act without asking/)).toBeDefined();
     expect(screen.queryByText(/without asking/, { selector: "[data-composer-column] *" })).toBeNull();
-  } else expect(screen.queryByRole("status", { name: "Run activity" })).toBeNull();
+  }
+  // #2179: only a running pane draws the beam; a settled seam has no .shuttle, so no ::after and no animation at all.
+  if (scene !== "composer-running") expect(document.querySelector("[data-activity-seam]:is(.shuttle)")).toBeNull();
+  if (scene === "composer-idle") expect(screen.queryByRole("status", { name: "Run activity" })).toBeNull();
 });
 
 
