@@ -46,6 +46,24 @@ export const CredentialInjectionByAccount = z.record(AccountId, InjectionAnswer)
     "credentials.injectionByAccount: by account id, allow or deny, which outranks credentials.injection for that account's runs and terminals and is outranked by a routine's own injection. An account not listed takes the environment's value; an account's entry is dropped when the account is removed. Preset empty.",
 });
 
+/**
+ * `accounts.codexForClaudeRuns` (#2169, ADR 0011's injection pattern, ADR
+ * 0018): which Codex account's directory a Claude run is handed as
+ * `CODEX_HOME` and `CODEX_WORKER_HOME`, so its commands can call `codex`.
+ * Null (the preset) picks the one signed-in Codex account when the
+ * environment holds exactly one, and none otherwise; an account id picks
+ * that account while it is held and signed in, and none otherwise; false is
+ * off.
+ */
+export const CodexForClaudeRuns = z
+  .union([AccountId, z.literal(false)])
+  .nullable()
+  .meta({
+    description:
+      "accounts.codexForClaudeRuns: the Codex account whose directory Claude runs get as CODEX_HOME and CODEX_WORKER_HOME (#2169). Null for the one signed-in Codex account when the environment holds exactly one, none otherwise; an account id for that account while it is held and signed in, none otherwise; false for none. Given only while credentials are injected. Preset null.",
+  });
+export type CodexForClaudeRuns = z.infer<typeof CodexForClaudeRuns>;
+
 /** A key's definition, its preset checked against its schema by the compiler. */
 const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): SettingDefinition<S> => definition;
 

@@ -214,10 +214,17 @@ describe("keys and steps on rows", () => {
   it("fails a step without a home row, on no registered row, on a row not home to it, or linking to no row", () => {
     const account = stepOf("account");
     const homeless: LooseStep = { id: account.id, links: account.links };
-    expect(rowProblems(rows, [homeless, ...steps.slice(1)], settings)).toEqual(["account: names no home row"]);
-    expect(rowProblems(rows, [{ ...account, home: "accounts.profiles" }, ...steps.slice(1)], settings)).toEqual(["account: lives on accounts.profiles, which is not a row"]);
+    expect(rowProblems(rows, [homeless, ...steps.slice(1)], settings)).toEqual([
+      "account: names no home row",
+      "accounts.codexForClaudeRuns: sits on accounts.accounts, which account neither lives on nor links to",
+    ]);
+    expect(rowProblems(rows, [{ ...account, home: "accounts.profiles" }, ...steps.slice(1)], settings)).toEqual([
+      "account: lives on accounts.profiles, which is not a row",
+      "accounts.codexForClaudeRuns: sits on accounts.accounts, which account neither lives on nor links to",
+    ]);
     expect(rowProblems(rows, [{ ...account, home: "accounts.default-model" }, ...steps.slice(1)], settings)).toEqual([
       "account: lives on accounts.default-model, which is not home to it",
+      "accounts.codexForClaudeRuns: sits on accounts.accounts, which account neither lives on nor links to",
     ]);
     expect(rowProblems(rows, [{ ...account, links: [{ row: "accounts.models" }] }, ...steps.slice(1)], settings)).toEqual([
       "account: links to accounts.models, which is not a row",

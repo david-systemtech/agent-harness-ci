@@ -897,9 +897,11 @@ describe("the step registry", () => {
 
   it("puts the default account, model family and effort, the favourite models and providers.processIdleMinutes under the Account entry, on accounts.default-model, each checked done on any valid value", () => {
     const keys = ["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort", "accounts.favouriteModels", "providers.processIdleMinutes"] as const;
-    expect(account.writes).toEqual(keys);
+    expect(account.writes).toEqual([...keys, "accounts.codexForClaudeRuns"]);
     expect(account.links).toEqual([{ row: "accounts.default-model" }]);
     for (const key of keys) expect(SETTINGS[key].step, key).toEqual({ id: "account", row: "accounts.default-model" });
+    // The Codex account Claude runs get (#2169) sits on the step's home, beside the Codex accounts.
+    expect(SETTINGS["accounts.codexForClaudeRuns"].step).toEqual({ id: "account", row: "accounts.accounts" });
     const checkOf = (key: string) => (account.checks.find((entry) => entry.key === key) as LooseStep["checks"][number]).check;
     for (const key of keys.slice(0, 3)) {
       expect(checkOf(key)(null), key).toBe(true);
@@ -913,6 +915,9 @@ describe("the step registry", () => {
     expect(check(presetSettings()["providers.processIdleMinutes"])).toBe(true);
     expect(check(1440)).toBe(true);
     expect(check(0)).toEqual(refused("providers.processIdleMinutes"));
+    const codex = checkOf("accounts.codexForClaudeRuns");
+    expect([codex(null), codex(false), codex("codex-1")]).toEqual([true, true, true]);
+    expect(codex("")).toEqual(refused("accounts.codexForClaudeRuns"));
   });
 
   it("gives the Account entry account.present, with no action since the card's Sign in is the fix, and account.signed-in, with Sign in again, and never skips it (ADR 0018; #574)", () => {

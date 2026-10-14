@@ -271,20 +271,22 @@ export const anyValidValue =
 export const STEP_REGISTRY = [
   {
     // The Account step (ADR 0018), at home on accounts.accounts beside Carry over: the default account, model family
-    // and effort (#134), the favourite models (#1821) and the process idle time (#120), which sit on accounts.default-model (ADR 0027). Its health
+    // and effort (#134), the favourite models (#1821) and the process idle time (#120), which sit on accounts.default-model (ADR 0027),
+    // and the Codex account Claude runs get (#2169), on accounts.accounts beside the Codex accounts. Its health
     // reads the account store's statuses (#134), never a setting: at least one account, with no action since the card's
     // Sign in is the fix, and every account signed in, Sign in again naming each that is not (#574). Checked every
     // fifteen minutes, as often as the store reads each account's status, since the orientation block reports it; never
     // skipped. An account's change and the sign-in's re-run it.
     id: "account",
     home: "accounts.accounts",
-    writes: ["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort", "accounts.favouriteModels", "providers.processIdleMinutes"],
+    writes: ["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort", "accounts.favouriteModels", "providers.processIdleMinutes", "accounts.codexForClaudeRuns"],
     checks: [
       { key: "accounts.defaultAccount", check: anyValidValue("accounts.defaultAccount") },
       { key: "accounts.defaultModelFamily", check: anyValidValue("accounts.defaultModelFamily") },
       { key: "accounts.defaultEffort", check: anyValidValue("accounts.defaultEffort") },
       { key: "accounts.favouriteModels", check: anyValidValue("accounts.favouriteModels") },
       { key: "providers.processIdleMinutes", check: anyValidValue("providers.processIdleMinutes") },
+      { key: "accounts.codexForClaudeRuns", check: anyValidValue("accounts.codexForClaudeRuns") },
     ],
     stateChecks: [
       { id: "account.present", holds: "At least one account is on this environment.", actions: [] },

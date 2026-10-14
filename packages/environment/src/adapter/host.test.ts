@@ -1541,3 +1541,21 @@ describe("the adoption hook", () => {
     expect(t.adapter.runs.map((run) => run.adopted)).toEqual([false, true]);
   });
 });
+
+describe("the Codex account chosen for Claude runs (#2169)", () => {
+  const startedOf = (t: Setup) => eventsOf(t).find((event) => event.type === "run.started")?.payload;
+
+  it("is recorded on run.started as the run starts", async () => {
+    const t = await setup(fakeAdapter(), { codexAccount: () => "codex-1" });
+    await untilEnded(t, startRun(t));
+    expect(startedOf(t)).toMatchObject({ codexAccountId: "codex-1" });
+  });
+
+  it("leaves run.started without it when none is chosen", async () => {
+    for (const options of [{ codexAccount: () => null }, {}]) {
+      const t = await setup(fakeAdapter(), options);
+      await untilEnded(t, startRun(t));
+      expect(startedOf(t)).not.toHaveProperty("codexAccountId");
+    }
+  });
+});

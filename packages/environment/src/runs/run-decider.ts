@@ -98,6 +98,8 @@ export interface StartFacts {
   readonly resolvePolicy: PolicySeam;
   /** The browser resolver (#550): the session's browser as the run may drive it, by whether a person is present. */
   readonly resolveBrowser: BrowserSeam;
+  /** The Codex account chosen for the run (#2169, accounts.codexForClaudeRuns), recorded on its run.started; null or absent for none. */
+  readonly codexAccountId?: string | null;
   /**
    * The Account step's defaults (#134): the family whose strongest model a
    * run takes when neither it nor its session names one, and the effort it
@@ -377,6 +379,7 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
     queuedMessageIds: queuedIds,
     resumedFrom: facts.target.kind === "fresh" ? null : facts.target.providerSessionId,
     forkedFrom: facts.forkedFrom,
+    ...(facts.codexAccountId !== undefined && facts.codexAccountId !== null && { codexAccountId: facts.codexAccountId }),
   };
   const queued: PromptMessage[] = facts.queued.map((message) => ({ messageId: message.messageId, text: message.text, attachments: [] }));
   const sent: PromptMessage[] = command.message === null ? [] : [{ messageId: command.message.messageId, text: command.message.text, attachments: attachments.data }];
