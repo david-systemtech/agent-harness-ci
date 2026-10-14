@@ -11,7 +11,7 @@ import { buildRelease } from "../packages/cli/scripts/release/build.js";
 import { fixtureBuild } from "../packages/cli/test/release-fixtures.js";
 
 const script = pathToFileURL(join(import.meta.dirname, "..", "scripts", "macos-desktop-update-smoke.mjs")).href;
-const { createCdpEvaluator, restartPackagedDesktop, checkPackagedUpdateCleanup, checkQuietPackagedNavigation, checkPackagedCredentialRepair, checkReplacedPackagedCredential, waitForCredentialHelpersExit, quitWithPendingPackagedCredential, startUnavailablePackagedCredential, credentialHelperPids, checkUnavailablePackagedCredential, checkFreshPackagedCredential, askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer, copyPackagedDesktop, prepareCredentialFixture } = await import(script) as {
+const { createCdpEvaluator, restartPackagedDesktop, checkPackagedUpdateCleanup, checkQuietPackagedNavigation, checkPackagedCredentialRepair, checkReplacedPackagedCredential, waitForCredentialHelpersExit, quitWithPendingPackagedCredential, startUnavailablePackagedCredential, credentialHelperPids, listProcesses, checkUnavailablePackagedCredential, checkFreshPackagedCredential, askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer, copyPackagedDesktop, prepareCredentialFixture } = await import(script) as {
   createCdpEvaluator: (peer: {
     send: (frame: string) => void;
     close: () => void;
@@ -26,7 +26,8 @@ const { createCdpEvaluator, restartPackagedDesktop, checkPackagedUpdateCleanup, 
   waitForCredentialHelpersExit: (helpers: number[], running?: (pid: number) => boolean) => Promise<void>;
   quitWithPendingPackagedCredential: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
   startUnavailablePackagedCredential: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
-  credentialHelperPids: (pid: number, executable: string, run?: (command: string, args: string[]) => string) => number[];
+  credentialHelperPids: (pid: number, executable: string, run?: (command: string, args: string[]) => string, pause?: (milliseconds: number) => void) => number[];
+  listProcesses: (step: string, command: string, args: string[], run?: (command: string, args: string[]) => string, pause?: (milliseconds: number) => void) => string;
   checkUnavailablePackagedCredential: (evaluate: (expression: string) => Promise<unknown>, observe?: () => Promise<void>, name?: string) => Promise<void>;
   checkFreshPackagedCredential: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
   askForPackagedUpdate: (evaluate: (expression: string) => Promise<unknown>, version: string, outcome?: "retained" | "unavailable") => Promise<void>;
@@ -306,6 +307,33 @@ describe("the packaged macOS update smoke", () => {
     expect(calls).toEqual([
       ["pgrep", ["-P", "1200"]], ["ps", ["-ww", "-p", "1201", "-o", "comm="]], ["ps", ["-ww", "-p", "1202", "-o", "comm="]],
     ]);
+  });
+
+  it("waits out one process-listing timeout on a busy runner, then names the step when the listing times out again (#2229)", () => {
+    const timedOut = () => Object.assign(new Error("spawnSync pgrep ETIMEDOUT"), { code: "ETIMEDOUT" });
+    const pauses: number[] = [];
+    const pause = (milliseconds: number) => { pauses.push(milliseconds); };
+    let calls = 0;
+    const slowOnce = (command: string) => {
+      calls++;
+      if (command === "pgrep" && calls === 1) throw timedOut();
+      return command === "pgrep" ? "1201\n" : "/fixture/agent-harness.app/Contents/MacOS/agent-harness";
+    };
+    expect(credentialHelperPids(1200, "/fixture/agent-harness.app/Contents/MacOS/agent-harness", slowOnce, pause)).toEqual([1201]);
+    expect([calls, pauses]).toEqual([3, [1000]]);
+
+    // A listing that never answers fails the capture, rather than passing as "no helper".
+    const neverAnswers = () => { throw timedOut(); };
+    expect(() => credentialHelperPids(1200, "/fixture/agent-harness.app/Contents/MacOS/agent-harness", neverAnswers, pause))
+      .toThrow(/^capture the desktop's native credential helper during pending Keychain access: `pgrep` timed out twice/);
+
+    // pgrep's "no match" exit is not a timeout: no retry, and the capture reports no helpers.
+    let noMatchCalls = 0;
+    const noMatch = () => { noMatchCalls++; throw Object.assign(new Error("Command failed: pgrep"), { status: 1 }); };
+    expect(credentialHelperPids(1200, "/fixture/agent-harness.app/Contents/MacOS/agent-harness", noMatch, pause)).toEqual([]);
+    expect(noMatchCalls).toBe(1);
+    expect(() => listProcesses("list", "ps", [], () => { throw new Error("EACCES"); }, pause)).toThrow("EACCES");
+    expect(pauses).toEqual([1000, 1000]);
   });
 
   it("proves main and Settings responsiveness before an unavailable prior read settles, then requires its rejection", async () => {
