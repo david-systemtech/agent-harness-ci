@@ -261,3 +261,15 @@ and the test files you touched, and push everything that round's work (or
 that review's answers) needs together. Between 2026-09-28 and 2026-09-29, 69
 pull requests took 189 CI runs, one of them 12, and each run occupies a slot
 for 3 to 14 minutes.
+
+When `main` moves, bring only the pull request that merges next up to date,
+let its checks pass, merge it, then take the next. Merging or rebasing `main`
+into a branch makes a new head, which runs `ci`, `gallery` and `image` again
+and needs the `ai-review` label again. `ci` and `gallery` run on GitHub
+through the relay, where the free plan runs 20 jobs at once and a `ci` run
+alone takes 9. Leave the others on their last result until their turn; update
+one early only for a conflict its author must settle, or for a fix on `main`
+that it needs. Nothing requires a branch to be up to date before it merges.
+On 2026-10-14 david/timekeepers had `main` merged into five pull requests
+within 21 seconds, and they took 65 to 106 minutes each, of which the tests
+took 10 to 18 (home-lab issue 85).
