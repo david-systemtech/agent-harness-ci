@@ -188,7 +188,8 @@ it.each([false, true])("keeps a new session's draft and attachment when an earli
   expect(within(surface).getByRole("textbox", { name: "Message" })).toHaveProperty("value", "Keep this first message");
   expect(within(surface).getByRole("list", { name: "Attachments" }).textContent).toContain("note.png");
   expect(screen.queryByText("This session is unavailable. Open a session from Sessions.")).toBeNull();
-  expect(location.hash).toBe("");
+  // The phone stack gives the new session page its own address.
+  expect(location.hash).toBe(narrow ? "#/new" : "");
 });
 
 it("explains a disabled linked environment and opens the requested session when it is enabled", async () => {
@@ -201,4 +202,72 @@ it("explains a disabled linked environment and opens the requested session when 
   await act(async () => runtime.connections.setEnabled(first.environmentId, true));
   await selected(second);
   await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+});
+
+const phoneBack = async () => { await act(async () => { history.back(); await new Promise(resolve => setTimeout(resolve, 20)); }); };
+const sessionsPage = () => document.querySelector('[data-phone-page="sessions"]');
+
+it("stacks a handed session over the Sessions page and pops it with the bar's back or the browser's", async () => {
+  const { first, second, selected } = await pairedClient(true, true);
+  await selected(first);
+  const header = document.querySelector<HTMLElement>("[data-window-header]")!;
+  expect(header.dataset["phoneDepth"]).toBe("2");
+  expect(sessionsPage()).toBeNull();
+  const user = userEvent.setup();
+  await user.click(within(header).getByRole("button", { name: "Back" }));
+  await waitFor(() => expect(sessionsPage()).not.toBeNull());
+  expect(within(header).queryByRole("button", { name: "Back" })).toBeNull();
+  expect(header.querySelector("[data-phone-title]")?.textContent).toBe("Sessions");
+  expect(location.hash).toBe("");
+  // The Sessions page opens a session as a new page; the browser's back returns to the list.
+  await user.click(within(sessionsPage() as HTMLElement).getByText("Second conversation"));
+  await selected(second);
+  expect(location.hash).toBe(new URL(sessionLink(second), location.origin).hash);
+  expect(header.dataset["phoneDepth"]).toBe("2");
+  await phoneBack();
+  await waitFor(() => expect(sessionsPage()).not.toBeNull());
+  expect(header.dataset["phoneDepth"]).toBe("1");
+});
+
+it("keeps the sessions drawer at the top left of every page and lets back close it first", async () => {
+  const { first, second, selected } = await pairedClient(true, true);
+  await selected(first);
+  const user = userEvent.setup();
+  const header = document.querySelector<HTMLElement>("[data-window-header]")!;
+  expect(header.querySelector("button")?.getAttribute("aria-label")).toBe("Show sessions");
+  // Quick switching from the drawer swaps the conversation rather than deepening the stack.
+  await user.click(within(header).getByRole("button", { name: "Show sessions" }));
+  const drawer = await screen.findByRole("dialog", { name: "Sessions" });
+  await user.click(within(drawer).getByText("Second conversation"));
+  await selected(second);
+  expect(header.dataset["phoneDepth"]).toBe("2");
+  // Back with the drawer open closes the drawer and stays on the page.
+  await user.click(within(header).getByRole("button", { name: "Show sessions" }));
+  await screen.findByRole("dialog", { name: "Sessions" });
+  await phoneBack();
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sessions" })).toBeNull());
+  await selected(second);
+  expect(header.dataset["phoneDepth"]).toBe("2");
+  // The drawer opens from the Sessions page too.
+  await user.click(within(header).getByRole("button", { name: "Back" }));
+  await waitFor(() => expect(sessionsPage()).not.toBeNull());
+  expect(header.querySelector("button")?.getAttribute("aria-label")).toBe("Show sessions");
+  await user.click(within(header).getByRole("button", { name: "Show sessions" }));
+  await screen.findByRole("dialog", { name: "Sessions" });
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sessions" })).toBeNull());
+});
+
+it("opens Settings as a page that back leaves", async () => {
+  const { first, selected } = await pairedClient(true, true);
+  await selected(first);
+  const user = userEvent.setup();
+  const header = document.querySelector<HTMLElement>("[data-window-header]")!;
+  await user.click(within(header).getByRole("button", { name: "Settings" }));
+  await waitFor(() => expect(location.hash).toBe("#/settings"));
+  expect(header.dataset["phoneDepth"]).toBe("3");
+  await phoneBack();
+  await waitFor(() => expect(location.hash).toBe(new URL(sessionLink(first), location.origin).hash));
+  await waitFor(() => expect(header.dataset["phoneDepth"]).toBe("2"));
+  await selected(first);
 });

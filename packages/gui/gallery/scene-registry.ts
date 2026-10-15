@@ -50,6 +50,8 @@ export interface SceneGeometry {
 export interface SceneViewport {
   readonly width: number;
   readonly height: number;
+  /** The text-size preference over the 14px base (`--font-scale`); 1 where the scene draws no web type scale. */
+  readonly fontScale?: number;
 }
 
 /** A scene file exports a default component or an app script, plus optional geometry. */

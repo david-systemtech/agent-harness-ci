@@ -8,14 +8,16 @@ import { mountGallery } from "../../gallery/mount.js";
 import { discoverScenes, type SceneModule } from "../../gallery/scene-registry.js";
 
 let close: (() => Promise<void>) | undefined;
-afterEach(async () => { await close?.(); close = undefined; vi.restoreAllMocks(); document.body.replaceChildren(); });
+afterEach(async () => { await close?.(); close = undefined; vi.restoreAllMocks(); document.body.replaceChildren(); history.replaceState(null, "", "/"); });
 
 /** Mounts a phone-frame scene with the phone layout's media test matching. */
+const scenes = import.meta.glob<SceneModule>(["../../gallery/scenes/phone-frame-*.tsx", "../../gallery/scenes/phone-stack-*.tsx"], { eager: true });
+const registryScene = (name: string) => Object.entries(scenes).find(([path]) => path.endsWith(`/${name}.tsx`))![1];
 const mountPhoneScene = async (name: string) => {
   const original = window.matchMedia;
   vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)" ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
   const root = document.createElement("div"); root.id = "root"; document.body.append(root);
-  const registry = discoverScenes(import.meta.glob<SceneModule>("../../gallery/scenes/phone-frame-*.tsx", { eager: true }));
+  const registry = discoverScenes(scenes);
   const gallery = await mountGallery(root, name, "light", registry, { platform: "web", textSize: 20 });
   close = gallery.close;
   expect(await gallery.ready).toBe(true);
@@ -49,21 +51,31 @@ it.each(["phone-frame-conversation", "phone-frame-drawer"])("draws %s through th
   }
 });
 
-it("shows touch guidance instead of key chords on the phone's empty session screen", async () => {
+it("opens the phone on the Sessions page with no back and the drawer at the top left", async () => {
   await mountPhoneScene("phone-frame-empty");
-  const pane = within(screen.getByRole("region", { name: "Session pane" }));
-  expect(pane.queryByRole("list", { name: "Keyboard shortcuts" })).toBeNull();
-  expect(screen.getByRole("main").querySelector("kbd")).toBeNull();
-  expect(pane.getByRole("button", { name: "Start a new session" })).toBeDefined();
-  const choose = pane.getByRole("button", { name: "Choose a session" });
+  const page = document.querySelector<HTMLElement>('[data-phone-page="sessions"]')!;
+  expect(within(page).getByRole("button", { name: /desk Next receipt/ })).toBeDefined();
+  expect(page.querySelector("kbd")).toBeNull();
+  const header = document.querySelector<HTMLElement>("[data-window-header]")!;
+  expect(header.dataset["phoneDepth"]).toBe("1");
+  expect(within(header).queryByRole("button", { name: "Back" })).toBeNull();
+  const trigger = within(header).getByRole("button", { name: "Show sessions" });
+  expect(header.querySelector("button")).toBe(trigger);
   const user = userEvent.setup();
-  await user.click(choose);
+  await user.click(trigger);
   const drawer = await screen.findByRole("dialog", { name: "Sessions" });
   expect(within(drawer).getByRole("button", { name: /desk Next receipt/ })).toBeDefined();
-  // Dismissing the drawer returns focus to the control that opened it, not the header's trigger.
   await user.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sessions" })).toBeNull());
-  await waitFor(() => expect(document.activeElement).toBe(choose));
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
+});
+
+it.each(["phone-stack-header", "phone-stack-drawer"])("draws %s with every measured selector present", async name => {
+  await mountPhoneScene(name);
+  const scene = registryScene(name);
+  const checks = typeof scene.geometry === "function" ? scene.geometry({ width: 390, height: 844 }) : scene.geometry ?? [];
+  for (const check of checks) expect(document.querySelectorAll(check.selector).length, check.selector).toBeGreaterThan(0);
+  if (name === "phone-stack-drawer") expect(await screen.findByRole("dialog", { name: "Sessions" })).toBeDefined();
 });
 
 // jsdom supplies the page; the browser measurement boundary supplies the rendered rectangle.

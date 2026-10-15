@@ -1,6 +1,7 @@
 import { Dialog } from "radix-ui";
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode, type RefObject } from "react";
 import { Sidebar, type SidebarProps } from "../sidebar/sidebar.js";
+import { SESSIONS_PAGE, usePhonePageStack, type PhonePage } from "../phone/page-stack.js";
 import "./phone-frame.css";
 
 interface PhoneFrame {
@@ -13,8 +14,14 @@ interface PhoneFrame {
   readonly drawerRestoreFocus: RefObject<boolean>;
   /** `opener` is a control other than the header's trigger; `restoreFocus` defaults to true. */
   showDrawer(shown: boolean, options?: { readonly opener?: HTMLElement; readonly restoreFocus?: boolean }): void;
+  /** Whether this projection navigates as a page stack (the browser's phone layout only). */
+  readonly stacked: boolean;
+  /** The page stack, root first; only meaningful while `stacked`. */
+  readonly pages: readonly PhonePage[];
+  openPage(page: PhonePage): void;
+  back(): void;
 }
-const PhoneContext = createContext<PhoneFrame>({ narrow: false, drawerShown: false, drawerTrigger: { current: null }, drawerOpener: { current: null }, drawerRestoreFocus: { current: true }, showDrawer: () => undefined });
+const PhoneContext = createContext<PhoneFrame>({ narrow: false, drawerShown: false, drawerTrigger: { current: null }, drawerOpener: { current: null }, drawerRestoreFocus: { current: true }, showDrawer: () => undefined, stacked: false, pages: [SESSIONS_PAGE], openPage: () => undefined, back: () => undefined });
 export const usePhoneFrame = () => use(PhoneContext);
 
 /** Classify layout bounds, never keyboard/zoom-reduced VisualViewport dimensions.
@@ -24,8 +31,9 @@ export const phoneLayoutMedia = () => [
   window.matchMedia("(pointer: coarse) and (hover: none) and (640px <= width <= 960px) and (height <= 500px)"),
 ];
 
-/** Layout changes only the projection; desktop sidebar preferences and pane sizes stay held. */
-export const PhoneFrameProvider = ({ children }: { readonly children: ReactNode }) => {
+/** Layout changes only the projection; desktop sidebar preferences and pane sizes stay held.
+ * `stack` turns on the phone page stack; the desktop frame leaves it off. */
+export const PhoneFrameProvider = ({ children, stack = false, initialPage }: { readonly children: ReactNode; readonly stack?: boolean; readonly initialPage?: PhonePage | undefined }) => {
   const [media] = useState(phoneLayoutMedia);
   const [narrow, setNarrow] = useState(() => media.some(query => query.matches));
   const [drawerShown, setDrawerShown] = useState(false);
@@ -37,13 +45,19 @@ export const PhoneFrameProvider = ({ children }: { readonly children: ReactNode 
     drawerRestoreFocus.current = options?.restoreFocus ?? true;
     setDrawerShown(shown);
   }, []);
+  const drawerHeld = useRef(false);
+  drawerHeld.current = narrow && drawerShown;
+  // Back closes the open drawer first, as it closes any sheet (audit §4.1).
+  const interceptBack = useCallback(() => { if (!drawerHeld.current) return false; setDrawerShown(false); return true; }, []);
+  const stacked = stack && narrow;
+  const { pages, open: openPage, back } = usePhonePageStack(stacked, { interceptBack, initial: initialPage });
   useEffect(() => {
     const changed = () => { const phone = media.some(query => query.matches); setNarrow(phone); if (!phone) setDrawerShown(false); };
     media.forEach(query => query.addEventListener("change", changed));
     changed();
     return () => media.forEach(query => query.removeEventListener("change", changed));
   }, [media]);
-  const value = useMemo(() => ({ narrow, drawerShown, drawerTrigger, drawerOpener, drawerRestoreFocus, showDrawer }), [narrow, drawerShown, showDrawer]);
+  const value = useMemo(() => ({ narrow, drawerShown, drawerTrigger, drawerOpener, drawerRestoreFocus, showDrawer, stacked, pages, openPage, back }), [narrow, drawerShown, showDrawer, stacked, pages, openPage, back]);
   return <PhoneContext value={value}><Dialog.Root open={narrow && drawerShown} onOpenChange={showDrawer}>{children}</Dialog.Root></PhoneContext>;
 };
 

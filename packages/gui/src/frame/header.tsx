@@ -1,5 +1,5 @@
 import { workspaceName } from "@agent-harness/client-runtime";
-import { ChevronRight, PanelLeft, Search, Settings } from "lucide-react";
+import { ChevronLeft, ChevronRight, PanelLeft, Search, Settings } from "lucide-react";
 import { useMemo } from "react";
 import { SessionActivityMark } from "../session/activity-mark.js";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
@@ -27,7 +27,8 @@ const SessionBreadcrumb = ({ session }: { readonly session: PaneSession }) => {
   const summary = list.rows.find((row) => row.environmentId === session.environmentId && row.summary.id === session.sessionId.toLowerCase())?.summary ?? projection.summary;
   const environment = environments.find((view) => view.environmentId === session.environmentId);
   const path = summary?.workspace.path;
-  const { narrow } = usePhoneFrame();
+  const { narrow, stacked } = usePhoneFrame();
+  if (stacked) return <><SessionActivityMark {...session} summary={summary} /><PageTitle session title={summary?.title ?? "Session"} subtitle={environment?.name ?? "This machine"} /></>;
   if (narrow) return <><SessionActivityMark {...session} summary={summary} /><span data-header-session-title title={summary?.title ?? undefined} className="min-w-0 flex-1 truncate text-sm text-ink">{summary?.title ?? "Session"}</span></>;
   const workspace = summary === null ? "No workspace" : workspaceName(summary.workspace);
   return <>
@@ -41,6 +42,12 @@ const SessionBreadcrumb = ({ session }: { readonly session: PaneSession }) => {
   </>;
 };
 
+/** The phone bar's title (17/600) and an optional one-line subtitle (audit §3.7). */
+const PageTitle = ({ title, subtitle, session = false }: { readonly title: string; readonly subtitle?: string; readonly session?: boolean }) => <span data-phone-title className="flex min-w-0 flex-1 flex-col justify-center">
+  <span data-header-session-title={session ? "" : undefined} title={title} className="truncate text-phone-title font-semibold text-ink">{title}</span>
+  {subtitle !== undefined && <span data-phone-subtitle className="truncate text-phone-caption text-ink-muted">{subtitle}</span>}
+</span>;
+
 /** One 44px line of window context and actions (look §9.1); the title yields space first. */
 export const Header = ({ onPair }: { readonly onPair?: () => void }) => {
   const [sidebarShown, setSidebarShown] = usePresentation("sidebarShown");
@@ -52,11 +59,16 @@ export const Header = ({ onPair }: { readonly onPair?: () => void }) => {
   const actions = useEveryWiredAction();
   const settings = useSettings();
   const frame = useWindowFrame();
-  const { narrow } = usePhoneFrame();
-  if (narrow) return <header data-window-header className="phone-frame-header flex min-w-0 shrink-0 items-center gap-1 border-b border-hairline bg-abyss px-2">
+  const { narrow, stacked, pages, back } = usePhoneFrame();
+  // On the stack, the top page names the bar; a session page shows the focused pane's session.
+  const top = pages.at(-1);
+  const onSession = !stacked || top?.kind === "session" || top?.kind === "new-session";
+  const pageTitle = top?.kind === "settings" ? "Settings" : "Sessions";
+  if (narrow) return <header data-window-header data-phone-depth={stacked ? pages.length : undefined} className="phone-frame-header flex min-w-0 shrink-0 items-center gap-1 border-b border-hairline bg-abyss px-2">
     <SessionDrawerTrigger asChild><IconButton label="Show sessions" {...(sidebarKeys !== undefined && { keys: sidebarKeys })}><PanelLeft aria-hidden="true" /></IconButton></SessionDrawerTrigger>
-    <div className="flex min-w-0 flex-1 items-center gap-1.5">{pane.session !== null ? <SessionBreadcrumb session={pane.session} /> : <span className="truncate text-sm text-ink-muted">{pane.newSession !== undefined ? "New session" : "No session"}</span>}</div>
-    {pane.session !== null && <ShowSideColumn session={pane.session} />}
+    {stacked && pages.length > 1 && <IconButton label="Back" onClick={back}><ChevronLeft aria-hidden="true" /></IconButton>}
+    <div className="flex min-w-0 flex-1 items-center gap-1.5">{!onSession ? <PageTitle title={pageTitle} /> : pane.session !== null ? <SessionBreadcrumb session={pane.session} /> : stacked ? <PageTitle title={pane.newSession !== undefined ? "New session" : "No session"} /> : <span className="truncate text-sm text-ink-muted">{pane.newSession !== undefined ? "New session" : "No session"}</span>}</div>
+    {onSession && pane.session !== null && <ShowSideColumn session={pane.session} />}
     <ParkedAsksButton />
     <HeaderMenu {...(onPair !== undefined && { onPair })} />
     <IconButton label="Settings" {...(settingsKeys !== undefined && { keys: settingsKeys })} onClick={() => settings.open()}><Settings aria-hidden="true" /></IconButton>

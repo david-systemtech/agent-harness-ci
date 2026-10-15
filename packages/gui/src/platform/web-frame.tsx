@@ -25,6 +25,8 @@ import { sessionLink, sessionOfHash, type BrowserRoute } from "./browser-boot.js
 import type { BrowserPlatform } from "./browser-platform.js";
 import { usePhoneViewport } from "../composer/phone-viewport.js";
 import { WebRegisteredSurfaces } from "./web-registrations.js";
+import { Sidebar } from "../sidebar/sidebar.js";
+import { pageOfHash, samePage, SESSIONS_PAGE } from "../phone/page-stack.js";
 import "./web-frame.css";
 
 export interface WebFrameProps { readonly platform: BrowserPlatform; readonly route: BrowserRoute }
@@ -49,7 +51,7 @@ const BlockedLine = ({ view, onPair }: { readonly view: EnvironmentView; readonl
 };
 /** The first browser slice uses the same session components and environment-owned work. */
 export const WebFrame = (props: WebFrameProps) => (
-  <PhoneFrameProvider><BrowserPanesProvider><TerminalPanesProvider><PaneGridProvider><NewSessionSurfaces><PaneLines>
+  <PhoneFrameProvider stack initialPage={props.route.session ? { kind: "session", session: props.route.session } : undefined}><BrowserPanesProvider><TerminalPanesProvider><PaneGridProvider><NewSessionSurfaces><PaneLines>
     <WebConversation {...props} />
   </PaneLines></NewSessionSurfaces></PaneGridProvider></TerminalPanesProvider></BrowserPanesProvider></PhoneFrameProvider>
 );
@@ -97,12 +99,13 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
     });
   }, [runtime, route]);
   const [requestedSession, requestSession] = useState(route.session);
-  const [routeFailure, setRouteFailure] = useState(() => !route.session && location.hash && !sessionOfHash(location.hash) ? "This session link is malformed. Open a session from Sessions." : undefined);
+  const [routeFailure, setRouteFailure] = useState(() => !route.session && location.hash && !pageOfHash(location.hash) ? "This session link is malformed. Open a session from Sessions." : undefined);
   useEffect(() => {
     const changed = () => {
       const session = sessionOfHash(location.hash);
       requestSession(session);
-      setRouteFailure(location.hash && !session ? "This session link is malformed. Open a session from Sessions." : undefined);
+      // The phone stack's own pages (Sessions, New session, Settings) are addresses too.
+      setRouteFailure(location.hash && !session && !pageOfHash(location.hash) ? "This session link is malformed. Open a session from Sessions." : undefined);
     };
     window.addEventListener("hashchange", changed);
     return () => window.removeEventListener("hashchange", changed);
@@ -127,7 +130,8 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
   const sessionChosen = (environmentId: string, sessionId: string) => {
     requestSession(undefined);
     setRouteFailure(undefined);
-    history.replaceState(null, "", sessionLink({ environmentId, sessionId }));
+    if (phone.stacked) phone.openPage({ kind: "session", session: { environmentId, sessionId } });
+    else history.replaceState(null, "", sessionLink({ environmentId, sessionId }));
   };
   const open = (key: string) => {
     const row = sessions.rows.find(row => `${row.environmentId}/${row.summary.id}` === key);
@@ -146,9 +150,43 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
       requestSession(undefined);
       setRouteFailure(undefined);
     }
+    // On the phone stack, each page owns its history entry; the stack below writes addresses.
+    if (phone.stacked) return;
     if (changed) history.replaceState(null, "", pane.session ? sessionLink(pane.session) : "/");
     else if (pane.session && !requestedSession && !routeFailure) history.replaceState(null, "", sessionLink(pane.session));
-  }, [pane, requestedSession, routeFailure]);
+  }, [pane, requestedSession, routeFailure, phone.stacked]);
+  // The stack follows the pane: opening a session or starting one stacks (or swaps) its page.
+  const paneKey = pane.session ? `session:${pane.session.environmentId}/${pane.session.sessionId}` : pane.newSession ? `new:${pane.newSession.id}` : "";
+  const { stacked, openPage, back } = phone;
+  useEffect(() => {
+    if (!stacked) return;
+    if (pane.session) openPage({ kind: "session", session: pane.session });
+    else if (pane.newSession) openPage({ kind: "new-session" });
+  }, [stacked, paneKey, openPage]);
+  // The pane follows the stack when history moves it: back, forward, or a reload of an entry.
+  const top = phone.pages.at(-1) ?? SESSIONS_PAGE;
+  const topKey = JSON.stringify(top);
+  const previousTop = useRef(top);
+  useEffect(() => {
+    const was = previousTop.current;
+    previousTop.current = top;
+    if (!stacked) return;
+    // A session page goes through the handed-link check, so an unknown session still says so.
+    if (top.kind === "session" && !(pane.session && samePage(top, { kind: "session", session: pane.session }))) requestSession(top.session);
+    if (top.kind === "new-session" && pane.newSession === undefined) grid.newSession(null);
+    if (top.kind === "settings" && !settings.shown) settings.open();
+    if (was.kind === "settings" && top.kind !== "settings" && settings.shown) settings.close();
+  }, [stacked, topKey]);
+  // Settings is a page: opening it stacks one, and closing it leaves that page.
+  const previousShown = useRef(settings.shown);
+  useEffect(() => {
+    const was = previousShown.current;
+    previousShown.current = settings.shown;
+    if (!stacked || was === settings.shown) return;
+    if (settings.shown) openPage({ kind: "settings" });
+    else if (top.kind === "settings") back();
+  }, [stacked, settings.shown]);
+  const sessionsPage = stacked && top.kind === "sessions";
   if (checklist.shown) return <ChecklistView />;
   return <WebViewport narrow={phone.narrow} connection={selected}>
     {phone.narrow ? <Header onPair={() => setPairing(held => held ? undefined : {})} /> : <header className="flex min-w-0 shrink-0 items-center gap-1 border-b border-hairline p-2">
@@ -168,10 +206,14 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
     {line && <p role="status" className="shrink-0 px-3 py-2 text-sm">{line}</p>}
     {refusal && <div className="shrink-0 px-3 py-2"><PairingRefusal line={refusal.message} details={refusal.details ?? []} /></div>}
     <WebRegisteredSurfaces />
-    {(paired.length === 0 || pairing !== undefined) ? <main className="min-h-0 flex-1 overflow-y-auto p-4"><h1 className="mb-3 text-lg">Pair with this environment</h1><p className="mb-4 text-sm text-ink-muted">Open a Phone link or scan its QR with your camera. You can also paste a link or enter the HTTPS address and code.</p><PairingForm link={handedLink} rePair={pairing?.rePair} onPaired={() => { setPairing(undefined); setHandedLink(undefined); setLine(undefined); setRefusal(undefined); }} toBrowserOrigins={(environmentId) => settings.open("environments.machines", environmentId, "browser-origins")} /></main> : <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      <WindowNotices />
-      <PaneGrid />
-    </main>}
+    {(paired.length === 0 || pairing !== undefined) ? <main className="min-h-0 flex-1 overflow-y-auto p-4"><h1 className="mb-3 text-lg">Pair with this environment</h1><p className="mb-4 text-sm text-ink-muted">Open a Phone link or scan its QR with your camera. You can also paste a link or enter the HTTPS address and code.</p><PairingForm link={handedLink} rePair={pairing?.rePair} onPaired={() => { setPairing(undefined); setHandedLink(undefined); setLine(undefined); setRefusal(undefined); }} toBrowserOrigins={(environmentId) => settings.open("environments.machines", environmentId, "browser-origins")} /></main> : <>
+      {sessionsPage && <section data-phone-page="sessions" aria-label="Sessions" className="phone-sessions-page"><Sidebar page onOpenSession={sessionChosen} /></section>}
+      {/* The session page stays mounted under the Sessions page, so its pane and drafts keep their state. */}
+      <main data-phone-page={stacked ? "session" : undefined} className={`${sessionsPage ? "hidden" : "flex"} min-h-0 min-w-0 flex-1 flex-col overflow-hidden`}>
+        <WindowNotices />
+        <PaneGrid />
+      </main>
+    </>}
     <SessionDrawer onOpenSession={sessionChosen} />
     {settings.shown && <SettingsView />}
   </WebViewport>;

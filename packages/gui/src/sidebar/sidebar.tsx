@@ -40,7 +40,11 @@ import { SidebarNewGroup } from "./new-group.js";
  * organising command did not do, Restore, and pairing with another
  * environment.
  */
-export interface SidebarProps { readonly onOpenSession?: ((environmentId: string, sessionId: string) => void) | undefined }
+export interface SidebarProps {
+  readonly onOpenSession?: ((environmentId: string, sessionId: string) => void) | undefined;
+  /** Mounted as the phone's Sessions page: the bar names it, so the caption and its close control go. */
+  readonly page?: boolean | undefined;
+}
 
 export const Sidebar = (props: SidebarProps = {}) => (
   <OrganiseProvider>
@@ -48,7 +52,7 @@ export const Sidebar = (props: SidebarProps = {}) => (
   </OrganiseProvider>
 );
 
-const Headings = ({ onOpenSession }: SidebarProps) => {
+const Headings = ({ onOpenSession, page = false }: SidebarProps) => {
   const [reporting, setReporting] = useState(false);
   const phone = usePhoneFrame();
   const runtime = useRuntime();
@@ -96,17 +100,17 @@ const Headings = ({ onOpenSession }: SidebarProps) => {
           current={pane?.id === focused.id}
           inPane={pane !== undefined}
           drop={heading === null ? { kind: "filtered" } : { kind: "row", heading, at: heading.block.rows.findIndex((held) => rowKey(held) === line.key) }}
-          open={() => { onOpenSession?.(line.row.environmentId, line.row.summary.id); openInPane(line.row.environmentId, line.row.summary.id); if (phone.narrow) phone.showDrawer(false); }}
+          open={() => { onOpenSession?.(line.row.environmentId, line.row.summary.id); openInPane(line.row.environmentId, line.row.summary.id); if (phone.narrow && !page) phone.showDrawer(false); }}
         />
       );
     });
 
   return (
     <nav aria-label="Sessions" className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div data-sidebar-caption className="chrome-label flex h-8 shrink-0 items-center justify-between px-2 text-ink-muted">
+      {!page && <div data-sidebar-caption className="chrome-label flex h-8 shrink-0 items-center justify-between px-2 text-ink-muted">
         <span>Sessions</span>
         <IconButton label={phone.narrow ? "Close sessions" : "Hide sidebar"} {...(sidebarKeys !== undefined && { keys: sidebarKeys })} size="icon-xs" onClick={() => phone.narrow ? phone.showDrawer(false) : setSidebarShown(false)}><PanelLeftClose aria-hidden="true" /></IconButton>
-      </div>
+      </div>}
       <div className="shrink-0 p-2">
         <Tooltip content="New session" keys={newSessionKeys}>
           <NewSessionButton control={{ environmentId: null }} label="New session" variant="default" size="sm" className="h-auto min-h-7 w-full flex-wrap justify-start py-0">

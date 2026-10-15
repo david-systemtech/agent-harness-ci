@@ -10,7 +10,11 @@ import { cleanupGui } from "./cleanup.js";
 
 afterEach(async () => {
   try { await cleanupGui(); }
-  finally { vi.useRealTimers(); }
+  finally {
+    vi.useRealTimers();
+    // The phone page stack restores its pages from the history entry, so no test inherits another's.
+    if (typeof window !== "undefined" && window.history.state !== null) window.history.replaceState(null, "", "/");
+  }
 });
 
 /**
